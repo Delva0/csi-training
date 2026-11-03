@@ -1,0 +1,240 @@
+{
+  "schema": "csi-training-checkpoint/v1",
+  "project": "code-skill-issue (CSI)",
+  "version": "2026-11-02-k20",
+  "checkpoint": "K20",
+  "training_completed_at": "2026-11-02T01:47:34+08:00",
+  "version_date_timezone": "Asia/Shanghai",
+  "exported_at": "2026-11-03T01:17:45.635466+00:00",
+  "profile": "profile",
+  "knowledge": {
+    "commit": "39088928ad0fda9ca49950d126fb6d3f6f447e99",
+    "parent": "55b5e2e711a2624f47ddce8af1983a876a15c4fd",
+    "skills_tree": "4542280e02aae0597d51628240c525b4ca18ca66",
+    "skills_file_count": 47,
+    "skills_bytes": 1056331,
+    "skill_entry_count": 2,
+    "reference_file_count": 44
+  },
+  "training": {
+    "completed_learning_updates": 20,
+    "initial_checkpoint_commit": "db973d1de3173fdc8da097f8da61800f300c5a60",
+    "manual_k10_repair_commit": "bc5ddd8978d7e12b7b1030bbed6f3add3d2451bb",
+    "manual_k10_repair_is_learning_update": false,
+    "source_code_commit": "bbf9aae7fc0ade0cd1b08b17330f0aaa7add6591",
+    "source_code_identity_record": "provenance/execution-source.json",
+    "scope": "Cumulative K20 checkpoint, including initial knowledge and the recorded K10 operator repair; preserves the original training material."
+  },
+  "source": {
+    "experiment_run": "v6/code-skill-issue/evidence/scale-probe-stage1-correction-20261101T151000Z",
+    "profile": "v6/code-skill-issue/evidence/scale-probe-stage1-correction-20261101T151000Z/run/states/batch-0019",
+    "snapshot_record": "provenance/K20-snapshot.json"
+  },
+  "verification": {
+    "all_47_skills_match_original_sha256": true,
+    "all_47_skills_match_source_git_blobs": true,
+    "config_matches_source_profile": true
+  },
+  "files": {
+    "profile/config.yaml": {
+      "sha256": "d04f6e7600a8c2901102c1e93686dfb52049808c69869f2d31009dbb3d659ed1",
+      "bytes": 62
+    },
+    "profile/skills/quay-image-versions/SKILL.md": {
+      "sha256": "cbe977f5810dffc3e74fac566949f98397712342345a236858dc7753a2bb15c8",
+      "bytes": 9072
+    },
+    "profile/skills/quay-image-versions/scripts/query.py": {
+      "sha256": "c46c11b3bc3689783fafe314d81f7b4954b630da43349d5710d495c4a11aba95",
+      "bytes": 7730
+    },
+    "profile/skills/vllm-ascend-issue-triage/SKILL.md": {
+      "sha256": "0fd3d8f9f704fd4b901a2c3ffe2605fa1148fdc2c80757c85705def23fbda5ce",
+      "bytes": 85798
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/310p-atlas-300i-duo.md": {
+      "sha256": "c0357dee9b81785ef1c3523dc72a1852cda1f4e2a5b860b1876f4c9f14f5b1a2",
+      "bytes": 50034
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/accuracy-eval-harness-gaps.md": {
+      "sha256": "1091b38eeec8b2fc6a09cc8df89073a4829770e9428acb297154340b1996a1c5",
+      "bytes": 4825
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/attention-mask-oom.md": {
+      "sha256": "7291810ebb17871b335983767feddf9b7531b526f2828fb710c794cad759db6b",
+      "bytes": 9992
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/batch-invariance.md": {
+      "sha256": "8586cf7ca0b8d7b8880efd5524c268de3b2996dff1a746ba45c8a72030f3051e",
+      "bytes": 6531
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/c8-dsa-deployment-flags.md": {
+      "sha256": "3d7b70faa639e3b2446ad129c8816698e2e1aced68267c54828ba1826971b35f",
+      "bytes": 14013
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/context-parallel-moe-paths.md": {
+      "sha256": "0149795059cef150dbc203199ba1e5adadeac3fb1b2a111933102614253fefa4",
+      "bytes": 38689
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/contributor-dev-environment-docs.md": {
+      "sha256": "cfda1e421e34846965d77304b71a002e1e0aa9495f52087f5e2b3c1ea7c096cd",
+      "bytes": 7297
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/deepseek-v3.2.md": {
+      "sha256": "d5cae7cb09a8fe84eedb609ad643e614fd8f4fb23866b9f27ea779e7c873af2c",
+      "bytes": 12982
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/deepseek-v4-flash.md": {
+      "sha256": "fcee09134eafd21f7a2c90f82996ae8e4b6b5242c1a0056d749eeec6f1bd9fe2",
+      "bytes": 22127
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/env-vars-and-additional-config.md": {
+      "sha256": "b908ab3b29c921fe30d95f90211d9e49c555734a1ffe1f3cd07d038a35cf617c",
+      "bytes": 38126
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/fa3-attention-backend.md": {
+      "sha256": "c79b1d50538f7fac86c9cddb4040f1add59e2307ed362c2616f69ab40ba68bc0",
+      "bytes": 7804
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/first-request-only-output.md": {
+      "sha256": "c3e213688d750621bca6363f14058f20208c7c8b1e4a44887271537ab307a6c9",
+      "bytes": 10897
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/full-decode-only-graph-mode.md": {
+      "sha256": "535e59a5d7e0f34e8688620d4f933d9cff2c6547cdf966cdecd46cf4a6bfa115",
+      "bytes": 39407
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/gdn-mtp-spec-decode.md": {
+      "sha256": "bc9c8190faa4236c7045058a8d97ba4c6ca92e646ec8361f13b687489118808e",
+      "bytes": 7006
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/gemma-family.md": {
+      "sha256": "269bdd44d1b9d8259215a8bca4c6466bf7a10d0b6021ade05d4ec31ea80652bf",
+      "bytes": 11126
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/glm-moe-accuracy.md": {
+      "sha256": "3043e1123afc5f38c29c9866fd5ec1d55940f2570ce0adc729f3d0f589936734",
+      "bytes": 14941
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/image-and-build-reports.md": {
+      "sha256": "544e362cf1770fd3ba901bbbceeb9bb0eb6aaadb138fc3d766b1a3e11a24b50f",
+      "bytes": 50259
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/issue-thread-reading.md": {
+      "sha256": "3382df6ae589cbfd91b52ebcf5c1ed458602d6aae90c99302c72fff92c311b16",
+      "bytes": 5644
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/kv-cache-metrics-and-hbm-usage.md": {
+      "sha256": "2c23d72f05e11d6b945ae2976a3716a7ed43cc6161c490afe18095e94865716e",
+      "bytes": 7104
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/kv-pool-ascend-store.md": {
+      "sha256": "1bdb82770cd47b776d7c5fda4f1a2c6434bf52eacef3c5dea612ff593156213f",
+      "bytes": 48442
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/log-signatures.md": {
+      "sha256": "5c2a77b03b60cf414d2141ad5d44a94c805cacc07759d0a26d39421cf3bb94de",
+      "bytes": 80844
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/lora-adapters.md": {
+      "sha256": "afa3640fafe40141920b3aacfa45759e0f5b5a2c47048f3b7f1304db1b2cc322",
+      "bytes": 15478
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/minimax-m2-family.md": {
+      "sha256": "62e203f378bc5701941e8aed6e3976947d4c76175099be2851b4991cad2e755b",
+      "bytes": 14995
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/model-tutorial-recipes.md": {
+      "sha256": "8cb0b3dd6b8dc2b622682a1d981cb0013aa93da52f5001a50f80ec3149f35441",
+      "bytes": 38914
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/model-type-recognition.md": {
+      "sha256": "433dbdd8acfeb3c280a58c85e2cfe2356d2535e44d265235b2dc529d9ec8d414",
+      "bytes": 14326
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/moe-dp-ep-accuracy.md": {
+      "sha256": "bfa7c3a6652b7f87debc64d48f5c5038a28113a8704eb606db79adfb8556940a",
+      "bytes": 12291
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/npu-workspace-memory.md": {
+      "sha256": "76ec52a7ed0b67cd7f2cef3c08f2f0539c67916331bcf10535c73a2847990a7c",
+      "bytes": 9418
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/pd-disaggregation.md": {
+      "sha256": "61317921495263169dd76425a9d2f2e3417b00ae7f4026fe04f71ef51a76af40",
+      "bytes": 67707
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/pd-proxy-recompute-retries.md": {
+      "sha256": "ad0ae2225c03216e44e1426a4e6523a4db4181ea0d45e40778944e24f3e04259",
+      "bytes": 7270
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/pooling-embedding-rerank.md": {
+      "sha256": "a301c951331af408a24744223ce00a1be3117ec8679f4316967bc45d6f6ae61a",
+      "bytes": 16105
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/prefix-cache-and-chunked-prefill.md": {
+      "sha256": "c266007d373273cb4dcfd3e0f6667e9e25062826b9fa3b6e4bea1ae835e16261",
+      "bytes": 24710
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/prompt-embeds-and-input-batch.md": {
+      "sha256": "99c0463ba9a9bc770ca4c2eb20fa535472b22a194b8e95de4e061cc8353930b8",
+      "bytes": 4089
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/quantization-startup-keyerrors.md": {
+      "sha256": "894d1207577a31ff629edbeb524c384bc22f02598b32a78a1175467691717b88",
+      "bytes": 50599
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/quantized-accuracy-and-quarot.md": {
+      "sha256": "4ee00bf95d87c77d2e7fce7c9cd45ec5450e58f155e42a07b25fee8d5d5e51f4",
+      "bytes": 12787
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/qwen3-next-family.md": {
+      "sha256": "3a2045d6a945cbc531ed70b31d2cef36114500414bb20c0401b3e7cc1a540af0",
+      "bytes": 11700
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/revision-pinning.md": {
+      "sha256": "f16a74c859f853377a57d87d17e20f5d3b1f866417813d8193bb8142a978d357",
+      "bytes": 34759
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/sampling-and-output-quality.md": {
+      "sha256": "dab37e00615a0e7e9d7c0860bc34cc919b8662da3a2118817e8576efcacf21a7",
+      "bytes": 34183
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/served-context-length.md": {
+      "sha256": "00e48b48a187605068883ed918eedb0cfc93fa6750e0e71d28d7adb18b78a988",
+      "bytes": 5373
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/serving-toolcall-reasoning-streaming.md": {
+      "sha256": "7e2dab2b55e25872acd83b6a1ce433476ba2ae3317e9269aa939e754a036930b",
+      "bytes": 37358
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/spec-decode-metadata-failures.md": {
+      "sha256": "8eddfd51781f3b977f02408d5a8e987185471d83ebe1d3019a84499821a2db09",
+      "bytes": 18626
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/structured-output-guidance.md": {
+      "sha256": "fd311bc679122faa91aa114de3d4fc5b9b2cf3d4b5ea5063729bb84f715a0f92",
+      "bytes": 15146
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/throughput-and-concurrency-cliffs.md": {
+      "sha256": "2b96f90a256c73eed6d5b5a5efde3ef3f65db3641fc1b97743a078e07e269ad7",
+      "bytes": 5960
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/torch-compile-graph-breaks.md": {
+      "sha256": "fa8ae1065a894308cd97f97dbc9ea58584fd1047fe55c160052a9781ccd577e8",
+      "bytes": 5853
+    },
+    "profile/skills/vllm-ascend-issue-triage/references/vision-tower-accuracy.md": {
+      "sha256": "21f6a580616bc7348e50da170c33691cce4283c890de46b29df25669edd4f7b2",
+      "bytes": 7994
+    },
+    "provenance/K20-snapshot.json": {
+      "sha256": "cd4b9cfb09196af2f1fb7804eedc4f5d26812debff1cd198a8b2042afb8f596f",
+      "bytes": 6890
+    },
+    "provenance/execution-source.json": {
+      "sha256": "c917011f649b6626dee367633099e3bae6b2d8d2db1353fd192cdfe9bc6a4c95",
+      "bytes": 9850
+    }
+  }
+}

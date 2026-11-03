@@ -2,11 +2,11 @@
 
 源码即知识。目标：压缩、接通从问题现象到关键源码及其关系的调查路径，积累难以快速重建、可供未来 query 复用的知识。
 
-$$
+```math
 \text{压缩收益}
 =\text{未来复用频率}\times\text{单次节省的重建成本}
 -\text{平均匹配、理解与使用成本}.
-$$
+```
 
 成本统一用 tokens 或时间。训练 loss 记录知识更新量。
 
@@ -25,85 +25,85 @@ $$
 
 ## 采样
 
-step 为 $t=0,\ldots,T-1$；每 step 从同一 $K_t$ 出发。
+step 为 $`t=0,\ldots,T-1`$；每 step 从同一 $`K_t`$ 出发。
 
 | 参数 | 含义 | 第一版配置 |
 | --- | --- | --- |
-| $B$ | 一个 step 的采样点数，即 minibatch／reviewer 数 | 4 |
-| $b$ | 每个 minibatch 的 forward 数 | 4 |
-| $k$ | 后续抽样的候选组数 | 4 |
-| $c$ | forward、原生复盘、reviewer 共用的并发上限 | 4 |
-| $\alpha_{t,j}$ | 第 $t$ step、第 $j$ 个 minibatch 的目标距离；小值偏细，大值偏粗 | 按下式分层抽取 |
-| $\beta$ | 新版本偏置；0 为各题等权 | $\ln 2$ |
-| $s$ | 采样随机种子 | 17 |
-| $T$ | 总 step 数 | 运行时指定 |
+| $`B`$ | 一个 step 的采样点数，即 minibatch／reviewer 数 | 4 |
+| $`b`$ | 每个 minibatch 的 forward 数 | 4 |
+| $`k`$ | 后续抽样的候选组数 | 4 |
+| $`c`$ | forward、原生复盘、reviewer 共用的并发上限 | 4 |
+| $`\alpha_{t,j}`$ | 第 $`t`$ step、第 $`j`$ 个 minibatch 的目标距离；小值偏细，大值偏粗 | 按下式分层抽取 |
+| $`\beta`$ | 新版本偏置；0 为各题等权 | $`\ln 2`$ |
+| $`s`$ | 采样随机种子 | 17 |
+| $`T`$ | 总 step 数 | 运行时指定 |
 
-**版本权重。** 按 release 时间排列，最新位置为 0、最旧为 1；多版本题取平均位置 $a_q$。
+**版本权重。** 按 release 时间排列，最新位置为 0、最旧为 1；多版本题取平均位置 $`a_q`$。
 
-$$
+```math
 w_q=e^{-\beta a_q}.
-$$
+```
 
-**距离。** Qwen3-Embedding-8B 向量 $v_q$；用训练集最大 cosine 距离归一化。
+**距离。** Qwen3-Embedding-8B 向量 $`v_q`$；用训练集最大 cosine 距离归一化。
 
-$$
+```math
 \delta_{ij}=1-\cos(v_i,v_j),\qquad
 M=\max_{i<j}\delta_{ij},\qquad
 d_{ij}=\delta_{ij}/M.
-$$
+```
 
-$M$ 冻结；$M=0$ 时取 $d=0$。
+$`M`$ 冻结；$`M=0`$ 时取 $`d=0`$。
 
-**目标距离。** $\alpha_{t,j}\in[0,1]$ 为第 $t$ step、第 $j$ 个 minibatch 的目标题间距离，$j=1,\ldots,B$。$\alpha=0$ 偏相近题，$\alpha=1$ 偏远题。
+**目标距离。** $`\alpha_{t,j}\in[0,1]`$ 为第 $`t`$ step、第 $`j`$ 个 minibatch 的目标题间距离，$`j=1,\ldots,B`$。$`\alpha=0`$ 偏相近题，$`\alpha=1`$ 偏远题。
 
-**分层抽取 $\alpha$。** $r_t$ 为训练进度，$p_t$ 为粗层目标比例，$n_t$ 为粗层 minibatch 数：
+**分层抽取 $`\alpha`$。** $`r_t`$ 为训练进度，$`p_t`$ 为粗层目标比例，$`n_t`$ 为粗层 minibatch 数：
 
-$$
+```math
 \begin{aligned}
 r_t&=\begin{cases}t/(T-1),&T>1,\\0,&T=1,\end{cases}\\
 p_t&=\frac14+\frac12r_t,\\
 n_t&=\min\!\left(B-1,\max\!\left(1,\left\lfloor Bp_t+\frac12\right\rfloor\right)\right),\qquad B\ge2.
 \end{aligned}
-$$
+```
 
-$B-n_t$ 个细层 $\alpha\sim U[0,0.5)$，$n_t$ 个粗层 $\alpha\sim U[0.5,1)$，抽完打乱，得到 $\alpha_{t,1},\ldots,\alpha_{t,B}$。$B=4$ 的前／中／后为 **3细1粗 → 2细2粗 → 1细3粗**。
+$`B-n_t`$ 个细层 $`\alpha\sim U[0,0.5)`$，$`n_t`$ 个粗层 $`\alpha\sim U[0.5,1)`$，抽完打乱，得到 $`\alpha_{t,1},\ldots,\alpha_{t,B}`$。$`B=4`$ 的前／中／后为 **3细1粗 → 2细2粗 → 1细3粗**。
 
-$B=1$ 时按 $p_t$ 选粗层，否则选细层，再在该层抽 $\alpha$。$\alpha$ 与题目使用独立随机流，由 $s$ 确定。
+$`B=1`$ 时按 $`p_t`$ 选粗层，否则选细层，再在该层抽 $`\alpha`$。$`\alpha`$ 与题目使用独立随机流，由 $`s`$ 确定。
 
 **每个 minibatch 独立进行双阶段抽样：**
 
-1. 首题：从全训练集按 $w_q$ 抽取。
-2. 后续：以已抽题目集合 $S$ 计算候选，再有放回抽取，直到共 $b$ 条。
+1. 首题：从全训练集按 $`w_q`$ 抽取。
+2. 后续：以已抽题目集合 $`S`$ 计算候选，再有放回抽取，直到共 $`b`$ 条。
 
-$$
+```math
 \begin{aligned}
 E_{\alpha_{t,j}}(q,S)&=\max_{x\in S}|d(q,x)-\alpha_{t,j}|,\\
 \mathcal C&=\operatorname{top}_{k}(-E_{\alpha_{t,j}}),\\
 p(q\mid\mathcal C)&=\frac{w_q}{\sum_{x\in\mathcal C}w_x}.
 \end{aligned}
-$$
+```
 
-- top-$k$ 按不同 embedding 输入计名额；组内原题保留各自权重。
+- top-$`k`$ 按不同 embedding 输入计名额；组内原题保留各自权重。
 - 有放回抽样允许同题多次执行，也允许同类不同题。
 - 可用 classifier 限定与首题共享类别的范围；不足两个输入组时回退全池。
 
 ## Forward 与课程
 
-$K$ 默认仅为 skills；`learn_memory` 默认关闭，开启后 $K$ 为 skills＋环境 memory，并跨 step 保存 memory。每条 forward 使用 $K_t$ 的私有副本和新对话，默认只读知识；开启 memory 后显式安装 Memory 基础组件读取它，online／auto 写学习仍独立控制。
+$`K`$ 默认仅为 skills；`learn_memory` 默认关闭，开启后 $`K`$ 为 skills＋环境 memory，并跨 step 保存 memory。每条 forward 使用 $`K_t`$ 的私有副本和新对话，默认只读知识；开启 memory 后显式安装 Memory 基础组件读取它，online／auto 写学习仍独立控制。
 离线 opt 按上层显式组件映射，平等支持仅 skills、仅 memory 或两者；不选择训练默认策略。前两种在线优化仍使用显式装配的 skills＋memory。
 
 调查目标：结合观测与源码，尽可能得到有效 workaround 和可落到具体仓库 issue 的根因。训练与评测共用，query 保留原文；普通用户会话不追加。
 
-- $K_0$：复制 [`profiles/train_init/`](profiles/train_init/)，只含 skills 和公开运行配置，不提供初始 memory；指定知识或续训时使用所给 $K$。
-- 后续 step／stage 继承已发布 $K$。
+- $`K_0`$：复制 [`profiles/train_init/`](profiles/train_init/)，只含 skills 和公开运行配置，不提供初始 memory；指定知识或续训时使用所给 $`K`$。
+- 后续 step／stage 继承已发布 $`K`$。
 - 同一条继续写入的训练历史／resume 保持相同 `learn_memory` 设置；本轮消融使用独立 run。只读评测可独立选择装配或不装配 Memory。
-- 源码预先准备，forward／reviewer 共享只读，不计入 $K$。
+- 源码预先准备，forward／reviewer 共享只读，不计入 $`K`$。
 
 单条 forward 的累计输出预算（含 reasoning）固定：
 
-$$
+```math
 C_t=4096.
-$$
+```
 
 | 学习环节 | 触发与作用 |
 | --- | --- |
@@ -112,19 +112,19 @@ $$
 | minibatch review | 比较该组全部轨迹及可选 online／auto 的变化；预算截断的轨迹也参与 |
 
 - 用完预算即保留已有轨迹；未解完整题，仍可学习已核实的局部路径。截断本身不决定路线成败或应当收手的时机。
-- review 不消耗 $C_t$，默认不设累计 token 或步数截断。
+- review 不消耗 $`C_t`$，默认不设累计 token 或步数截断。
 - 同 step 的 forward 共用同一预算值，各自独立计量。
 
 ## 更新
 
-每个 reviewer 比较自身的 $b$ 条轨迹，得到 $K_{t,j}$；全部 $B$ 份更新合并为 $K_{t+1}$。
+每个 reviewer 比较自身的 $`b`$ 条轨迹，得到 $`K_{t,j}`$；全部 $`B`$ 份更新合并为 $`K_{t+1}`$。
 
-$$
+```math
 \begin{aligned}
 K_{t,j}&=\operatorname{Review}\left(K_t,\{\tau_{t,j,\ell}\}_{\ell=1}^{b}\right),\\
 K_{t+1}&=\operatorname{Merge}_{K_t}(K_{t,1},\ldots,K_{t,B}).
 \end{aligned}
-$$
+```
 
 **Reviewer：**
 
@@ -136,31 +136,31 @@ $$
 - 按需查询同 query 的 Git 历史，检查旧知识是否实际应用、是否减少重建、是否出现新反例。
 - 沿用 Hermes 学习／维护准则；先改已有知识，保留证据、版本和适用边界。
 - 自己提交知识修改与当前 traces；无知识变化也提交本轮证据。
-- 离线 reviewer 仅维护上层选择的知识；skills 沿用 lint 反馈，memory 沿用原生添加与修删审批规则。pending 提案由程序保存，不进入 $K$、Git 知识或模型视图。
+- 离线 reviewer 仅维护上层选择的知识；skills 沿用 lint 反馈，memory 沿用原生添加与修删审批规则。pending 提案由程序保存，不进入 $`K`$、Git 知识或模型视图。
 
 材料目录与权限统一列在下方「Agent 沙箱文件」；`batch_i` 是一个训练 step，`minibatch_j` 是该 reviewer 自己的组。
 
 `history.json` 仅列同题历史的 commit、输入 commit 与 trace 路径；无匹配为 `[]`，按需读取。当前知识在选中的组件目录，输入／历史版本通过完整 Git 读取，不在每条 forward 复制全库快照。原生运行日志和成本留在宿主，不复制成 reviewer 的 sources、Markdown view、HTTP 树或多层索引。
 
-可选 online／auto 在 forward 内产生的实际知识差分和自动复盘事件保留在 trace 的可选字段，区别于共同输入 $K_t$。旧离线材料未提供生成 Git 身份时，`input_commit` 明确未知，保留一致的生成知识指纹；不把当前 review 目标知识冒充原输入。
+可选 online／auto 在 forward 内产生的实际知识差分和自动复盘事件保留在 trace 的可选字段，区别于共同输入 $`K_t`$。旧离线材料未提供生成 Git 身份时，`input_commit` 明确未知，保留一致的生成知识指纹；不把当前 review 目标知识冒充原输入。
 
 **Merge：**
 
-1. 从正式 checkpoint $K_t$ 创建真实辅助 commit $W$（`Working knowledge`）：唯一 parent 为 $K_t$，去掉旧 traces，知识不变；$W$ 在 reviewer／merger 的 Git 中可见。
-2. 每个 reviewer 提交的唯一 parent 为 $W$，程序原样导入；全部 $B$ 个提交完成后，交给一个 Merger 从 $W$ 整合。
+1. 从正式 checkpoint $`K_t`$ 创建真实辅助 commit $`W`$（`Working knowledge`）：唯一 parent 为 $`K_t`$，去掉旧 traces，知识不变；$`W`$ 在 reviewer／merger 的 Git 中可见。
+2. 每个 reviewer 提交的唯一 parent 为 $`W`$，程序原样导入；全部 $`B`$ 个提交完成后，交给一个 Merger 从 $`W`$ 整合。
 3. Merger 使用 Git 合并，并审阅重复内容、适用边界、引用与结构改进空间；没有文本冲突时也审阅，按需重组知识。审阅后无需进一步调整即可交回。
-4. 程序校验提交、知识格式与权限、原始 traces 完整性，再将完整树压平发布 $K_{t+1}$；正式历史一 step 一个 commit，唯一 parent 为 $K_t$。
+4. 程序校验提交、知识格式与权限、原始 traces 完整性，再将完整树压平发布 $`K_{t+1}`$；正式历史一 step 一个 commit，唯一 parent 为 $`K_t`$。
 
-$W$、reviewer／Merger 的提交，以及程序复制 Merger 最终树后生成的 `Integrated reviewer updates`，均属私有辅助历史，不进入正式 $K_t\to K_{t+1}$ 链。
-每个正式 commit 保存新知识和本步全部 traces；旧 traces 留在历史，不计入 $K$ 或 loss。
+$`W`$、reviewer／Merger 的提交，以及程序复制 Merger 最终树后生成的 `Integrated reviewer updates`，均属私有辅助历史，不进入正式 $`K_t\to K_{t+1}`$ 链。
+每个正式 commit 保存新知识和本步全部 traces；旧 traces 留在历史，不计入 $`K`$ 或 loss。
 
 ## Loss
 
-$\Delta(K,K')$：跨本次选中知识文件抵消相同非空原文行，保留重复次数；剩余内容分别估计新增、删除 tokens。loss 取各 reviewer 合并前的更新量均值：
+$`\Delta(K,K')`$：跨本次选中知识文件抵消相同非空原文行，保留重复次数；剩余内容分别估计新增、删除 tokens。loss 取各 reviewer 合并前的更新量均值：
 
-$$
+```math
 \widehat L_t=\frac1B\sum_{j=1}^{B}\Delta(K_t,K_{t,j}).
-$$
+```
 
 - 合并后的净变化另记；traces 和运行文件不计入。
 - 未完成或不可计量的 review 不作零更新；主均值记 NA。
@@ -169,7 +169,7 @@ $$
 
 ## 验证
 
-**固定 $K$：** 同轮各 checkpoint 使用同一批 query、相同 repeats 和输出预算 $C$；每次新对话，online／auto 关闭。
+**固定 $`K`$：** 同轮各 checkpoint 使用同一批 query、相同 repeats 和输出预算 $`C`$；每次新对话，online／auto 关闭。
 
 **提交评测：** eval 为传入的现成 Agent 后装载专用 hook，再执行 forward。提示词为：
 
@@ -185,30 +185,30 @@ Judge 的 system 说明布局和评分规则，只有 `read_file`，按需读取
 
 每次提交的 token／时间是实际记录，最终成果引用早期 ID 不代表当时已经完整成立，本版不推算首次有效成本。参考不提供给 forward，forward 原有在线工具保持。
 
-checkpoint $t$、题 $i$、重复 $r$ 分别记录：
+checkpoint $`t`$、题 $`i`$、重复 $`r`$ 分别记录：
 
-$$
+```math
 q_{tir}\in\{0,1,\mathrm{NA}\},\qquad
 u_{tir}=T^{\mathrm{out}}_{tir}/C_{tir},\qquad
 D_{tir}=\text{用户交付秒数}.
-$$
+```
 
-交付耗时保留原口径：调用方逐 Agent 记录复制／快照及运行沙箱准备之后的组件构造耗时，eval 的后装载 hook 耗时单列并计入本 Agent 构造；再加实际 query 执行耗时，得到 $D_{tir}$。批量预构造后的排队、其它 Agent 和 Judge 耗时不计入。各分量分别留存，支持重算。
+交付耗时保留原口径：调用方逐 Agent 记录复制／快照及运行沙箱准备之后的组件构造耗时，eval 的后装载 hook 耗时单列并计入本 Agent 构造；再加实际 query 执行耗时，得到 $`D_{tir}`$。批量预构造后的排队、其它 Agent 和 Judge 耗时不计入。各分量分别留存，支持重算。
 
 三项指标先在题内求 repeats 均值，再对题等权：
 
-$$
+```math
 \widehat Q_t=\operatorname{mean}_i\operatorname{mean}_r q_{tir},\qquad
 \widehat U_t=\operatorname{mean}_i\operatorname{mean}_r u_{tir},\qquad
 \widehat D_t=\operatorname{mean}_i\operatorname{mean}_r D_{tir}.
-$$
+```
 
 - 成功与失败均记录真实 output 和时间；reasoning 计一次，已知 retry 纳入实际消费。
 - 缺失不填零；同时报告有效样本数，基础设施异常和 judge 开销单列。
 - 三项并列，不合成总分；程序不自动选择或回滚 checkpoint。
 - val 的题数、repeats、频率与预算由运行配置给定；test 不参与选择。
 
-用户持续学习实验另设：每题新对话，共享更新的 $K$，online／auto 开启；普通基线每题空 $K$、无学习。
+用户持续学习实验另设：每题新对话，共享更新的 $`K`$，online／auto 开启；普通基线每题空 $`K`$、无学习。
 
 训练阶段按 `StageConfig.evaluation` 的显式时机和 checkpoint 列表自行装配独立、关闭 online／auto 的 Agent，再调用 `csi.eval.run_fixed`；
 持续学习对照实验由 `train/online.py` 单独组合。
@@ -235,7 +235,7 @@ for t in range(T):
     validate(K) if scheduled
 ~~~
 
-train 等该 minibatch 的 forward 完成后，将记录交给 opt；opt 在该 reviewer 的私有沙箱只导出一次极简材料。离线 caller 也可交现成的 `forward_*/trace.json`；旧 source JSON 输入仅作兼容读取，不恢复旧复制／转写链。离线更新原地维护显式选中的 Skills／Memory 组件目录，通过已有 `.git/` 读取历史。整 step 合入后再进入下一步，合入失败保留原 $K$。
+train 等该 minibatch 的 forward 完成后，将记录交给 opt；opt 在该 reviewer 的私有沙箱只导出一次极简材料。离线 caller 也可交现成的 `forward_*/trace.json`；旧 source JSON 输入仅作兼容读取，不恢复旧复制／转写链。离线更新原地维护显式选中的 Skills／Memory 组件目录，通过已有 `.git/` 读取历史。整 step 合入后再进入下一步，合入失败保留原 $`K`$。
 训练 pipe 自己管理持久目录、初始模板、每 step 的输入与输出选择；opt 不管理这些目录。
 评测仍负责新 query 的执行、judge 与结果聚合；调用方提供独立 Agent，并负责其交付后快照和关闭。
 
@@ -299,7 +299,7 @@ Stage 1 使用 `vllm-ascend` 工具集，`research` 关闭；val 另行配置。
 └── repos/                     RO  共享源码仓，用于核验
 ~~~
 
-`trace.json` 保留原始 messages；`history.json` 提供同题旧轨迹的 Git 位置。Reviewer 从 $K_t$ 去除旧 `traces/` 后开始，加入本 minibatch 的轨迹，修改知识并自行提交。
+`trace.json` 保留原始 messages；`history.json` 提供同题旧轨迹的 Git 位置。Reviewer 从 $`K_t`$ 去除旧 `traces/` 后开始，加入本 minibatch 的轨迹，修改知识并自行提交。
 
 **Merger**
 
@@ -312,7 +312,7 @@ Stage 1 使用 `vllm-ascend` 工具集，`research` 关闭；val 另行配置。
 └── scratch/                   RW  临时合并脚本与草稿
 ~~~
 
-Reviewer／Merger 使用 `git -C harness …` 操作 Git。Merger 同样从 $K_t$ 去除旧 `traces/` 后开始，查看并合入各 reviewer 提交。合并校验结果直接反馈到对话。正式历史每个 step 保留一个 commit，保存合并后的知识与本 step 全部原始轨迹。
+Reviewer／Merger 使用 `git -C harness …` 操作 Git。Merger 同样从 $`K_t`$ 去除旧 `traces/` 后开始，查看并合入各 reviewer 提交。合并校验结果直接反馈到对话。正式历史每个 step 保留一个 commit，保存合并后的知识与本 step 全部原始轨迹。
 
 各 agent 的 `/workspace/scratch/` 独占，跨工具调用保留，不跨 agent 继承、不进入知识 Git。开启 `learn_memory` 时，Reviewer／Merger 的 `harness/` 增加 `memories/MEMORY.md` 并纳入知识提交；Forward 的记忆由组件注入 system prompt。
 
@@ -350,7 +350,7 @@ uv run --no-project --python v6/code-skill-issue/.venv/bin/python \
   --output /absolute/path/to/new-training-run --env-file ../../.env
 ```
 
-示例 $T=100$；`stages.json` 保留 [Stage 1 配置](examples/stage1-training.json)的预算、工具和学习设置。`config` 中的 `batch_size` 为 $b$，`reviewers` 为 $B$，`candidates` 为 $k$。
+示例 $`T=100`$；`stages.json` 保留 [Stage 1 配置](examples/stage1-training.json)的预算、工具和学习设置。`config` 中的 `batch_size` 为 $`b`$，`reviewers` 为 $`B`$，`candidates` 为 $`k`$。
 
 Web 后端写在初始模板 `config.yaml`：普通抓取用 Firecrawl，`llm_extract=true` 和 `web_search` 用 DeepSeek。
 

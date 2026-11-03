@@ -48,7 +48,7 @@ w_q=e^{-\beta a_q}.
 
 ```math
 \delta_{ij}=1-\cos(v_i,v_j),\qquad
-M=\max_{i<j}\delta_{ij},\qquad
+M=\max_{i \lt j}\delta_{ij},\qquad
 d_{ij}=\delta_{ij}/M.
 ```
 
@@ -78,7 +78,7 @@ $`B=1`$ 时按 $`p_t`$ 选粗层，否则选细层，再在该层抽 $`\alpha`$�
 ```math
 \begin{aligned}
 E_{\alpha_{t,j}}(q,S)&=\max_{x\in S}|d(q,x)-\alpha_{t,j}|,\\
-\mathcal C&=\operatorname{top}_{k}(-E_{\alpha_{t,j}}),\\
+\mathcal C&=\mathop{\mathrm{top}}\nolimits_{k}(-E_{\alpha_{t,j}}),\\
 p(q\mid\mathcal C)&=\frac{w_q}{\sum_{x\in\mathcal C}w_x}.
 \end{aligned}
 ```
@@ -121,8 +121,8 @@ C_t=4096.
 
 ```math
 \begin{aligned}
-K_{t,j}&=\operatorname{Review}\left(K_t,\{\tau_{t,j,\ell}\}_{\ell=1}^{b}\right),\\
-K_{t+1}&=\operatorname{Merge}_{K_t}(K_{t,1},\ldots,K_{t,B}).
+K_{t,j}&=\mathop{\mathrm{Review}}\nolimits\left(K_t,\{\tau_{t,j,\ell}\}_{\ell=1}^{b}\right),\\
+K_{t+1}&=\mathop{\mathrm{Merge}}\nolimits_{K_t}(K_{t,1},\ldots,K_{t,B}).
 \end{aligned}
 ```
 
@@ -198,9 +198,9 @@ D_{tir}=\text{用户交付秒数}.
 三项指标先在题内求 repeats 均值，再对题等权：
 
 ```math
-\widehat Q_t=\operatorname{mean}_i\operatorname{mean}_r q_{tir},\qquad
-\widehat U_t=\operatorname{mean}_i\operatorname{mean}_r u_{tir},\qquad
-\widehat D_t=\operatorname{mean}_i\operatorname{mean}_r D_{tir}.
+\widehat Q_t=\mathop{\mathrm{mean}}\nolimits_i\mathop{\mathrm{mean}}\nolimits_r q_{tir},\qquad
+\widehat U_t=\mathop{\mathrm{mean}}\nolimits_i\mathop{\mathrm{mean}}\nolimits_r u_{tir},\qquad
+\widehat D_t=\mathop{\mathrm{mean}}\nolimits_i\mathop{\mathrm{mean}}\nolimits_r D_{tir}.
 ```
 
 - 成功与失败均记录真实 output 和时间；reasoning 计一次，已知 retry 纳入实际消费。

@@ -1,0 +1,3 @@
+web:
+  fetch_backend: firecrawl
+  llm_fetch_backend: deepseek

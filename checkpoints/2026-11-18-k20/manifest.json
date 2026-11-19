@@ -1,0 +1,683 @@
+{
+  "schema": "csi-training-checkpoint/v1",
+  "project": "code-skill-issue (CSI)",
+  "version": "2026-11-18-k20",
+  "checkpoint": "K20",
+  "training_completed_at": "2026-11-18T10:14:35+08:00",
+  "version_date_timezone": "Asia/Shanghai",
+  "exported_at": "2026-11-19T01:18:19.483474+00:00",
+  "profile": "profile",
+  "knowledge": {
+    "commit": "36de135c08352aa6928c4d46208655728cb70097",
+    "parent": "3449bb496e919e76fe64493566169255edf47a06",
+    "tree": "decb35e538b512fde67ebdcaf946269ea75bd4e8",
+    "skills_tree": "6aa30fbf41e5f7e80adcc6563ca944b8bd8d24ae",
+    "skills_file_count": 91,
+    "skills_bytes": 1650900,
+    "skill_entry_count": 1,
+    "reference_file_count": 75,
+    "script_count": 14,
+    "template_count": 1
+  },
+  "training": {
+    "method": "full_random",
+    "completed_learning_updates": 20,
+    "initial_checkpoint_commit": "664368cbf39ee8fe42d578720cc996bb2c01b3bf",
+    "initial_skills": 0,
+    "learn_memory": false,
+    "online_learning": false,
+    "background_learning": false,
+    "rerun_minibatch": false,
+    "model": "volcengine/deepseek-v4.1-flash",
+    "served_model": "deepseek-v4-1-flash-261017",
+    "reasoning_effort": "high",
+    "dataset_counts": {
+      "training": 1243,
+      "validation": 39,
+      "test": 25
+    },
+    "sampler": {
+      "seed": 17,
+      "curriculum_steps": 100,
+      "executed_prefix_steps": 20,
+      "beta": 0.6931471805599453,
+      "candidates": 4,
+      "fine_source_groups_per_step": 3,
+      "coarse_source_groups_per_step": 1,
+      "source_width": 2,
+      "semantic_cache_sha256": "bd4c6f2bb1020f5955e97ff7b2c00b3fb2a918d50df845982f376d3c0eccea8a"
+    },
+    "source_forwards_per_step": 8,
+    "reviewers_per_step": 4,
+    "sources_per_reviewer": 4,
+    "uses_per_source": 2,
+    "mergers_per_step": 1,
+    "forward_output_token_budget": 4096,
+    "model_concurrency_limit": 64,
+    "final_step_reviewer_loss": 6109.25,
+    "final_step_net_knowledge_change": 15997,
+    "usage": {
+      "M": {
+        "traces": 21,
+        "requests": 2220,
+        "usage_unknown": 1,
+        "credit_estimate": 21.175432596
+      },
+      "R": {
+        "traces": 80,
+        "requests": 6614,
+        "usage_unknown": 7,
+        "credit_estimate": 51.754640148
+      },
+      "F": {
+        "traces": 160,
+        "requests": 1005,
+        "usage_unknown": 0,
+        "credit_estimate": 6.78154392
+      }
+    },
+    "source_code_commit": "d29371f7f5942e1854483df5682bf85b73010112",
+    "source_code_identity_record": "provenance/execution-source.json"
+  },
+  "evaluation": {
+    "task_ids": [
+      "vllm-project/vllm-ascend#13710",
+      "vllm-project/vllm-ascend#4426",
+      "vllm-project/vllm-ascend#168",
+      "vllm-project/vllm-ascend#6861",
+      "vllm-project/vllm-ascend#13329",
+      "vllm-project/vllm-ascend#11414",
+      "vllm-project/vllm-ascend#9305",
+      "vllm-project/vllm-ascend#8915",
+      "vllm-project/vllm-ascend#4009",
+      "vllm-project/vllm-ascend#14296",
+      "vllm-project/vllm-ascend#10876",
+      "vllm-project/vllm-ascend#13623"
+    ],
+    "independent_forwards_per_task_per_profile": 2,
+    "forward_output_token_budget": 32768,
+    "native_judge_sessions": 12,
+    "baseline_commit": "39088928ad0fda9ca49950d126fb6d3f6f447e99",
+    "overall": {
+      "new_full_random_K20": {
+        "valid_trials": 24,
+        "with_submit": 22,
+        "actual_submit_count": 24,
+        "trial_denominator": 24,
+        "metrics": {
+          "Q_native": {
+            "n": 12,
+            "N": 12,
+            "mean": 0.7916666666666666,
+            "observed_mean": 0.7916666666666666,
+            "lower_bound": 0.7916666666666666,
+            "upper_bound": 0.7916666666666666,
+            "successes": 19,
+            "repeat_n": 24,
+            "repeat_N": 24
+          },
+          "Q_audit": {
+            "n": 11,
+            "N": 12,
+            "mean": null,
+            "observed_mean": 0.4090909090909091,
+            "lower_bound": 0.375,
+            "upper_bound": 0.4166666666666667,
+            "successes": 9,
+            "repeat_n": 23,
+            "repeat_N": 24
+          },
+          "U": {
+            "n": 12,
+            "N": 12,
+            "mean": 0.2675526936848958,
+            "observed_mean": 0.2675526936848958,
+            "lower_bound": 0.2675526936848958,
+            "upper_bound": 0.2675526936848958,
+            "repeat_n": 24,
+            "repeat_N": 24
+          },
+          "D_native": {
+            "n": 12,
+            "N": 12,
+            "mean": 71.98621074904138,
+            "observed_mean": 71.98621074904138,
+            "lower_bound": 71.98621074904138,
+            "upper_bound": 71.98621074904138,
+            "repeat_n": 24,
+            "repeat_N": 24
+          },
+          "D_corrected": {
+            "n": 12,
+            "N": 12,
+            "mean": 69.28895603729204,
+            "observed_mean": 69.28895603729204,
+            "lower_bound": 69.28895603729204,
+            "upper_bound": 69.28895603729204,
+            "repeat_n": 24,
+            "repeat_N": 24
+          }
+        },
+        "findings": {
+          "native_findings": {
+            "workaround": {
+              "established": 22,
+              "not_established": 2
+            },
+            "root_cause": {
+              "unassessed": 10,
+              "not_established": 3,
+              "established": 11
+            }
+          },
+          "audit_findings": {
+            "workaround": {
+              "established": 21,
+              "not_established": 2,
+              "unassessed": 1
+            },
+            "root_cause": {
+              "unassessed": 12,
+              "not_established": 2,
+              "established": 10
+            }
+          }
+        }
+      },
+      "old_flat_K20": {
+        "valid_trials": 24,
+        "with_submit": 24,
+        "actual_submit_count": 25,
+        "trial_denominator": 24,
+        "metrics": {
+          "Q_native": {
+            "n": 12,
+            "N": 12,
+            "mean": 0.6666666666666666,
+            "observed_mean": 0.6666666666666666,
+            "lower_bound": 0.6666666666666666,
+            "upper_bound": 0.6666666666666666,
+            "successes": 16,
+            "repeat_n": 24,
+            "repeat_N": 24
+          },
+          "Q_audit": {
+            "n": 11,
+            "N": 12,
+            "mean": null,
+            "observed_mean": 0.3181818181818182,
+            "lower_bound": 0.2916666666666667,
+            "upper_bound": 0.3333333333333333,
+            "successes": 7,
+            "repeat_n": 23,
+            "repeat_N": 24
+          },
+          "U": {
+            "n": 12,
+            "N": 12,
+            "mean": 0.4851125081380208,
+            "observed_mean": 0.4851125081380208,
+            "lower_bound": 0.4851125081380208,
+            "upper_bound": 0.4851125081380208,
+            "repeat_n": 24,
+            "repeat_N": 24
+          },
+          "D_native": {
+            "n": 12,
+            "N": 12,
+            "mean": 138.40876954729296,
+            "observed_mean": 138.40876954729296,
+            "lower_bound": 138.40876954729296,
+            "upper_bound": 138.40876954729296,
+            "repeat_n": 24,
+            "repeat_N": 24
+          },
+          "D_corrected": {
+            "n": 12,
+            "N": 12,
+            "mean": 135.82635122016836,
+            "observed_mean": 135.82635122016836,
+            "lower_bound": 135.82635122016836,
+            "upper_bound": 135.82635122016836,
+            "repeat_n": 24,
+            "repeat_N": 24
+          }
+        },
+        "findings": {
+          "native_findings": {
+            "workaround": {
+              "established": 19,
+              "not_established": 5
+            },
+            "root_cause": {
+              "unassessed": 12,
+              "established": 11,
+              "not_established": 1
+            }
+          },
+          "audit_findings": {
+            "workaround": {
+              "established": 22,
+              "unassessed": 1,
+              "not_established": 1
+            },
+            "root_cause": {
+              "unassessed": 14,
+              "established": 10
+            }
+          }
+        }
+      }
+    }
+  },
+  "source": {
+    "experiment_run": "evidence/training-full-random-4k-20step-20261117",
+    "profile": "evidence/training-full-random-4k-20step-20261117/snapshots/K20/harness",
+    "snapshot_record": "provenance/K20-snapshot.json",
+    "records": {
+      "plan": {
+        "path": "evidence/training-full-random-4k-20step-20261117/plan.json",
+        "sha256": "ffee268110b7799f206b369fc3b7c3a59044ed16975b7d3a88fd8f7c7c989de5"
+      },
+      "sampling": {
+        "path": "evidence/training-full-random-4k-20step-20261117/inputs/sampling.json",
+        "sha256": "bb0813aee8bb136a5bc816c2e2e470e3daee1b40149b0cb636667f9a10333228"
+      },
+      "status": {
+        "path": "evidence/training-full-random-4k-20step-20261117/status.json",
+        "sha256": "e708bc3d1812e73a6fdb1d0eba17fcff35f68a42570721dbf114d0c7daabf81e"
+      },
+      "training_usage": {
+        "path": "evidence/training-full-random-4k-20step-20261117/usage.json",
+        "sha256": "a65347094ea99d5655a13b5975f829e05fd4225bb5cb7b3080664b6e44ce481f"
+      },
+      "evaluation_plan": {
+        "path": "evidence/training-full-random-4k-20step-20261117/evaluation-manifest.json",
+        "sha256": "c08203afea361553571be2bba5765eb8162f25ee32d6c697100e129ded799672"
+      },
+      "evaluation_result": {
+        "path": "evidence/training-full-random-4k-20step-20261117/reports/endpoint-comparison.json",
+        "sha256": "2a9d66ee967579442d58e800ae52ba53a0abe86d2cfcbcd841b2712515916e12"
+      },
+      "evaluation_paths": {
+        "path": "evidence/training-full-random-4k-20step-20261117/reports/endpoint-use-paths.md",
+        "sha256": "748f97a31b7e12d76ab560cea47472a9f411ed1a38a179455192bdbd61b9ca3d"
+      }
+    }
+  },
+  "verification": {
+    "all_91_skills_match_original_sha256": true,
+    "all_91_skills_match_source_git_blobs": true,
+    "config_matches_source_profile": true
+  },
+  "files": {
+    "profile/config.yaml": {
+      "sha256": "d04f6e7600a8c2901102c1e93686dfb52049808c69869f2d31009dbb3d659ed1",
+      "bytes": 62
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/SKILL.md": {
+      "sha256": "50101a9c2a3ad6ab9ba6794a991729dc3bb0a1343d3998374c85dc1cb1b06962",
+      "bytes": 78837
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/hccl/env-support-matrix.md": {
+      "sha256": "6966f28b1b53071f1428ff4c6b0df2d8ec0fbdd7d5eae89d49d2acfe75256c13",
+      "bytes": 7435
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/hccl/index.md": {
+      "sha256": "9a2012a17c93ffcf96fef9dc7ab2ae10a2045ae90ec693a25ed5640be43163ca",
+      "bytes": 5328
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/hccl/init-failures.md": {
+      "sha256": "e2b0c561d8736fb3f3efb39a3c347cd83e26118f81d416da8e8374f27d0a261a",
+      "bytes": 12163
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/310p-capability.md": {
+      "sha256": "72d715f76a5b4560bfb7f64d70bf358c72209dd5d986ae51c740d40768263c30",
+      "bytes": 10156
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/aclgraph-mode-and-capture.md": {
+      "sha256": "e59c956e398581343891636313827c04843a58d2d020fd470b0121846df22555",
+      "bytes": 52002
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/ascend-scheduler.md": {
+      "sha256": "dbf37955c8ef65b0f14443b7dbfbb7a0c27ec217d10cbcd87cc73f54bd1be27f",
+      "bytes": 22679
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/attention-mask/310p-dense-mask.md": {
+      "sha256": "0cb0a50b1a6710c7e0ccd04ab844db381a840d5c5b806da2ce00dd0802be3641",
+      "bytes": 3323
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/attention-mask/index.md": {
+      "sha256": "75bc7e087d31f8d65d3f77af6e67d9ead75be2d5182c75e30128a7cf2eeac5a7",
+      "bytes": 3513
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/attention-mask/prefill-dense-mask-a2-a3.md": {
+      "sha256": "373e435ee1d66d2034b773a7c36443d493a2d86ea57e7ac301fc3d24c4f5cbe3",
+      "bytes": 11007
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/benchmark-accuracy.md": {
+      "sha256": "e4a3ea79b8533f34e42c53e32a2edd737977bef7c8b7ada8d6141673fee443f2",
+      "bytes": 17963
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/c8-and-kv-layout.md": {
+      "sha256": "efc8e6d43d37e563147106edfb23901ab5a13cc1d8b32afed3683089f267a3ed",
+      "bytes": 17178
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/community-test-task-sheets.md": {
+      "sha256": "90647e9137b27e8a06fd80e3c73b782822217a4d4ea5ab9a0bfe2780205c0b8a",
+      "bytes": 10170
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/deepseek-v4-thinking-and-effort.md": {
+      "sha256": "61dd62cd6019c41638d5389e1b4f97e909d5ffe36eeceed4f25aa513baaa1ad2",
+      "bytes": 11521
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/device-kernel-faults.md": {
+      "sha256": "66cdadb40d8e796ec18216e241fd185122d4d66f7ab414afbd961740de2c841c",
+      "bytes": 21199
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/doc-guide-vs-capability.md": {
+      "sha256": "670cb9023c378b2599035f3d01cfeb275baa596630f2eca4d77b07d19eb16eec",
+      "bytes": 17223
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/dynamo-graph-break.md": {
+      "sha256": "9532f9f19a30da323265c6bcde8efd057f803e662c60d30c4a74770874ca3a3b",
+      "bytes": 7851
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/fa3-backend.md": {
+      "sha256": "88353f3bbbb831cabf4a19c4243ab03dc3f7acee3af3aad61fd409c7b5a7b711",
+      "bytes": 11277
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/flashcomm1-and-moe-reduce.md": {
+      "sha256": "caa54517221ea5a6ecef02bd5b9e420b2f02303a99b7ab30234097fef03f5e6a",
+      "bytes": 24507
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/grammar-bitmask-and-dep-skew.md": {
+      "sha256": "a6822e36ee0a350936d6923e8d7b5b0a8daac0c47fcf893651c68f69e67043de",
+      "bytes": 17783
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/graph-capture-and-custom-ops.md": {
+      "sha256": "f23ec20c3c16e5e810e295fa1ee90838431ee230ee1ddea8ac16169ba59347eb",
+      "bytes": 32191
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/hybrid-gdn-pd.md": {
+      "sha256": "e474fa2db33bf068fbaa26b5f07c74edcbc257764a9416fa9e9f998cf46405f1",
+      "bytes": 6431
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/index.md": {
+      "sha256": "bd21faecaf8e8e031b6bdc6d27d7d2187c89c3aa7595192d0f005bca28d28d4b",
+      "bytes": 53911
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/issue-ledger/index.md": {
+      "sha256": "35f9b5d2081d1c1e83516253805d91e75a9813d8bbbfc80d36b536968f99ab2b",
+      "bytes": 32757
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/issue-ledger/lessons-across-reports.md": {
+      "sha256": "6d4e8dad1b78a0c32604ae7ffa969373dd371844aaf5c17b1204ffd13b28eaf7",
+      "bytes": 18074
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/issue-ledger/reports-early.md": {
+      "sha256": "d8b4dbae3a2689a01f6b4ebe77278399177d7f21c49ec4c1dbe814a661eaf9fb",
+      "bytes": 36679
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/issue-ledger/reports-later.md": {
+      "sha256": "a00065bdb3d707834c12562140e2f70ecb3ead0eef034b314d8ac71963c16603",
+      "bytes": 95543
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/issue-ledger/reports-newest.md": {
+      "sha256": "388fbdbc2e61d1ee524d929f543e04b07b9c491a3e3d738e8f8b34937a77ed51",
+      "bytes": 90156
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/kernel-launch-limits.md": {
+      "sha256": "4ab8382d27199223a690926bef8903b0c0adb04c7c19b125d6915c1af3157968",
+      "bytes": 7805
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/kv-admission-cliff.md": {
+      "sha256": "3f2d5d14c565759d226f87711e84939a72f2c7cc82a4e5b30750f65999ab2375",
+      "bytes": 8481
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/kv-connector-registration.md": {
+      "sha256": "ab00ca891738bfd2143ab639acd6c40da0e27deb4527ab244dc934fb80f49608",
+      "bytes": 9857
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/kv-pool-store-hang.md": {
+      "sha256": "08c38a081615e2a9a9bf9732992ab04d30980d752c484a953fcbdedc6fbd67c1",
+      "bytes": 35400
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/layer-name-keyerror.md": {
+      "sha256": "b7bd422b00646411aa6e66934181a692d32ee958c5640798a23bd20cf98b063e",
+      "bytes": 7554
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/lora-and-tp.md": {
+      "sha256": "f7f8423904416f4f08affc4287a2b3e137e5b84359e7e12a6dd8977d75abbe28",
+      "bytes": 15446
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/memory-sizing-and-parallelism.md": {
+      "sha256": "41436c99be88090292c1c087d7d6aaeeb313d0fe044ced0a59903ee660502a9a",
+      "bytes": 6207
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/metrics-counters.md": {
+      "sha256": "5650b7052eb056dca364ef54d6e2f8c7ba1a06d746a280405a730a0ee0dc4a97",
+      "bytes": 6580
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/missing-downstream-feature.md": {
+      "sha256": "7c5d61eb35374fcc6fcee6c749b18e3dbfccc35b0b133829c5ce53a749b75e9b",
+      "bytes": 9386
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/model-type-support-floor.md": {
+      "sha256": "7009137c490cc0bb1c86acd2e772a5081c4dc530d603a3bc98e51516c6199e45",
+      "bytes": 23281
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/moe-ep-dispatch.md": {
+      "sha256": "4036d594c63603e80cd5c126554d329aa7fe6358f14d44fe9fff1bb7ea17745e",
+      "bytes": 21172
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/mooncake-transfer-errors.md": {
+      "sha256": "f0b6b67862c8756c09236eef334456634b054ecf252380dc898a13aaa335ffcb",
+      "bytes": 25306
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/multi-connector-composition.md": {
+      "sha256": "ef17d230b65d55613a493d5201a9a504ddea40da7f9395319cb615a1befde277",
+      "bytes": 8095
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/multimodal-input-not-applied.md": {
+      "sha256": "6b1716f46c7476c81a36cee0108958a3219944ffff97d7e54954f3cda9f631bd",
+      "bytes": 7948
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/pcp-dcp-and-mtp.md": {
+      "sha256": "ca01fde98ca9d7dd7d1a1671fddba6cf1a7c1846dc4d3bfd34a2ff82b7df45ac",
+      "bytes": 23592
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/pd-collective-hang.md": {
+      "sha256": "aefe12f840b80c785b9d6d393e61eddc8c8febcaaf25bfbd95a295fe7b249c92",
+      "bytes": 17616
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/pd-llmdatadist-timeout.md": {
+      "sha256": "d26eff0f041242e4d90fe9bbf1127e5d3c2b3707395d58953c20ec26289a8d65",
+      "bytes": 7810
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/pd-proxy-examples.md": {
+      "sha256": "0854f08eee2e83182361ffdfd2ffb46311d72aa9e449c531b454830b7df787ea",
+      "bytes": 7751
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/pooling-and-embedding.md": {
+      "sha256": "119c3b70462d23012a402cbbb83aeaca73b1d3dd3820092668032b78454ae785",
+      "bytes": 9606
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/pooling-model-startup.md": {
+      "sha256": "edf895bc25c3901455e532bc6a9d797f843221b36e3e91d3a75e2006ca7d5624",
+      "bytes": 5494
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/post-startup-oom.md": {
+      "sha256": "32210a1b90c6b70501576329b219c8f165ebff67af37b80ec80d0e4ee2f6aec1",
+      "bytes": 14021
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/prefix-cache-granularity.md": {
+      "sha256": "08b097331358c3abfb32a587da9de7abd1efe36db11183c93ad8d9b12fb03353",
+      "bytes": 7680
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/quantization-load.md": {
+      "sha256": "e88bb63dcf2d8fd3db207eb066b183f365dfe3e1bace3353202d6001690d6bbf",
+      "bytes": 65029
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/reasoning-parser-output.md": {
+      "sha256": "a57b4f86f98fcc33dfccbfc376adefb1a2fda9cc654550e510530559b761ee7e",
+      "bytes": 19200
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/sleep-mode-and-allocator.md": {
+      "sha256": "db553537a834d5dd7cd20f8aea601273950fe6b63d84f31899a9298679a882fb",
+      "bytes": 12520
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/spec-decode-and-parallelism.md": {
+      "sha256": "3f70bfacd7ef98e0bca309b76de65b7dc12db882974cc63454c323e2def64a89",
+      "bytes": 20877
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/startup-and-stall.md": {
+      "sha256": "67ab6cf205afd4e5f082e0ee8acc804dc2fb9fcc440201d309d68d240b285e3a",
+      "bytes": 29114
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/startup-port-conflicts.md": {
+      "sha256": "082f9ff89d80c7e06f0ad8c08f8b6c872331f97f4a324408ecea6b3fc54cb5bf",
+      "bytes": 4914
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/symptom-index-stages.md": {
+      "sha256": "ae17d0ef015f07e394d0b7e5c8ff23a83e92d976ecb7ff2de89c6b8d37158917",
+      "bytes": 29418
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/symptom-index.md": {
+      "sha256": "aa5a503407ae976a16d024657c1864cf3fd7600aac67b31a364886a10981b3b1",
+      "bytes": 99799
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/tokenizer-and-chat-template.md": {
+      "sha256": "a420ed3251c9f542703e2de2da84ea8c690f39dfad9f4bcf16383a41fde7e8a8",
+      "bytes": 9880
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/tool-call-streaming.md": {
+      "sha256": "5aeea05c8a72caffcffca33aac92c07e0fee6f93e8c9c8af81d7ffbde9582f8d",
+      "bytes": 34710
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/symptoms/v1-engine-selector.md": {
+      "sha256": "4baaf265a75f03496cfe0b6868a90674e4ba3ca33d661708fc5c97ad6ac828be",
+      "bytes": 5858
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/code-layout.md": {
+      "sha256": "d86a3ae1f5eaa8169fd9711f866e287220db64896d1560079179b6e015f9b5da",
+      "bytes": 7345
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/config-flag-lifetimes.md": {
+      "sha256": "99acf44d5a37aa97fa32179bcb737f6ce41847f68563d47adb116cdc6dbf64a6",
+      "bytes": 29460
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/dockerfile-env.md": {
+      "sha256": "36557c9722b10a7c8eff32c95f462abcc57dc064b255e032484c991d0e3a39d5",
+      "bytes": 18843
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/hardware-support-by-release.md": {
+      "sha256": "1e6d5b8053121ad2a6354cedcb2a7b0ccd479d376061ad84bbcb3afb2728f861",
+      "bytes": 9777
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/index.md": {
+      "sha256": "e9e8a4abfefb0687536a779e316667172d96e8167d12cfb8b808262185095fb0",
+      "bytes": 6817
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/install-and-image.md": {
+      "sha256": "94d2625c9a578efb1608341dae13a9c0a40089bdb6112bd4cd9352888810740a",
+      "bytes": 27797
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/npu-device-visibility.md": {
+      "sha256": "3df27fc91e0074092beedfdd17462ff4fba872c103ec8612f0e5ae7071d61699",
+      "bytes": 6420
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/repo-map.md": {
+      "sha256": "06694cb157fd8124d9908d8b118dc61dc0ee15ff414830dc6d92c4ca699b1c50",
+      "bytes": 12697
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/vllm-ascend/version-pairing.md": {
+      "sha256": "6e1ba96322935f3020f5a0ff3a29e38c987c08d4d842b52f05d8f3d1be79833c",
+      "bytes": 10774
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/workflow/answer-and-claims.md": {
+      "sha256": "36b68b35ca46061f552e1240b7296e909cdcf915e32509ebad183c045685372d",
+      "bytes": 17150
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/workflow/evidence-sources.md": {
+      "sha256": "9caea91e7b730c63c34cca0144e6f46d063036409c73f8cddfcc3d1f671466be",
+      "bytes": 20884
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/workflow/fix-discovery.md": {
+      "sha256": "0daf3615b770a17c7f80acb6f0692f8dc4c6456e77436b5be1d8df574aab228d",
+      "bytes": 24350
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/workflow/index.md": {
+      "sha256": "5b3021af7cb96a805ce6b35d67d85480cea9dd0cdca38cd51d2c88bb62b9dd51",
+      "bytes": 12152
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/workflow/log-signatures.md": {
+      "sha256": "59dc3e5b3f32819eec799176f591081a8918b74eb902b7dc6a0fd482c7e5ff39",
+      "bytes": 29867
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/references/workflow/version-pinning.md": {
+      "sha256": "b2793d055c6aa29f677b4140989ca13923bcd06674f32309c54ea1fa10bd1b9b",
+      "bytes": 19147
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/export_ref.sh": {
+      "sha256": "0d7951ed56d184df9a8e7916a3d5ef5f52013425f0eff7c0a6e0d732715ccfa3",
+      "bytes": 990
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/fetch_issue_evidence.sh": {
+      "sha256": "a1fc497fec38a551272ff81a8411e50da04d632ce20b907f59fd2671cb594e01",
+      "bytes": 2092
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/flag_lifecycle.sh": {
+      "sha256": "217f399c4eefd2b02d47f487b78c68305141b48803e3831113cbb2f776aa94a6",
+      "bytes": 1177
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/merge_tool_deltas.py": {
+      "sha256": "d14d65232218c5c23ea651c09164974842f3c55ef94c7a1e7c2d218af6959197",
+      "bytes": 8769
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/open_answer.sh": {
+      "sha256": "6eed3f4820557ab1ca6a4bee4700e9466022d34f97b0224eb64280f49df52f6f",
+      "bytes": 8182
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/reasoning_output_probe.sh": {
+      "sha256": "65fd4d956110c1e87ea909a121439cc8389eef56d7341889f35c91eb37a5c9f8",
+      "bytes": 3177
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/ref_ancestry.sh": {
+      "sha256": "9e80dcb18a6ddeee5fcfdf5dbdb8262968d40297c53bc1096b194fab9a379626",
+      "bytes": 942
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/ref_grep.sh": {
+      "sha256": "9a939976b6e8bf307aa5b738d670f593da4ca4ab9fd7e06cac9f96d72011cb5c",
+      "bytes": 1280
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/ref_line_of.sh": {
+      "sha256": "d2f7c4ede9a90388a0b5f6481861e1c3e3766f81fb4ef556232c952c1bfd3ba2",
+      "bytes": 1129
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/ref_snapshot.sh": {
+      "sha256": "b0734ac9c65e9c01b2647d51c9956cc4665c58770b8c928e313d4c1f20ec6e85",
+      "bytes": 5542
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/repo_root.sh": {
+      "sha256": "64812a7246a3b370e0b0810988e691c82b794d3252581d9e539d033f858da376",
+      "bytes": 2172
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/resolve_ref.sh": {
+      "sha256": "b7eb574208a1c51eacf0972356cc5d5e26de1b7b3ddf1e715f0646de6445db66",
+      "bytes": 3358
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/version_archaeology.py": {
+      "sha256": "e89b2b95f32134f418da5080edb3ca91a842f2eb8ef975401091a0a4f2964e3f",
+      "bytes": 7392
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/scripts/version_ref.sh": {
+      "sha256": "79bac060963de86856a100064abd02cece3e142209dcc390f6887c6a822f302b",
+      "bytes": 2723
+    },
+    "profile/skills/vllm-ascend-bug-report-triage/templates/finding-report.md": {
+      "sha256": "7cbcca2e5f8cc862149373da04e49b63f1fbe88e7931318a4d1fa9f609c49a52",
+      "bytes": 2231
+    }
+  }
+}

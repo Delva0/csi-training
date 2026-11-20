@@ -22,7 +22,10 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   and told it nothing the summary line does not.
 - Content exports are truncated by a byte limit; absence of a file in an export is not
   evidence that upstream lacks it. Check `complete_regular_files` / `files` vs
-  `regular_files` before concluding "not implemented".
+  `regular_files` before concluding "not implemented". A component named by the report
+  may be missing from the export set entirely (recorded case: no `Ascend/msit` /
+  msmodelslim entry in #5585's `SOURCES.json`, so the quantizer's code was
+  unverifiable) — that is a gap to state, never a licence to describe its internals.
 - The pruning is uneven: big source trees go first, `docs/`, `utils/` and tests often
   survive. Recorded instance — `huggingface/transformers` `v5.12.1` arrived as 1515 of
   5776 files, `src/transformers/models/` held only `gpt2`, yet `docs/source/en/` had 406

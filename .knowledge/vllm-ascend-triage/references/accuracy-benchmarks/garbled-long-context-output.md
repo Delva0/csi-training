@@ -5,6 +5,10 @@ meaningless text", on a deployment where short prompts are fine. This is a
 corruption report, not a score gap: no harness is being compared and no metric is
 being recomputed. Do not route it through `harness-vs-engine-attribution.md`.
 
+Before using this page, read `usage.prompt_tokens`: if the prompt is only a few
+thousand tokens, the length-dependent owners below cannot be the cause — use
+`short-prompt-corruption.md` instead.
+
 ## Grade the symptom before theorising
 
 | Observed | Class | First owner to suspect |

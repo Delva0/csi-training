@@ -36,36 +36,54 @@ an HCCS link fault; #11661 v0.22.1rc1 missing `attention_type` on a patched
 decoder layer; #8409 v0.13.0 `model_type` not recognised (version gate); #16015
 v0.26.0rc1 GLM-5.3 w8a8c8, PD disaggregation + sparse sfa c8 + DCP=16, 400K+
 prompt → 乱码; #5572 v0.12.0rc1 Qwen3-VL-30B-A3B PD disaggregation, Mooncake
-connector `AttributeError` on a nested config.
+connector `AttributeError` on a nested config; #3389 v0.11.0rc0 Qwen3-VL-235B
+TP=16 whose posted cause ("insufficient available streams") is canned text around
+a capture-phase HCCL timeout; #10503 v0.20.2rc1 Kimi-K2.5-w4a8 on 2×A2 with
+tp8/dp2/EP, 乱码 on a 3.6K-token prompt; #17357 v0.26.0rc1-a3 DeepSeek-V4-Pro
+w4a8 `SUSPECT REMOTE ERROR`/507057 surfacing at a compile-phase pattern-registration
+sample op (lane C, reporting rank unrelated to the faulting chip); #5585 msmodelslim
+W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phase).
 
 ## Rules that apply whenever this skill is used
 
-1. **Say the answer in a message, early, and budget for it.** Every recorded run
-   of this skill so far ended without delivering an answer: after a long, largely
-   correct investigation the reply was empty — the final assistant message was
-   reasoning text with no answer and no tool call, the run stopped on
-   `output_truncated` (`stop_reason: output_tokens` at the 16384 completion cap),
-   and one earlier run ended in a refusal. The diagnoses already reached in
-   reasoning were sound; none was delivered. The output budget is shared by all
-   reasoning, all answer text and all tool-call arguments for the whole session;
-   it is not replenished per turn. So:
+1. **Say the answer in a message, early, and budget for it.** The budget is
+   16384 completion tokens for the whole session — reasoning, answer text and
+   tool-call arguments together — and it is not replenished per turn. Before this
+   step every recorded run ended with no reply: the final message was reasoning
+   text with no answer and no tool call, the run stopped on `output_truncated`
+   (`stop_reason: output_tokens`), one earlier run ended in a refusal, and the
+   diagnoses reached in reasoning were sound. In this step #17357 and #5585
+   delivered on the pattern below and still spent 15577 and 14542 tokens — nothing
+   spare — while #3389 and #10503 hit the cap with the answer beginning only in
+   the final turn: 44K and 36K characters of reasoning (78% and 68% of all
+   output, single blocks of 6-9K) over 25 and 30 tool calls, so one headline plus
+   classification (1.4K characters) was delivered and one closing action table
+   (4.4K characters) was lost. The mechanism is per-turn reasoning volume. So:
+   - **Reasoning is a scratchpad, not the deliverable.** One short paragraph per
+     turn: what the last result proved, the single next check, go. Keep a block
+     under ~1,200 characters; a 5-9K block costs a third of the session and
+     usually restates hypotheses that belong in the answer.
+   - **"I have enough", "that is the crux", "let me now write the answer" is the
+     trigger to emit answer text in that same turn.** Recorded runs reached that
+     state around call 15-20 and answered only at call 25-30.
    - Answer the reporter's literal question as soon as one artefact settles it
      ("does this crash exist on that image?" — their own traceback; "can 0.13.0
      deploy Qwen3.5?" — the support matrix or model registry at the pinned
-     commit). Write that answer as message text; a reasoning-only turn delivers
-     nothing.
-   - Write the ranked diagnosis once you can classify the lane/track and name the
-     confirming check or owning code path (usually 6-12 tool calls), with open
-     questions listed as such. Later turns may correct it, add the patch or answer
-     a follow-up; an earlier answer stays valid. If many turns have passed with no
-     answer text, stop exploring and write, even if the diagnosis is incomplete.
-   - Keep per-turn reasoning to a few hundred words. Do not restate file contents,
-     and do not carry a running hypothesis list in reasoning — that list belongs in
+     commit; "is the cause the log states real?" — the emitting code line). Write
+     it as message text; a reasoning-only turn delivers nothing.
+   - Emit in instalments: headline answer + lane/track classification + ranked
+     causes with their confirming checks by ~10 tool calls, then re-emit the
+     corrected version at the end. An earlier answer stays valid, a missing one
+     does not, and everything after the first answer is refinement that must not
+     delay it.
+   - Every assistant message should be a tool call or answer text. A "now let
+     me…" plan line spends budget and delivers neither.
+   - Do not carry a running hypothesis list in reasoning — that list belongs in
      the answer, where it is delivered. Keep confirmed findings in
-     `/workspace/scratch/findings.md` so the answer can be written from it without
-     re-reading anything.
-   - Treat everything after the first answer as refinement that must not delay it.
-     Version archaeology ("which release dropped attribute X", "when did this
+     `/workspace/scratch/findings.md` so a late turn composes the answer without
+     re-reading sources; both successful runs wrote it and the answer as their
+     last two calls, so write it at the checkpoint, not at the end.
+   - Version archaeology ("which release dropped attribute X", "when did this
      model land") is optional depth: state it as an open question plus the one
      command the reporter can run, instead of resolving it first. Do not open a
      second line of inquiry once a complete answer exists.
@@ -129,6 +147,18 @@ connector `AttributeError` on a nested config.
     reason a report is unanswerable or a lane misclassified; naming them is part
     of the answer, and the task environment asks you to flag stale/incomplete
     knowledge. Missing lines are a data gap, not a fact.
+11. **A log sentence is not a diagnosis: some are fixed wrapper text.** vllm-ascend
+    logs canned advice inside `except` blocks and re-raises, so the sentence names
+    a cause the code never checked — `ACLgraph has insufficient available streams
+    to capture the configured number of sizes ... Recommended solutions: ...` is
+    printed for *any* capture exception (`vllm_ascend/worker/model_runner_v1.py:
+    3553-3565` at v0.11.0rc0; the string is gone by v0.20.2rc1, so re-grep per
+    version). Before adopting a log's own explanation, `rg -n '<a distinctive
+    fragment>' vllm_ascend/` and read the emitting site: if it is an
+    `except Exception` that appends `{str(e)}` and re-raises, the appended inner
+    error is the evidence and the wrapper is not. Say which text you trust and why.
+    Same family as the sync-point trap in procedure step 3: the line where
+    an error surfaced is not necessarily the owner of the defect.
 
 ## Classify the evidence
 
@@ -139,10 +169,13 @@ connector `AttributeError` on a nested config.
 | The traceback ends in `AttributeError: '<X>Config' object has no attribute '<attr>'` with a frame in `vllm_ascend/distributed/*connector*.py`, reached from `ensure_kv_transfer_initialized` (usually a VL/MoE model under PD disaggregation) | Lane B: connector reads a nested config attribute | `references/startup-failures/connector-config-attributes.md` |
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
 | Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, `unexpected keyword argument`, `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
-| `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error | `references/hccl-and-hardware/index.md` |
+| `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
+| Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range" | Custom-op runtime fault | `references/custom-ops-runtime-faults/index.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
+| Per-layer `MSE loss` / epoch table printed while converting a checkpoint with msmodelslim (W4A4/W8A8), one layer far above its neighbours, or "the converted checkpoint answers garbage" with no engine-side failure | Quantization-conversion phase: converter-owned, before the engine starts | `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` |
 | A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
+| 乱码 / token soup on a few-thousand-token prompt, process alive, no traceback, `finish_reason: length`, often MoE + EP across nodes or a quantised weight set | Generation corruption, short-prompt profile | `references/accuracy-benchmarks/short-prompt-corruption.md` |
 | Install, build, import, performance claim, or any report with no matching track | General sequence below | skip the topical routes |
 
 ## Procedure
@@ -166,6 +199,17 @@ connector `AttributeError` on a nested config.
      (`references/hccl-and-hardware/collective-error-chain.md`). If the
      collective failure survives re-runs, check health per device and correlate
      the failing device id (`references/hccl-and-hardware/device-health-checks.md`).
+     When the deepest frame is an `npu_*` op on a 2×4/2×64 tensor inside
+     `torch.compile`, it is a fusion-pattern sample kernel and therefore a sync
+     point by construction: go to the plog and the per-rank `EZ9999`/`chipId` line,
+     not to the operator's shape code.
+   - Any count or list derived in the log (capture sizes, block counts, chunk
+     sizes) that does not match the upstream default: vllm-ascend is probably
+     rewriting it. `rg -n '<config field>' vllm_ascend/` (platform.py,
+     ascend_config.py, utils.py), read the log's own `Calculated ...` / `N → M`
+     lines, and reproduce the number with
+     `bash <skill_root>/scripts/aclgraph-size-budget.sh` instead of reading the
+     formula by eye.
    - Accuracy/corruption: establish whether both numbers came from the same
      server, weights and serve flags before choosing a culprit
      (`references/accuracy-benchmarks/index.md`); for a garbled prompt, get the
@@ -237,6 +281,11 @@ connector `AttributeError` on a nested config.
   the path `skill_view` reports.
 - `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one
   line per repo with coverage and `runtime_verified` flags.
+- `scripts/aclgraph-size-budget.sh --layers N [--tp --dp --pcp --dcp --ep --moe
+  --aiv --max-num-seqs --sizes]` — reproduces `update_aclgraph_sizes`: the
+  maximum captureable batch sizes for a model/parallel configuration and the
+  sampled subset, so a startup log's size list can be checked arithmetically
+  (verified: 94 layers, TP=16 gives 6 sizes = `[512,408,304,192,88,1]`, #3389).
 - `references/startup-failures/index.md` — engine/worker never becomes ready
   (lanes A/B): silent worker exit; `max_model_len` and memory budget
   (reporter-confirmed for #3543, but per-card HBM decides whether the default
@@ -246,7 +295,10 @@ connector `AttributeError` on a nested config.
   first-supporting-release precedent);
   `references/startup-failures/connector-config-attributes.md` for the
   `AttributeError` on a nested multimodal config inside a PD KV connector
-  (verified for #5572, v0.12.0rc1).
+  (verified for #5572, v0.12.0rc1);
+  `references/startup-failures/acl-graph-capture.md` for a failure or stall
+  inside ACL graph capture, where the logged advice is canned and the
+  capture-size set is usually already the computed maximum (#3389, v0.11.0rc0).
 - `references/upstream-downstream-drift/index.md` — Python attribute/signature
   errors raised when a vllm-ascend module subclasses or re-implements an upstream
   vLLM/transformers class and the installed library moved on. Scope: the frame is
@@ -266,7 +318,16 @@ connector `AttributeError` on a nested config.
   the project's own baselines live, and the decisive harness-vs-engine
   experiments. When the project has no baseline for the reported dataset, the
   reporter's harness configs are the primary evidence.
+  `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` covers the
+  conversion phase: per-layer loss tables printed by msmodelslim, the two documented
+  gates (engine version and the msit branch, which differ between doc pages), the
+  published-checkpoint split test, and why exactly one bad layer means converter
+  numerics rather than checkpoint layout.
   `references/accuracy-benchmarks/garbled-long-context-output.md` covers the
   corruption end: long-input 乱码 reports under sparse c8 attention + DCP + PD
   disaggregation, the feature-ablation matrix that decides ownership, and the
   tested envelope (#16015, #12905, #14320).
+  `references/accuracy-benchmarks/short-prompt-corruption.md` covers corruption
+  on a few-thousand-token prompt: test the prompt shape first, then the
+  EP/FLASHCOMM1/prefix-cache/graph-mode/weight-identity rows (#10503,
+  v0.20.2rc1).

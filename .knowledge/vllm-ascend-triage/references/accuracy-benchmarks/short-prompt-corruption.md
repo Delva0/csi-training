@@ -22,6 +22,51 @@ owner is that model's numeric path, not this page —
   words, one token cluster looping — is corruption. Truncation, a stop-string
   mismatch or a budget limit produce short or empty output, not fluent nonsense.
 
+## Step 0 — when the reporter names the trigger, test that claim against the paste
+
+A report that names its own trigger ("any prompt containing these special tokens",
+"only with a tool call") narrows the triage, but the naming is usually a
+correlation and the paste often refutes it. Recorded #8590 (vllm-ascend
+v0.14.0rc1 `52d4acfa`, vllm v0.14.1 `d7de043d`): Qwen2.5-1.5B, repeated 猞猁 from
+the first token whenever `<|im_start|>`/`<|im_end|>` (151644/151645) are in the
+prompt, "same from 0.14.0rc1 to 0.18.0rc1", "works on CPU/GPU", Qwen3-0.6B fine.
+
+- **Same ids both ways ⇒ not input plumbing.** #8590 prints the tokenizer's ids and
+  then passes the rendered *string* to `llm.generate`, so the engine re-tokenizes
+  to that same list. Two runs with identical ids cannot differ because of ids; what
+  varied was prompt content/length. That sentence belongs in the first paragraph —
+  it converts "special tokens corrupt the engine" into "the model degenerates on a
+  chat-shaped prompt".
+- **A token-id-dependent branch would have to exist.** One grep decides:
+  `rg -n '151644|151645|im_start|is_special|added_tokens' vllm_ascend/` is empty at
+  `52d4acfa`, and that ref has no `vllm_ascend/models/` at all — the Qwen2 forward
+  is upstream vLLM's — so "the downstream re-implementation mishandles those ids"
+  is not available as an answer on that version.
+- **A TP=1 run cannot silently zero an out-of-range id.** `AscendVocabParallelEmbedding._forward_origin`
+  (`vllm_ascend/ops/vocab_parallel_embedding.py:174-184`) skips
+  `_get_masked_input_and_mask` when `tp_size == 1`, so an id past the table is not
+  masked to zero — it reaches the embedding call itself, where the expectation is a
+  loud error rather than silent corruption. Drop the "silent zero embedding" theory
+  before asking for vocab arithmetic.
+- **`Using max model len N` is the checkpoint's own number.** It is printed from
+  `_get_and_verify_max_len(hf_text_config, …)` (`vllm/config/model.py:1545`,
+  function at `:1898`) — not from the launch command — so a value that does not
+  match the public model card means the local `config.json` differs (edited,
+  rope-extended, merged, or paired with another tokenizer). That is the cheapest
+  non-engine explanation for degeneration that survives every release, and it costs
+  one CPU run: the same directory through `transformers`, same chat template,
+  `do_sample=False`. Ask for `config.json`'s `vocab_size`,
+  `max_position_embeddings`, `rope_scaling` and `architectures` alongside it.
+- **Version-invariance is evidence, not noise.** "Tried 0.14.0rc1 through
+  0.18.0rc1, same" removes a version-specific downstream code path from the ranked
+  list and promotes the checkpoint/config (and any op shared by both) — so step 5 of
+  the procedure confirms the pin but no longer owns the diagnosis.
+- **Coverage is not support.** At `52d4acfa` the only Qwen2.5-1.5B reference under
+  `tests/` is a **pooling** checkpoint
+  (`tests/e2e/singlecard/pooling/test_classification.py:10`), so this dense
+  generation config has no e2e/nightly row. State it as a gap: it raises the prior
+  for a model-specific defect and proves none.
+
 ## Step 1 — test the prompt before the engine
 
 The recorded #10503 request runs `temperature: 0`, `presence_penalty` 0,

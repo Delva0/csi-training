@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# EZ1001 family + the NZ (FRACTAL_NZ) weight-format gate at a given ref.
+#
+# Usage:
+#   bash nz-format-gate-check.sh <paste|-> [vllm-ascend-root]
+#   echo "$LOG" | bash nz-format-gate-check.sh - /workspace/repos/<issue>/vllm-project/vllm-ascend
+#
+# One call answers the two questions that decide a weight-layout report:
+#   1. which EZ1001 family the paste belongs to — the aclnn *registry* family
+#      (build/install owner) or the dtype x layout family (the Python that
+#      produced the layout owns it);
+#   2. what the NZ gate does with a float32 weight at the checked-out ref, which
+#      is the difference between the fp32 pooling head crashing and surviving.
+#
+# The root argument is optional: without it the paste is still classified, and
+# the gate is described by signature only.
+set -u
+PASTE=${1:-}
+ROOT=${2:-}
+if [ -z "$PASTE" ]; then
+  echo "usage: bash nz-format-gate-check.sh <paste|-> [vllm-ascend-root]" >&2
+  exit 2
+fi
+if [ "$PASTE" = "-" ]; then
+  BODY=$(cat)
+else
+  if [ ! -f "$PASTE" ]; then
+    echo "no such file: $PASTE" >&2
+    exit 2
+  fi
+  BODY=$(cat "$PASTE")
+fi
+
+echo "== EZ1001 family"
+REG=$(printf '%s\n' "$BODY" | grep -cE 'Get regInfo failed|binary_info_config\.json of socVersion|does not support opType')
+LAY=$(printf '%s\n' "$BODY" | grep -cE 'weight NZ is unsupported|is unsupported by the current SOC|now self is DT_|mat2 is DT_')
+if [ "$REG" -gt 0 ]; then
+  echo "  registry family present ($REG line(s)): aclnn has no binary for this SoC."
+  echo "  owner: build/install — references/custom-ops-runtime-faults/op-not-registered-for-soc.md"
+  printf '%s\n' "$BODY" | grep -E 'socVersion|opType' | head -2 | sed 's/^/    /'
+fi
+if [ "$LAY" -gt 0 ]; then
+  echo "  dtype x layout family present ($LAY line(s)): the op is registered, the launch"
+  echo "  was rejected for an input dtype/layout pair on this SoC."
+  echo "  owner: the Python that produced the layout — references/pooling-embedding/fp32-head-nz-format-crash.md"
+  printf '%s\n' "$BODY" | grep -oE 'now self is DT_[A-Z0-9_]+, mat2 is DT_[A-Z0-9_]+' | head -2 | sed 's/^/    /'
+  printf '%s\n' "$BODY" | grep -oE 'call aclnn[A-Za-z0-9_]+ failed' | sort -u | head -3 | sed 's/^/    /'
+fi
+if [ "$REG" -eq 0 ] && [ "$LAY" -eq 0 ]; then
+  echo "  no EZ1001 text in the paste — this is not the EZ1001 lane"
+fi
+
+echo
+echo "== phase of the first hit"
+printf '%s\n' "$BODY" | grep -nE 'determine_available_memory|profile_run|_dummy_pooler_run|_dummy_run|Starting to capture|Application startup complete' | head -6 | sed 's/^/  /'
+
+echo
+echo "== NZ gate at the checked-out ref"
+if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
+  cat <<'TXT'
+  (no root given) the gate moved across releases:
+    up to ~v0.11: vllm_ascend/utils.py is_enable_nz(dtype) — False ONLY for
+      float16/bfloat16, so fp32 passes; cast in
+      AscendUnquantizedLinearMethod.process_weights_after_loading (ops/linear.py)
+    ~v0.23:       vllm_ascend/utils.py _should_trans_nz / maybe_trans_nz —
+      "FP32 cannot use NZ" early return; cast only by the quantised methods
+  Re-run with the reporter's vllm-ascend root, or grep:
+    rg -n "def is_enable_nz|_should_trans_nz|maybe_trans_nz" vllm_ascend/utils.py
+TXT
+  exit 0
+fi
+UT="$ROOT/vllm_ascend/utils.py"
+if [ -f "$UT" ]; then
+  grep -nE 'def is_enable_nz|def _should_trans_nz|def maybe_trans_nz|torch\.float32|torch\.float16|torch\.bfloat16' "$UT" \
+    | grep -iE 'nz|float' | head -12 | sed 's/^/  utils.py:/'
+  if grep -q 'FP32 cannot use NZ' "$UT"; then
+    echo "  VERDICT: this ref never converts fp32 -> NZ; an fp32-head weight-layout"
+    echo "           crash cannot come from this gate."
+  elif grep -q 'def is_enable_nz' "$UT"; then
+    echo "  VERDICT: is_enable_nz excludes only fp16/bf16 => an fp32 weight IS cast to"
+    echo "           NZ; the fp32 pooling head is a candidate owner."
+  fi
+fi
+EN="$ROOT/vllm_ascend/envs.py"
+if [ -f "$EN" ]; then
+  grep -nA4 'VLLM_ASCEND_ENABLE_NZ' "$EN" | head -12 | sed 's/^/  envs.py:/'
+  echo "  escape for the reporter: VLLM_ASCEND_ENABLE_NZ=0 (mode 0 = NZ off at both refs)"
+fi
+LIN="$ROOT/vllm_ascend/ops/linear.py"
+[ -f "$LIN" ] && grep -nE 'npu_format_cast|FRACTAL_NZ|is_enable_nz|maybe_trans_nz' "$LIN" | head -6 | sed 's/^/  ops\/linear.py:/'

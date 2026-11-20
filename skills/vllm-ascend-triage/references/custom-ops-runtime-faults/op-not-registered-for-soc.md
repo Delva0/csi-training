@@ -13,10 +13,21 @@ does not support opType [AddRmsNormBias].
 ```
 
 `EZ1001` / `Get regInfo failed` / `binary_info_config.json of socVersion [...]`
-is aclnn's **registry lookup failing before any kernel launch**. The op is not
-absent from the source tree and the kernel was never entered: the custom-op
-package that is loaded in that container has no binary entry for the SoC the
-process runs on. Owner: the build/install chain, not `csrc/<op>/`.
+is aclnn's **registry lookup failing before any kernel launch**.
+
+The op is not absent from the source tree and the kernel was never entered: the
+custom-op package that is loaded in that container has no binary entry for the
+SoC the process runs on. Owner: the build/install chain, not `csrc/<op>/`.
+
+**Check the text before using this page.** `EZ1001` also prefixes
+`<Dtype> weight NZ is unsupported by the current SOC version [...]`, `now self is
+DT_<x>, mat2 is DT_<x>`. That op *is* registered; the launch was rejected for a
+dtype × layout pair, and the owner is whichever Python code produced that layout
+(a recorded case: an fp32 pooling head converted to `FRACTAL_NZ` by the
+weight-format gate, #4679 →
+`../pooling-embedding/fp32-head-nz-format-crash.md`). Nothing on this page
+(`SOC_VERSION`, `build_aclnn.sh` branches, `ASCEND_CUSTOM_OPP_PATH`, image tags)
+applies to that variant.
 
 Separate the three surfaces before reading any kernel code:
 

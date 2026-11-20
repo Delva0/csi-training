@@ -65,6 +65,27 @@ caches at this pin the cast returns early, so a frame that really executed
 from this pin — the #4812 line numbers `2682` / `3038` belong to neither pinned
 function, so the reporter's tree is not the pinned one).
 
+## Peak arithmetic: do it from the log, before the theory
+
+The serve log already carries every term (#3479, vllm-ascend v0.11.0rc0 +
+Qwen3-4B, put in one pass):
+
+| Term | Where it comes from |
+|---|---|
+| `total` | `Available memory: <N>, total memory: <M>` → `M` |
+| `weights` | `Loading model weights took X GB` |
+| `pool` | `Available memory: <N>` on that same line — the post-profiling HBM left for KV, i.e. after the weights — or `GPU KV cache size: <T> tokens` × per-token bytes |
+| per-token KV bytes | `layers × 2 (K,V) × kv_heads × head_dim × dtype_bytes` from the checkpoint's `config.json`; `pool / T` must reproduce it to a rounding step (147,464.7 vs 147,456 in #3479), which is how you prove the geometry you assumed is the one that ran |
+| the failing copy | the `length=<L>` in the `sdma copy` / `memcpy` record — `L = 2 × T × kv_heads × head_dim × dtype_bytes` is **one layer's K+V**, i.e. the per-layer cast loop, not one big allocation |
+
+Verdict rule: `weights + 2 × pool < M` must hold, because the raw int8 pool stays
+live while the NZ copy is written. In #3479 `7.56 + 2 × 26.95 = 61.46 GB` against
+a `46.43 GB` card — a ~15 GB shortfall, so the failure is capacity and the lever
+is `--gpu-memory-utilization` / `--max-model-len`, not the cast. A quick ladder of
+the largest `gmu` that fits is one multiplication per row: `pool = gmu × M −
+weights`, then test `weights + 2 × pool < M` (0.8 fails, 0.55 fits for those
+numbers).
+
 ## Ranked actions
 
 1. **Get the memory numbers before the theory**: `npu-smi info` on the reporter's

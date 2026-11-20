@@ -1019,3 +1019,87 @@ this is a worker segfault, not OOM) and was then cut **inside a source read** �
 ranked ladder and no artefact request. The shape now lives in
 `../hccl-and-hardware/worker-segfault-no-python-frames.md`.
 
+**#14817** vllm-ascend v0.23.0 (`5cb98ca`) + vllm v0.23.0 (`0fc695f`), Atlas
+800T A2 / 910B2 (driver 26.1.1), Qwen3-Reranker-0.6B served with
+`--runner pooling --hf_overrides '{"architectures":
+["Qwen3VLForSequenceClassification"], "classifier_from_token": ["no","yes"],
+"is_original_qwen3_reranker": true}'` exactly as the v0.23.0 tutorial page prints
+it: startup dies in the **APIServer** with `TypeError: Invalid type of
+HuggingFace config. Expected type: <class '…Qwen3VLConfig'>, but found type:
+<class '…Qwen3Config'>` from `qwen3_vl.py get_data_parser` → `get_hf_config`,
+then `ERR99999`. Track: architecture-name routing (document defect), not device,
+driver or checkpoint. The VL prefix makes `registry._normalize_arch`
+(`registry.py:1134-1158`) resolve `Qwen3VLForSequenceClassification` →
+`Qwen3VLForConditionalGeneration`, i.e. the multimodal model, whose processing
+info asserts `Qwen3VLConfig` (`qwen3_vl.py:865-885`); the text name
+`Qwen3ForSequenceClassification` resolves to `Qwen3ForCausalLM` and works. The
+tutorial's three wrong sites (`Qwen3-Reranker.md:141,156,284`) contradict the
+repo's own e2e job (`tests/e2e/pull_request/one_card/lora/test_qwen3_reranker_lora.py:29`)
+and upstream `docs/models/pooling_models/scoring.md:52,88` vs `:100,109`. Delivery:
+the recorded run answered in Chinese with the corrected command first, the
+process-location argument and the contradiction table — a correct, complete
+answer. What cost it turns: it had to *rediscover* `_normalize_arch` by walking
+`config.py`/`adapters.py`/`registry.py` over ~6 turns, and its first call bundled
+`skill_view` with `cat SOURCES.json` + `ls /workspace/history` (24-28 KB, plus a
+104 KB skill body) — the rule-7 bundle again. Route now:
+`../pooling-embedding/seq-cls-arch-routing.md`, and check 10 of
+`../tutorial-verification/tutorial-command-audit.md` for the doc-defect framing.
+
+**#4679** vllm-ascend v0.11.0rc3 (`b6d63bb`) + vllm v0.11.0 (`b8b302c`), 910B,
+Qwen3-Reranker-8B with `--task score` + `Qwen3ForSequenceClassification`: engine
+start dies inside `determine_available_memory` → `profile_run` →
+`_dummy_pooler_run` with `call aclnnMatmulWeightNz failed, error code is 161002`
+and `AclNN_Parameter_Error(EZ1001): Float32 weight NZ is unsupported by the
+current SOC version [Ascend910B], now self is DT_FLOAT, mat2 is DT_FLOAT`;
+reporter states v0.10.2rc1 worked. Track: weight-layout fault — upstream builds
+the score head fp32 (`adapters.py:305-313`, `params_dtype=torch.float32`;
+`:341-343` feeds it `x.float()`), and the downstream gate
+`is_enable_nz` (`utils.py:74-84`) excludes only fp16/bf16 while
+`VLLM_ASCEND_ENABLE_NZ` defaults to 1 (`envs.py:167-169`), so
+`AscendUnquantizedLinearMethod.process_weights_after_loading`
+(`ops/linear.py:43-51`) casts the fp32 head to `FRACTAL_NZ`. Escape:
+`VLLM_ASCEND_ENABLE_NZ=0`. Delivery: the recorded run shipped a correct answer in
+its 5th turn (verdict + `VLLM_ASCEND_ENABLE_NZ=0` first, then the evidence table,
+the patch option, and the version-scope caveat that the reporter's 0.10.2rc1 tree
+is not in the snapshot). Its two detours are the reusable part: it first routed
+`EZ1001` to the custom-op **build/install** page (`../custom-ops-runtime-faults/op-not-registered-for-soc.md`,
+14 KB) because the classification table keys on the code, and it wasted a call on
+`rg -rn` (a `--replace` rewrite, not recursion) while hunting the cast site.
+Route now: `../pooling-embedding/fp32-head-nz-format-crash.md`; the two `EZ1001`
+text families are split in `../custom-ops-runtime-faults/index.md`, and the
+fp32 policy is stated per ref because v0.23.0 rewrote the gate
+(`_should_trans_nz`, "FP32 cannot use NZ", `utils.py:260-298`).
+
+**#5549** vllm-ascend v0.10.0rc1 (`4604882`) + vllm v0.10.0 (`6d8d0a2`), image
+`v0.10.0rc1-310p`, Ascend 310P3: `vllm serve /model/Qwen3-Embedding-0.6B --dtype
+float16 --enforce-eager --gpu-memory-utilization 0.08` dies at `Starting to load
+model`, shards `0/1`, with `ValueError: There is no module or parameter named
+'embed_tokens' in CustomQwen3ForCausalLM` from
+`vllm/model_executor/models/utils.py:277`, init line `pooler_config=None`. Cause:
+an embedding checkpoint served as a **generation** model (no `--task embed`; auto
+maps a `ForCausalLM` architecture to generate, `config.py:935-985`) whose tensors
+are root-level (`embed_tokens.weight`, not `model.embed_tokens.weight`), so the
+decoder class's prefix-strict `AutoWeightsLoader` has no owner for the first
+group; the pooling wrapper strips `model.` and delegates to the inner loader
+(`adapters.py:79-86`), which is why one flag fixes it. The downstream class is a
+verbatim copy of upstream's loader, so this is not drift. Route now:
+`../pooling-embedding/embedding-checkpoint-as-generate.md` + one call
+(`scripts/checkpoint-key-prefix.py <model dir>`). Delivery: the recorded run was
+cut at the 16 K output cap after 24 assistant turns — skill, SOURCES, then model
+loader, pooling adapter and two `history/` greps — having emitted only status
+notes ("Let me check whether vllm-ascend at this pin supports pooling/embedding
+models at all") and **no answer**: it was one turn short of the question that
+settles the report (`--task embed`, `pooler_config`), which is exactly what the
+new page puts in the first paragraph.
+
+**#3479** vllm-ascend v0.11.0rc0 (`00ba071`) + vllm v0.9.1 (`b6553be1`),
+`v0.11.0rc0-310p-openeuler`, 310P3, Qwen3-4B at `--max-model-len 4096
+--gpu-memory-utilization 0.8 --enforce-eager`: KV init dies in
+`_convert_torch_format` with `Memory async copy failed … length=748683264`,
+`sdma copy error`, SMMU Terminate, `507013`. Track: allocation at KV init. The
+recorded run loaded `../runtime-memory/kv-init-and-format-cast-alloc.md` plus the
+310P page and answered in ~10 turns with the capacity arithmetic (per-token
+147,456 B reproduces the log's 26.95 GB pool; the failing copy is one layer's
+K+V; `7.56 + 2 × 26.95 GB` vs a 46.43 GB card) and a `--gpu-memory-utilization`
+ladder — the page worked as written, and its peak-arithmetic block now carries
+that table so the next session does not re-derive it with an ad-hoc snippet.

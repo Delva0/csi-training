@@ -12,9 +12,9 @@ both nodes redirect to `output.log` and only the launch commands were pasted.
 
 ## What the deliverable is, and when
 
-This is the track where the recorded run burned its whole cap: 18 assistant turns, 28 tool
-calls, 37.9K characters of reasoning, the first message text on the last turn, and that answer
-cut mid-sentence by the token cap (`../evidence-workspace/delivery-budget.md`, row #6240).
+This is the track where the recorded run went 18 assistant turns and 28 tool calls deep, put
+its first message text on the last turn, and had that answer cut mid-sentence
+(`../evidence-workspace/delivery-discipline.md`).
 Nothing in the paste can confirm a mechanism, so:
 
 - **3rd assistant turn**: say that no error text was pasted and that the three families

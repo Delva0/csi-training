@@ -20,9 +20,8 @@ was told to use, and is anything a reporter needs silently missing.
 
 ## What the recorded run did, and the cost
 
-#11739: 16384 completion tokens (cap reached), 22 assistant turns, 40 tool
-calls, 39.9K characters of reasoning, **79 characters of message text and no
-report file**. The findings were real and arrived early:
+#11739: 22 assistant turns, 40 tool calls, **no report file and message text that
+never got past an "I'll start" line**. The findings were real and arrived early:
 
 - **5th assistant turn** (reasoning only): the doc's reference results are
   labelled `vllm-ascend:0.13.0rc1` while the task image is v0.18.0 — a

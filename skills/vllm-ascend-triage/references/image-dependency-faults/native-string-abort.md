@@ -99,7 +99,7 @@ the empty set is not evidence about which rank died.
   (`SOURCES.json`: `Ascend/llvm-project` 1115/146342 files, `cann/hccl`,
   `cann/ge`, `cann/opbase` `unavailable`). The recorded #10943 run spent six
   tool calls there, found one unrelated `std::getenv("HOME")` guard, and shipped
-  no answer inside the 16384-token cap.
+  no answer.
 - **Re-testing model-side config fixes.** They are already listed above and all
   eight were tried without moving the crash point.
 - **Reading the custom model's modeling/processing files.** They explain nothing

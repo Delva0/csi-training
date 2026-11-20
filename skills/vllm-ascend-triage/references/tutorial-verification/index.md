@@ -33,7 +33,7 @@ Inherit the rules in SKILL.md, plus these:
    (`tutorial-command-audit.md`); after 3-5 concrete defects plus the corrected
    deploy command and a three-item FAQ you have the deliverable. #11739's
    recorded run confirmed several real doc bugs and then kept auditing until the
-   16384-token cap, shipping nothing (`community-test-report.md`).
+   session ended, shipping nothing (`community-test-report.md`).
 4. **Separate severity in the report**: breaks the command (dead flag, missing
    path, wrong device env var), stale baseline (older release, numbers
    predating the image), cosmetic (wording, a flag abbreviation that still

@@ -110,7 +110,7 @@ which half is verified and which is a hypothesis; do not let the version-flip
 story inherit the confidence of the source-verified matrix.
 
 Delivery note: this run is the calibration row for the shape — 14 assistant turns,
-16 tool calls, 38.0K reasoning characters, a 5.3K answer delivered on the last
-turn, with `/workspace/scratch/findings.md` written one turn earlier so the answer
-survived the cap. It still led with the unverified half-gate mechanism; leading
+16 tool calls, a complete answer delivered on the last turn because
+`/workspace/scratch/findings.md` was written one turn earlier, which is how an
+answer survives to the end. It still led with the unverified half-gate mechanism; leading
 with the doc matrix would have been one call cheaper and true at the pinned commit.

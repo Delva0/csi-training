@@ -23,6 +23,13 @@ wrong output?**
   first token is wrong, on a **hybrid linear-attention (GDN/Mamba)** model —
   Qwen3.5/Qwen3.6, DeepSeek-V4, GLM — under PD →
   `hybrid-state-transfer.md`.
+- Nothing connects at all because the connector module itself fails to import —
+  `ImportError: ascend_transport.so: cannot open shared object file` at
+  `kv_p2p/mooncake_connector.py:24`, `No module named mooncake` — or the decode
+  side dies in `register_kv_caches` with an `AttributeError` on a config scalar →
+  `../image-dependency-faults/launch-env-and-library-path.md` and
+  `../startup-failures/connector-config-attributes.md` respectively; no transport
+  or rank-table theory applies before the module imports.
 
 Inherit the rules in SKILL.md. Rules specific to this topic:
 
@@ -84,5 +91,8 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   connector matrix (`MooncakeConnectorV1` / `MooncakeHybridConnector` /
   `MooncakeLayerwiseConnector` / `AscendStoreConnector`), the
   `mamba_cache_mode` gate that only the KV-store connectors satisfy, which
-  runner paths that skips, and the ablation matrix to hand the reporter when the
-  symptom is alternating good/bad output.
+  runner paths that skips, the MTP-under-PD accounting sites (`num_draft_layers`,
+  the MambaSpec `num_speculative_tokens` block index, the `"mtp" in layer_name`
+  predicates) together with the refuted "our method name is not `mtp`" theory,
+  and the ablation matrix to hand the reporter when the symptom is alternating
+  good/bad output.

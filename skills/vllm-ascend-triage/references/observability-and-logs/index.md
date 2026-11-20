@@ -26,11 +26,10 @@ Inherit the rules in SKILL.md. Rules that decide success here:
 2. **This class is a checklist plus one grep, not archaeology.** Both recorded
    runs of this topic ended with no answer at all. #10985 answered a two-line
    "flags do not print prompts in 0.18.0" report by reading
-   `vllm/entrypoints/openai/**` for 15 turns / 28 tool calls, spent the full
-   16384-token completion budget, and emitted 70 characters of text (an "I'll
-   start by…" line). #9583 answered a `404` on `/start_profile` with 20 turns /
-   30 tool calls and 47.6K reasoning characters, emitted 69 characters, and hit
-   the cap on a plan block. The four facts that decide the flags case are
+   `vllm/entrypoints/openai/**` for 15 turns / 28 tool calls and ended the session
+   having emitted one "I'll start by…" line. #9583 answered a `404` on
+   `/start_profile` with 20 turns / 30 tool calls, emitted one line, and ran out
+   on a plan block. The four facts that decide the flags case are
    `logger.py:21-30` (the two warnings), `logger.py:44` (prompt text is
    DEBUG-only), `generate/api_router.py:144-152` (completions never gets
    `enable_log_outputs`) and `cli_args.py:368` (the flag pairing gate); the

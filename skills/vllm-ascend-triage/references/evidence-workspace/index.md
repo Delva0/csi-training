@@ -53,11 +53,10 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
 
 ## Pages
 
-- `delivery-budget.md` — the recorded per-session completion-token accounting and the
-  G1/G2/G3 delivery gates (rule 1 of SKILL.md), plus the four reasoning patterns that
-  consume a whole budget: the archaeology loop, the late plan, the ownership hunt and
-  the "one more angle" source walk. It also carries the uncapped calibration rows
-  (#2586, #13699, #4812) that show context, not output, as the other tax. Read it when
+- `delivery-discipline.md` — the G1/G2/G3 delivery gates (rule 1 of SKILL.md), the four
+  reasoning patterns that consume a session (the archaeology loop, the late plan, the
+  ownership hunt and the "one more angle" source walk), and the recorded rows
+  classified by what the run already had in hand when it kept going. Read it when
   a report has more than two plausible mechanisms or when the report is "a flag did
   nothing".
 - `case-layout.md` — concrete commands for orientation, source reading at a pinned commit,

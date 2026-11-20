@@ -51,7 +51,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   shared object file`, `No module named`), or the interpreter aborting inside a
   native module the image shipped (glibc allocator text, no Python frame, no
   `WorkerProc` line) → leave this topic for `../image-dependency-faults/index.md`:
-  the image or its build recipe owns that failure, not vllm-ascend.
+  the image or its build recipe owns that failure, not vllm-ascend. When the
+  missing library is named by the *connector's own* `from mooncake.engine import
+  TransferEngine` line (`ImportError: ascend_transport.so`) and the deployment was
+  started by a launcher's `args:`/`command:` block, read
+  `../image-dependency-faults/launch-env-and-library-path.md` first — the
+  `collect_env.py` ENV block describes the shell, not the launched process.
 - The per-rank traceback is `OSError: libatb.so: cannot open shared object file`
   → `OSError: Could not load this library: .../torch_npu/lib/libop_plugin_atb.so`
   → `_register_atb_extensions()` at `vllm_ascend/worker/worker.py`, plus an outer

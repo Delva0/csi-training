@@ -102,9 +102,8 @@ the debug log: prefill `cudagraph_mode: NONE num_tokens=14`, then
 `cudagraph_mode: FULL num_tokens=3 num_reqs=1` + `Replaying aclgraph`. Version from
 the follow-up: `quay.io/ascend/vllm-ascend:v0.18.0`, i.e. the pinned tree.
 
-The recorded run (13 assistant turns, 17 tool calls, 51.2K characters of reasoning,
-2.2K characters of answer, capped at 16384 completion tokens mid-answer) produced a
-correct lane classification and a good ablation list, correctly refuted the
+The recorded run (13 assistant turns, 17 tool calls, its answer cut mid-way)
+produced a correct lane classification and a good ablation list, correctly refuted the
 null-block theory, and got the MTP/graph first-decode suspicion right — but its
 lead framing was the unestablished one-shot-state mechanism, and the answer text
 was cut before the actions block. Written in the shape of `index.md` step 2, the

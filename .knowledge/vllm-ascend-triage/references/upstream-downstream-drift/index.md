@@ -97,6 +97,17 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
    consumer module's (`qwen3_moe.FusedMoE is not patch._ascend_FusedMoE`) and see
    `stale-module-binding.md`. Check `hasattr(CustomOp, 'op_registry_oot')` before
    quoting the name-keyed page.
+   A fourth form raises nothing at all: the downstream shim
+   `<Class>.forward_oot = …` is **unreachable** because the upstream class defines
+   its own `forward`, so `CustomOp.dispatch_forward` never runs. At v0.9.0rc2,
+   `vllm_ascend/ops/rotary_embedding.py:273` binds
+   `RotaryEmbedding.forward_oot = rope_forward_oot`, while
+   `MRotaryEmbedding.forward` (`vllm/model_executor/layers/rotary_embedding.py:1008`
+   at vllm v0.9.0) bypasses it — mRoPE keeps upstream's native body. Two greps
+   settle it (`grep -n 'class <X>\|def forward' <upstream file>`); run them before
+   repeating anyone's claim that a flag "gates the fused op", including a
+   code-change request's own premise
+   (`../code-change-requests/env-flag-retirement.md`, step 4).
 8. **A `patch/**` frame is a copy, so attribute it with a diff.** Every module
    under `vllm_ascend/patch/` assigns a verbatim upstream method onto an upstream
    class under a `vllm_version_is('<ver>')` gate, so the innermost traceback frame

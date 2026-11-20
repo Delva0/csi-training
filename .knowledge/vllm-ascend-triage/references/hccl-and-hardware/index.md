@@ -30,6 +30,20 @@ family, not a cabling fault: `aiv-mc2-env-ablation.md` has the single-variable
 ablation matrix, the rank arithmetic that says whether MC2 was even selected, and
 the four precedents (#14928, #13688, #9447, #15195).
 
+**Then separate an MC2 timeout the reporter did *not* ablate.** If the paste dies
+inside `profile_run` / `determine_available_memory` with `507014` "The aicore
+execution times out", the deepest Python frame is `aclnnInplaceCopy` or an
+`ERR02005` HCCL-watchdog abort, and the `[AIC_INFO] fault kernel_name=` line names
+a **MoE all-to-all** (`MoeDistributeDispatchV2_…`), the dispatch is the first
+collective of the process and never returned. The trap is the arithmetic: the
+batch that runs there is `mc2_tokens_capacity`, not `--max-num-batched-tokens`,
+because `profile_run` runs an extra `_dummy_run(capacity, with_prefill=True)`
+(`worker/model_runner_v1.py:2202-2208` at v0.13.0rc1). `mc2-dispatch-profile-run-hang.md`
+has the capacity/`global_bs` arithmetic, the `HCCL_INTRA_PCIE_ENABLE=1 /
+HCCL_INTRA_ROCE_ENABLE=0` → hierarchical-dispatch gate that is the *documented*
+A2 setting (do not rank it as the misconfiguration), the tutorial diff that closes
+the flag lane, and the ladder.
+
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
 bound`, check the record's date first (rule 13) and the number second: a port above

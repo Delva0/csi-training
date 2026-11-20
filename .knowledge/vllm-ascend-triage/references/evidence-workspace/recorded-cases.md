@@ -562,3 +562,74 @@ output budget entirely in reasoning, cut while it was still verifying
 `add_request`'s index assignment after having named the root cause two turns
 earlier. Lane: pooling batch bookkeeping
 (`../pooling-embedding/batch-index-desync.md`).
+
+**#1262** vllm-ascend v0.9.0rc2 (`8dd686d`) + vllm v0.9.0 (`5873877`). Body = the
+PR #1251 link plus one review-comment link: "Remove `VLLM_ASCEND_ENABLE_NPU_MROPE`
+before 0.9.1 final release". No log, no environment dump — a code-change request.
+The identifier and any `mrope` op are **absent** from the pinned tree (only the
+`mrope_positions` plumbing in `worker/model_runner{,_v1}.py`, and `csrc/` has
+`pos_encoding_kernels.cpp` only), so the snapshot predates the PR and the
+deliverable is the removal sweep on the branch that carries it. Found on the way:
+at vllm v0.9.0 `MRotaryEmbedding.forward`
+(`vllm/model_executor/layers/rotary_embedding.py:1008`) bypasses `CustomOp`
+dispatch, so the tree's `RotaryEmbedding.forward_oot = rope_forward_oot`
+(`vllm_ascend/ops/rotary_embedding.py:273`) never covers mRoPE — a downstream shim
+can be unreachable without any error. Shipped a good answer, but its first
+message text came on its **15th assistant turn**: 14 bare tool-call turns, no
+truncation pressure. Track: code-change / flag retirement
+(`../code-change-requests/`).
+
+**#5509** vllm-ascend v0.13.0rc1 (`1b5d5ab`) + vllm v0.13.0 (`72506c9`),
+DeepSeek-V3.1-Terminus-w4a8, 2 nodes × (DP4, `--data-parallel-size-local 2`),
+TP4, `--enable-expert-parallel`, `--async-scheduling`, MTP 3, FULL_DECODE_ONLY,
+`VLLM_ASCEND_ENABLE_MLAPO=1`, `VLLM_ASCEND_BALANCE_SCHEDULING=1`,
+`HCCL_INTRA_PCIE_ENABLE=1`/`HCCL_INTRA_ROCE_ENABLE=0`. Weights and
+`torch.compile` succeed, then ~10 min of `No available shared memory broadcast
+block found in 60 seconds` and `507014` aicore timeout at
+`torch.npu.synchronize()` in `profile_run` → `determine_available_memory`, fault
+kernel `MoeDistributeDispatchV2_…_high_performance_…`, title blaming
+`aclnnInplaceCopy`. The session read the selector, corrected its own first-turn
+blame of the `HCCL_INTRA_*` pair (the dispatcher comment and the tutorial both set
+it), and named the real reason the kernel appears during profiling: `profile_run`
+runs an extra `_dummy_run(mc2_tokens_capacity, with_prefill=True)` at
+`model_runner_v1.py:2202-2208`. Answer shipped in Chinese with the DP4×TP4 = 16
+boundary arithmetic, the tutorial diff, a refuted-rows list and a four-rung ladder.
+Track: lane C, MC2 dispatch during profiling
+(`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`); the hang's own cause
+stayed open (no `npu-smi`, no headless-node log in the paste).
+
+**#9986** vllm-ascend v0.18.0rc1 (`99e1ea0fe6`) / vllm v0.18.0 (`bcf2be9`), image
+`quay.io/ascend/vllm-ascend:v0.18.0rc1`, one 910 card, dense Qwen3-0.6B
+(`--quantization ascend --tensor-parallel-size 1 --async-scheduling`), the
+FLASHCOMM1 `export` commented out in the pasted script; the report's only evidence
+was a screenshot (误报信息) and its complaint was the startup line `Unknown vLLM
+environment variable detected: VLLM_ASCEND_ENABLE_FLASHCOMM1`. Track: observability
+/ env registry (`../observability-and-logs/env-var-validation-warning.md`). The run
+got the mechanism right — upstream `validate_environ`, warn-only, vllm-ascend's
+registry never merged, merge belongs in `pre_register_and_update` — and still
+**lost its closing scope section to the cap** after 13 assistant turns and ~40 K
+characters of reasoning (the 8th turn was a bare tool call, so G2 carried no ranked
+answer). Two factual errors came from the calls it skipped: it told the reporter
+"your screenshot cannot be read in this snapshot" although
+`/workspace/attachments/9986/screenshot-*.ocr.txt` was present and carries the
+emitting line `[envs.py:1717] (APIServer pid=231)`, and it stated that
+`VLLM_DISABLE_SHARED_EXPERTS_STREAM` (`platform.py:31`) is the only `VLLM_*` name
+vllm-ascend writes, missing `VLLM_ASCEND_ENABLE_NZ` /
+`VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE` (`batch_invariant.py:79-81`) that its own
+grep had already printed. One call went to a paginated `github` issue search
+(17 K characters, `display_complete: false`) that produced no precedent the corpus
+lacked. Delivery: verdict and action arrived; version scope and open questions lost.
+
+**#9984** vllm-ascend v0.19.1rc1 (`da421afad7`) / vllm v0.19.1 (`b1388b1fbf5a`),
+GLM-5.1-w4a8 started with the tutorial's FLASHCOMM1 + MTP flags:
+`AttributeError: 'AscendRowParallelLinear' object has no attribute
+'aclnn_input_scale'` at `sfa_v1.py:707` ← `:544`. Track: DSA-CP o_proj weight
+switching (`../dsa-sparse-attention/o-proj-quant-attribute-crash.md`). Delivered a
+complete ranked answer in 10 assistant turns: `enable_sp()` ← FLASHCOMM1 →
+`enable_dsa_cp()` (needs `index_topk`) → the non-layer-shard branch clones three
+tensors only a static-W8A8 method creates, so the fix is FLASHCOMM1 off
+(reporter-confirmed) or the W8A8 checkpoint; the pinned GLM5 tutorial ships
+FLASHCOMM1 only with `glm5-w8a8`, and no `tests/e2e/**` FLASHCOMM1 config is W4A8.
+The decisive detour was one `history-titles.sh 'aclnn_input_scale|o_proj_tp|dsa_cp'`
+call (4 hits, one exact precedent: #7937, v0.18.0-a3 nightly, same frame on a
+decode instance).

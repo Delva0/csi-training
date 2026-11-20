@@ -334,6 +334,16 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   reported late — decide by pid and log position, not by the gap (rule 13); the
   in-window first error is the one to classify
   (`references/hccl-and-hardware/error-report-timestamps.md`).
+- First collective after the weights load dies on `Transport_Init_Error(EI0009)` /
+  `[Create][DestLink]Create Dest error!`, with `halShmemOpenHandle … drvRetCode=17` and
+  `rtsIpcMemImportByKey … 507899`: run
+  `bash <skill_root>/scripts/hccl-link-pair-audit.sh <log>` — it lists the failed
+  `rank→rank` edges, the driver codes, and classifies them same-card vs cross-card
+  against the `npu-smi` Bus-Ids. All-cross-card with the card-local edges up is a host
+  transport/driver pairing question (driver vs the image's CANN, container
+  passthrough), and the identical `localIpAddr`/`remote_ip_addr` text is **not** a
+  duplicate `device_ip` — the rank table is `scripts/ranktable-check.sh`'s job
+  (`references/hccl-and-hardware/transport-destlink-ipc-import.md`, #4148).
 - A device fault whose deepest frame is a `torch_npu` scatter/index write in
   `vllm_ascend/attention/sfa_v1.py` (`507035`, `ERR00100`, `EZ9999 … aivec error`,
   `The DDR address of the MTE instruction is out of range`, fault kernel

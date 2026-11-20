@@ -81,6 +81,11 @@ after that keeps the header, not this text.
   data-plane, and flags the canned `Check memory and store capacity` text (#11454).
 - `scripts/ranktable-check.sh <rank_table.json|log> [...] | -` — `server_count` /
   `server_id` / duplicate `device_ip`, i.e. multi-server vs local HCCS (#14506).
+- `scripts/hccl-link-pair-audit.sh <log|-> [--visible 0-3]` — the distinct failed
+  `createLink` edges of a `Transport_Init_Error(EI0009)` / `DestLink` block, the
+  `drvRetCode` / runtime-result codes, and same-card vs cross-card classification from
+  the paste's `npu-smi` Bus-Id rows; it refuses to read equal address text as a duplicate
+  `device_ip` (#4148).
 - `scripts/plog-timeline.sh [--since YYYY-MM-DD] <log|-> [...]` — per-error-family
   timeline and the first in-window error of a plog (#9183); an older record it
   lists is a previous run **or** this process's own `init engine (...)` window, so

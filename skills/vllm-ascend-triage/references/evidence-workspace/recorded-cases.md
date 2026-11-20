@@ -20,6 +20,44 @@ classification table in `SKILL.md` routes by signature, topical pages by track, 
 
 ## Cases
 
+**#5236** vllm-ascend v0.12.0rc1 (`42ceaf08`) + vllm v0.12.0 (`4fd9d6a8`),
+Qwen3-235B-A22B on the `v0.12.0rc1` image: the body was the **empty template** (no env
+dump, no command, no traceback, no error code) and the whole symptom was the title,
+"an aclnnRmsNorm operator execution error occurs". Track: device-side operator execution
+error. The recorded run shipped a complete ranked answer — source-verified that the pin has
+**no** `csrc/rms_norm` (so the named op can only be CANN's built-in `aclnnRmsNorm` behind
+`torch_npu.npu_rms_norm`, `vllm_ascend/ops/layernorm.py:53-79`), that upstream
+`qwen3.py:135-136,147-150` reaches the non-residual branch through per-head
+`q_norm`/`k_norm` (so `aclnnRmsNorm` names a sync point, not an owner), and warned that the
+topic's `add_rms_norm_bias` map is verified at v0.19.1rc1 only. What it ranked wrong: cause
+1 was an async error surfacing at the norm, with the environment/driver pairing at 2; the
+reporter's later record is **"This issue was solved by updating the npu driver to 25.25.0"**.
+Lesson now in `../custom-ops-runtime-faults/index.md`: for a built-in `aclnn<Op>`
+*execution* error with no code, the host driver/CANN pairing is the first ranked cause and
+the version triple is the cheapest ask. Delivery: the ranked answer landed on the 11th
+assistant turn (G2 was the miss), and the driver pairing sat only inside the rank-2
+environment row as a version check — no driver-update rung appeared in it.
+
+**#4148** vllm-ascend v0.11.0rc1 (`c5fe179c`) + vllm 0.11.0 (`b8b302cd`), torch_npu 2.7.1,
+`npu-smi 25.2.0`, 4×310P3 = **two** 300I Duo cards (`0000:03:00.0` → devices 0,1;
+`0000:83:00.0` → devices 2,3), Qwen3-32B `--tensor-parallel-size 4 --enforce-eager
+--dtype float16 --max-model-len 4096 --gpu-memory-utilization 0.7`, with a 537 KB
+`error.log` attached. Engine start died in `determine_available_memory` → `profile_run`,
+wrapped as `… current working operator name is HcclAllreduce` over a `rotary_embedding`
+frame; the real record is `Transport_Init_Error(EI0009)` / `[Create][DestLink]Create Dest
+error!` for `rank0→rank3` and `rank1→rank2` with `halShmemOpenHandle … drvRetCode=17` and
+`rtsIpcMemImportByKey … 507899`. The recorded run got the layer-1 reading right
+(cross-card transport, driver IPC import, the Python frame is an async sync point) and
+correctly separated the second layer (the generic image vs `is_310p()`, which no guard
+enforces at this pin), but it (a) read the paste's single `[NETWORK_ADDRESS_1]` placeholder
+on both sides as a duplicated `device_ip` — history `#486` shows that field is printed from
+the local rank on both sides, so it is not evidence — and (b) kept investigating past its
+mid-session verdict until the 16 384-token cap, ending with `stop_reason:
+output_truncated` and **no final answer message**; the reporter only replied "好的，了解了，幸苦",
+so the fix is unconfirmed. Lessons now in
+`../hccl-and-hardware/transport-destlink-ipc-import.md` and
+`scripts/hccl-link-pair-audit.sh` (edge set, cross-card vs card-local, the redaction trap).
+
 **#8022** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`),
 Qwen3.5-27B, streaming chat: with `--reasoning-parser qwen3` (or `deepseek_r1`)
 `reasoning_content` stayed null, the thinking vanished from `content`, and the first
@@ -1263,3 +1301,33 @@ and the v0.22.1rc1 block of `../soc-platform-paths/atlas-300i-310p.md` (the
 no maintainer answer in the corpus; the ranked candidates are the image/CANN/
 torch_npu pairing (#10136 family), the unvalidated model/feature combination, and
 host-memory pressure during init.
+
+**#15560** vllm-ascend v0.18.0 (`e18643f`) + vllm v0.18.0 (`bcf2be9`),
+Qwen3.6-27B-w8a8, TP=2, 2×910B3, offline `LLM(...)` with
+`enable_sleep_mode=True` and `compilation_config={"cudagraph_mode":
+"FULL_DECODE_ONLY"}`: the first `llm.generate()` returned garbage and the second
+was normal. Track: first-call corruption of a text-only launch of a VL-capable
+checkpoint. Delivery: the recorded run got the lane right and produced the
+token-signature reading (a constant token id repeated to `finish_reason: "length"`
+= degenerate logits, which retires the numerics lanes) but its ranked lead for the
+`AttributeError: 'NoneType' object has no attribute 'size'` was "the ACL-graph
+replay calls the compiled hybrid forward with a None tensor", and the answer was
+cut mid-table at the output cap. The reporter's later comments supplied both
+corrections: the crash is the unfixed `is_multimodal_model` use in the v0.18.0
+branch (#14638, fixed on main by PR #8556, backport #14618) rather than the graph
+— and the artifact itself is a start-up sync problem ("start a `LLM` object and
+give some time, then no error will occur"). Version scope from the reporter:
+still reproducing on v0.23.0 and v0.26.0rc1 (`token_ids=[0]*100`, second call
+normal), clean on nightly main at vllm 0.27.1. Page:
+`../accuracy-benchmarks/first-generate-degenerate.md`.
+
+**#11742** `[Community Test]` document task (InternVL3.5-38B-W8A8 on 2×800I A2,
+`推理众测任务书-vllm.xlsx` row 7): the run never delivered. Delivery lesson only —
+its report heredoc opened on the 9th of 10 turns, the session then returned to
+research, and the 10th turn carried no message text at all while the harness
+reported 608 K prompt tokens and the full 16 K output-token cap consumed. The rule
+it broke is the document bullet of `SKILL.md` rule 1 (skeleton early, 2-3 K per
+write, final message = condensed report); the 98 K-character `SKILL.md` read on
+turn 1 that already carried the `[Community Test]` routing row, plus three
+whole-page reference reads (tutorial-verification index, community-test-report,
+tutorial-command-audit) on turns 2-4, is what made the prompt budget that tight.

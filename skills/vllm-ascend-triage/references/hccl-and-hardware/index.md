@@ -67,6 +67,21 @@ the rule that it is a finding only when it is in-window — in #12487 the title 
 that line while it was a three-day-old re-print and the in-window error was an AICPU
 `reduce_scatter` param-invalid on a chip the reporting rank did not own.
 
+**Then separate a link-creation failure from the collective it is reported as.** If the
+first collective after the weights load dies with `Transport_Init_Error(EI0009)` /
+`[Create][DestLink]Create Dest error!` / `createLink para:rank[i]…dst_rank[j]` plus
+`halShmemOpenHandle … drvRetCode=17, device_id=N` / `rtsIpcMemImportByKey … 507899`,
+nothing launched: HCCL could not build one edge of the transport. Two traps decide it —
+`507899` is the generic `[driver error:internal error]` (the verb above it names the
+operation), and the identical `localIpAddr` / `remote_ip_addr` text is *not* a duplicate
+`device_ip` (the field is printed from the local rank on both sides; the rank table is
+`scripts/ranktable-check.sh`'s job). The failing **edge set** is the finding:
+`bash <skill_root>/scripts/hccl-link-pair-audit.sh <log>` classifies each failed pair
+same-card vs cross-card against the `npu-smi` Bus-Ids, and all-cross-card with every
+card-local edge up puts it on the host driver/CANN pairing and the container's device
+passthrough, not on the model. `transport-destlink-ipc-import.md` (#4148, #486, and the
+#5236 driver-update precedent).
+
 **Then separate a signal death from a collective error.** `!!!!!!! Segfault
 encountered !!!!!!!` plus `Worker proc VllmWorker-<n> died unexpectedly (exit
 code: None)` is a rank killed by signal: no error code, no Python exception, and
@@ -95,7 +110,10 @@ answer is the image/CANN pairing plus the release's own validated command.
    process's own init/capture window reported late** (#10700, 27 min); pid plus log
    position decides, not the gap. One call:
    `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>`.
-2. `collective-error-chain.md` — restore error attribution (the Python frame in
+2. `transport-destlink-ipc-import.md` — `DestLink` / IPC-import failure at link
+   creation: the edge-set read, the generic `507899`, why equal `localIpAddr` text is not
+   a duplicate `device_ip`, and the driver-pairing ladder.
+3. `collective-error-chain.md` — restore error attribution (the Python frame in
    the traceback is usually a later synchronization point), read the plog, and
    stop attributing the defect to whichever op the traceback names. That page
    also covers the compile-phase case: fusion-pattern registration runs sample
@@ -108,7 +126,7 @@ answer is the image/CANN pairing plus the release's own validated command.
    tracks batch composition instead of hardware, the named op *is* the owner's evidence —
    the caller's index tensor. See `../dsa-sparse-attention/indexer-cache-scatter-fault.md`
    (#4296) before asking for device health.
-3. `device-health-checks.md` — check every device's health, correlate the
+4. `device-health-checks.md` — check every device's health, correlate the
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards.
 

@@ -38,7 +38,7 @@ amd64, an aarch64 wheel) the owner is the image pipeline, not this page:
 
 | Gate | Code (v0.11.0rc3) | Consequence to check |
 |---|---|---|
-| SoC detection | `vllm_ascend/utils.py:66-71` | every branch below keys off the build stamp, not the device name |
+| SoC detection | `vllm_ascend/utils.py:66-71` (`:65-69` at v0.11.0rc1) — `is_310p()` reads `_build_info.__soc_version__` | every branch below keys off the build stamp, not the device name. At **v0.11.0rc1** there is no runtime guard at all — `check_ascend_device_type()` (the assert in `device-type-build-vs-runtime.md`) does not exist in that tree, so a generic unsuffixed image on a 310P host silently keeps `is_310p() == False` and takes the A2 path; the tag suffix is the only signal |
 | Custom ops not activated | `vllm_ascend/platform.py:287-288` — `# Activate custom ops for v1, except on 310P` / `if not is_310p(): compilation_config.custom_ops = ["all"]` | on 310P the reporter's `--compilation-config custom_ops` list is the only one in play; on other SoCs vllm-ascend overwrites it. A "custom op choice made no difference" observation is expected here |
 | Global NZ format | `vllm_ascend/worker/model_runner_v1.py:146-154` — `torch.npu.config.allow_internal_format = True`; `set_compile_mode(jit_compile=False)`; `ACL_FORMAT = ACL_FORMAT_FRACTAL_NZ` on 310P (ND otherwise) | every `_convert_torch_format` call site becomes a real conversion on 310P and a no-op elsewhere |
 | Weight NZ conversion after load | `model_runner_v1.py:2685-2694` converts every `MergedColumnParallelLinear` / `QKVParallelLinear` / `RowParallelLinear` weight | load-time failures on 310P can be format casts, not op bugs |

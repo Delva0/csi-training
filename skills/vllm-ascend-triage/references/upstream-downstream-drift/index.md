@@ -134,6 +134,25 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
    and ask for `pip show vllm`. Do not keep grepping the pinned tree for the
    missing line — that loop cost a recorded run its whole session.
 
+10. **A config flag is not the capability test, and a stack through the graph
+   wrapper is not attribution.** The downstream fork replaced upstream's
+   capability predicate with a model-level flag in its dummy/capture path:
+   `vllm_ascend/worker/model_runner_v1.py:2265,2431` (v0.18.0 `e18643f`) branches on
+   `self.is_multimodal_model` where upstream `gpu_model_runner.py:5152` uses
+   `self.supports_mm_inputs` + `_prepare_mm_inputs()` + `**_dummy_mm_kwargs(...)`.
+   Upstream `is_multimodal_model` is only `multimodal_config is not None`
+   (`vllm/config/model.py:1424`), true for every VL-capable architecture even with
+   `language_model_only=True`, while `multimodal_registry.supports_multimodal_inputs`
+   (`vllm/multimodal/registry.py:103-111`) is false in text-only mode. The
+   observable is `AttributeError: 'NoneType' object has no attribute 'size'` at
+   `torch/_dynamo/utils.py::call_size`, reached through `compilation/acl_graph.py` —
+   the graph wrapper is the call chain, not the owner. Before theorising, check
+   whether the *release branch* simply lacks a main-only fix (recorded #14638:
+   fixed on main by PR #8556, not merged into the v0.18.0 branch, backport PR
+   #14618): `rg -n '<flag>' <module>` in the image's tree answers "predates the
+   fix" in one call, and the answer is a backport request, not a code walk.
+   Behaviour page: `../accuracy-benchmarks/first-generate-degenerate.md`.
+
 ## Pages
 
 - `patched-forward-api-drift.md` — worked case vllm-ascend #11661 (v0.22.1rc1,

@@ -54,6 +54,15 @@ Six entry shapes leave this topic immediately and are not accuracy questions at 
   changed two) and go to `hybrid-block-size-corruption.md`. A short *digit-heavy*
   prompt on the same model family (Qwen3-Next) with **no** knob difference is the
   other hybrid shape: `qwen3-next-gdn-numeric-path.md`.
+- A **first-call-only** degenerate answer — a constant token id repeated to
+  `finish_reason: "length"`, an immediate `<|im_end|>` after `<think>`, or an
+  `AttributeError: 'NoneType' object has no attribute 'size'` raised through
+  `compilation/acl_graph.py` — on an offline `LLM` at TP≥2, with call 2 correct, is
+  not a numerics question: a constant-tie logits vector retires weights,
+  quantization, tokenizer, block size and prefix caching at once, and the two real
+  owners are the text-only-multimodal `is_multimodal_model` drift and the
+  first-request state that `enable_sleep_mode=True` exposes.
+  Go to `first-generate-degenerate.md` before any kernel read.
 - First question: **did both numbers come from the same server, weights and serve flags?**
   If yes, the engine produced identical logits for identical prompts, so the gap lives in
   prompt template, sampling, decoding budget, output routing, extraction or aggregation — not
@@ -115,6 +124,17 @@ Six entry shapes leave this topic immediately and are not accuracy questions at 
   `Recommended Configurations`) and make that diff the opening answer — the worked
   Kimi-K2.6 v0.23.0rc1 table is there, with #13002 as the cost of skipping it —
   its five deviations are ranked rows, not proven causes.
+- `first-generate-degenerate.md` — the first offline `LLM.generate()` is garbage
+  (constant token id / immediate stop) or dies while call 2 is correct, on a
+  hybrid GDN checkpoint of a VL-capable architecture at TP≥2: the response-field
+  table that retires the numerics lanes, the source-verified `is_multimodal_model`
+  vs `supports_mm_inputs` drift in `_dummy_run`
+  (`model_runner_v1.py:2265,2431` at v0.18.0 vs upstream `gpu_model_runner.py:5152`,
+  `_prepare_mm_inputs`, `_dummy_mm_kwargs`) with #14638/#8556/#14618 as the
+  maintainer statement, the sleep-mode matrix and the reporter's "give the `LLM`
+  some time" sync finding, the `expandable_segments` confound inside the
+  `enable_sleep_mode=False` row (`platform.py:519-541`), and the version scope
+  (0.18.0/0.23.0/0.26.0rc1 broken, nightly main clean).
 - `vl-vision-tower-degeneracy.md` — VL image/video requests that degenerate into one
   repeated token, with the co-reported "very slow": the two-implementation gate
   (`USE_OPTIMIZED_MODEL`, v0.9.2rc1 `b5b7e0e` `models/__init__.py:23-33`), the head-dim

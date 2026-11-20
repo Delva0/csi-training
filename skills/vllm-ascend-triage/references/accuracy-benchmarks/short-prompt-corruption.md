@@ -5,7 +5,10 @@ text while `usage.prompt_tokens` is a few thousand — no traceback, the process
 alive, no harness is being compared. If the prompt is 100K+ with sparse c8 / DCP /
 PCP / PD disaggregation, use `garbled-long-context-output.md` instead; the two
 report the same symptom on different owners, and the prompt-token count decides
-which one you are in.
+which one you are in. If the prompt is *tens* of tokens on a hybrid
+linear-attention model (Qwen3-Next / GDN) and the content is digit arithmetic, the
+owner is that model's numeric path, not this page —
+`qwen3-next-gdn-numeric-path.md`.
 
 ## Grade the symptom first
 

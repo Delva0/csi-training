@@ -2,8 +2,8 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "179b077ee15d0abd5b9af4365355e1f404d5a25fd9d4fb2195af870b64d6c020",
-    "size": 98461
+    "sha256": "24462127dca4e44ace67c8b0c6c89cfc4a99a95b5995969fdaedf15a39748ed8",
+    "size": 93637
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/early-eos-short-output.md",
@@ -24,16 +24,28 @@
     "size": 3173
   },
   {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/hybrid-block-size-corruption.md",
+    "mode": "100644",
+    "sha256": "595481d13b04fc8ee359b8eedcb5843d1ef5a406e53c34ce7ac3142c5b362b3e",
+    "size": 7595
+  },
+  {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/index.md",
     "mode": "100644",
-    "sha256": "834796b8adcfe85951a4bb042d11dabfeacaa93b126474cebdb1624ff5561bc4",
-    "size": 7364
+    "sha256": "68ea22dcaa2754f1a948e16a927fbd5f0f50a5b186308e024c354f61f6843143",
+    "size": 9376
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/quantized-checkpoint-conversion.md",
     "mode": "100644",
     "sha256": "404ab584038adc40120b4d6ad316ca7faada9e4393aca6348c718f863bd40dc1",
     "size": 6348
+  },
+  {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/qwen3-next-gdn-numeric-path.md",
+    "mode": "100644",
+    "sha256": "8c5778ad9cc48d76e1ce05b802e36ad898268f3e24c88d404f111f2f7c6ae628",
+    "size": 7416
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/reasoning-output-routing.md",
@@ -44,8 +56,8 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/short-prompt-corruption.md",
     "mode": "100644",
-    "sha256": "db1ad528ed489eb70bd9768122a863159a1b688c0fb1c8adaaffa5432a61d536",
-    "size": 5192
+    "sha256": "46ea111666931cb1de8a7992f37a908f68b428d09fdde0061f64a45bdb26fd2a",
+    "size": 5409
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/vl-vision-tower-degeneracy.md",
@@ -122,14 +134,20 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/delivery-discipline.md",
     "mode": "100644",
-    "sha256": "1bdf438a6f84dffd48dafc5c4f8745ada944eaca301951e50e2c3eb76d8ce5cb",
-    "size": 4282
+    "sha256": "89945eebd3af2fe094ab52f366724e5411ecba005fa76a5e9675f0c41e4d23fe",
+    "size": 5764
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
     "mode": "100644",
-    "sha256": "d32ab923bc9eba2f524dbdd3de420a121b28234344f625eb78efe04825b4f9c0",
-    "size": 4281
+    "sha256": "51369a7e5e660c670a18b7b35b5dc50c34673b936776d8209ae8b6a5beefdd3c",
+    "size": 4619
+  },
+  {
+    "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases.md",
+    "mode": "100644",
+    "sha256": "1edfdc7b9df8c7238129d9f157eac7a5a324eed829f94d7f0383566129461a4f",
+    "size": 13078
   },
   {
     "path": "vllm-ascend-triage/references/feature-enable-recipes/context-parallel-pcp-dcp.md",
@@ -250,6 +268,24 @@
     "mode": "100644",
     "sha256": "034215b78e61d7b6e2b5ba858d1381bd027771be2fc8f14b874c7646088c7b95",
     "size": 11170
+  },
+  {
+    "path": "vllm-ascend-triage/references/performance-throughput/index.md",
+    "mode": "100644",
+    "sha256": "a3b2df96919d0243f0c7d64a5e7cff85cf0f73c2d123e171e1a730d686dc4464",
+    "size": 4317
+  },
+  {
+    "path": "vllm-ascend-triage/references/performance-throughput/prefill-queue-and-throughput.md",
+    "mode": "100644",
+    "sha256": "3d434f35b1fddc8ffcf8efc67e2eade1561688e3b466a47d1ac361c8c942283a",
+    "size": 5130
+  },
+  {
+    "path": "vllm-ascend-triage/references/performance-throughput/zero-prefix-cache-hit-hybrid.md",
+    "mode": "100644",
+    "sha256": "8e72c6babee5ccc325c17e5efa34c80786f267c5143e21d6d18a9a834d4d5a90",
+    "size": 5350
   },
   {
     "path": "vllm-ascend-triage/references/runtime-memory/hbm-growth-and-oom.md",

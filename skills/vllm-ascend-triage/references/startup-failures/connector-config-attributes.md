@@ -148,6 +148,15 @@ dies** in `initialize_kv_cache` → `register_kv_caches` →
   `kv_port` / `hostNetwork`.
 - Same model, same deployment: **Qwen3-1.7B works** (its config sets `head_dim`)
   while the Qwen2-arch checkpoint does not — reporter-confirmed.
+- **A PD report can carry one fault per pod.** The same reporter's v0.17.0rc1
+  attempt died on the **prefill** pod with
+  `ImportError: ascend_transport.so: cannot open shared object file` (the launch
+  env, `../image-dependency-faults/launch-env-and-library-path.md`) while the
+  **decode** pod in the same run imported mooncake, registered the KV caches and
+  hit the unchanged `head_dim` read — and only after the launch env was fixed did
+  prefill come up, leaving decode still failing. Rank and answer per pod: do not
+  pick whichever error was pasted first, and do not read the env failure as this
+  connector defect (or the reverse).
 - Version arc, both ends in the workspace: still present at **v0.17.0rc1** (the
   reporter's 2026-03-17 log shows the same expression at
   `mooncake_connector.py:367`, `register_kv_caches` at `:1260`), and gone by

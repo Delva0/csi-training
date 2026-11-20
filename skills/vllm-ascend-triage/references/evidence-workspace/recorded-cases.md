@@ -20,6 +20,18 @@ classification table in `SKILL.md` routes by signature, topical pages by track, 
 
 ## Cases
 
+**#1784** vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`), "installing
+vllm-ascend 0.9.1dev and `pip show vllm-ascend` shows 0.9.0rc2": packaging metadata,
+no lane — `setup.py:305-311` derives the version with `setuptools_scm` from the build
+tree's tags (`LookupError → "0.0.0"`), `vllm_ascend/_version.py` is gitignored, no
+`vllm_ascend/` code reads its own version (`utils.py:283-295` `vllm_version_is()`
+reads `vllm.__version__` / `VLLM_VERSION`), and `-dev` is a branch name, not a pip
+version. Answered on the last turn over 13 tool calls, ranking stale dist-info →
+wrong checkout → tag/branch expectation; the recorded gap is the snapshot's own
+one-commit export with no tags, so the tag-ancestry half is the reporter's
+`git describe` to run, not a local check. Route now
+`../image-dependency-faults/installed-version-vs-checkout.md`.
+
 **#8944** v0.19.1rc1
 `aclnnAddRmsNormBias` device fault; #10068 evalscope vs ais-bench MMLU-Pro gap;
 
@@ -113,7 +125,13 @@ The v0.22.1rc1 recheck moved three things: `sp_threshold` → upstream
 registered too, and the tutorial's own Qwen3.5-397B command never sets
 `enable_sp`; the run delivered the lane in turn 1 and the corrected mechanism
 (not dropped, activated outside the matrix; the key also picks the MoE all2all
-backend) two turns after the follow-up; #8984 v0.19.1rc1
+backend) two turns after the follow-up. A later recording of the same body (pinned
+v0.22.1rc1, 35 messages / ~15 K completion tokens) got the lane and the
+`reasoning-parser` half right but **ranked a `stop_reason` forensics finding first** —
+"the w4a8 export declares a secondary eos 248044, so the engine stops mid-CoT", all
+`vllm/` lines verified at `0decac0` — and demoted the reporter's own
+single-variable result (delete `enable_sp` ⇒ output returns) to hypothesis 3, so it
+never made rung 1 the opening action; #8984 v0.19.1rc1
 DeepSeek-V3.2-w4a8/w8a8-mtp-QuaRot on A2, "如何正确开启 PCP/DCP" with no log pasted (a
 capability question — the run never stated the support verdict, and the
 reporter's later public comment asked whether anyone had actually run PCP on

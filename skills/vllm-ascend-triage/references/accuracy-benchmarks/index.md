@@ -115,10 +115,12 @@ Six entry shapes leave this topic immediately and are not accuracy questions at 
   `load_weights`), the six-row ablation matrix, the #976 / #131 / #445 / #562 precedent
   family, and why "`!` is token id 0" and a recalled `head_dim` must stay labelled.
 - `early-eos-short-output.md` — "only tens of tokens / 输出被截断, worked before I added a
-  flag": `finish_reason` decides the lane (length = budget, stop = early EOS), then
-  audit every reader of the toggled key, then the shipped support matrix — and check
-  the checkpoint's `generation_config.json` `max_new_tokens`, which upstream renames
-  to `max_tokens` and which makes "only a large `max_tokens` helps" literal. Worked
+  flag": `finish_reason` decides the lane (length = budget, stop = early stop), an
+  integer `stop_reason` names the *declared* stop id that ended it (and not why the
+  model emitted it), then audit every reader of the toggled key, then the shipped
+  support matrix — and check the checkpoint's `generation_config.json`
+  `max_new_tokens`, which upstream renames to `max_tokens` and which makes "only a
+  large `max_tokens` helps" literal. Worked
   cases #12253 (v0.17.0rc1) and #12278 (v0.22.1rc1), `pass_config.enable_sp` on a
   non-VL MoE w4a8 model: the key is honored, not dropped; the matrix excludes that
   class (at v0.22.1rc1 because non-VL **and** quantized — the VL + MoE cell changed,

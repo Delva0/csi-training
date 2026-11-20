@@ -25,7 +25,7 @@ and it does not keep drafting at a steady rate while emitting nothing.
 
 | Row | Change | What it proves |
 |---|---|---|
-| 1 | delete `--speculative_config` entirely | owner = draft/verify path versus target path. **Recorded #10495: normal ⇒ MTP owned.** This is the row to run before any code walk |
+| 1 | delete `--speculative-config` entirely | owner = draft/verify path versus target path. **Recorded #10495: normal ⇒ MTP owned.** This is the row to run before any code walk |
 | 2 | keep MTP, drop `--async-scheduling` | the CPU/GPU token-count bookkeeping below, which only exists in async mode |
 | 3 | keep MTP, add `--no-enable-prefix-caching` | the hybrid `mamba_block_size` / aligned-state path (and it is what the project's own Qwen3.5-MTP perf config runs) |
 | 4 | `"num_speculative_tokens": 1` instead of 3-5 | whether the padding/lookahead budget, not the mode, is the trigger |

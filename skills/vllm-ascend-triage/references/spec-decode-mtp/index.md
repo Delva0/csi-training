@@ -3,7 +3,7 @@
 ## Scope
 
 The deployment is up, there is no traceback, and the symptom is produced by the
-speculative-decoding path (`--speculative_config` with `method: mtp`,
+speculative-decoding path (`--speculative-config` with `method: mtp`,
 `qwen3_5_mtp`, `eagle`, `draft_model`, or an `AscendEagleProposer` /
 `AscendDraftModelProposer` frame in the stack). Two shapes:
 
@@ -30,7 +30,7 @@ acceptance numbers.
 
 ## Rules
 
-- **The MTP-off ablation is row 1, not row 5.** Deleting `--speculative_config` is
+- **The MTP-off ablation is row 1, not row 5.** Deleting `--speculative-config` is
   one launch and splits "the draft/verify path is wrong" from "everything else".
   Recorded #10495: the run ranked KV capacity and queue thrash first on the
   strength of 98 % cache usage, and the reporter then removed MTP and reported
@@ -50,9 +50,14 @@ acceptance numbers.
 - **A first-response-only symptom needs a restart reproduction before it gets a
   one-shot mechanism.** "The first decode after capture is wrong, the state is
   never zeroed for the first request" is a plausible story that a single report
-  cannot carry: the recorded #9355 follow-up got a normal answer by changing only
-  the prompt and `temperature`, so request content is still a live variable.
-  Restart, repeat the identical body twice, then the modified body.
+  cannot carry: the recorded #9355 follow-up got a normal answer by changing the
+  prompt and `temperature` (and posting to another port), so neither request
+  content nor process identity was ever pinned. Restart, repeat the identical body
+  twice, then the modified body. In the same first pass, diff the launcher against
+  the family sibling tutorial in `docs/source/tutorials/models/` when the exact
+  model has no page — for #9355 that sibling (`Qwen3.5-27B.md`) shipped
+  `"enforce_eager": true` inside `--speculative-config` and default capture sizes,
+  and those two deviations are the cheapest rows.
 
 ## Pages
 
@@ -62,6 +67,9 @@ acceptance numbers.
   #10495 row (v0.20.2rc1).
 - `empty-first-response.md` — `content: ""` + `completion_tokens: 1` +
   `finish_reason: "stop"` on the first request: the lane split against budget and
-  reasoning routing, the restart reproduction, reading the emitted token id, the
-  refuted "padding rows corrupt block 0" theory, the warm-up mitigation, and the
-  worked #9355 row (v0.18.0).
+  reasoning routing, the restart reproduction, the sibling-tutorial diff
+  (`Qwen3.5-27B.md`) and the capture-size arithmetic, reading the emitted token id,
+  the two padding stories (scheduler rows refuted; the MTP proposer's padded
+  drafter batch live and switchable at `eagle_proposer.py:136-142`), the
+  draft-side `enforce_eager` / `disable_padded_drafter_batch` ablation rows, the
+  `min_tokens` mitigation, and the worked #9355 row (v0.18.0).

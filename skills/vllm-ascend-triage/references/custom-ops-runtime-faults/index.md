@@ -1,0 +1,42 @@
+# Custom-op runtime faults (aclnn / AscendC)
+
+## Scope
+
+Device-side failures raised while running a vllm-ascend custom AscendC operator:
+`call aclnnX failed`, `AclNN_Runtime_Error`, Nnopbase executor asserts, `fftsplus aivector
+error`, MTE/DDR "out of range", retCode `0x7150050` / runtime result `507011`, or a signal
+from a `csrc/<op>/*_torch_adpt.h` frame.
+
+## Rules
+
+- The dump names the operator and the error class; it does **not** identify the shape. Never
+  assert "fails for hidden size N" without a shape-bearing artefact (reporter log line,
+  tiling log, or a computed tiling decision).
+- Map the op name to its source tree first (`csrc/<op>/`), then to the tiling mode table in
+  `op_host/<op>_tiling.cpp`: the same kernel entry runs several very different kernels
+  (tiling key dispatch), so "the kernel" is ambiguous until you know the mode.
+- Compute the tiling decision from the reported/prefill-decode shape with a short python
+  snippet; it is far cheaper than reading every kernel and it tells you which kernel file
+  is even relevant.
+- Distinguish the three failure surfaces before blaming the kernel:
+  (a) GM/DDR addressing (offset or element count outside the allocation),
+  (b) UB sizing (buffer partitions exceeding the allocated `TBuf`),
+  (c) tiling arithmetic (zero/underflowed factors, `CeilDiv` edge cases, core-count
+  mismatch with `blockDim`). They produce different symptoms; do not swap them.
+- "Ran for a while, then failed" points at a *regime switch* (new batch/token shape or
+  dtype selecting a different tiling mode), not at slow corruption. Ask for the request
+  shape and the tiling log line at fault time.
+- Custom ops are often gated by a runtime switch (e.g. `enable_custom_op()`), with a
+  `torch_npu` fallback. Verify the failing op was actually enabled in the reporter's run;
+  otherwise the dump came from another path.
+- Ask for the artefacts the dump itself requests (plog at fault time), plus the tiling I-line
+  (`Tiling Key` / `Block Dim` / `num_row` / `num_col` / `ub_factor`), dtype, token/latency
+  shape at failure, and whether `--enforce-eager` changes it. That is a complete, cheap ask.
+
+## Pages
+
+- `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
+  each line does/does not pin down.
+- `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend
+  v0.19.1rc1: files, tiling key = dtype*10+mode, mode-selection table, buffer sizes, arch
+  macros, python call sites.

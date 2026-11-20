@@ -1,1 +1,98 @@
-[]
+[
+  {
+    "path": "vllm-ascend-triage/SKILL.md",
+    "mode": "100644",
+    "sha256": "cdb8aea13974587d76b86d95552ccb37390755d3470469b5e0a74d80ab8005d5",
+    "size": 12259
+  },
+  {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/harness-vs-engine-attribution.md",
+    "mode": "100644",
+    "sha256": "461f782ba873686e2021a82f8797ee5cac3764dc8659dd7666aacfb62229a18b",
+    "size": 3173
+  },
+  {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/index.md",
+    "mode": "100644",
+    "sha256": "6371a842879e6db67b662461758111886597baba207abf8fcbf51d8cabc19837",
+    "size": 2128
+  },
+  {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/reasoning-output-routing.md",
+    "mode": "100644",
+    "sha256": "70394351c4d413c9c04915528e1a74406df2e757f6ccd28f9a9aaee8778619d7",
+    "size": 2908
+  },
+  {
+    "path": "vllm-ascend-triage/references/custom-ops-runtime-faults/aclnn-error-dump-reading.md",
+    "mode": "100644",
+    "sha256": "ad7707d00ee746dfbfe146645ac0b981fd5618211431f290f948becb67571e2e",
+    "size": 3250
+  },
+  {
+    "path": "vllm-ascend-triage/references/custom-ops-runtime-faults/add-rms-norm-bias-op-map.md",
+    "mode": "100644",
+    "sha256": "875abdc0f6bcf5893cdb3eedd280e9359372f782cd9648f7d6ff5c907d3e3f48",
+    "size": 4874
+  },
+  {
+    "path": "vllm-ascend-triage/references/custom-ops-runtime-faults/index.md",
+    "mode": "100644",
+    "sha256": "e360db4b5fef527dd18b27ee9c915595725f80518839f93623d92e5f6c484eaa",
+    "size": 2499
+  },
+  {
+    "path": "vllm-ascend-triage/references/evidence-workspace/case-layout.md",
+    "mode": "100644",
+    "sha256": "aa9308cd17ce3200e0f724f9a7e71d08e41f72ffc4767d54ce7853d88fa18710",
+    "size": 1672
+  },
+  {
+    "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
+    "mode": "100644",
+    "sha256": "4c5bdfd9fa278a358f04f5f6dd480f66904edff4dd4228210052a72c6b133592",
+    "size": 2156
+  },
+  {
+    "path": "vllm-ascend-triage/references/hccl-and-hardware/collective-error-chain.md",
+    "mode": "100644",
+    "sha256": "7e6660c19db9e5813814b55b06e8940dc304c51ebcee25fd9c718664ccd9c5d9",
+    "size": 3808
+  },
+  {
+    "path": "vllm-ascend-triage/references/hccl-and-hardware/device-health-checks.md",
+    "mode": "100644",
+    "sha256": "59b7a7cb818bfb16699a2b49c15239361dcf1abb021ea3c52d028fd03cf54f71",
+    "size": 3585
+  },
+  {
+    "path": "vllm-ascend-triage/references/hccl-and-hardware/index.md",
+    "mode": "100644",
+    "sha256": "040a8009687edcfc1063aae4e8d98c7d98317c20df23b62dacfa93b8d46c79c7",
+    "size": 2000
+  },
+  {
+    "path": "vllm-ascend-triage/references/startup-failures/environment-correspondence.md",
+    "mode": "100644",
+    "sha256": "3fea36e07bf6bcaea5ff1e5e080f034bfbf2038f98b7bc13f569966ee5ee8319",
+    "size": 3223
+  },
+  {
+    "path": "vllm-ascend-triage/references/startup-failures/index.md",
+    "mode": "100644",
+    "sha256": "c3e3b692627b9f610eda1a7f2dff84bebb4933b64801892a29f444a27cec9682",
+    "size": 1667
+  },
+  {
+    "path": "vllm-ascend-triage/references/startup-failures/max-model-len-budget.md",
+    "mode": "100644",
+    "sha256": "544490ec38b141af590d84286f009208303ac9f83fcb81cc7d8718e9c39beb13",
+    "size": 3263
+  },
+  {
+    "path": "vllm-ascend-triage/references/startup-failures/silent-worker-exit.md",
+    "mode": "100644",
+    "sha256": "45799e1b45a6be24f075defcfd2d9d0a0bc7b8d3dee866ea9b9a93d052477818",
+    "size": 2945
+  }
+]

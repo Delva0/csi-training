@@ -23,6 +23,16 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
 - the named class subclasses a `transformers`/`vllm` class or is registered as a
   drop-in replacement for one (`PluggableLayer`, `ModelRegistry.register_model`,
   monkey-patched `forward`);
+- or the upstream frame is a **generic consumer** of `static_forward_context` (a
+  connector/spec filtering layers by an `isinstance` check) that fails on the class
+  hierarchy itself: `KeyError` on a `<layer>.self_attn.attn` key at
+  `offloading_connector.py register_kv_caches` while an `NPUOffloadingSpec` is being
+  created, asked as "MLA 没适配吗 / vllm 还是 vllm-ascend 的问题" →
+  `kv-offloading-layer-coverage.md`. This is the one shape where "upstream's own bug"
+  is the right answer, and the discriminator is the two builders: when upstream's own
+  wrapper registers the same class at the same prefix, the `isinstance` filter is
+  upstream's; when only the downstream replacement creates the failing object, the
+  bullet above stands;
 - a downstream **fork of a whole upstream file** lags the upstream *state machine*
   rather than its signatures — `vllm_ascend/core/scheduler.py` (the `AscendScheduler`
   fork of `vllm/v1/core/sched/scheduler.py`) rejects a request status upstream added
@@ -155,6 +165,15 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
 
 ## Pages
 
+- `kv-offloading-layer-coverage.md` — worked case vllm-ascend #7971 (v0.17.0rc1,
+  GLM-5 / Kimi-K2.5 with `OffloadingConnector`): `KeyError:
+  'language_model.model.layers.0.self_attn.attn'` because
+  `get_layers_from_vllm_config(vllm_config, Attention, …)` drops `MLAAttention`
+  (a sibling of `Attention` under `AttentionLayerBase`) and the connector indexes
+  the empty dict; the model→class table, the three greps that put ownership on
+  upstream's filter (`vllm/.../layers/mla.py:95` builds the same `.attn` layer),
+  and the downstream handler's hardcoded K/V unpacking that makes a filter-only
+  patch silently corrupt MLA caches.
 - `patched-forward-api-drift.md` — worked case vllm-ascend #11661 (v0.22.1rc1,
   DeepSeek-OCR-2): `AscendQwen2DecoderLayer` has no `attention_type`, the
   evidence table, the decisive check, and what the report still leaves open.

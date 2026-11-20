@@ -35,6 +35,13 @@ transport topology to inspect.
   `hccl-onesided-store-put.md` (one call: `scripts/store-put-code-check.sh
   <paste>`). `4` = `HCCL_E_INTERNAL` and `-1` = the store's unclassified
   `INTERNAL_ERROR`; an out-of-space put returns `-200`.
+- The pool **writes** fine and cross-engine keys are visible, but the read path returns
+  nothing: `vllm:external_prefix_cache_hits_total` stays 0 while `…_queries_total` grows,
+  `batch_is_exist` answers 1 for every queried key, and `find_longest_cache_hit` /
+  `get_num_new_matched_tokens` returns 0 on a hybrid model (DSA/DeepSeek-V4, GLM, GDN,
+  2+ KV cache groups) → `cross-engine-lookup-zero-hits.md`. Do not re-check the store's
+  put/get first: hash granularity (`gcd`/`min`), group-granularity chunk keys and the
+  dense-chain + `cache_transfer_granularity` rounding are what produce the 0.
 - PD on a hybrid linear-attention model and the decode node emits corrupt output →
   `../pd-disaggregation/hybrid-state-transfer.md`.
 - The connector module itself will not import (`ascend_transport.so`, `No module
@@ -80,6 +87,11 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   lazy init (and why it is not the bug), the two inits a reporter sees, the
   `dram.size` / separated-deployment key gates, the version pins, and the
   put-failure → collective-desync family with its ablation ladder.
+- `cross-engine-lookup-zero-hits.md` — write path healthy, read path 0: the four derived
+  facts (hash_block_size = gcd vs the worker's `min*cp_scale`, chunk keys at group
+  granularity, the dense chain from chunk 0 with the `min` over groups and rounding to
+  `cache_transfer_granularity`, and store/lookup masks that differ), then the three checks
+  that separate them.
 - `hccl-onesided-store-put.md` — the request succeeds but the pool stays empty:
   `HcclBatchPut` `hccl_result = 4` (generic `HCCL_E_INTERNAL`) with
   `error_codes=[-1]` (the store's generic code, not `-200` out-of-space), the

@@ -165,3 +165,20 @@ suspects are the owner slice (`reduce_scatter_tensor`, `ops/fused_moe.py:1446-14
 and the `get_fused_moe_state` branch (EP at `ep_size 8 < 16` is `All2All`, not the
 DP `AllGather`) — page `../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`.
 Cause unconfirmed; the reporter never replied.
+
+**#12432** vllm-ascend `v0.23.0rc1` (`f4a08bdd`) + vllm `v0.23.0` (`0fc695fc`), GLM-5.2
+1P1D per `docs/source/tutorials/models/GLM5.2.md` §PD Disaggregation 1M (P and D each
+`DP4 TP8 DCP8` over 2 nodes, `--api-server-count 1` on node 0 / `--headless` on node 1),
+client `evalscope` at 30 concurrency, `max_tokens: 135000`: "proxy通信超时，D实例未接收到
+请求", with only four P-side `mooncake_connector.py:233 Force freed expired request … Reason:
+Request exceeded timeout threshold (480 seconds)` records pasted. The 480 is the recipe's own
+`VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT` export, and the send thread is producer-only, so the lines
+prove P finished and no decoder came. The reporter's proxy listed both prefiller hosts on `9081`
+and **eight** decoder entries (`9900 9901 9902 9903` per node), while `--api-server-count 1` +
+`--headless` leave exactly one listening address per side (`vllm/entrypoints/cli/serve.py:61-70`,
+`:105-113`) — reporter-confirmed fix, same thread: "api-count被限制为1了，所以只对外暴露一个api口，
+proxy里只写master ip 和start port就行", which is the doc's own `:1460-1472` proxy line. Route:
+`../pd-disaggregation/proxy-endpoint-vs-api-server-count.md`. Delivery: no answer ever shipped —
+23 assistant turns / the full 16 K output budget, mostly inside `mooncake_connector.py` plus the
+recompute path, a "draft verdict" cut mid-sentence in a message, and the decisive comparison
+(doc proxy line vs DP layout) never made.

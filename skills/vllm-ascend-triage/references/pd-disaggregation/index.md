@@ -1,10 +1,11 @@
 # PD/EPD disaggregation: transport plane and KV-state transfer
 
-Scope: a P/D (or EPD) deployment that starts but cannot move KV, or moves it and
-produces wrong tokens — *not* the generic startup lane. Three failure families,
-decided by two questions: **is a KV pool in the deployment?** then **did the
-peers fail to connect, or did they connect and the decode node then produce
-wrong output?**
+Scope: a P/D (or EPD) deployment whose *requests or KV* do not arrive: the peers
+cannot connect, they connect and the decode node produces wrong tokens, or the
+deployment never receives a request at all (proxy/serve wiring) — *not* the generic
+startup lane. Four failure families, decided by two questions: **is a KV pool in the
+deployment?** then **did the peers fail to connect, did they connect and the decode
+node then produce wrong output, or did no request ever reach a decode engine?**
 
 - A KV pool (MemCache/Mooncake `AscendStoreConnector`) on a **single node, no PD**,
   or a store that initialises and then fails while saving: this topic's transport
@@ -35,6 +36,15 @@ wrong output?**
   ablation rows (ranked, none an established cause; #13002's first run never
   reached a diagnosis, and its replay reached one from that page alone) →
   `../accuracy-benchmarks/garbled-long-context-output.md`.
+- The client times out and the decode instance logs **no request at all**, while the
+  only pasted error lines sit on the *prefiller* (`mooncake_connector.py … Force freed
+  expired request … exceeded timeout threshold (480 seconds)`, several ranks, same
+  ids): that line is P-side delayed-free bookkeeping, and the deciding evidence is the
+  proxy's `--decoder-hosts/--decoder-ports` against how many API servers the DP layout
+  actually starts (`--api-server-count 1` on the head node plus `--headless` on the
+  others = one address per side) → `proxy-endpoint-vs-api-server-count.md`.
+  Reporter-confirmed on #12432: the fix was writing only the DP master's IP and the
+  start port per role.
 - The deployment never gets past engine start because the *KV-transfer config
   block itself* is rejected: `ValueError: KV transfer 'prefill' config has a
   conflicting data parallel size. Expected 1, but got 2.` (or `tensor parallel
@@ -111,6 +121,15 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
 
 ## Pages
 
+- `proxy-endpoint-vs-api-server-count.md` — the deployment runs and the *requests* do
+  not arrive: "D 实例未接收到请求" / `proxy通信超时` with P-side `Force freed expired
+  request … (480 seconds)` lines. Why that line is a prefiller-only bookkeeping record
+  (`kv_role == "kv_producer"`) and the recipe's own export, how `--api-server-count` /
+  `--headless` / `--data-parallel-start-rank` decide that each side has exactly one
+  listening address at the **start** port, the recorded per-DP-rank proxy list that
+  dials closed ports and the proxy's quiet failure mode, plus the two-part request for
+  logs. Worked for #12432 (reporter-confirmed) and pairs with
+  `../accuracy-benchmarks/long-output-repetition.md`'s note on the same log line.
 - `plane-selection-a3-parameter-plane.md` — a *pre-deployment* plane question with
   no log (A3 双机, parameter-plane RoCE only, no UB/灵衢 switch): what the tree
   validates (an A2-only PD tutorial, no SoC-qualified feature row), the A3 branch of

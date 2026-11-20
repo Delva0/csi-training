@@ -75,7 +75,11 @@ The rankable rows are the ones the tree validates differently somewhere else:
    `Force freed expired request: <id> … Resources have been forcibly released …`.
    The doc's own blocks set `480`, so a 480/3600 pair is not the deviation — the
    log line is: grep it, and only a hit turns "blocks freed while a reuse path
-   still held them" into evidence.
+   still held them" into evidence. The same line is also the *prefiller-side* record
+   of a PD request no decoder ever pulled — the producer-only send thread and the
+   proxy/`--api-server-count` check are in
+   `../pd-disaggregation/proxy-endpoint-vs-api-server-count.md`; read which side emitted
+   it before choosing the lane.
 3. **Check the spec-decode branch at the reporter's ref before naming it.** At
    v0.23.0rc1 `using_block_verify = max_spec_len >= 3 and
    rejection_sampler_config.enable_block_verify`

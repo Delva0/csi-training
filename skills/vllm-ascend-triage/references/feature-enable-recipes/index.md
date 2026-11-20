@@ -84,8 +84,20 @@ Rules for this topic:
    the two numbers to separate are the DP-wide pad target and the per-rank owner
    slice — `dp-moe-padding-and-owner-slice.md`.
 
+7. A **sequence-parallel / FlashComm** question ("能不能开 `VLLM_ASCEND_ENABLE_FLASHCOMM1`",
+   or the export is already in the failing command) is answered from the predicate
+   that turns SP on — four doors, including a legacy env name and upstream's
+   async-TP pass — plus the platform's VL/Omni guard, before any shape walk:
+   `sequence-parallel-flashcomm.md`.
+
 Pages:
 
+- `sequence-parallel-flashcomm.md` — FlashComm1/SP: the `enable_sp()` predicate and its
+  `tp_size > 1` / EP asserts, the `ValueError` guard for VL and Omni-thinker models
+  (`platform.py:394-403`, `is_vl_model` counting `thinker_config`), and why the
+  shape mismatch `(sN//tp)` vs `sM` inside `profile_run` is arithmetic: SP keeps the
+  row-parallel output reduce-scattered (`ops/linear_op.py:386-396`) while a per-layer
+  deepstack/full-length auxiliary tensor does not shrink. Worked for #6261.
 - `dp-moe-padding-and-owner-slice.md` — DP>1 MoE arithmetic behind a hang or a
   garbage tensor after an all-gather: `set_ascend_forward_context`'s pad target
   (`ascend_forward_context.py:91-98`, DP-wide only while `dp_metadata` is present,

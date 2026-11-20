@@ -95,6 +95,19 @@ card-local edge up puts it on the host driver/CANN pairing and the container's d
 passthrough, not on the model. `transport-destlink-ipc-import.md` (#4148, #486, and the
 #5236 driver-update precedent).
 
+**Then separate a cascade from the primary, and count the ranks.** When a paste
+carries two error families and one of them comes from exactly **one** process, that
+process owns the fault. The recorded shape is an RL/GRPO job whose rollout is a
+separate `vllm serve`: rank 0 dies inside the weight update
+(`pyhccl.py … hcclBroadcast`, `HCCL error: not found specific resource`) while ranks
+1-6 report `HcclAllgather … error code is 6` / `EI0009 [Create][DestLink] … dst_rank[0]`
+— the link failures exist *because* rank 0 never joined, so
+`transport-destlink-ipc-import.md`'s hardware ladder is the wrong lane here.
+`weight-sync-hccl-cascade.md` has the pin's `PyHcclCommunicator` facts (the tree never
+aliases it over upstream's, so a trl/ms-swift patch supplies it), the init sequence
+that rules out a "peer never joined" reading, and the value-comparing broadcast that
+is rung 1 (#459, #942 — the recorded broadcast returned silent zeros).
+
 **Then separate a signal death from a collective error.** `!!!!!!! Segfault
 encountered !!!!!!!` plus `Worker proc VllmWorker-<n> died unexpectedly (exit
 code: None)` is a rank killed by signal: no error code, no Python exception, and
@@ -127,7 +140,12 @@ answer is the image/CANN pairing plus the release's own validated command.
 2. `transport-destlink-ipc-import.md` — `DestLink` / IPC-import failure at link
    creation: the edge-set read, the generic `507899`, why equal `localIpAddr` text is not
    a duplicate `device_ip`, and the driver-pairing ladder.
-3. `collective-error-chain.md` — restore error attribution (the Python frame in
+3. `weight-sync-hccl-cascade.md` — RL weight-sync channel failures across a trainer and
+   a `vllm serve` rollout process: which rank owns the primary (the singleton), what
+   `pyhccl.py`'s init already proves, why "not found specific resource" is CANN's own
+   text for code 6, the standalone two-process broadcast with value comparison, and the
+   release-scope caveat (no aliasing, no validated RL sync path at v0.10.2rc1).
+4. `collective-error-chain.md` — restore error attribution (the Python frame in
    the traceback is usually a later synchronization point), read the plog, and
    stop attributing the defect to whichever op the traceback names. That page
    also covers the compile-phase case: fusion-pattern registration runs sample
@@ -140,7 +158,7 @@ answer is the image/CANN pairing plus the release's own validated command.
    tracks batch composition instead of hardware, the named op *is* the owner's evidence —
    the caller's index tensor. See `../dsa-sparse-attention/indexer-cache-scatter-fault.md`
    (#4296) before asking for device health.
-4. `device-health-checks.md` — check every device's health, correlate the
+5. `device-health-checks.md` — check every device's health, correlate the
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards.
 

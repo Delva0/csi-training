@@ -186,3 +186,14 @@ row, the `nm` line. Before that, notice when the evidence you already hold is th
 deliverable: in #13002's first run the model tutorial's validated commands were read
 at turn 17 of 21 and the ranked causes were in hand from that read onward, while the
 replay that had the worked page never opened the connector for a walk at all.
+#12432 is that failure again, one batch later and in the same file: 23 assistant
+turns, the budget spent in slices of `mooncake_connector.py` and the recompute
+scheduler, a "draft verdict" written into a message and cut mid-sentence, and no
+answer ever shipped — while the decisive comparison (the tree's own recommended
+proxy command versus the DP/`--api-server-count` layout of both serve commands) was
+in the same tutorial the reporter had linked. #3162 is the same arithmetic in
+another lane: its whole output budget went to `pyhccl.py` and recalled trl
+internals without a stated verdict, although one precedent (#942's broadcast that
+returned zeros) plus one question (which patch supplies the communicator) was the
+deliverable from the fourth turn. Two sessions, one conclusion: the paste and the
+tree's own recipe decide these reports, and reading further into a module does not.

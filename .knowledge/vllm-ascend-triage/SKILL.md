@@ -1,6 +1,6 @@
 ---
 name: vllm-ascend-triage
-description: 'Triage vllm-ascend deploy, HCCL/PD/EPD, image, OOM, accuracy'
+description: 'Triage vllm-ascend deploy, HCCL/PD, OOM, accuracy, logs'
 ---
 
 # vLLM-Ascend issue, deployment and support triage
@@ -15,8 +15,10 @@ concrete next step for the reporter.
 - **Issue report** (usually Chinese or English, template-shaped: environment dump
   + logs + narrative) about something that went wrong on an Ascend NPU host: a
   device-side operator crash, an accuracy/score disagreement, a garbled long-input
-  output, a long-run OOM / "VRAM not released" report, a performance claim, or a
-  bare `python -c "import <pkg>"` that aborts inside a library the image shipped.
+  output, a long-run OOM / "VRAM not released" report, a performance claim, a
+  logging flag that appears to print nothing, an operator that runs and returns
+  the wrong numbers, or a bare `python -c "import <pkg>"` that aborts inside a
+  library the image shipped.
   When the task is just "explain/answer this issue", the answer is still expected
   to be evidentiary, not a summary of the report.
 - **Deployment failure**: a vLLM / vLLM-Ascend deployment fails to come up or
@@ -70,7 +72,13 @@ non-hostNetwork Pods → `HIXL Connect failed | 103900` because two Pod IPs beca
 two HCCL servers (transport topology, not a connector bug); #12339 v0.22.1rc1
 Qwen3.5-397B-W8A8-MXFP8 on Ascend950, `MooncakeConnectorV1` PD without MTP,
 alternating good/bad answers on a hybrid GDN model (the run spent its whole
-output budget on source walks and delivered no answer).
+output budget on source walks and delivered no answer); #10985 v0.18.0
+`--enable-log-requests` + `--enable-log-outputs` printing neither prompt nor
+generation (an upstream frontend gate checklist, not an Ascend defect — the run
+spent the whole budget and shipped no answer); #4812 v0.11.0.rc2-310P,
+Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
+`Memory_Allocation_Failure(EL0004)` + `507013` / SDMA at a KV-cache
+`npu_format_cast` during `initialize_kv_cache_tensors`.
 
 ## Rules that apply whenever this skill is used
 
@@ -104,8 +112,14 @@ output budget on source walks and delivered no answer).
      12.3K characters that was half the session. Put the hypothesis in the answer
      as an open question with the one command that decides it. For an
      accuracy/corruption or topology report, a ranked list plus an ablation matrix
-     already *is* the full answer — the two newest runs were not missing facts,
-     only the message.
+     already *is* the full answer — the recorded accuracy/corruption runs were not
+     missing facts, only the message.
+   - **An ownership question is answered by naming the owner.** "The flag did
+     nothing" and "the log line is missing" are gate checklists on the owning
+     component — usually the upstream vLLM OpenAI frontend, not vllm-ascend — and
+     they are answered in 3-4 calls. #10985 spent 49.1K reasoning characters and
+     28 tool calls inside `vllm/entrypoints/openai/**` on exactly that question
+     and shipped no text at all.
    - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
      write it at G2 *in place of* the reasoning block, and skip it entirely when
      the session is near the cap. Composing it late is what cost #11519 its
@@ -161,20 +175,32 @@ output budget on source walks and delivered no answer).
      (`self.n`, `decoder_layer.l`) and invites a false theory about the code.
      Recursion is implicit on a directory: use `rg -n "pat" .` or `grep -rn`.
    - Never list a history or attachments directory: doing so on one recorded
-     case returned ~3k filenames (~24 KB) for no information. Search by token
-     (`grep -rl`, `rg -l`) or with `scripts/history-titles.sh`, and read
+     case returned ~3k filenames (~24 KB) for no information, and on the
+     v0.23.0rc1 case (#13699) a first-turn listing of `/workspace/history`
+     printed 2857 entries (~28 KB). The trap is bundling that listing with the
+     `skill_view` call, so it lands before this rule is read: orientation is one
+     level of `/workspace` (`search_files (target='files')`) plus
+     `sources-summary.sh`, and a missing `/workspace/attachments` also makes a
+     bundled shell listing exit 2, which reads like a failed orientation. Search
+     by token (`grep -rl`, `rg -l`) or with `scripts/history-titles.sh`, and read
      `SOURCES.json` through `scripts/sources-summary.sh` instead of dumping the
-     whole file. `cat SOURCES.json` is 20-54 KB and both newest runs paid it
-     (#12339 34 KB, #14506 54 KB) although the script prints the same version
-     contract plus the `unavailable` repos in ~10 lines. It is the right first
-     shell call; `history-titles.sh` prints the matching body line when the regex
+     whole file. `cat SOURCES.json` is 20-54 KB and the two runs that dumped it
+     paid it (#12339 34 KB, #14506 54 KB) although the script prints the same
+     version contract plus the `unavailable` repos in ~10 lines. It is the right
+     first shell call; `history-titles.sh` prints the matching body line when the regex
      hit the body rather than the title, so one call separates a real family from
      a lexical accident.
 8. **The prior-month corpus is not evidence of absence.** `history/*.md` and
    lexical issue search cover only earlier issues; a current issue is never in
    them. Make one grep for the distinctive token (op name, error string, dataset
    name), read 2-3 hits, then stop: precedent supports a hypothesis, it does not
-   replace reading the source at the pinned commit.
+   replace reading the source at the pinned commit. **Pick the bodies by whether
+   the title names a mechanism, not by whether it repeats your symptom.** A title
+   like "多卡ViT qkv部分权重为0导致精度异常" carries the file, the check and often the
+   version flip ("rollback to 0.7.3rc2 works"); four titles that only say
+   "<model>-7B 的问题" are four empty shells. Recorded #2586 read the empty shells
+   and cited #976 from its title line alone — the one body that named the exact
+   `qwen2_5_vl.py` weight-padding mechanism the answer was guessing at.
 9. **Closed components exist, but the split is not where it used to be.** The
    HCCL collectives, opbase and pipeline sources are exported under **`cann/hcomm`**
    (e.g. `src/framework/op_base/src/`, `src/algorithm/impl/operator/`,
@@ -230,7 +256,7 @@ output budget on source walks and delivered no answer).
 | Startup log: generic `WorkerProc initialization failed due to an exception in a background process`, **no** per-rank worker traceback; optional `[ERROR] TBE Subprocess[task_distribute] raise error[], main process disappeared!`; long silence before failure | Lane A: worker died without reporting | `references/startup-failures/silent-worker-exit.md`, then `references/startup-failures/max-model-len-budget.md` |
 | Startup log: per-rank `WorkerProc failed to start.` / `WorkerProc hit an exception.` plus a traceback with rank prefix | Lane B: worker raised a Python error | `references/startup-failures/environment-correspondence.md` (diff against the known-good tutorial/CI config) |
 | The traceback ends in `AttributeError: '<X>Config' object has no attribute '<attr>'` with a frame in `vllm_ascend/distributed/*connector*.py`, reached from `ensure_kv_transfer_initialized` (usually a VL/MoE model under PD disaggregation) | Lane B: connector reads a nested config attribute | `references/startup-failures/connector-config-attributes.md` |
-| P/D will not connect although both engines started: `HIXL Connect failed | HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
+| P/D will not connect although both engines started: `HIXL Connect failed \| HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
 | PD deployment that connects and then corrupts on a **hybrid** model (Qwen3.5/Qwen3.6 GDN, DeepSeek-V4, GLM): alternating good/bad answers, empty or wrong first decoded token, works with MTP but not without | PD hybrid-state transfer: connector choice plus the `mamba_cache_mode='align'` gate only the KV-store connectors satisfy | `references/pd-disaggregation/hybrid-state-transfer.md` |
 | `ValueError: Non-MoE models do not support external data parallel mode`, or any `ValueError`/`AssertionError` raised from `vllm/engine/arg_utils.py` that names a parallel mode or flag (`data_parallel_*`, `nnodes`, `node_rank`), with no `WorkerProc` line in the log | Startup argument validation in upstream vLLM — launch-command fix, not a defect | `references/startup-failures/arg-validation-errors.md` |
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
@@ -239,20 +265,27 @@ output budget on source walks and delivered no answer).
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range" | Custom-op runtime fault | `references/custom-ops-runtime-faults/index.md` |
+| An attention op **runs**, returns a correctly shaped tensor, and the numbers are wrong (uniform average, softmax apparently dropped, error only vs an fp32 reference); often a framework-free `torch_npu` repro, never a dump | Silent operator numerics — below the framework | `references/custom-ops-runtime-faults/attention-op-numeric-errors.md` |
 | `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` — aclnn cannot resolve the op for the SoC before any launch | Custom-op **build/install** fault: package built for another SoC, stale vendor package, wrong image tag | `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
 | Per-layer `MSE loss` / epoch table printed while converting a checkpoint with msmodelslim (W4A4/W8A8), one layer far above its neighbours, or "the converted checkpoint answers garbage" with no engine-side failure | Quantization-conversion phase: converter-owned, before the engine starts | `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` |
 | A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
 | 乱码 / token soup on a few-thousand-token prompt, process alive, no traceback, `finish_reason: length`, often MoE + EP across nodes or a quantised weight set | Generation corruption, short-prompt profile | `references/accuracy-benchmarks/short-prompt-corruption.md` |
+| A **VL image/video** request answered as a long run of one token (`!!!!`, 感叹号, `，，，`), usually with "特别耗时 / very slow"; text-only prompts may answer fine | Vision-tower degeneration (accuracy track), not sampling | `references/accuracy-benchmarks/vl-vision-tower-degeneracy.md` |
 | The server served traffic then died on memory: "运行一段时间后显存不释放最后崩溃", `NPU out of memory` / `NPUWorkspaceAllocator` / `Memory_Allocation_Failure(EL0004)`, `npu-smi` pinned at 100 %, a P node holding KV the D node never takes | Runtime memory after a healthy period: capacity vs growth vs a config key that never engaged (contrast the Lane C row, where the OOM happens during `profile_run` / `determine_available_memory` before the server is ready) | `references/runtime-memory/index.md` |
+| Startup/KV-init failure whose deepest frame is `_convert_torch_format` / `torch_npu.npu_format_cast` with `Memory_Allocation_Failure(EL0004)`, `alloc device memory failed … 207001`, `507013`, SDMA/SMMU text | Allocation failure at KV-cache init — the cast is the allocation site, not an operator bug | `references/runtime-memory/kv-init-and-format-cast-alloc.md` |
 | `python -c "import <pkg>"` or the first use of an image-installed native module aborts the interpreter: `corrupted size vs. prev_size`, `free(): invalid pointer`, `double free or corruption`, `munmap_chunk(): invalid pointer`, `Aborted (core dumped)`, no Python frame, no NPU text | Image / bundled native module (pre-engine, not vllm-ascend code) | `references/image-dependency-faults/index.md` |
+| Report is about log text rather than a crash: `--enable-log-requests` / `--enable-log-outputs` set but no prompt or generation printed, `VLLM_LOGGING_LEVEL=DEBUG` seemingly ignored, `--max-log-len`, a stage of the startup log missing, or a proxy that swallows output | Observability/flag question — **upstream frontend config, not a vllm-ascend defect**; answer with a gate checklist and two greps, cap it at ~4 tool calls | `references/observability-and-logs/index.md`, then `request-output-logging-flags.md` |
+| Host is **310P** (Atlas 300I Duo, `Ascend310P3`, image `-310P`), or the traceback sits on an `is_310p()` branch (NZ/`FRACTAL_NZ` format casts, no Ascend custom ops, `patch_mamba_config_310`) | SoC-conditional platform path: experimental per the pinned docs, NZ casts are real conversions, fp16/eager are mandatory | `references/soc-platform-paths/atlas-300i-310p.md` |
 | Compiler or missing-header error while installing/building, a performance claim, or any report with no matching track | General sequence below | skip the topical routes |
 
 ## Procedure
 
-1. List `/workspace`, then run `bash <skill_root>/scripts/sources-summary.sh` for
-   the `SOURCES.json` version contract (`skill_root` is the path `skill_view`
-   reports); note which repos/refs are present and which are partial exports. The
+1. One level of `/workspace` (`search_files (target='files')`) — that level only,
+   never the history or attachments directory (rule 7) — then run
+   `bash <skill_root>/scripts/sources-summary.sh` for the `SOURCES.json` version
+   contract (`skill_root` is the path `skill_view` reports); note which
+   repos/refs are present and which are partial exports. The
    layout differs per case (flat `/workspace/history/<issue>.md` vs
    `/workspace/history/<issue>/` + `/workspace/repos/<issue>/`); adapt after
    looking, do not assume.
@@ -302,6 +335,30 @@ output budget on source walks and delivered no answer).
      `server_id`) decides the whole report (multi-server view, `device_ip` + RoCE
      required). Then the plog grep set in
      `references/pd-disaggregation/transport-topology.md`.
+   - Report is "the flag did nothing" (logging/verbosity, output printing, a
+     missing log stage): name the owner first — upstream vLLM OpenAI frontend,
+     not vllm-ascend — then walk the gate checklist in
+     `references/observability-and-logs/index.md`: both flags on the serving
+     command, `--enable-log-outputs` requires `--enable-log-requests`,
+     INFO-vs-DEBUG split, `--max-log-len`, a log-config/`VLLM_CONFIGURE_LOGGING`
+     override, and an endpoint that cannot log outputs at all. Grep the two
+     warning strings, then answer; do not read `vllm/entrypoints/**` for an
+     Ascend-specific cause.
+   - 310P / Atlas 300I report: take the SoC from
+     `_build_info.__soc_version__` rather than the image tag, quote the
+     documented status (experimental, stable = v0.10.0rc1 at v0.11.0rc3,
+     `faqs.md:18`, `single_node_300i.md:3-7`) as the first sentence, and then
+     apply the 300I environment (`--enforce-eager`, `--dtype float16`,
+     `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256`) and a smaller
+     `--max-model-len` before blaming the platform
+     (`references/soc-platform-paths/atlas-300i-310p.md`).
+   - Device allocation failure before the engine is ready
+     (`Memory_Allocation_Failure(EL0004)`, `runtime result = 207001`, `507013`
+     plus SDMA/SMMU text) at a KV-cache or weight `npu_format_cast`: read
+     timestamps, treat the cast frame as the allocation site, and shrink the pool
+     (`--max-model-len`, then `--gpu-memory-utilization`) before any
+     driver/hardware theory
+     (`references/runtime-memory/kv-init-and-format-cast-alloc.md`).
    - Runtime memory after a healthy period: take the two-sample split (capacity
      vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
      check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before
@@ -310,6 +367,15 @@ output budget on source walks and delivered no answer).
      server, weights and serve flags before choosing a culprit
      (`references/accuracy-benchmarks/index.md`); for a garbled prompt, get the
      ablation matrix (`references/accuracy-benchmarks/garbled-long-context-output.md`).
+   - A **VL image/video** request that degenerates into one repeated token
+     (`!!!!`, 感叹号) while text-only prompts answer: first row of the ablation is
+     `USE_OPTIMIZED_MODEL=0` on the same request, then text-only, TP=1 and an
+     official checkpoint (`references/accuracy-benchmarks/vl-vision-tower-degeneracy.md`).
+   - An operator that **runs** and returns wrong numbers with a framework-free
+     `torch_npu` repro (no dump): find the one caller holding that kwargs
+     combination before reading the kernel; `cann/ops-nn` is usually absent, so
+     the ownership split is the answer
+     (`references/custom-ops-runtime-faults/attention-op-numeric-errors.md`).
 4. **Write the answer now, then keep going** (rule 1). With the lane/track
    classified and the owning path or decisive check named, emit the ranked
    diagnosis in the message. When the report lacks what the track needs (the two
@@ -443,17 +509,38 @@ output budget on source walks and delivered no answer).
   failures whose text names a collective or the runtime stack, not a
   Python-level cause; the recorded answer was a physical HCCS link fault on 6 of
   8 cards.
-- `references/runtime-memory/index.md` — the service was healthy and later died on
-  HBM ("显存不释放", `NPU out of memory`): the capacity/growth/dead-key split, the
-  `PYTORCH_NPU_ALLOC_CONF` injection gate that `max_split_size_mb` silently
-  disables, the KV-pool and profile-peak arithmetic against the tutorial's
-  hardware floor, why `torchair_graph_config` / `ascend_scheduler_config` are
-  accepted and ignored, and the recorded OOM/leak precedent family (#12692,
-  #13185, #13248, #13240, #3198, #2650; worked for #16022 at v0.23.0rc1).
+- `references/runtime-memory/index.md` — memory, in both phases: the service was
+  healthy and later died on HBM ("显存不释放", `NPU out of memory`), or it never
+  became ready because an allocation failed during KV-cache/weight placement.
+  The capacity/growth/dead-key split, the `PYTORCH_NPU_ALLOC_CONF` injection gate
+  that `max_split_size_mb` silently disables, the KV-pool and profile-peak
+  arithmetic against the tutorial's hardware floor, why `torchair_graph_config` /
+  `ascend_scheduler_config` are accepted and ignored, and the recorded OOM/leak
+  precedent family (#12692, #13185, #13248, #13240, #3198, #2650; worked for
+  #16022 at v0.23.0rc1). `kv-init-and-format-cast-alloc.md` covers the
+  `EL0004`/`207001`/`507013`-at-`npu_format_cast` signature (#4812, v0.11.0rc3
+  code: raw int8 pool then a per-layer cast copy, `model_runner_v1.py:2954-3080`).
+- `references/soc-platform-paths/index.md` — SoC-conditional paths, 310P first:
+  `is_310p()` gating, the documented 300I/310P status, the seven platform gates,
+  the NZ/`FRACTAL_NZ` conversions, and the 300I launch environment
+  (`atlas-300i-310p.md`, verified at vllm-ascend v0.11.0rc3 + vllm v0.11.0).
+- `references/observability-and-logs/index.md` — reports about log text rather
+  than a crash ("the flag prints nothing", a missing startup stage).
+  `request-output-logging-flags.md` is the verified gate table for
+  `--enable-log-requests` / `--enable-log-outputs` / `VLLM_LOGGING_LEVEL` /
+  `--max-log-len` at vllm v0.18.0 + vllm-ascend v0.18.0 (#10985), including the
+  endpoint that can never log outputs and the `inspect.getsourcefile` check for
+  which patched serving generator is live.
 - `references/custom-ops-runtime-faults/index.md` — aclnn/AscendC custom-op
   device faults: reading the device dump, mapping the operator to `csrc/<op>/`,
   tiling-mode tables. The dump names the operator and error class, not the
   shape; custom ops are often behind a runtime switch.
+  `references/custom-ops-runtime-faults/attention-op-numeric-errors.md` is the
+  silent-numerics half: an attention op that runs and returns a wrong tensor
+  (uniform average / softmax dropped) with a framework-free repro — which caller
+  holds the uncovered kwargs combination, the counter-example already in the
+  tree, the zero-stub unit test that hid it, the three fix sites, and the cheap
+  discriminators (worked for #13699 at v0.23.0rc1).
   `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` is the
   other half: `EZ1001 Get regInfo failed` / `does not support opType` is a
   build/install SoC fault raised before any launch, and that page shows where the
@@ -477,3 +564,9 @@ output budget on source walks and delivered no answer).
   on a few-thousand-token prompt: test the prompt shape first, then the
   EP/FLASHCOMM1/prefix-cache/graph-mode/weight-identity rows (#10503,
   v0.20.2rc1).
+  `references/accuracy-benchmarks/vl-vision-tower-degeneracy.md` covers the VL
+  shape: an image request answered as `!!!!`/感叹号 runs plus "very slow" — the
+  `USE_OPTIMIZED_MODEL` two-implementation gate, the `MIN_PAD_SIZE`/`MAX_PAD_SIZE`
+  head-dim padding branch and its weight-name-keyed `load_weights`, the six-row
+  ablation matrix, and the #976 / #131 / #445 / #562 precedent family (worked for
+  #2586 at v0.9.2rc1).

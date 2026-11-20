@@ -9,7 +9,7 @@ Also covers the corruption end of the same track — a prompt that comes back as
 garbled / repeated / empty text rather than as a wrong answer — because that is decided by
 the same first question (is anything being compared, or is the engine wrong per se).
 
-Two entry shapes leave this topic immediately and are not accuracy questions at all:
+Three entry shapes leave this topic immediately and are not accuracy questions at all:
 
 - Wrong or alternating answers in a **PD/EPD** deployment on a hybrid
   linear-attention model (GDN/Mamba: Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) — the
@@ -19,6 +19,10 @@ Two entry shapes leave this topic immediately and are not accuracy questions at 
 - A number printed while the checkpoint is being *converted* (per-layer
   `MSE loss`, an epoch table, a bad quantized artifact) is converter output and
   precedes any engine comparison — go to `quantized-checkpoint-conversion.md`.
+- A **vision** request answered as a long run of one token (`!!!!!!!!`, 感叹号,
+  `，，，`) with "and it is very slow", on a VL model — that is not a score
+  question and not the text-corruption profile: the downstream vision tower owns
+  it, and one env var decides it. Go to `vl-vision-tower-degeneracy.md`.
 
 ## Rules
 
@@ -58,6 +62,12 @@ Two entry shapes leave this topic immediately and are not accuracy questions at 
   the reporter a feature-ablation matrix (DCP, sparse c8, dsa_cp, KV offload, length sweep),
   the `dcp_size == tp_size` / interleave constraints that make rows un-runnable, the tested
   envelope at the pinned release, and the #12905 / #14320 precedents.
+- `vl-vision-tower-degeneracy.md` — VL image/video requests that degenerate into one
+  repeated token, with the co-reported "very slow": the two-implementation gate
+  (`USE_OPTIMIZED_MODEL`, v0.9.2rc1 `b5b7e0e` `models/__init__.py:23-33`), the head-dim
+  padding branch (`MIN_PAD_SIZE`/`MAX_PAD_SIZE` 64/128, `enable_pad`, weight-name-keyed
+  `load_weights`), the six-row ablation matrix, the #976 / #131 / #445 / #562 precedent
+  family, and why "`!` is token id 0" and a recalled `head_dim` must stay labelled.
 - `short-prompt-corruption.md` — the same symptom on a few-thousand-token prompt: test the
   prompt shape first (a repeated body at temperature 0 can collapse on its own), then the
   MoE/EP/quantisation ablation rows (EP off, FLASHCOMM1, prefix caching, `--enforce-eager`,

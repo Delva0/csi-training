@@ -7,7 +7,9 @@ Device-side failures raised while running a vllm-ascend custom AscendC operator
 all — a build/install fault, see the first rule below):
 `call aclnnX failed`, `AclNN_Runtime_Error`, Nnopbase executor asserts, `fftsplus aivector
 error`, MTE/DDR "out of range", retCode `0x7150050` / runtime result `507011`, or a signal
-from a `csrc/<op>/*_torch_adpt.h` frame.
+from a `csrc/<op>/*_torch_adpt.h` frame. The silent counterpart belongs here too: an
+attention op that runs, returns the right shape and the wrong numbers, with no dump and
+often a framework-free `torch_npu` repro (`attention-op-numeric-errors.md`).
 
 ## Rules
 
@@ -20,6 +22,15 @@ from a `csrc/<op>/*_torch_adpt.h` frame.
 - The dump names the operator and the error class; it does **not** identify the shape. Never
   assert "fails for hidden size N" without a shape-bearing artefact (reporter log line,
   tiling log, or a computed tiling decision).
+- **No error text at all is a third family.** A correctly shaped, silently wrong
+  result (uniform-average output, softmax apparently dropped, error only against
+  an fp32 reference) is an **operator numerics** report, not a device fault: the
+  evidence is the caller's kwargs combination, the tree's other call sites, the
+  caller's own mocked test, and whether the op source is even in the snapshot —
+  `attention-op-numeric-errors.md`. Do not hunt a tiling crash for it, and do not
+  accept "the op is broken" without splitting ownership between the op owner
+  (`cann/ops-nn`, often `unavailable`) and the framework that chose the
+  combination and ships no fallback.
 - Check the error family before the operator. When the same output also carries
   `SUSPECT REMOTE ERROR` / `error code is 507057` / an `EZ9999 … chipId:` dump /
   `error code = 0x8…`, it is a lane C device fault: the `fftsplus aivector error` there
@@ -54,6 +65,14 @@ from a `csrc/<op>/*_torch_adpt.h` frame.
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend
   v0.19.1rc1: files, tiling key = dtype*10+mode, mode-selection table, buffer sizes, arch
   macros, python call sites. Read it only once the error family is a device fault.
+- `attention-op-numeric-errors.md` — silent numeric wrongness in
+  `npu_fused_infer_attention_score` / `npu_fusion_attention` /
+  `_npu_flash_attention_unpad` with a framework-free `torch_npu` repro: which caller
+  holds the uncovered combination, the `npu_fusion_attention` counter-example already in
+  the tree, the mocked-zeros unit test that hid it, the upstream sdpa/native semantics,
+  the three fix sites (eager / capture+workspace / graph-replay rebind), and the cheap
+  discriminators (mean-of-V check, causal-vs-all-False-mask row, axis sweeps) — recorded
+  #13699 at v0.23.0rc1 `f4a08bdd` with `cann/ops-nn` absent.
 - `op-not-registered-for-soc.md` — the opposite class for the same op: `EZ1001 Get
   regInfo failed … does not support opType [AddRmsNormBias]` for `ascend910_93`
   (#11519, v0.18.0). Where `SOC_VERSION`, the per-SoC `build_aclnn.sh` branches,

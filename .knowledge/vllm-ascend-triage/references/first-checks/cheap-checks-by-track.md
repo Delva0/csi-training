@@ -409,13 +409,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   env sets + release note), the default-flip note and the reachability check
   (`references/code-change-requests/env-flag-retirement.md`, #1262). Do not open
   the op's code path.
-- Community-test / doc-verification task: run the nine checks of
+- Community-test / doc-verification task: run the ten checks of
   `references/tutorial-verification/tutorial-command-audit.md` in order
   (flag existence at the pinned vllm, bench argument names, image WORKDIR vs
   the doc's relative paths, relied-on defaults, card-count arithmetic vs
   sibling docs and the CI config, baseline release, one precedent pass,
   package version the doc installs vs the image's own pins, support matrix and
-  release notes) and write the report file as sections become
+  release notes, `--hf_overrides` architecture string vs the checkpoint family)
+  and write the report file as sections become
   true (`references/tutorial-verification/community-test-report.md`). Stop
   auditing after 3-5 tiered defects; never present a doc baseline as a
   measurement.
@@ -423,6 +424,12 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   server, weights and serve flags before choosing a culprit
   (`references/accuracy-benchmarks/index.md`); for a garbled prompt, get the
   ablation matrix (`references/accuracy-benchmarks/garbled-long-context-output.md`).
+- An **embedding / pooling** checkpoint that never starts: read the launch line for
+  `--task embed` (`--runner pooling`) and the init line for `pooler_config=None`
+  before any source; `ValueError: There is no module or parameter named
+  'embed_tokens' in …ForCausalLM` is the missing flag, not the model. One call:
+  `../../scripts/checkpoint-key-prefix.py <model dir>`
+  (`references/pooling-embedding/embedding-checkpoint-as-generate.md`).
 - An **embedding / pooling** serve (`--runner pooling`, `--task embed|score`,
   `/v1/embeddings`): two questions place it before any source read — single
   request or only under concurrency, and is a short prompt correct. Crashes under
@@ -431,6 +438,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   inputs take the "which span was pooled" test plus a
   `--max-num-batched-tokens` sweep, not an attention-backend walk
   (`references/pooling-embedding/chunked-prefill-vector-corruption.md`).
+- The same serve **never reaches ready**, and the paste carries either a model
+  class/HF-config `TypeError` in the APIServer or an `EZ1001` weight-layout line
+  at `profile_run`: two greps decide both before any source walk — the
+  `architectures` string against the checkpoint's `model_type` family
+  (`references/pooling-embedding/seq-cls-arch-routing.md`) and the NZ gate at the
+  reporter's ref, `rg -n "def is_enable_nz|_should_trans_nz|maybe_trans_nz"
+  vllm_ascend/utils.py`, whose fp32 policy decides whether the fp32 score head is
+  converted (`references/pooling-embedding/fp32-head-nz-format-crash.md`). One
+  call each: `scripts/nz-format-gate-check.sh <paste> <vllm-ascend-root>` and
+  `scripts/seq-cls-arch-check.sh <vllm-root> '<Arch>'`. The `EZ1001` code alone
+  does not mean the custom-op package.
 - A **VL image/video** request that degenerates into one repeated token
   (`!!!!`, 感叹号) while text-only prompts answer: first row of the ablation is
   `USE_OPTIMIZED_MODEL=0` on the same request, then text-only, TP=1 and an

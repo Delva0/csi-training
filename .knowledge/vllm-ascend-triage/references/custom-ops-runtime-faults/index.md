@@ -21,10 +21,20 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
 
 - **Split parameter/registry errors from device faults first.** `AclNN_Runtime_Error`
   / a dump / tiling text means the kernel ran or was launched: the operator and shape
-  matter. `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`,
-  `binary_info_config.json of socVersion [...] does not support opType [...]` means
-  aclnn could not resolve the op for this SoC **before any launch**: the owner is the
-  build/install chain, and no tiling fact will help — `op-not-registered-for-soc.md`.
+  matter. `AclNN_Parameter_Error(EZ1001)` is **two** families and the text after the
+  code decides which:
+  (a) `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not
+  support opType [...]` — aclnn could not resolve the op for this SoC **before any
+  launch**: the owner is the build/install chain, and no tiling fact will help —
+  `op-not-registered-for-soc.md`.
+  (b) `<Dtype> weight NZ is unsupported by the current SOC version [...]`, `now self
+  is DT_<x>, mat2 is DT_<x>` (also `… is unsupported … now self is DT_…`) — the op is
+  registered and the launch was rejected because an input arrived in a dtype × layout
+  pair this SoC has no kernel for. Owner: the Python that produced the layout, not
+  the package. A recorded instance is an fp32 pooling/score head cast to
+  `FRACTAL_NZ` by the weight-format gate, which dies on the startup dummy pooler run
+  (#4679, v0.11.0rc3) — `../pooling-embedding/fp32-head-nz-format-crash.md`. Answer
+  it with that track's gate grep, not with `SOC_VERSION` or `ASCEND_CUSTOM_OPP_PATH`.
   A **built-in** op dying the same way before launch (`call aclnnArange failed …
   EZ9999 … Parse dynamic kernel config fail`, `AclOpKernelInit failed opType`,
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed`) is not a custom op at all: the

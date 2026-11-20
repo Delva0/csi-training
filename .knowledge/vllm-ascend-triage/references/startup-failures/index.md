@@ -46,6 +46,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   `arg-validation-errors.md` (its second raise site, #8345). The compared number
   is `parallel_config.data_parallel_size` after upstream rewrote a **dense**
   engine's DP to 1, so the fix is the block's number, not the launch DP flag.
+- The startup dies at the **first weight group** — `Starting to load model` was
+  printed, `Loading safetensors checkpoint shards: 0% ... 0/N`, and the deepest
+  frames are the model loader reaching
+  `vllm/model_executor/models/utils.py` `raise ValueError` with
+  `There is no module or parameter named '<name>' in <Class>` — while the init
+  line says `pooler_config=None` and the class name ends `ForCausalLM`: the
+  report is an embedding/pooling checkpoint served as a generation model, so use
+  `../pooling-embedding/embedding-checkpoint-as-generate.md` (one call:
+  `../../scripts/checkpoint-key-prefix.py <model dir>`). The message's prefix and
+  class name are computed, not part of the checkpoint's text — read them before
+  the loader.
 - A pydantic `ValidationError` whose text is `Unexpected keyword argument
   [type=unexpected_keyword_argument, input_value=..., input_type=bool]` naming a key
   the reporter put in `--additional-config`, often followed by

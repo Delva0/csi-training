@@ -1,4 +1,4 @@
-# Auditing a tutorial page: nine checks, in this order
+# Auditing a tutorial page: ten checks, in this order
 
 Every item is one or two shell calls against the pinned tree; the examples are
 what the checks returned for the Qwen3-Omni tutorial
@@ -148,6 +148,29 @@ genuinely need 4.51, so the correction is a separate conversion environment (or
 restoring the pins before `vllm serve`), never "the page is wrong to pin it".
 This check generalises to any `pip install <pkg>==<ver>` or
 `apt`/`yum install` line in a deployment step.
+
+## 10. Does every model-specific override string name this checkpoint's family?
+
+```bash
+rg -n 'hf_overrides|architectures' docs/source/tutorials/models/<page>.md
+rg -n 'ForSequenceClassification' vllm/docs/models/pooling_models/scoring.md
+```
+
+Pooling/reranker pages are the ones that carry an `--hf_overrides` architecture
+string, and text/VL siblings of one model family share nearly all prose, so the
+override line is a copy-paste casualty. At vllm-ascend v0.23.0 + vllm v0.23.0 the
+text page `Qwen3-Reranker.md` carries the **VL** string on three lines (`:141`
+A2/A3 serve, `:156` 300I DUO serve, `:284` mteb offline), while the sibling
+`Qwen3-VL-Reranker.md:172,190,288` is where that string belongs; upstream
+`docs/models/pooling_models/scoring.md:52,88` (`Qwen3ForSequenceClassification`)
+vs `:100,109` (`Qwen3VLForSequenceClassification`) names each family, and the
+repository's own e2e job runs the text name
+(`tests/e2e/pull_request/one_card/lora/test_qwen3_reranker_lora.py:29`). Tier
+**breaks the command** — not cosmetic: the wrong prefix routes to a multimodal
+model class and startup dies in the APIServer with
+`TypeError: Invalid type of HuggingFace config. Expected type: <class
+'…Qwen3VLConfig'>, but found type: <class '…Qwen3Config'>` (recorded #14817).
+Mechanism: `../pooling-embedding/seq-cls-arch-routing.md`.
 
 ## Second worked page: Qwen3-32B-W4A4 at v0.18.0 (recorded #11759)
 

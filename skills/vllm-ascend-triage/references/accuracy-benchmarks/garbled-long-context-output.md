@@ -22,6 +22,58 @@ Ask which one it is; the four have different owning code. A one-line repro with
 `temperature=0` and `max_tokens` well inside `max_model_len` removes the sampling
 and truncation rows cheaply.
 
+## First move when both serve commands are pasted: diff them against the model tutorial
+
+Every documented model ships runnable commands in
+`docs/source/tutorials/models/<model>.md` plus a `Recommended Configurations`
+section. When a report pastes its **P and D** commands and the output degenerates
+only at long context + concurrency, that diff is the answer skeleton: each
+deviation is one ablation row, and it takes two calls to build. Verified at
+vllm-ascend **v0.23.0rc1** (`f4a08bd`), `docs/source/tutorials/models/Kimi-K2.6.md`:
+
+| item | validated P node | validated D nodes | where |
+|---|---|---|---|
+| `--no-enable-prefix-caching` | present | present | `:172,357,437,517,597` (`:190`: it is in every example) |
+| `HCCL_BUFFSIZE` | 800 | 800 / 1100 | `:337,:417,:497,:577` |
+| `--max-model-len` | 32768 | 32768 | `:355,:435,:515,:595` |
+| `--max-num-batched-tokens` | 16384 | 32 or 4 | `:356,:436,:516,:596` |
+| eagle3 `num_speculative_tokens` | 1 | 3 | `:360,:440,:521,:601` |
+| `--max-num-seqs` | 4 | 8 | `:354,:434,:514,:594` |
+| decode-only features | `VLLM_ASCEND_ENABLE_FLASHCOMM1=1`, no MLAPO | `VLLM_ASCEND_ENABLE_MLAPO=1`, `recompute_scheduler_enable: true` | `:625-627` (explicit: MLAPO and the recompute scheduler on decode only) |
+
+§9.1 (`:831-864`) states it was "validated in specific test environments", and
+its Table 1 has **no PD row for 128K**: long context appears only as
+"Single-Node Mixed", while every 1P1D/2P1D row is the 16K/multimodal scenario and
+Table 2 gives those PD rows `Max Model Len 17K`. So a PD deployment asking for a
+131072 context is outside the documented envelope — say that as a caveat next to
+the matrix, not as a root cause, and note that a 23K prompt still sits inside the
+32768 of the example commands.
+
+Applied to #13002 (Kimi-K2.6 W4A8, 1P1D + `MooncakeConnectorV1`, eagle3,
+≥16 concurrency, 23K prompt, 6-10 % degenerate answers), the five deviations were:
+`--enable-prefix-caching` on **both** nodes, `--max-model-len 131072`, P
+`HCCL_BUFFSIZE=256`, D `--max-num-batched-tokens 256`, eagle3
+`num_speculative_tokens 3` on P. Those are the rows to hand back; none of them is a
+proven cause, and the recorded run never got as far as saying so — it spent 21
+turns and its whole output budget inside
+`vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py` (2600+ lines,
+read in eight slices) and shipped no answer at all.
+
+Two report-side traps from the same case, both cheaper than any source read:
+
+- **A `</think>` leak into `content` is not corruption until `reasoning_content`
+  is captured.** At vllm v0.23.0 (`0fc695f`),
+  `vllm/reasoning/kimi_k2_reasoning_parser.py:40-46` selects the identity
+  fallback from `chat_template_kwargs["thinking"]`, not from a request's
+  `enable_thinking`, so whether the tag is stripped depends on which key reaches
+  the parser; and a client that concatenates only `delta.content` cannot tell a
+  routing decision from a model-emitted token. One request printing both fields
+  decides it (`reasoning-output-routing.md` carries the neighbouring shapes).
+- **The reporter's own mechanism is a hypothesis.** #13002 asserted that
+  `HCCL_BUFFSIZE=256` "overflows and corrupts KV"; a too-small HCCL buffer is a
+  collective-side complaint, and the value is worth A/B'ing because the validated
+  command uses 800, not because the mechanism is established.
+
 ## The deliverable is an ablation matrix
 
 In a parallelism-rich deployment (PD disaggregation, DCP/PCP, sparse c8

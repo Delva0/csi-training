@@ -41,7 +41,11 @@ Not this topic, leave immediately:
   prefill work ahead / prefill throughput, and it is *not* improved by
   `--max-num-seqs` or by memory. "生成慢" during the same window is
   prefill/decode interference inside one scheduler budget. A report usually
-  contains both, and each has a different lever.
+  contains both, and each has a different lever. When it does, load **both** pages
+  in the same `skill_view` turn before any grep: the arithmetic page answers
+  "排队", the cache page answers "命中 0", and the recorded #6833 replay lost its
+  session by opening only the cache page and re-deriving the queue arithmetic from
+  `scheduler.py`.
 - The reporter's serve command is the first missing artefact: defaults differ per
   usage context and per device size, and vllm-ascend rewrites some of them
   (`refresh_block_size`, the `ascend_config` alignment). Ask for the startup line
@@ -61,6 +65,9 @@ Not this topic, leave immediately:
   requests, `Waiting` 35 → 0, generation throughput 8.5-38.5 tok/s during prefill
   and 1039.6 tok/s after): the arithmetic, why the queue is prefill-bound, the
   `--max-num-batched-tokens` trade-off, and the levers that actually change TTFT.
+  If the paste's samples match that table line for line, the arithmetic is
+  settled — cite it and spend the remaining turns on the answer, not on
+  re-deriving it.
 - `zero-prefix-cache-hit-hybrid.md` — a hybrid GDN model (Qwen3-Next) reporting
   `Prefix cache hit rate: 0.0%`: the `SupportsMambaPrefixCaching` gate that
   disables prefix caching in `MambaModelConfig` at vllm v0.14.1, the model's own

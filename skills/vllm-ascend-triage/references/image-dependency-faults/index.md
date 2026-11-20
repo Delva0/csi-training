@@ -21,6 +21,15 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `free(): invalid pointer`, `double free or corruption`,
   `munmap_chunk(): invalid pointer`, `Aborted (core dumped)` — with no Python
   frame and no NPU/collective text → `native-import-abort.md`.
+- A `python -c "import <pkg>"` (or the first real use) fails **at symbol
+  resolution**, not at open: `ImportError: …/<pkg>/_ops.cpython-310-…so: undefined
+  symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` and the ENV dump selects
+  `atb/cxx_abi_1` (or `cxx_abi_0`) → `abi-undefined-symbol.md`. The mangled
+  signature names the side (`Ss` = old `std::string` ABI, `NSt7__cxx11` = new), and
+  pointing `ATB_HOME_PATH`/`LD_LIBRARY_PATH` at the matching ATB root is the
+  fix once step 3 shows torch_npu's own `libop_plugin_atb.so` is on the same
+  side — reporter-confirmed on #1144. One call:
+  `scripts/abi-symbol-check.sh <paste>`.
 - A documented command or import fails because something is **missing** —
   `cannot open shared object file`, `No module named`, `command not found` — and
   `docs/source/tutorials/*.md` installs it in its own startup block → same page,
@@ -68,6 +77,11 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   / `basic_string::_S_construct null not valid` at engine start.
 - `nnal-atb-missing-library.md` — `libatb.so` / `libop_plugin_atb.so` unsourced
   NNAL roots, the `CANN: None` collector blind spot.
+- `abi-undefined-symbol.md` — the same NNAL/ATB component at the other failure
+  mode: a symbol is *missing at resolution* because the wheel and the selected ATB
+  root are on opposite sides of the `_GLIBCXX_USE_CXX11_ABI` switch (`Ss` vs
+  `NSt7__cxx11`), one process can load only one `libatb.so` SONAME, and the
+  reporter-confirmed remedy is the `cxx_abi_0`/`cxx_abi_1` export.
 - `launch-env-and-library-path.md` — `ImportError: <name>.so: cannot open shared
   object file` while a connector module is imported in a launcher-managed
   deployment, when the ENV dump says the path is fine: the launch command's

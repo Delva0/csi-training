@@ -2,8 +2,8 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "24462127dca4e44ace67c8b0c6c89cfc4a99a95b5995969fdaedf15a39748ed8",
-    "size": 93637
+    "sha256": "20082299b663305cd9f935ba6bb1708c5ccaae21bc5b30b3608093d5568b4d54",
+    "size": 100339
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/early-eos-short-output.md",
@@ -14,8 +14,8 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/garbled-long-context-output.md",
     "mode": "100644",
-    "sha256": "fc26aee728509c83941dbad1a6d4d7f766162ad905707af0e95620352cc36145",
-    "size": 6539
+    "sha256": "e4c6a4e09be32c708f28a90d333334eb2b5580909cb2ce6358f8894f6b6661fe",
+    "size": 9903
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/harness-vs-engine-attribution.md",
@@ -32,8 +32,8 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/index.md",
     "mode": "100644",
-    "sha256": "68ea22dcaa2754f1a948e16a927fbd5f0f50a5b186308e024c354f61f6843143",
-    "size": 9376
+    "sha256": "c1f70073199d8e971bff4d4bbfe4da15b981013135402199f61745d320612887",
+    "size": 9952
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/quantized-checkpoint-conversion.md",
@@ -50,8 +50,8 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/reasoning-output-routing.md",
     "mode": "100644",
-    "sha256": "e9a2dc4b47a8de7b9fddcb2e99c56a137fa96fd0c9a0a521c5b4df43f41f40c3",
-    "size": 6951
+    "sha256": "77d514d86d3a85b7f5d6958f01d2be099032306a92aaad22d057d9d906faa036",
+    "size": 8082
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/short-prompt-corruption.md",
@@ -134,8 +134,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/delivery-discipline.md",
     "mode": "100644",
-    "sha256": "89945eebd3af2fe094ab52f366724e5411ecba005fa76a5e9675f0c41e4d23fe",
-    "size": 5764
+    "sha256": "7d4a4da0b3f3af4f76bc85f208f3079b37ed94c51d029cde0c6a2703e7968de1",
+    "size": 7643
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
@@ -146,8 +146,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases.md",
     "mode": "100644",
-    "sha256": "1edfdc7b9df8c7238129d9f157eac7a5a324eed829f94d7f0383566129461a4f",
-    "size": 13078
+    "sha256": "8d69645f8641da91809ac9dd68df0a76f36c7431e4c7eba57bdaecfec63ad464",
+    "size": 16177
   },
   {
     "path": "vllm-ascend-triage/references/feature-enable-recipes/context-parallel-pcp-dcp.md",
@@ -198,10 +198,16 @@
     "size": 7258
   },
   {
+    "path": "vllm-ascend-triage/references/image-dependency-faults/abi-undefined-symbol.md",
+    "mode": "100644",
+    "sha256": "b09861ba0bd8798023a3d483b381b7679cec362d54208aa61f0054e00c083333",
+    "size": 7303
+  },
+  {
     "path": "vllm-ascend-triage/references/image-dependency-faults/index.md",
     "mode": "100644",
-    "sha256": "ffb6fe60f8e0549469862eba338dd171d7cc372d53209a49940f8992d5fabcaf",
-    "size": 6662
+    "sha256": "feba54ef6010c776f3873f22e781880552982dbcb16a9c8dff6552b953c866e3",
+    "size": 7690
   },
   {
     "path": "vllm-ascend-triage/references/image-dependency-faults/launch-env-and-library-path.md",
@@ -224,8 +230,8 @@
   {
     "path": "vllm-ascend-triage/references/image-dependency-faults/nnal-atb-missing-library.md",
     "mode": "100644",
-    "sha256": "99feec66bc09552df67f5071dae3cf20fa2a3d079ead0451f29dd805cf90e52a",
-    "size": 7355
+    "sha256": "8e9036d90071e82a46f840e81a4b97d9026f7940c777fba65041878c9e477e7f",
+    "size": 8042
   },
   {
     "path": "vllm-ascend-triage/references/observability-and-logs/index.md",
@@ -254,8 +260,8 @@
   {
     "path": "vllm-ascend-triage/references/pd-disaggregation/index.md",
     "mode": "100644",
-    "sha256": "88e6d79850c3e9bb22f8d3f0f1bfa52946848675adbb064914f90e71c37f0dc6",
-    "size": 6490
+    "sha256": "579e897decacb530b4e09093f43b77d7af66e3910b54571d0a71da906c665cb7",
+    "size": 7007
   },
   {
     "path": "vllm-ascend-triage/references/pd-disaggregation/kv-pool-store-segments.md",
@@ -272,8 +278,8 @@
   {
     "path": "vllm-ascend-triage/references/performance-throughput/index.md",
     "mode": "100644",
-    "sha256": "a3b2df96919d0243f0c7d64a5e7cff85cf0f73c2d123e171e1a730d686dc4464",
-    "size": 4317
+    "sha256": "4b970f24fa6221be7279675a2ed8294da0b1c17155c6a4005eb2468c8624aaac",
+    "size": 4782
   },
   {
     "path": "vllm-ascend-triage/references/performance-throughput/prefill-queue-and-throughput.md",
@@ -310,6 +316,18 @@
     "mode": "100644",
     "sha256": "e40be5eefd4cf7e8b5cf9386832fd48d515c870d1f0e4d870ff30cb61d94341d",
     "size": 6344
+  },
+  {
+    "path": "vllm-ascend-triage/references/serving-frontend-faults/index.md",
+    "mode": "100644",
+    "sha256": "d9f97a016d7e32d3432a31f7b94b1dc05a92e52fd68db73cf32391e0ed12d1cf",
+    "size": 3599
+  },
+  {
+    "path": "vllm-ascend-triage/references/serving-frontend-faults/tokenizer-already-borrowed.md",
+    "mode": "100644",
+    "sha256": "4fcd70a6e34ff89a4eada7c076d50a5bed6597ab15a1069bb4f028cca300ba4d",
+    "size": 6729
   },
   {
     "path": "vllm-ascend-triage/references/soc-platform-paths/atlas-300i-310p.md",
@@ -434,8 +452,8 @@
   {
     "path": "vllm-ascend-triage/references/upstream-downstream-drift/index.md",
     "mode": "100644",
-    "sha256": "72832265a16b48dbd838e41fd7212d69f3a96b0ad3ab5791f8d4f17f4ed0dd28",
-    "size": 6368
+    "sha256": "ea6a27ee15565e704fb0f8ae28484ca5d1153973f7da613bebc8c8b19f58078d",
+    "size": 6642
   },
   {
     "path": "vllm-ascend-triage/references/upstream-downstream-drift/oot-class-registration-drift.md",
@@ -454,6 +472,12 @@
     "mode": "100644",
     "sha256": "3c2c556d69257076902d03ac651ed18f1fed48140d8ec71fb579b3a028b14d26",
     "size": 4672
+  },
+  {
+    "path": "vllm-ascend-triage/scripts/abi-symbol-check.sh",
+    "mode": "100644",
+    "sha256": "dd5b30e5082d656fc583334c9f1978e024605446543b5a0b161a5c065bb73187",
+    "size": 6201
   },
   {
     "path": "vllm-ascend-triage/scripts/aclgraph-size-budget.sh",

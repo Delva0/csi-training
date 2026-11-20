@@ -165,7 +165,10 @@ computed the right ratios by its fourth turn (queue prefill-bound, ~5.5 K tok/s
 prefill over ~50 s, `gen tok/s ÷ Running` = 0.5-1 during prefill vs 26 after, KV
 peak 47.9 % so no capacity story), then spent fifteen more turns inside the
 hybrid-KV-cache, mamba-config and prefix-caching sources and shipped no answer; the
-gate it needed is one file (`../performance-throughput/index.md`).
+gate it needed is one file (`../performance-throughput/index.md`). The replay of the
+same paste, once that file existed, wrote its verdict, arithmetic and gate chain by
+turn 19 — but it opened only the cache page, re-derived the queue arithmetic from
+`scheduler.py` at identical pins, and was cut mid-sentence in its action ladder.
 
 **#4057** v0.11.0rc0 Qwen3-Next-80B-A3B, "问到数字相关问题时精度较差" on a 19-token
 prompt with no serve command in the report: the run found the downstream fp32
@@ -186,3 +189,43 @@ chunk metadata, `gdn_chunk_meta` and the block-table plumbing, and was cut insid
 reasoning block — 22 assistant turns, ~11 K of a 16 K-token output budget, every
 message a tool call, zero message text. The confound and the matrix were the
 deliverable (`../accuracy-benchmarks/hybrid-block-size-corruption.md`).
+
+**#1144** vllm-ascend v0.7.3.post1 (`c69ceac`) / vllm v0.7.3, torch+torch_npu 2.5.1,
+aarch64 EulerOS: `import mindie_turbo` →
+`ImportError: …/mindie_turbo/_ops.cpython-310-aarch64-linux-gnu.so: undefined
+symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs`, while the env dump selects
+`ATB_HOME_PATH=…/nnal/atb/latest/atb/cxx_abi_1` — a `std::string` ABI mismatch
+between a prebuilt wheel and the selected NNAL/ATB root. Answered on its 9th
+assistant turn with the demangled symbol, the three `nm -D` checks and the
+`cxx_abi_0` export, and the
+**reporter confirmed on 2025-06-10: "Thanks, the env setting works for me."** The
+run also pinned the impact split (worker `try_register_lib` warning vs
+`NotImplementedError: There is no available ascend quantizer` on the quantised
+path); the weak spot was guessing which ABI torch_npu's own `libop_plugin_atb.so`
+needs instead of asking for the one `nm -D` count, which its answer then correctly
+listed as the deciding check (`../image-dependency-faults/abi-undefined-symbol.md`).
+
+**#13002** v0.23.0 on A2, Kimi-K2.6 W4A8, 1P1D `MooncakeConnectorV1` + eagle3,
+≥16 concurrent / ≥23K-token prompts: `</think>` leaking into `content`, repetition
+collapse, 乱码 in 6-10 % of requests, both serve commands pasted. **Shipped no
+answer**: 21 assistant turns, 1.06 M prompt tokens and the whole 16 K output
+budget, ~8 turns reading `mooncake_connector.py` in 2600-line slices; the model's
+own tutorial (`docs/source/tutorials/models/Kimi-K2.6.md`, validated P/D commands
+and §9.1 table) was opened only at turn 17, though its diff — `--no-enable-prefix-caching`
+on both nodes vs the reporter's `--enable-prefix-caching`, `--max-model-len 32768`
+vs 131072, P `HCCL_BUFFSIZE 800` vs 256, D `--max-num-batched-tokens 32/4` vs 256,
+P eagle3 `num_speculative_tokens 1` vs 3 — plus the ablation matrix was the answer
+(`../accuracy-benchmarks/garbled-long-context-output.md`).
+
+**#7197** vllm-ascend v0.16.0rc1 + vllm v0.16.0, 910B3, Qwen3-Next on a customer
+dataset: `ERROR [serving.py:315] Error in preprocessing prompt inputs` with
+`RuntimeError: Already borrowed` raised at `hermes_tool_parser.py:63` (the tool
+parser's `__init__` encoding its special tokens) under `_preprocess_chat` — a
+fast-tokenizer borrow conflict between the event-loop thread and
+`AsyncMicrobatchTokenizer`'s single-worker executor, with no `vllm_ascend` frame
+and no downstream tokenizer code to blame. The recorded run answered on its 14th
+assistant turn with the mechanism, vLLM's single existing retry for the same
+exception (`vllm/multimodal/processing/context.py:440-459`, tokenizers#537), the
+serial-concurrency/retry ladder and the transformers-4.57 line-number gap; the
+prior-month history has no `Already borrowed` precedent at all
+(`../serving-frontend-faults/tokenizer-already-borrowed.md`).

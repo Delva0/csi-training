@@ -27,8 +27,12 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
 
 It is the wrong entry for an aclnn/AscendC device fault
 (`../custom-ops-runtime-faults/index.md`), for a collective or `ERR00100`
-(`../hccl-and-hardware/index.md`), and for "model type not recognised"
-(`../startup-failures/model-type-not-recognized.md`).
+(`../hccl-and-hardware/index.md`), for "model type not recognised"
+(`../startup-failures/model-type-not-recognized.md`), and for a raise that never
+touches downstream code at all — a traceback over `vllm/**` plus
+`site-packages/**` with no Ascend class involved (`RuntimeError: Already
+borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
+`../serving-frontend-faults/index.md`.
 
 ## Rules
 

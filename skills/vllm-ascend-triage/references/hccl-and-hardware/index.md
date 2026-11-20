@@ -80,7 +80,12 @@ call site is a data gap, so ask for the plog and an
 `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` rerun instead of reading an
 attention backend. `worker-segfault-no-python-frames.md` has the candidate table
 and the precedent families behind that marker (#16079, and #10136 / #10522 /
-#10532 / #14283 / #14860 for the other mechanisms that share it).
+#10532 / #14283 / #14860 for the other mechanisms that share it). The same marker
+**at engine start** — before `Starting to load model`, parent side `Failed core
+proc(s): {'EngineCore': -11}`, the `TBE Subprocess … main process disappeared`
+block after it — is the startup section of that page: `-11` is SIGSEGV, a trivial
+CPU `torch.zeros` at the top of the dump is where the damage surfaced, and the
+answer is the image/CANN pairing plus the release's own validated command.
 
 1. `error-report-timestamps.md` — when the paste carries several error families at
    once (`EE9999` runtime records, `EZ9999` chip dumps, `507011`, `ERR00100`,

@@ -1,16 +1,33 @@
 #!/usr/bin/env bash
 # Cheap precedent index over the read-only issue history.
 #
-#   scripts/history-titles.sh '<extended-regex>' [history-root] [limit]
+#   scripts/history-titles.sh [-i] '<extended-regex>' [history-root] [limit]
 #
 # Prints one line per matching issue file:  <file> :: <first non-empty line>
 # so a whole family of issues can be triaged without reading any body.
-# Never `ls` the history directory: it holds thousands of files.
+# `-i` makes the file match case-insensitive (issue titles capitalise tokens:
+# `reranker` vs `Reranker`); the body-line fallback below is always
+# case-insensitive. Never `ls` the history directory: it holds thousands of files.
 set -u
+
+icase=""
+case "${1:-}" in
+  -i|--ignore-case) icase="-i"; shift ;;
+  --) shift ;;
+  -h|--help)
+    echo "usage: history-titles.sh [-i] <extended-regex> [history-root] [limit]"
+    exit 0 ;;
+  -*)
+    # A grep-style flag as the first argument used to be taken for the regex and
+    # the pattern for the history root, burning a call on "no such history root".
+    echo "history-titles.sh: unknown option '$1'" >&2
+    echo "usage: history-titles.sh [-i] <extended-regex> [history-root] [limit]" >&2
+    exit 2 ;;
+esac
 
 pat=${1:-}
 if [ -z "${pat:-}" ]; then
-  echo "usage: history-titles.sh <extended-regex> [history-root] [limit]" >&2
+  echo "usage: history-titles.sh [-i] <extended-regex> [history-root] [limit]" >&2
   exit 2
 fi
 root=${2:-/workspace/history}
@@ -22,7 +39,9 @@ if [ ! -d "$root" ]; then
 fi
 
 # Layouts seen: flat  history/<issue>.md  and per-case  history/<issue>/<id>.md.
-matches=$(grep -rlE -e "$pat" --include='*.md' "$root" 2>/dev/null)
+# Note: keep the flag separate from -rlE — `grep -rl${icase}E` becomes the
+# invalid `-rl-iE` and, with stderr dropped, silently reports 0 hits.
+matches=$(grep -rlE ${icase:+"$icase"} -e "$pat" --include='*.md' "$root" 2>/dev/null)
 if [ -z "$matches" ]; then
   echo "0 hits for '$pat' under $root"
   echo "(the prior-month corpus is not evidence of absence for a current issue)"

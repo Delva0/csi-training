@@ -40,7 +40,15 @@ Conditional routes:
 - 310P / Atlas 300I deployments: the documented support status, the seven
   platform gates that change behaviour, the NZ (FRACTAL_NZ) format path, and the
   launch-environment items the 300I tutorial requires →
-  `atlas-300i-310p.md`.
+  `atlas-300i-310p.md`. That page also carries the per-release blocks a startup
+  report needs: at v0.22.1rc1 the `_310p/` subpackage (the older gate line
+  numbers are gone), the release's own validated `310p.md` table, the inert
+  `fuse_norm_quant` flag and the `max_model_len`-sized mask — quote the block for
+  the reporter's release, not the v0.11 one.
+- The complaint is that **no 310P artefact exists for this machine** (arm64 host,
+  an arm64 tag that pulls amd64, an aarch64 wheel) — an image/wheel pipeline
+  question, not a platform code path →
+  `../image-dependency-faults/image-arch-and-tag-availability.md`.
 - Engine start dies at `worker.py` `check_ascend_device_type()` before
   `Starting to load model`: `AssertionError: Current device type: AscendDeviceType.A5
   does not match the installed version's device type: AscendDeviceType.A2`, or

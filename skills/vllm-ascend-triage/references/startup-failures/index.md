@@ -8,7 +8,11 @@ Inherit the rules in SKILL.md. Conditional routes:
 
 - No per-rank worker traceback in the pasted log → `silent-worker-exit.md`
   (how the vLLM v1 multiproc executor reports each lane, what to request, and
-  why `Parent process exited` / `TBE Subprocess` lines are consequences).
+  why `Parent process exited` / `TBE Subprocess` lines are consequences). When
+  the paste also carries `!!!!!!! Segfault encountered !!!!!!!` and the parent's
+  `Failed core proc(s): {'EngineCore': -11}`, finish in the startup section of
+  `../hccl-and-hardware/worker-segfault-no-python-frames.md`: a trivial CPU
+  `torch.zeros` at the top of the dump is not the cause.
 - Failure at load/profile/graph-capture time on a machine with 64 GB cards, or a
   deployment command that omits `--max-model-len` → `max-model-len-budget.md`
   first. This is the reporter-confirmed answer for the recorded Qwen3-VL-30B-A3B

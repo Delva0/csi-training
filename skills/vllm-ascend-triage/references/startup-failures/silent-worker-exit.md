@@ -30,6 +30,14 @@ raising. That distinction decides the next question.
   parent died. Also a consequence. Older issue reports (e.g. vllm-ascend issue
   #198, vllm 0.7.1, "TBE Subprocess Task Distribute Failure When TP>1") used
   this string as a title; do not inherit that conclusion for a different version.
+- `!!!!!!! Segfault encountered !!!!!!!` above the parent's `RuntimeError: Engine
+  core initialization failed … Failed core proc(s): {'EngineCore': -11}` is the
+  same lane seen from the child: `-11` is SIGSEGV, so there is no Python
+  traceback to wait for. Read the dump through
+  `../hccl-and-hardware/worker-segfault-no-python-frames.md`, section
+  `## The startup variant` — a trivial CPU `torch.zeros` at the top of the dump
+  is where the damage surfaced, not an arithmetic bug, and the TBE block above is
+  already accounted for as a messenger.
 
 ## What the timing tells you
 

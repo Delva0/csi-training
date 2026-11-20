@@ -336,6 +336,36 @@ seventh turn's message text; the
 sibling of #11519's `EZ1001` on the same axis — built-in op here, custom op there
 (`../soc-platform-paths/kernel-package-vs-card.md`).
 
+**#2178** vllm-ascend `v0.9.2rc1` (`b5b7e0ec`), a 310P host on `linux/arm64/v8`:
+"[Usage]: 310p的镜像找不到linux on arm64的" — the quay tag page
+(`…?tab=tags&tag=latest`) looked like it had arm64, the second page was the
+third-party mirror `docker.aityp.com/image/quay.io/ascend/vllm-ascend:v0.9.2rc1-310p-openeuler`,
+and the pull printed the client's platform-mismatch warning. Track: published-artefact
+availability (image/wheel pipeline), not a vllm-ascend defect. The recorded run took
+8 assistant turns with **zero message text until the final one** — it had no route
+for this shape and re-derived the workflow reading by hand — then answered with the
+right frame for the old layout: 310P tags carry `-310p` / `-310p-openeuler` and the
+bare tags (incl. `latest`) are the generic A2 line
+(`image_310p_ubuntu.yml:69-71`, `image_ubuntu.yml:69-71`); `platforms:` is
+`amd64,arm64` only on `push` by the upstream owner and otherwise the two 310P
+workflows fall back to *different* single arches (`:96-100` vs
+`image_310p_openeuler.yml:100-104`, whose runner also flips to `ubuntu-24.04-arm`,
+`:43-47`); the arm64 leg needs an arm64 CANN base (`Dockerfile.310p:18`); the
+mirror is not evidence. Two refinements the page carries that the answer stated too
+loosely: `push:` and `platforms:` are the *same* condition, so a build allowed to
+publish is always requested multi-arch and the single-arch fallbacks cannot explain
+a published tag (the arm64 leg's base image or the client/mirror can); and a
+non-prerelease release does get a suffixed `latest-310p`, only `latest` itself is
+never a 310P tag. What it left open correctly: the actual manifest lists,
+i.e. `docker buildx imagetools inspect`, plus the `-310p` base's own arch. One
+addition the run found and the library now carries: `release_whl.yml:46-47` builds
+on `ubuntu-24.04-arm` too (an aarch64 wheel exists), while
+`.github/Dockerfile.buildwheel:18` is a **910b** base and `SOC_VERSION` is baked in,
+so that wheel is an A2 build — and #1742's v0.9.2rc1 checklist still had
+"Upload 310p wheel to Github release page" unchecked. Route:
+`../image-dependency-faults/image-arch-and-tag-availability.md` (one call:
+`scripts/image-arch-matrix.sh`).
+
 **#13719** vllm-ascend v0.23.0rc1 (`f4a08bdd`) + vllm v0.23.0 (`0fc695fc`) as the
 snapshot's reference, but the report's build was a daily "0.23.0": GLM-5.2 W8A8C8 on
 910C, 4-node PD disaggregation (`MooncakeConnectorV1`) with `deepseek_mtp`
@@ -348,6 +378,13 @@ deliverable was the tutorial diff (`GLM5.2.md` 4-node 1M PD example) plus the
 `using_block_verify` also requires `rejection_sampler_config.enable_block_verify`
 (default `False`, `ascend_config.py:766`), so the n≥3 block-verify story does not
 transfer from #7580 (`../accuracy-benchmarks/long-output-repetition.md`).
+A later replay against that page (same `SOURCES.json` pins, no new evidence) answered
+in **five** assistant turns and ~6 K completion tokens instead of ten turns: the page
+was enough, and what the replay still spent turns on was re-reading the tutorial's
+P/D blocks the page already records — the page's own warning about re-grepping only
+what it marks version-specific is the fix. The reporter's only later activity on the
+thread is a failed attachment (`Failed to upload "repeated_responses.txt"`), which is
+why the page asks for the samples inline.
 
 **#16563** reported 0.23.0RC1 (snapshot pins vllm-ascend v0.26.0rc1 / vllm v0.26.0,
 `reported_ref_status: no_named_release`) — DeepSeek-V4-Flash on one 800I A2, TP8 +
@@ -1178,3 +1215,51 @@ eager `max_model_len²` mask arithmetic could not separate the pair
 pairs). Route now: `../startup-failures/environment-correspondence.md` (per-worker
 environment on ray) plus the Qwen3-Next pages. Delivery: the answer shipped, but the
 cap landed inside its own ladder and dropped the closing artefact list.
+
+**#13446** vllm-ascend v0.23.0rc1 (`f4a08bd`, `vllm-ascend:v0.23.0rc1` image),
+vllm v0.23.0 (`0fc695f`), 910B2 / firmware 26.0.0RC1, Qwen3-Reranker served with
+`--runner pooling` and `--hf_overrides '{"architectures":
+["Qwen3VLForSequenceClassification"]}'`: `TypeError: Invalid type of HuggingFace
+config. Expected type: …Qwen3VLConfig, but found type: …Qwen3Config` raised in the
+APIServer, `ERR99999` after it. Track: architecture-name routing, pooling lane. The
+recorded run was the shape this library wants: the SKILL row landed on
+`../pooling-embedding/seq-cls-arch-routing.md` on its second call, one
+`scripts/seq-cls-arch-check.sh` call resolved both names to text/multimodal, two
+greps confirmed the pinned tutorial pages, and it answered in Chinese with the
+registry rewrite table, exact line numbers matching the reporter's own traceback
+(866/883) and a version gap. Two additions came out of it: the `found type:` class
+is the **fingerprint of the checkpoint that actually loaded** (the command named a
+VL path while the text class was found, i.e. path/weights mismatch, not a card or
+driver problem), and the quoted page's *name* dates the document — the pinned
+v0.23.0rc1 tree still has `Qwen3_reranker.md` (correct), the recorded #14817 defect
+is the hyphen-named `Qwen3-Reranker.md` at v0.23.0, and the reporter's
+`v0.24.0rc …/Qwen3-Reranker.html#42-…` is newer than both their image and the
+snapshot. One detour: `scripts/history-titles.sh -i 'reranker'` exited with
+`no such history root: reranker`; the script now takes `-i` and rejects other flags
+with its usage.
+
+**#12015** vllm-ascend v0.22.1rc1 (`5f6faa0`, `v0.22.1rc1-310p-openeuler` image) +
+vllm v0.22.1 (`0decac0d`), Atlas 300I DUO (310P), TP=1: the title says
+Qwen3-14B-w8a8sc, the command serves `/model/Qwen3-VL-2B-Instruct/` in fp16 with
+`--enforce-eager`, a `FULL_DECODE_ONLY` `--compilation-config`, prefix caching left
+on, and the 310P doc's `--additional-config … fuse_norm_quant: false`. After
+`rank 0 in world size 1 is assigned …` the EngineCore child died:
+`!!!!!!! Segfault encountered !!!!!!!` with a dump whose top frame is a **CPU**
+`torch.zeros` fp16 fill (`at::native::fill_kernel` → `VectorizedLoop2d` →
+`fill_non_native_type<c10::Half>`), then eight
+`[ERROR] TBE Subprocess[task_distribute] … main process disappeared!` lines and the
+parent's `Failed core proc(s): {'EngineCore': -11}`. Track: signal death at engine
+start on a combination the release's own 310P table does not validate. Delivery:
+**no answer at all** — 20 turns and the whole 16 K output budget went into
+investigation (fusion-config plumbing between `additional_config` and upstream
+`pass_config`, the 310P mask builder, the doc's validated rows) and the cap landed
+on a status note; it also broke G1/G2 by emitting no verdict text until turn 19.
+What the next run should have: the startup section of
+`../hccl-and-hardware/worker-segfault-no-python-frames.md` (child = EngineCore
+spawn, `-11` = SIGSEGV, TBE block = messenger, trivial CPU fill = surfacing site)
+and the v0.22.1rc1 block of `../soc-platform-paths/atlas-300i-310p.md` (the
+`_310p/` subpackage, the doc's validated table, the inert fusion flag, the
+`max_model_len`-sized mask). Root cause stays unresolved — no plog in the paste and
+no maintainer answer in the corpus; the ranked candidates are the image/CANN/
+torch_npu pairing (#10136 family), the unvalidated model/feature combination, and
+host-memory pressure during init.

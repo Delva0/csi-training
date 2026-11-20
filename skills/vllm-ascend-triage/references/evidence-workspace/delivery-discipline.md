@@ -65,6 +65,17 @@ leads were.
   them, instead of reading the third file to pick one. Recorded #6598 had the two
   padding candidates for its operator message by its 8th turn and spent the rest of
   the budget choosing between them.
+- **A log line whose fields another component fills is a mapping question, not a
+  hypothesis.** #12015 spent roughly half its budget on an echo mismatch: the paste
+  read `Enabled custom fusions: norm_quant, act_quant` although the reporter had set
+  `fuse_norm_quant: false`. The line is upstream's
+  (`vllm/config/compilation.py:313`) and reports `compilation_config.pass_config`,
+  which upstream's optimization level fills, while the reporter's key went into
+  `additional_config.ascend_compilation_config` — and on 310P that key is gated off
+  outright (`compilation/graph_fusion_pass_manager.py:54`). One question ("which
+  component fills this field?") settles it; the answer belongs in the reply as
+  "expected, not the cause", with one `path:line`, not in a walk through two config
+  layers.
 - **An ownership question is answered by naming the owner.** "The flag did
   nothing", "the log line is missing", "the client cannot parse the tool call" are
   gate checklists on the owning component, and they are answered in 3-4 calls.

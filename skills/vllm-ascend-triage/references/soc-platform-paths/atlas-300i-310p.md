@@ -6,6 +6,10 @@ Verified at vllm-ascend **v0.11.0rc3** (`b6d63bbd`) with vllm **v0.11.0**
 `SOC_VERSION=ASCEND310P3:51`, `VLLM_TAG=v0.11.0:37`). Re-grep per version: the
 gate list and line numbers move, the shape does not.
 
+For "there is no 310P artefact for my machine" (arm64 host, an arm64 tag that pulls
+amd64, an aarch64 wheel) the owner is the image pipeline, not this page:
+`../image-dependency-faults/image-arch-and-tag-availability.md`.
+
 ## The documented status (quote it, then move on)
 
 - `docs/source/faqs.md:18`: "[Experimental] Atlas 300I inference series (Atlas
@@ -51,6 +55,63 @@ even though the AscendC `vllm_ascend/lora/lora_ops.py` exists in the same tree
 (`vllm_ascend/lora/punica_npu.py:27-39`). So "LoRA is 4× slower here" is
 structural on this SoC, and the lever is merging the adapter or moving the
 release, not a flag — `../lora-adapters/decode-overhead-vs-base-model.md`.
+
+## At v0.22.1rc1: the `_310p/` subpackage, the doc's validated table, two traps
+
+Verified at vllm-ascend **v0.22.1rc1** (`5f6faa0`) + vllm **v0.22.1**
+(`0decac0d`) while triaging #12015 (`v0.22.1rc1-310p-openeuler` image); five
+distinctive log strings of that paste appear in the pinned tree with line numbers
+within ±1 of the log's own `[file:line]` tags (`platform.py:60-61` breakable
+cudagraph, `:526` eager-mode default, `:759` allocator injection, `:1036-1037`
+GPU-only parameter, `ascend_config.py:772` Dynamic EPLB), so the pin is citable
+for that release even though the image is not byte-verified.
+
+- **The 310P code is now a subpackage.** `vllm_ascend/_310p/` holds
+  `worker_310p.py`, `model_runner_310p.py`,
+  `attention/{attention_v1,attention_mask,metadata_builder}.py`,
+  `kv_block_zeroer.py`, `quantization/modelslim_config.py`, `ops/…`. The
+  substitutions are `platform.py:651-652` (`worker_cls =
+  "vllm_ascend._310p.worker_310p.NPUWorker310"`), `:807-810`
+  (`AscendAttentionBackend310`) and `:197-201`
+  (`AscendModelSlimConfig310`, which also prints the
+  `quantization method 'ascend' … will be overwritten` warning). The v0.11-style
+  `worker/model_runner_v1.py` line numbers in the gate table above no longer
+  exist at this ref — re-grep inside `_310p/`.
+- **The doc's validated table is narrow.** `docs/source/tutorials/hardwares/310p.md:95-176`
+  validates only `Eco-Tech/Qwen3-{8B,14B,32B}-w8a8sc-310-vllm` (TP1, TP1, TP4),
+  every row carrying `--dtype float16 --quantization ascend --load_format
+  sharded_state --no-enable-prefix-caching --max_model_len 16384` (20480 for 32B)
+  `--gpu_memory_utilization 0.90 --max_num_seqs`. `:86-87` warns that the
+  attention mask is `O(max_model_len^2)` and asks for an explicit, conservative
+  `--max-model-len`. A paste serving anything else — a VL checkpoint, an fp16
+  dense model, prefix caching left on (the doc passes
+  `--no-enable-prefix-caching`; #12015's own config echo says
+  `enable_prefix_caching=True`) — is outside the validated set: say so, and make
+  "run the doc's row on a small model" rung 1.
+- **Trap: the fusion flag in those very doc commands is inert on 310P.** All three
+  rows pass `--additional-config '{"ascend_compilation_config":
+  {"fuse_norm_quant": false}}'`, but
+  `vllm_ascend/compilation/graph_fusion_pass_manager.py:54` and `:69` read that
+  key with `and not is_310p()`, so the pass is never added here. The
+  `Enabled custom fusions: norm_quant, act_quant` line is **upstream**
+  (`vllm/config/compilation.py:313`) and reports
+  `compilation_config.pass_config`, which the upstream *optimization level* fills
+  (`vllm/config/vllm.py:99-107` `enable_norm_fusion`, the O2 table at `:188-…`,
+  default level `:353`, applied at `:1110`) — not the `additional_config` key. Under
+  `--enforce-eager` the mode is `NONE` (`platform.py:525-528`) and no pass runs at
+  all. So "the flag I set is not what the log lists" is a two-registry artifact,
+  not a smoking gun: do not walk it (#12015 spent ~8 calls on it and ran out of
+  output before answering).
+- **Trap: the 310P mask allocation is real, but it is sized by `max_model_len`.**
+  `_310p/attention/metadata_builder.py:80` constructs
+  `AttentionMaskBuilder310(self.device, max_model_len)` and
+  `_310p/attention/attention_mask.py:68` allocates
+  `torch.zeros((max_seq_len, max_seq_len), dtype=torch.float16, device=device)`
+  (class default `max_seqlen = 16384`, `:38`). That is what the doc's `:86-87`
+  warning is about, and it is an argument for an explicit `--max-model-len` — never
+  a licence to read a **CPU** `torch.zeros` top frame in a segfault dump as this
+  allocation (`../hccl-and-hardware/worker-segfault-no-python-frames.md`,
+  `## The startup variant`).
 
 ## Ranked actions for a 310P startup report
 

@@ -252,7 +252,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `empty_cache` (`unmapHandles … 507899`) while `:False` deployed
   (`references/runtime-memory/allocator-expandable-segments-unmap-crash.md`) — and
   with TP > 1 quote the graph budget before any HCCL theory
-  (`docs/source/tutorials/hardwares/310p.md:20-30`).
+  (`docs/source/tutorials/hardwares/310p.md:20-30`). Then diff the command against
+  the release's own validated table (`310p.md:95-176` at v0.22.1rc1: only the
+  `Eco-Tech/Qwen3-{8B,14B,32B}-w8a8sc-310-vllm` rows, `--dtype float16
+  --quantization ascend --load_format sharded_state --no-enable-prefix-caching
+  --max_model_len 16384`) — a VL or fp16 dense serve on 310P is outside it, and
+  "run the doc's row on a small model" is rung 1. Two traps when reading that
+  paste: the doc's `--additional-config … fuse_norm_quant: false` is inert on 310P
+  (`compilation/graph_fusion_pass_manager.py:54`, `and not is_310p()`), so the
+  `Enabled custom fusions: …` line is upstream's `pass_config` echo
+  (`vllm/config/compilation.py:313`) and not evidence; and under `--enforce-eager`
+  no fusion pass runs at all.
 - Device allocation failure before the engine is ready
   (`Memory_Allocation_Failure(EL0004)`, `runtime result = 207001`, `507013`
   plus SDMA/SMMU text) at a KV-cache or weight `npu_format_cast`: read
@@ -310,7 +320,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `references/hccl-and-hardware/worker-segfault-no-python-frames.md`: count the
   `vllm_ascend/*.py` frames in the dump (zero = call site unknown, ask for the
   plog and an `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` rerun), and do not
-  read the attention backend the top native frames happen to sit under.
+  read the attention backend the top native frames happen to sit under. The same
+  marker at **engine start** (`Failed core proc(s): {'EngineCore': -11}`, no
+  `Starting to load model`, a trivial CPU `torch.zeros`/`fill_kernel` at the top,
+  the `TBE Subprocess … main process disappeared` block after it) is the same lane
+  from the child's side: `-11` is SIGSEGV, the fill frame is where damage
+  surfaced, and the answer is the image/CANN pairing plus the release's
+  doc-validated command — section `## The startup variant` of that page.
 - Any pasted plog / RUNTIME excerpt that carries more than one error family: run
   `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>` before
   naming a cause. Blocks it flags as older are either the previous crash or this

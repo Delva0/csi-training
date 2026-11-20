@@ -66,6 +66,15 @@ Not this topic, leave immediately:
   Do not promise the flag flip as a fix: it is a hypothesis with a named log line to
   confirm.
 
+- **A rate that drops when a feature is switched on is a different question
+  from a rate that is low on its own.** If the reporter compares two commands
+  for the *same* model and one of them adds `--enable-lora` (recorded #1812:
+  9 → 2 tok/s on 310P), the answer needs the backend that feature binds and
+  whether the SoC can amortise launches, not throughput arithmetic on the metric
+  block — `../lora-adapters/decode-overhead-vs-base-model.md`. It is still this
+  track's arithmetic: convert both rates to ms/step and price the feature's
+  FLOPs before calling the gap overhead.
+
 ## Pages
 
 - `prefill-queue-and-throughput.md` — the worked #6833 block (40 concurrent

@@ -1,6 +1,12 @@
-# Quantization method rejected before any worker starts
+# Quantization method: rejected at config time, or never selected at all
 
-## Signature family
+Two failures live on this page and they point in opposite directions. **A** is a
+method that is named and refused before any worker starts; **B** is a method that
+was never named, on a checkpoint whose own layout deliberately carries no
+`quantization_config` — so nothing refuses it, the engine starts, and it dies in a
+worker while loading int8 tensors into a dense model.
+
+## A. Signature family (named and rejected)
 
 ```
 ValueError: <method> quantization is currently not supported in npu.
@@ -68,6 +74,65 @@ rejected run are consistent — do not read the surviving choices as support.
 - Cheap verification for the reporter: run the same serve command without
   `--quantization`; if the gate still fires, the checkpoint's own `quant_method`
   is the cause and the file list (`config.json`) is the artefact to send.
+
+## B. The other direction: the flag omitted on a layout that has no `quantization_config`
+
+Signature: `RuntimeError: Engine core initialization failed. See root cause above.`
+(upstream's wrapper) with **no worker traceback** in the paste, on an
+msmodelslim-converted W8A8 checkpoint (recorded #2015, vllm-ascend v0.9.2rc1
+`b5b7e0e` + vllm v0.9.2 `a5dd03c`, 910B, DeepSeek-R1-bf16-hfd-w8a8, offline
+`LLM(model=..., enforce_eager=True)` with no `quantization=`). Nothing in the log
+names a quantization problem, which is why this direction is missed.
+
+The chain, source-verified at that pin:
+
+1. **The documented export has no `quantization_config` on purpose.**
+   `docs/source/user_guide/feature_guide/quantization.md:37` says of the converted
+   `config.json`: *"Please make sure that there is no `quantization_config` field
+   in it"*; `:5` says the feature is enabled *"by specifying `--quantization
+   ascend`"*; `:94`'s validated serve line carries `--quantization ascend`.
+2. **So upstream's auto-detection cannot fire.** `ModelConfig._verify_quantization`
+   (`vllm/config.py:881`) parses a method only from
+   `hf_config.quantization_config` / `compression_config`
+   (`_parse_quant_hf_config`, `:874-879`) and gates the whole override loop behind
+   `if quant_cfg is not None:` (`:895`); with both keys absent, `self.quantization`
+   stays `None` unless the caller passes it.
+   `AscendQuantConfig.override_quantization_method`
+   (`vllm_ascend/quantization/quant_config.py:82-86`) returning `"ascend"`
+   whenever `torch.npu.is_available()` therefore does **not** help: it is only
+   consulted inside that block, i.e. it *renames* an existing method, it cannot
+   invent one. (It also means "no quantization_config ⇒ must pass the flag" is a
+   layout contract, not a platform limitation.)
+3. **What follows.** No `AscendQuantConfig`, hence no
+   `quant_model_description.json` reader (`quant_config.py:74-75`), hence
+   `UnquantizedLinearMethod` for every `LinearBase` layer: the int8 weights and
+   their `.weight_scale`/`.quant_bias` keys are matched against a dense bf16 model
+   inside `load_model` on each rank. The pinned tree's own FAQ maps the resulting
+   shape — `KeyError: 'xxx.layers.0.self_attn.q_proj.weight'` — to exactly this
+   cause: *"First, make sure you specify `ascend` quantization method"*
+   (`quantization.md:99-101`). Precedent #813 at a nearby ref reports the same
+   `KeyError …q_a_proj.weight` from `load_model`.
+
+What the answer says, in order: (1) pass `quantization="ascend"` (serve:
+`--quantization ascend`) — that is the documented enabling switch and the pinned
+FAQ's first remedy; (2) the paste has no root cause, so ask for the **per-rank
+worker traceback** (lanes: `silent-worker-exit.md`) and the checkpoint's
+`config.json` + file list; (3) name the second candidate with arithmetic rather
+than prose — a 671B int8 checkpoint is 671 GB / TP cards against
+`hbm × gpu_memory_utilization`, `bash ../../scripts/card-budget.sh --params 671
+--dtype w8a8 --tp 16 --gmu 0.8` leaves ~9.3 GB per card for activations **and**
+the KV pool, and MLA KV is not head-sharded: per token per layer it is
+`(kv_lora_rank + qk_rope_head_dim) × 2 bytes` (bf16 cache) and every TP rank holds
+all layers' worth, so a 163840-token context is several GB per rank before any
+activation. Read those two constants from the checkpoint's `config.json`; do not
+recall them.
+
+**State the exclusions too**, because a ranked list without them reads as a
+fishing list: `enforce_eager=True` already satisfies the ACL-graph/DeepSeek guard
+(`vllm_ascend/ascend_config.py:143-167`; the `NotImplementedError: ACL Graph does
+not support deepseek` is raised only in the `else` branch of `if enforce_eager`),
+so #1458's cause is out; and a method that is *rejected* produces section A's
+`ValueError`, which this paste does not contain.
 
 ## Cost note
 

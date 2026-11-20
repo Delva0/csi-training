@@ -206,8 +206,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `bash <skill_root>/scripts/sse-toolcall-audit.sh <file|->` **before** any parser
   or sampler theory. Its outcome names the layer: assembly parses = client,
   tail missing = the stream ended early (split with `return_token_ids: true`),
-  unbalanced middle = generation. Say which, with the assembled tail, in the
-  first answer (`references/tool-call-streaming/streamed-arguments-audit.md`).
+  **balanced braces with an odd quote count and the gap inside a value = the
+  parser's delta, keyed on that argument's declared schema type** (run
+  `uv run --no-project python <skill_root>/scripts/tool-schema-type-audit.py
+  <request-body.json>`; a nullable `anyOf: [string, null]` argument loses its
+  opening quote, #12261), other mid-string damage = generation. Say which, with
+  the assembled tail, in the first answer
+  (`references/tool-call-streaming/streamed-arguments-audit.md`,
+  `arg-type-gate-unquoted-value.md`).
 - If that report's failing `num_speculative_tokens` is >= 3 while 1 or 2 works,
   name `vllm_ascend/sample/rejection_sampler.py:114 using_block_verify =
   max_spec_len >= 3` (the line is pin-dependent: `:116` at v0.18.0) in the same
@@ -318,7 +324,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   currently not supported in npu`, `--quantization awq`): answer from
   `references/startup-failures/quantization-method-gate.md` — three calls, and
   the flag is not the only trigger, since the checkpoint's own `quant_method`
-  reaches the same gate.
+  reaches the same gate. The same page's section B is the inverse report: an
+  msmodelslim W8A8 checkpoint whose `config.json` deliberately has **no**
+  `quantization_config` started without `--quantization ascend` /
+  `quantization="ascend"` and died in a worker (#2015) — the flag is mandatory
+  exactly because upstream's auto-detection has nothing to read.
 - Deployment sizing / stage layout (does it fit on N cards, why a stage
   layout fails): run `bash <skill_root>/scripts/card-budget.sh` with the
   checkpoint's parameter count, the TP and the per-stage
@@ -411,6 +421,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   before the kernel; its hits are the request tensors sliced by a token count and
   the unrebased `cu_seqlens`, and spec decode is the multiplier that turns a
   silent overshoot into `507015` (`references/mixed-batch-splits/index.md`).
+- A **LoRA** serve, either shape: run
+  `bash <skill_root>/scripts/lora-graph-descriptor-audit.sh <vllm-ascend-root>
+  [<vllm-root>]` first. It names the punica backend the ref binds (that decides
+  the slow shape) and labels each `has_lora` producer live-batch vs
+  config-constant (that decides the request-time capture crash); the SoC and
+  graph-mode facts come from the paste, not from more source
+  (`references/lora-adapters/index.md`).
 - An operator that **runs** and returns wrong numbers with a framework-free
   `torch_npu` repro (no dump): find the one caller holding that kwargs
   combination before reading the kernel; `cann/ops-nn` is usually absent, so

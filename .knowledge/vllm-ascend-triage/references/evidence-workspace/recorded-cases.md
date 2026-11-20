@@ -20,6 +20,32 @@ classification table in `SKILL.md` routes by signature, topical pages by track, 
 
 ## Cases
 
+**#6279** vllm-ascend v0.13.0rc2 (`a17059a`) + vllm v0.13.0 (`72506c9`), 910B,
+Qwen3-32B with multi-LoRA in graph mode: a request that selects the **base**
+model kills the workers with `Worker failed with error 'CUDA graph capturing
+detected at an inappropriate time. This operation is currently disabled.'`
+(relayed by `patch_core.py`, owned by upstream `vllm/compilation/monitor.py`).
+Request-time lazy capture for a `has_lora=False` key that startup never captured:
+the fork's `_dummy_run` takes `activate_lora` and ignores it
+(`model_runner_v1.py:2107` vs `:2124`), so both capture cases write the
+`has_lora=True` descriptor while the dispatcher advertises both. The recorded run
+reached this mechanism around its 20th tool call, then wrote the answer inside
+`reasoning_content` and was cut at the cap with no message text — the delivery
+lesson, not the diagnosis, is what failed. Route now:
+`../lora-adapters/graph-capture-descriptor-mismatch.md`.
+
+**#1812** vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`),
+Atlas 300I Duo / 310P, Qwen3-8B: 9 tok/s on the base model, 2 tok/s with
+`--enable-lora` and an adapter, no error text. The LoRA path at that ref is the
+PyTorch punica backend (`punica_npu.py:6` imports `vllm.lora.ops.torch_ops`;
+no AscendC `lora_ops.py` and no `csrc/kernels/bgmv_*.cpp` in the tree) and 300I
+is eager-only, so a few thousand tiny launches per decode step cannot be
+amortised. The recorded run had the backend within its first few calls (one read of
+`punica_npu.py`), then kept walking the 310P gates, `set_active_loras` and
+`add_lora_logits` until the cap; its verdict was written and truncated
+mid-table. Route now:
+`../lora-adapters/decode-overhead-vs-base-model.md`.
+
 **#1784** vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`), "installing
 vllm-ascend 0.9.1dev and `pip show vllm-ascend` shows 0.9.0rc2": packaging metadata,
 no lane — `setup.py:305-311` derives the version with `setuptools_scm` from the build
@@ -806,3 +832,54 @@ turns, ~48 K characters of reasoning, 2.7 K characters of status lines, cut with
 an empty final message; much of it spent deciding whether `aclnnInplaceNormal` was
 a random-number defect while the paste's own async caveat and the
 `checkUceErrAndRepair` frame already said it was not.
+
+**#12261** vllm v0.20.2 (`bc150f5`) + vllm-ascend v0.20.2rc1 (`367b8e62`), GLM-5.1
+(`GLM_5_1_MEP-1.0.0`) w4a8/w8a8 on 910C 560T, `stream: true` only: the client's
+assembled `tool_calls[0].function.arguments` is `{"hvd": Pura900"}` — balanced
+braces, one quote short, missing the *opening* quote of the value. Reporter pasted
+the raw SSE, both `/v1/completions` captures and the request body, which is what
+made it answerable. Track: tool-call output integrity, the schema-type-gate branch
+(`../tool-call-streaming/arg-type-gate-unquoted-value.md`, new). Mechanism, source-
+verified at that pin: `hvd` is declared `anyOf: [{"type":"string"},{"type":"null"}]`,
+so `_is_string_type` (`vllm/tool_parsers/glm4_moe_tool_parser.py:127-148`, only a
+top-level `type: "string"` counts) returns `False`, the partial value is streamed
+raw (`:408`), and when the pair closes the quoted form arrives one character
+*earlier* than the streamed length, so `_compute_args_diff` (`:424`) drops the
+quote for ever; `stream: false` is clean because `extract_tool_calls` (`:223`)
+always `json.dumps`es the whole dict. Ownership: upstream vLLM — both Ascend GLM
+patches are excluded by their own conditions (`patch_glm47_tool_call_parser.py:39`
+needs a region with no `<arg_key>`; `patch_glm_tool_call_streaming.py` needs
+`finish_reason == "tool_calls"` *and* non-empty `arguments` in the same chunk).
+Delivery: **no answer shipped** — 15 assistant turns / 23 tool calls, ~35 K
+characters of reasoning against 3.5 K of message text, cut on a tool call. It had
+the mechanism at turn 11 and then spent four turns trying to `import vllm`
+(`ModuleNotFoundError: torch`) and `import regex` and porting the two functions into
+a simulation that never ran; the fragment arithmetic needed for the proof is one
+subtraction (the streamed length 14 against the completed string's 18, so the diff
+is the last three characters `0"}`) and can be done on paper.
+
+**#2015** vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`), 910B
+(Ascend910B2C) 16 cards, `DeepSeek-R1-bf16-hfd-w8a8`, offline `LLM(...)` with
+`enforce_eager=True` and **no** `quantization=`: `RuntimeError: Engine core
+initialization failed. See root cause above.` with no worker traceback. Track:
+startup failure, quantization gate in the *absent* direction
+(`../startup-failures/quantization-method-gate.md`, section B). Mechanism the
+pinned tree documents: the msmodelslim W8A8 layout deliberately has **no**
+`quantization_config` in `config.json`
+(`docs/source/user_guide/feature_guide/quantization.md:37`), the feature is enabled
+"by specifying `--quantization ascend`" (`:5`, `:94`), and the page's own FAQ maps
+`KeyError: 'xxx.layers.0.self_attn.q_proj.weight'` to "first, make sure you specify
+`ascend` quantization method" (`:99-101`) — so upstream's auto-detect
+(`vllm/config.py:881-895`, gated on `quantization_config`/`compression_config`)
+has nothing to read and the int8 tensors meet a dense model inside `load_model`
+(precedent #813, same `KeyError` shape). Second cause, with arithmetic: 671 GB of
+int8 weights / 16 cards = 41.9 GB against a 51.2 GB budget (`0.8 × 64`), leaving
+9.3 GB for activations *and* an unsharded MLA KV of several GB per rank at the
+default 163840-token context. Excluded: #1458's ACL-graph refusal, because
+`enforce_eager=True` satisfies `ascend_config.py:158-167`. Delivery: **no answer
+shipped** — 17 turns / 25 tool calls, ~45 K characters of reasoning against 4.0 K
+of message text, cut on a tool call, after the documented quantization gate had
+already been read at turn 11. Cost detail worth keeping: `scripts/card-budget.sh`
+was called with `--params 671e9` (a raw count, not billions) and printed a
+confident inverted FAIL which the run then had to disown and redo by hand — the
+script now refuses that input.

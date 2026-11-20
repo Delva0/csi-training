@@ -136,10 +136,24 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #16111 | by turn ~12: the lazy init is documented (#9975), the config-table diff (`dram.size` per die, the non-existent `standalone.dram.size`) and the #14106 swallowed-save → collective-desync family | **no answer at all**: 36 turns, every message a bare tool call, cut inside a reasoning block that was composing the deliverable ("Verified facts (pinned …)") — the answer existed only as reasoning |
 | #8788 | by turn ~18: the invocation chain and the four `csrc/third_party` fetches plus the catlass submodule | **no answer at all**: 30 turns, every message a bare tool call, cut inside a block that had already begun "**Answer**: Yes, real…" |
 | #16563 / A | by turn ~14: the counter is cgroup host memory, the +80 GB/7 d arithmetic (3.5-7 KB per request, <16 B per decode step, so per-step host buffers are priced out), the closest precedents (#2650 host memory 1-2 GB/h, #12345 DeepSeek-V4 leak, #5847 CPU-memory leak) and the A2 recipe diff (`--no-enable-prefix-caching`, `additional_config.enable_flashcomm1`) | **no answer at all**: 20 turns, a 69-character opener then bare tool calls, ~48 K characters of reasoning, cut inside a reasoning block (`../runtime-memory/container-working-set-growth.md`) |
+| #12261 | by turn 11: the parser's `_is_string_type` gate on a nullable `anyOf: [string, null]` argument, the raw branch, the length-prefix delta and the arithmetic that reproduces the paste | **no answer at all**: 15 turns / 23 tool calls, ~35 K characters of reasoning against 3.5 K of message text, a one-line verdict on most turns, cut on a tool call while trying to `import vllm` (no torch in the sandbox) to simulate two functions it had already read |
+| #2015 | by turn 11: the pinned `quantization.md:37/:5/:94` contract (the W8A8 export carries no `quantization_config`, so the flag is mandatory) and the `enforce_eager` exclusion of the ACL-graph cause | **no answer at all**: 17 turns / 25 tool calls, ~45 K characters of reasoning against 4.0 K of text, cut on a tool call |
 | #16563 / B | by turn ~9: the same class and arithmetic, the env-flag liveness findings (no consumer at the pin for `VLLM_ASCEND_ENABLE_FLASHCOMM` / `PYTHON_NPU_ALLOC_CONF`), the MTP `pin_memory()` asymmetry and a `findings.md` draft | verdict, five causes, four precedents and the six-rung ladder did reach the message, but the cap landed inside the closing version-scope section: five causes with sub-paragraphs plus a precedent table plus a ladder is more answer than the budget holds |
 
 Two consequences worth restating: an "I'll start by…" line is not an answer and
 does not satisfy G1, and a run whose last turn is a tool call has shipped nothing.
+
+**#12261 and #2015 are the pair that separates "carries message text" from
+"carries the answer".** Both kept a one- or two-sentence finding on nearly every
+turn — the habit #5750 and #4357 lacked — and both still shipped nothing, because
+what the reporter needed was never written: the ranked causes, each with its one
+check, and the action they own (declare the argument `type: "string"`; pass
+`quantization="ascend"`). The mechanical test before sending any turn's text: would
+the reporter be able to act on this message alone, with the session ending here? A
+finding without its action is a status line, and six of them are still not an
+answer. Both sessions also show what the last-third of the budget goes to when the
+deliverable is already owed: re-deriving arithmetic the paste plus two functions
+already settle.
 
 A third, from #13002 and #6833 together: **a long source file is not a lead.** Both
 runs chose one big module (a 2600-line KV connector; the hybrid-KV/prefix-cache

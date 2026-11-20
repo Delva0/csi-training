@@ -70,10 +70,28 @@ chat_completion/protocol.py:98`, filled only under `request.return_token_ids` at
   path lost them; grep the tool parser's `extract_tool_calls_streaming` delta
   state and the `previous_text` slicing, not the sampler.
 
-**C. Unbalanced in the middle** (duplicated or reordered fragments, a brace pair
-inside a string). The text itself is wrong: treat it as a generation/decoding
-report (duplicate rows, two requests' deltas interleaved, a samplers bug), not as
-a protocol question.
+**C. Unbalanced in the middle, gap inside a value** — braces balanced, quotes
+odd, no opening `"` after `": ` while the closing `"` and `}` are present
+(`{"hvd": Pura900"}`). **Do not stop at "the text is wrong".** The braces and
+quotes alone cannot separate the owners, and this shape is often the **parser's
+incremental delta**: its own final `args_so_far` is valid JSON, the deltas are a
+length prefix of it, and a character the parser inserted before the streamed
+length never reaches the client (`_compute_args_diff`). The trigger is the
+argument's declared schema type — check it with
+`uv run --no-project python <skill_root>/scripts/tool-schema-type-audit.py
+<request-body.json>`: if the failing argument has no top-level
+`"type": "string"` (a nullable `anyOf`, for instance), that is the owner. Full
+mechanism, working arithmetic and reprinter: `arg-type-gate-unquoted-value.md`
+(#12261, GLM-5.1, vllm v0.20.2).
+
+**D. Any other mid-string damage** — duplicated or reordered fragments, a brace
+pair inside a string, two requests' deltas interleaved. The text itself is wrong:
+a generation/decoding report, not a protocol question.
+
+The cheap discriminator between C and D: reassemble the fragments and compare the
+*parser's* final string with what the deltas accumulated to. Where the assembled
+string is the valid JSON **minus one character before the last streamed fragment**,
+it is the delta arithmetic, not the model.
 
 ## Step 4 — the ordered ablations
 
@@ -109,6 +127,10 @@ the owner from steps 2-3 and give these as the confirmation ladder.
   that confirms the named layer.
 - A refusal to build a mechanism out of a healthy stream: if the audit parses,
   say the pasted sample is not the failing one and ask for a failing capture.
+- For the mid-string gap (outcome C), the argument's schema as it appears in the
+  reporter's own request body, because that is what the workaround changes: a
+  plain `"type": "string"` (or `stream: false`) is the reporter's own fix and it
+  needs no release.
 - For a "repeated output" phrasing, one extra question: repeated *fragments*
   (protocol) versus a repeated *sentence* (generation). The script answers the
   first; the second belongs with `../accuracy-benchmarks/short-prompt-corruption.md`
@@ -122,5 +144,6 @@ the owner from steps 2-3 and give these as the confirmation ladder.
 | `stop_reason: <int>` on a chunk | upstream vLLM field carrying the stop token id |
 | `finish_reason: "tool_calls"` with short arguments | the stream ended early — engine or delta, decided by `return_token_ids` |
 | arguments valid but the model answered only CoT / no `tool_calls` | parser+flag gate: `--tool-call-parser`, `--enable-auto-tool-choice`, `--async-scheduling` row |
+| balanced braces, odd quotes, no opening quote on a value, `stream: false` clean | the tool parser's delta arithmetic, keyed on the argument's declared schema type (`arg-type-gate-unquoted-value.md`) — upstream vLLM, not the model and not vllm-ascend |
 | token ids short with `num_speculative_tokens >= 3` | vllm-ascend sampler (`sample/rejection_sampler.py:114`) |
 | token ids short with `num_speculative_tokens <= 2` | not block verify: look at the stop-token/`parse_output` trimming and the model's own early stop |

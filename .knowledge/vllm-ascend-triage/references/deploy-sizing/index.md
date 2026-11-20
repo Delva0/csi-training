@@ -20,7 +20,9 @@ Inherit the rules in SKILL.md, plus these:
    (`cards' HBM × gpu_memory_utilization`), and the sum of
    `gpu_memory_utilization` over every process that shares a device. Report both
    numbers; reproduce them with
-   `bash <skill_root>/scripts/card-budget.sh` instead of by eye. A sum above
+   `bash <skill_root>/scripts/card-budget.sh` instead of by eye (`--params` is in
+   **billions** — `671` for DeepSeek-R1, not `671e9`; the script refuses the raw
+   count, because every result of that mistake is 1e9× and the verdict inverts). A sum above
    1.0 on any device is **infeasible by construction** and is not a scheduler,
    connector or device-visibility bug.
 2. **The device-visibility env var is the second half of every such report.**

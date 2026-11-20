@@ -20,6 +20,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   answer no/yes + the earliest release that works, then show the gates.
 - Suspicion of "model X is unsupported", wrong image/vllm pairing, or an
   obvious maintainer "works on my machine" reply → `environment-correspondence.md`.
+- The per-rank traceback is `AssertionError: Current device type:
+  AscendDeviceType.A5 does not match the installed version's device type:
+  AscendDeviceType.A2, please check your installation package.` (or
+  `RuntimeError: Can not support soc_version: <n>`) at
+  `vllm_ascend/worker/worker.py:113` → `check_ascend_device_type()`, with no
+  `Starting to load model` line: the installed package was **built** for another
+  SoC family than the card reports. Two one-liners settle it and the guard must not
+  be patched → `../soc-platform-paths/device-type-build-vs-runtime.md`.
 - `ValueError: Non-MoE models do not support external data parallel mode`, or any
   `ValueError`/`AssertionError` from `vllm/engine/arg_utils.py` whose text names a
   parallel mode or flag combination (no `WorkerProc` line, no rank prefix) →

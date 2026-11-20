@@ -6,16 +6,23 @@ branches on `is_310p()` and the documented support is experimental. Also the
 general question this topic answers for any SoC: *does the pinned version even
 execute the code the traceback is in?* `is_310p()` gates 39 call sites in
 vllm-ascend v0.11.0rc3 (`grep -rn "is_310p()" vllm_ascend/ | wc -l`), so a
-symptom can be structure rather than a defect.
+symptom can be structure rather than a defect. The topic's other shape is the
+*package-vs-card* question: engine start dying because the installed wheel was
+built for a different SoC family than the live card reports
+(`device-type-build-vs-runtime.md`).
 
 Inherit the rules in SKILL.md. Rules that decide success here:
 
-1. **Identify the SoC from evidence, not from the image tag alone.**
-   `is_310p()` reads the build stamp: `vllm_ascend/utils.py:66-71`
-   (`_build_info.__soc_version__.startswith("ascend310p")`). On the reporter's
-   host `python -c "from vllm_ascend import _build_info; print(_build_info.__soc_version__)"`
-   plus `npu-smi info` settles it; the tag `-310P` in an image name is a strong
-   hint but not proof of the build stamp.
+1. **Identify the SoC from evidence, not from the image tag alone.** Two
+   different things are called "the SoC" and only one of them is checkable on the
+   host: the **live** value `torch_npu.npu.get_soc_version()` (numeric: `220-225`
+   A2, `250-255` A3, `200-205` 310P, `260` A5 at v0.21.0rc1) and the **build
+   stamp** baked into the installed package (`_build_info.__device_type__` from
+   v0.18-ish on, `__soc_version__` before that — `is_310p()` reads the stamp). Ask
+   for both: `python -c "import torch_npu; print(torch_npu.npu.get_soc_version())"`
+   and `python -c "from vllm_ascend import _build_info as b; print(b.__device_type__)"`.
+   `npu-smi info` names the card; the tag `-310P`/`-a3` in an image name is a hint,
+   not proof, that the wheel matches it.
 2. **Do not let "the platform is experimental" be the whole answer.** The pinned
    tree does document that for 310P (below), and it is the right *first*
    sentence, but a report that carries a traceback has a cheaper, more useful
@@ -34,6 +41,13 @@ Conditional routes:
   platform gates that change behaviour, the NZ (FRACTAL_NZ) format path, and the
   launch-environment items the 300I tutorial requires →
   `atlas-300i-310p.md`.
+- Engine start dies at `worker.py` `check_ascend_device_type()` before
+  `Starting to load model`: `AssertionError: Current device type: AscendDeviceType.A5
+  does not match the installed version's device type: AscendDeviceType.A2`, or
+  `RuntimeError: Can not support soc_version: <n>` — a wheel built for another SoC
+  family (the release pipeline ships a2/a3/310p variants only, `Dockerfile.a5`
+  exists in-tree) or a live SoC code the map lacks →
+  `device-type-build-vs-runtime.md`.
 - The traceback on a 310P host ends in `npu_format_cast` /
   `_convert_torch_format` with a device allocation error →
   `../runtime-memory/kv-init-and-format-cast-alloc.md`.

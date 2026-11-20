@@ -369,7 +369,7 @@ going.
 | `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` — aclnn cannot resolve the op for the SoC before any launch | Custom-op **build/install** fault: package built for another SoC, stale vendor package, wrong image tag | `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` |
 | Output is fluent but stops after tens of tokens ("输出被截断", "只输出几十个 tokens") and a large `max_tokens` appears to fix it; `usage.prompt_tokens` is small; a `pass_config` / SP / FLASHCOMM / quantization flag changed at the same time | Early EOS: `finish_reason` decides budget vs model-issued EOS, then every reader of the toggled key plus the shipped support matrix (accuracy track, not the length budget) | `references/accuracy-benchmarks/early-eos-short-output.md` |
 | Spec-decode metrics collapse: `Accepted: 0` with `Drafted: N > 0`, `Per-position acceptance rate: 0.000` at every position, `Mean acceptance length: 1.00`, generation throughput ~0 while requests stay `Running`; often `--async-scheduling` and/or `--enable-prefix-caching` on a hybrid GDN model (Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) | Speculative-decoding bookkeeping (draft and target no longer see the same context), not capacity: the MTP-off ablation is row 1 | `references/spec-decode-mtp/acceptance-collapse.md` |
-| First request after start answers `content: ""` with `usage.completion_tokens: 1` and `finish_reason: "stop"`, later requests fine; MTP plus a full-graph decode on a hybrid GDN model | Empty first response: one model-issued blank/stop token — neither the length budget nor reasoning routing — so reproduce by restart before naming a one-shot mechanism | `references/spec-decode-mtp/empty-first-response.md` |
+| First request after start answers `content: ""` with `usage.completion_tokens: 1` and `finish_reason: "stop"`, later requests fine; MTP plus a full-graph decode on a hybrid GDN model | Empty first response: one model-issued blank/stop token — neither the length budget nor reasoning routing — so reproduce by restart before naming a one-shot mechanism, and diff the spec/capture config against the family sibling tutorial (`"enforce_eager": true` inside `--speculative-config`, default capture sizes) | `references/spec-decode-mtp/empty-first-response.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
 | Per-layer `MSE loss` / epoch table printed while converting a checkpoint with msmodelslim (W4A4/W8A8), one layer far above its neighbours, or "the converted checkpoint answers garbage" with no engine-side failure | Quantization-conversion phase: converter-owned, before the engine starts | `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` |
 | A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
@@ -389,6 +389,7 @@ going.
 | A constant in the code equals the number in the report — `num_speculative_tokens: 3` fails while `1` (and `2`) work — and the wrong output is exact-form: tool-call JSON, ids, code | Named code branch, not an investigation: `using_block_verify = max_spec_len >= 3` is the only spec-decode branch keyed on that value, so state it with its two ablations (`n=2`, `temperature: 0`) before its kernel is read | `references/tool-call-streaming/mtp-block-verify-acceptance.md` |
 | Report pastes only a response body: the CoT/thinking text sits in `content`, `message.reasoning` / `reasoning_content` never appears, `completion_tokens_details.reasoning_tokens` is `0`, thinking language mixed | Output routing — **upstream OpenAI frontend, not a vllm-ascend defect**: `reasoning_parser` defaults to `""`, so `--reasoning-parser <name>` (e.g. `qwen3`) is the whole gate; invariant to image tag and MTP | `references/accuracy-benchmarks/reasoning-output-routing.md` |
 | Host is **310P** (Atlas 300I Duo, `Ascend310P3`, image `-310P`), or the traceback sits on an `is_310p()` branch (NZ/`FRACTAL_NZ` format casts, no Ascend custom ops, `patch_mamba_config_310`) | SoC-conditional platform path: experimental per the pinned docs, NZ casts are real conversions, fp16/eager are mandatory | `references/soc-platform-paths/atlas-300i-310p.md` |
+| `EngineCore failed to start` whose deepest frame is `worker.py` → `check_ascend_device_type()` with **no** `Starting to load model` line: `AssertionError: Current device type: AscendDeviceType.A5 does not match the installed version's device type: AscendDeviceType.A2, please check your installation package.` (or `RuntimeError: Can not support soc_version: <n>`), typically on a 950PR/A5 host that installed a mirror wheel | SoC/package correspondence: the device type is **baked into the package at build time** (`_build_info.__device_type__` from `SOC_VERSION`), the release pipeline ships a2/a3/310p variants only while `Dockerfile.a5` exists in-tree, so an A5 host needs a source build on the node — and the guard must not be patched | `references/soc-platform-paths/device-type-build-vs-runtime.md` (two one-liners decide it) |
 | The report asks how to enable a feature rather than what broke: "如何正确开启 PCP/DCP", "F alone and G alone each报错，能否给个能跑通的示例", no log pasted, or two errors described in one sentence | Feature-enable / capability question: the validation verdict (docs statement at the pinned ref, whose hardware the measured table used, `tests/e2e/**` coverage, precedent versions) before any constraint list | `references/feature-enable-recipes/index.md`, then `context-parallel-pcp-dcp.md` |
 | `Communication_Error_Bind_IP_Port(EI0019)` / `Failed to enable listening for the host network adapter socket` / `port <n> have already been bound` where n is above 65535, often in the issue title | HCCL control-plane port band, not an OS socket conflict — and only if the record's date is inside the window (rule 13) | `references/hccl-and-hardware/control-plane-port-binding.md` |
 | Output degenerates (`</think>` leaking into `content`, repetition collapse, 乱码) at long-ish context **and** concurrency on a **documented** model with PD / spec-decode / prefix-cache flags, with **both** `vllm serve` commands pasted and no ablation | Config-diff track: the tree's own `docs/source/tutorials/models/<model>.md` ships the validated P and D commands and a `Recommended Configurations` table, so the first answer is that diff plus the ablation matrix — never a walk through the KV connector; #13002's five deviations are ranked ablation rows, not established causes | `references/accuracy-benchmarks/garbled-long-context-output.md` |
@@ -536,14 +537,21 @@ going.
      first answer (`references/tool-call-streaming/streamed-arguments-audit.md`).
    - If that report's failing `num_speculative_tokens` is >= 3 while 1 or 2 works,
      name `vllm_ascend/sample/rejection_sampler.py:114 using_block_verify =
-     max_spec_len >= 3` in the same answer with the `n=2` and `temperature: 0`
+     max_spec_len >= 3` (the line is pin-dependent: `:116` at v0.18.0) in the same
+     answer with the `n=2` and `temperature: 0`
      ablations; walk the kernel afterwards, never instead
      (`references/tool-call-streaming/mtp-block-verify-acceptance.md`).
    - A **first** response with `content: ""`, `completion_tokens: 1` and
      `finish_reason: "stop"`: that is one model-issued blank/stop token. Ask for the
      emitted token id (`return_token_ids: true`), a restart with the identical body
      twice, and a warm-up request row before attributing it to one-shot server state;
-     do not re-derive the padded-rows/null-block theory, it is already refuted
+     offer `min_tokens: 1` for the case where the id turns out to be EOS. Diff the
+     launcher against the family sibling tutorial first (`docs/source/tutorials/models/`),
+     and do not re-derive the scheduler padded-rows/null-block theory, it is already
+     refuted. The MTP proposer's *padded drafter batch* is a different story and still
+     live: `disable_padded_drafter_batch: false` (the default) is what keeps the draft
+     model replaying aclgraph, so `"enforce_eager": true` inside `--speculative-config`
+     and `"disable_padded_drafter_batch": true` are the two draft-side-only rows
      (`references/spec-decode-mtp/empty-first-response.md`).
    - 310P / Atlas 300I report: take the SoC from
      `_build_info.__soc_version__` rather than the image tag, quote the
@@ -751,6 +759,14 @@ going.
   line per repo with coverage and `runtime_verified` flags, plus the
   `unavailable` repos, so "is `cann/hixl` in this snapshot?" is answered without
   dumping 20-54 KB of JSON.
+- `scripts/device-type-check.sh <paste|serve-log|-> | --soc-version N [--stamp X]` —
+  decodes the `check_ascend_device_type()` failure: it parses the two-sided
+  assertion text and says which side is the **card** and which is the **wheel**
+  (a class of reading error that flips the diagnosis), classifies a raw
+  `soc_version` against the `220-225`/`250-255`/`200-205`/`260` map, flags the
+  unmapped-code `RuntimeError` branch, and labels the co-occurring
+  `liboptiling.so` line as non-fatal. Verified on the #12141 paste
+  (`A5` card, `A2` wheel).
 - `scripts/kvpool-segment-check.sh <mooncake.json|serve-log|-> [...]` — the KV-pool
   store segment gate: prints `global_segment_size` / `local_buffer_size` per rank
   from the store config (`MOONCAKE_CONFIG_PATH` json, `MOONCAKE_GLOBAL_SEGMENT_SIZE`
@@ -942,6 +958,11 @@ going.
   `is_310p()` gating, the documented 300I/310P status, the seven platform gates,
   the NZ/`FRACTAL_NZ` conversions, and the 300I launch environment
   (`atlas-300i-310p.md`, verified at vllm-ascend v0.11.0rc3 + vllm v0.11.0).
+  `device-type-build-vs-runtime.md` takes engine start dying at
+  `check_ascend_device_type()`: the build stamp vs the live `soc_version`, the
+  a2/a3/310p-only wheel matrix against the in-tree `Dockerfile.a5`, the
+  don't-patch-the-guard argument, and the A2/A3-only support matrix (#12141,
+  v0.21.0rc1).
 - `references/observability-and-logs/index.md` — reports about log text rather
   than a crash ("the flag prints nothing", a missing startup stage).
   `request-output-logging-flags.md` is the verified gate table for
@@ -1033,5 +1054,7 @@ going.
   `num_computed_tokens` drift, the `mamba_block_size` prefix-caching gate (#10495,
   where the run led with capacity and the reporter showed MTP was the owner).
   `empty-first-response.md` — `content: ""` / `completion_tokens: 1` /
-  `finish_reason: "stop"` on the first request, the restart reproduction, the refuted
-  padding/null-block theory (#9355).
+  `finish_reason: "stop"` on the first request, the restart reproduction, the sibling
+  tutorial diff and capture-size arithmetic, the refuted scheduler padding/null-block
+  theory next to the live MTP padded-drafter gate, the draft-side ablation rows and
+  `min_tokens` (#9355).

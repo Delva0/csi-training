@@ -49,6 +49,13 @@ failing file absent from the pinned upstream tree); #11519 v0.18.0 Step-3.5 on
 A3 `AclNN_Parameter_Error(EZ1001) Get regInfo failed … socVersion
 [ascend910_93] does not support opType [AddRmsNormBias]` (custom-op package
 built/installed for another SoC — same op as #8944, opposite failure class);
+#12141 vllm-ascend v0.21.0rc1 Qwen3.5-9B on an 8-die **Ascend950PR** host,
+`EngineCore failed to start` at `worker.py:113 check_ascend_device_type()` with
+`Current device type: AscendDeviceType.A5 does not match … AscendDeviceType.A2`
+(an A2-build wheel on A5 silicon — packaging, not a code defect) — verdict stated
+in turn 3, then 25 more turns pinning the
+build stamp, the a2/a3/310p-only wheel matrix, the A2/A3 support matrix and four
+precedents (#7157, #9354, #10206, #8238) before a turn-28 answer;
 
 **#14506** v0.18.0rc1 single node, 8×910B3 with every RoCE link DOWN, 1P1D in two
 non-hostNetwork Pods → `HIXL Connect failed | 103900` because two Pod IPs became
@@ -93,9 +100,20 @@ tool calls on "is `args.profiler_config` still a dict" and shipped one line (no
 answer); #12253 vllm-ascend v0.18.0-a3
 Qwen3.5-397B-A17B-w4a8-mtp, output "被截断" to tens of tokens after `"pass_config":
 {"enable_sp": true}`, answered from the SP reader table plus the doc support
-matrix (SP = VL+Dense, graph, no quantization; FC1 is complementary, not a
-rename) in 14 turns with a 5.3K answer — the lead it chose, a "half-enabled SP"
-mechanism, is labelled there as unverified; #8984 v0.19.1rc1
+matrix (at that pin SP = VL+Dense only, graph, no quantization; FC1 is
+complementary, not a rename) in 14 turns with a 5.3K answer — the lead it chose,
+a "half-enabled SP" mechanism, is labelled there as unverified; #12278
+**v0.22.1rc1** (`5f6faa0`) the same family one release later: body says `stop` /
+`completion_tokens: 97` / `prompt_tokens: 15` with CoT in `content` and
+`reasoning: null` (early EOS **plus** missing `--reasoning-parser qwen3`), and the
+reporter's follow-up repeats #12253's outcome verbatim (delete
+`pass_config.enable_sp`; "该参数 v0.18.0 及以上已不支持"; `VLLM_ASCEND_ENABLE_FLASHCOMM1=1`).
+The v0.22.1rc1 recheck moved three things: `sp_threshold` → upstream
+`pass_config.sp_min_token_num` (MoE still 1), `SequenceParallelismMoePass` now
+registered too, and the tutorial's own Qwen3.5-397B command never sets
+`enable_sp`; the run delivered the lane in turn 1 and the corrected mechanism
+(not dropped, activated outside the matrix; the key also picks the MoE all2all
+backend) two turns after the follow-up; #8984 v0.19.1rc1
 DeepSeek-V3.2-w4a8/w8a8-mtp-QuaRot on A2, "如何正确开启 PCP/DCP" with no log pasted (a
 capability question — the run never stated the support verdict, and the
 reporter's later public comment asked whether anyone had actually run PCP on
@@ -106,9 +124,14 @@ parameter-invalid on a chip the reporting rank did not own.
 
 **#9355** v0.18.0 Qwen3.6-27B bf16 on 2×910B3, whose first request after start returned
 `content: ""` with `completion_tokens: 1` and `finish_reason: "stop"` while later
-requests answered (the run shipped only a half-answer; its lead mechanism was a "server-lifetime first decode" story that the
-reporter's later comment leaves unestablished, since only the prompt and `temperature`
-changed); #10495 v0.20.2rc1 Qwen3.6 MoE + `qwen3_5_mtp` on 2×A2 with ~64K prompts,
+requests answered (the first run shipped only a half-answer; its lead mechanism was a "server-lifetime first decode" story that the
+reporter's later comments leave unestablished: the follow-up changed the prompt and
+`temperature` and posted to a different port, and the second comment only confirmed the
+image tag). Two later runs against the page this case produced both answered in full (18
+and 31 messages) but neither read the draft-side config gates or offered `min_tokens`;
+the sibling `Qwen3.5-27B.md` recipe was opened only by the second, and used there as a
+copied workaround rather than as the deviation table
+(`../spec-decode-mtp/empty-first-response.md`); #10495 v0.20.2rc1 Qwen3.6 MoE + `qwen3_5_mtp` on 2×A2 with ~64K prompts,
 acceptance collapsing to exactly 0.000 with drafts still produced and throughput
 stalling, where the run ranked KV capacity/queue thrash first and the reporter then
 reported MTP as the owner (MTP off → normal); #10943 v0.20.2rc1 custom

@@ -23,6 +23,10 @@ a delivered answer is ~4K of them.
 | #13699 | 9889 | 13 turns | 22.6K | 6.2K | complete answer; the loss was context (a 28 KB turn-1 history listing), not output |
 | #10985 | 16384 (cap) | 15 turns / 28 tool calls | 49.1K (largest blocks 10.5K, 8.5K) | 70 | **no answer at all** (the 70 characters are an "I'll start by loading the skill…" line); the last tool call was dropped as truncated |
 | #4812 | 10218 | 13 turns | 20.6K | 5.0K | complete ranked answer; the reporter then posted the traceback, which moved the lead from "platform unsupported" to an allocation failure at KV-cache init |
+| #9335 | 11031 | 11 turns / 18 tool calls | 21.5K | 5.8K | sizing answer delivered at the last turn; the only waste was the first-turn orientation (13.7 KB bundled listing: `history` filenames + `head -100` of `SOURCES.json`) |
+| #11739 | 16384 (cap) | 22 turns / 40 tool calls | 39.9K | 79 | **no report at all** (79 characters are an "I'll start by loading the skill" line); community-test task whose deliverable was a report file, and the file was never written |
+| #9183 | 13219 | 10 turns / 15 tool calls | 31.9K | 5.1K | complete ranked answer, delivered on the last turn — but built on a plog block dated the day before the failure, so the ranked mechanism named the wrong owner (fixed by the timestamp gate, not by budget) |
+| #6800 | 10305 | 10 turns / 17 tool calls | 19.4K | 4.6K | complete answer, correct owner; the whole cost was repo grepping that the quantization-gate route now replaces |
 
 `#2586` and `#13699` are the calibration rows for this batch: both answered well
 inside the cap because the ranked shape was written at the 8th-13th turn, and
@@ -33,6 +37,28 @@ prompt. Cheap context is still a tax on the same session; the output gates do
 not meter it. `#4812` is the other uncapped row: 20.6K of reasoning and a 5.0K
 ranked answer in 13 turns, delivered before the reporter posted the traceback
 that moved the lead.
+
+`#9335` and `#11739` are the pair for the two shapes the older rows do not
+cover. `#9335` asked a sizing question ("does the 2-NPU stage layout work"), and
+its 5.8K answer arrived on the last turn after 21.5K characters of reasoning;
+that is the shape where the answer is arithmetic, so it should be written by the
+3rd-5th turn and the remaining turns spent only on numbers that change it.
+`#11739` is the *document* deliverable: the run had a stale baseline by its 5th
+assistant turn and two command-breaking defects (a dead-flag perf server line, a
+relative path that does not exist in the image) by its 15th, then kept auditing
+defaults and reading precedent bodies until the cap, and because the deliverable
+was a file rather than a message it emitted nothing at all. A report-shaped task
+is the worst case for the gates, so it needs the file opened early and appended —
+see `../tutorial-verification/community-test-report.md`.
+
+`#9183` and `#6800` then constrain the lesson from the other side. Both delivered
+inside the cap (13.2K and 10.3K completion tokens, answer written by the 10th
+assistant turn), so neither is a budget failure: `#9183` delivered a
+*wrong-window* answer at full length because it reasoned from the plog block the
+reporter quoted, and `#6800` delivered a correct one for the price of 17 greps
+that the `quantization-method-gate.md` route turns into three calls. Do not read
+these rows as permission to reason longer; read them as "the gate that was
+missing was evidence ordering, and it costs one script call".
 
 Four shapes recur in these runs, and all are diagnostic rather than unlucky:
 

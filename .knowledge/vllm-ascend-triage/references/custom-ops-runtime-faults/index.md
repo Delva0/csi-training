@@ -31,6 +31,12 @@ often a framework-free `torch_npu` repro (`attention-op-numeric-errors.md`).
   accept "the op is broken" without splitting ownership between the op owner
   (`cann/ops-nn`, often `unavailable`) and the framework that chose the
   combination and ships no fallback.
+- **Timestamp-gate the block before adopting its text.** A device/runtime error block
+  inside a fresh traceback keeps its own original date; if that date precedes the
+  reported failure it is a re-printed record, not this incident (#9183: a `107030`
+  capture-mode block from the previous day). Run
+  `../hccl-and-hardware/error-report-timestamps.md` (script
+  `plog-timeline.sh --since <date>`) before naming the operator or the mechanism.
 - Check the error family before the operator. When the same output also carries
   `SUSPECT REMOTE ERROR` / `error code is 507057` / an `EZ9999 … chipId:` dump /
   `error code = 0x8…`, it is a lane C device fault: the `fftsplus aivector error` there
@@ -73,6 +79,9 @@ often a framework-free `torch_npu` repro (`attention-op-numeric-errors.md`).
   the three fix sites (eager / capture+workspace / graph-replay rebind), and the cheap
   discriminators (mean-of-V check, causal-vs-all-False-mask row, axis sweeps) — recorded
   #13699 at v0.23.0rc1 `f4a08bdd` with `cann/ops-nn` absent.
+- `../hccl-and-hardware/error-report-timestamps.md` — the ordering rule for a report
+  that mixes runtime records with device dumps: which block is the incident, and
+  when several chips share one `pc start` that means software, not several bad cards.
 - `op-not-registered-for-soc.md` — the opposite class for the same op: `EZ1001 Get
   regInfo failed … does not support opType [AddRmsNormBias]` for `ascend910_93`
   (#11519, v0.18.0). Where `SOC_VERSION`, the per-SoC `build_aclnn.sh` branches,

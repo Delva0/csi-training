@@ -25,6 +25,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   parallel mode or flag combination (no `WorkerProc` line, no rank prefix) →
   `arg-validation-errors.md`. Upstream argument validation: the fix is a launch
   command, and when the shape came from a tutorial it is also a doc bug.
+- `<method> quantization is currently not supported in npu` (a pydantic
+  `ValidationError` around it, e.g. `--quantization awq`), or
+  `Unknown quantization method: <x>` — the platform/quantization gate, raised while
+  building `ModelConfig`, before weights and before any worker →
+  `quantization-method-gate.md`. The NPU platform declares only `ascend` and
+  `compressed-tensors`; the fix is a re-quantized checkpoint, not a launch tweak.
 - `AttributeError: '<Model>Config' object has no attribute '<attr>'` raised inside
   `vllm_ascend/distributed/*connector*.py` from `ensure_kv_transfer_initialized`
   (typically a VL/MoE model under PD disaggregation) → `connector-config-attributes.md`.

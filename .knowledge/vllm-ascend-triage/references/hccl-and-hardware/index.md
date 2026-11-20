@@ -10,6 +10,17 @@ dumps, collective hangs/timeouts during `profile_run` or
 
 Inherit the rules in SKILL.md. Order matters more than depth here:
 
+**First separate the watchdog from the collective.** If the only failure text is a
+bare `TimeoutError` whose frames are `multiproc_executor.py` (`collective_rpc` /
+`get_response`) and `shm_broadcast.py` (`acquire_read` / `acquire_write` /
+`recv`), it is not a collective error at all: it is vLLM's own RPC watchdog
+(`VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS`, 300 s) reporting a worker that stopped
+answering. `rpc-watchdog-timeouts.md` classifies the direction, the configurations
+(DP>1 + EP) that turn one stalled rank into a whole-group stall, and the per-rank
+artefacts to request. One call decides it:
+`bash <skill_root>/scripts/executor-timeout-check.sh <paste|->`. Recorded #1865 was
+titled 卡间通讯超时 ("inter-card communication timeout") for exactly this text.
+
 1. `error-report-timestamps.md` — when the paste carries several error families at
    once (`EE9999` runtime records, `EZ9999` chip dumps, `507011`, `ERR00100`,
    `ERR02005`), decide *which block happened when the reporter says it failed*:
@@ -53,7 +64,13 @@ collective (`HIXL Connect failed | 103900`, `RanktableCheck`,
 `get dev list error:serverId[...]`), the collective is only the messenger: the
 report is decided by the rank table's `server_count`, which is a topology input.
 Leave this topic for `../pd-disaggregation/transport-topology.md` and run
-`<skill_root>/scripts/ranktable-check.sh` first.
+`<skill_root>/scripts/ranktable-check.sh` first. If the recipe carries a KV pool
+(`AscendStoreConnector` in a `MultiConnector`, `MOONCAKE_CONFIG_PATH`), the
+`503900` is the pool's `global_segment_size` before it is the rank table: take
+`../pd-disaggregation/kv-pool-store-segments.md` and
+`<skill_root>/scripts/kvpool-segment-check.sh` first (#13439), and come back to
+the rank table only once the segment is small or the failure survives without the
+pool.
 
 Common rules for this topic:
 

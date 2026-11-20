@@ -633,3 +633,76 @@ FLASHCOMM1 only with `glm5-w8a8`, and no `tests/e2e/**` FLASHCOMM1 config is W4A
 The decisive detour was one `history-titles.sh 'aclnn_input_scale|o_proj_tp|dsa_cp'`
 call (4 hits, one exact precedent: #7937, v0.18.0-a3 nightly, same frame on a
 decode instance).
+
+**#4309** vllm-ascend v0.11.0rc1 (`c5fe179cef7f`) + vllm v0.11.0
+(`b8b302cde434`), 8×910 64 GB, `Qwen/Qwen2.5-7B-Instruct-1M` served with
+`--max-model-len 200000 --dtype float16`: `Starting to load model` then
+`AssertionError: Torch not compiled with CUDA enabled` at upstream
+`rotary_embedding/dual_chunk_rope.py:37`, reached from `get_rope`'s
+`dual_chunk_attention_config` branch; the reporter had already found that deleting
+the key from `config.json` works. Track: checkpoint-config → upstream CUDA-only
+path (`../startup-failures/checkpoint-config-cuda-only-path.md`, page written from
+this case). The session shipped a complete answer in 12 assistant turns with the
+verdict on turn 7, and got the useful extra facts: the siblings in the same package
+use `current_platform.device_type`, `vllm_ascend/ops/rotary_embedding.py` patches
+only four rope classes, and nothing under `vllm_ascend/attention/` mentions the
+feature's fields. Two wasted calls worth avoiding: `rg -rn "dual_chunk"
+/workspace/history` (the `-r` replacement trap of SKILL.md rule 7 — it printed
+`self.n_attention_config` and nearly became a lead) and a `history-titles.sh`
+alternation that ORed a common model name into the regex (53 hits, none relevant).
+
+**#3979** vllm-ascend v0.11.0rc0 (`00ba07102212`) + vllm v0.11.0rc3
+(`8ce5d3198d00`), QwQ-32B-w8a8 on Atlas 800I A2: any request with
+`extra_body={"guided_choice": [...]}` kills EngineCore with
+`RuntimeError: Invalid request status: WAITING_FOR_FSM` at
+`vllm_ascend/core/scheduler.py:274`, client sees 500, then the `nanobind: leaked …
+GrammarMatcher` teardown noise. The reporter attached the full serve log, so the
+decisive line was in hand by the 5th assistant turn; the answer is the escape from
+the fork plus the three-site patch. The recorded run guessed the fork was opt-in
+("you must have enabled it via `--additional-config`"), which the pinned tree
+contradicts: `platform.py:139-150` **forces** `ascend_scheduler_config.enabled =
+True` for a non-MLA, non-multimodal model with the default `auto` structured-outputs
+backend, so a plain default serve lands in the fork and `enabled: false` is
+overwritten; the block is gone by `v0.11.0rc1`. That one grep, and the escape flags
+it implies, are the page's main added value over the recorded answer. Track: downstream
+scheduler-fork drift (`../upstream-downstream-drift/scheduler-fork-missing-status.md`,
+page written from this case). Delivery: the verdict text came on turn 15 of 16 —
+the turns in between pinned the docs/matrix claim, the e2e coverage gap and the
+`enabled` default, all of which the answer needs, but the verdict and cheapest
+action could have gone out at G2 (turn 8) and been corrected in place. The case was
+also a version mismatch: the reporter ran `0.11.0` final while the snapshot pins
+`rc0` (line numbers matched), so the "is it default-on / fixed" half was correctly
+left open.
+
+**#5750** image `vllm-ascend-0.13.0-rc1`, 4×910B, Qwen3-Next-80B-A3B-Instruct:
+"Failed to compile custom operators with Triton Ascend" on the first request
+(`MLIRCompilationError` / `[ConvertLinalgRToBinary] … operand is unlinked` /
+`bishengir-compile … exit status 1` inside
+`vllm_ascend/ops/triton/fla/chunk_scaled_dot_kkt.py`), in a container that had
+`pip install`-ed `triton-ascend-3.2.0rc4` from a mirror over the image's own dev
+package. Track: image/dependency pair
+(`../image-dependency-faults/triton-ascend-pair.md`). The reporter's later
+follow-up carries the maintainer answer — do not install triton-ascend in these
+images, and v0.14.0rc1 needs none — which is exactly the action the session was
+circling. Delivery: **no ranked answer at all**; 10 assistant turns, ~40 K
+characters of reasoning against 3.8 K of message text, cut on the turn where it
+had `findings.md` and the verdict in hand. Its first bash call paid 104 KB for
+`cat SOURCES.json` + `ls /workspace/history` (SKILL.md rule 7), and the pinned
+tree is v0.11.0, which has no `vllm_ascend/ops/triton/` directory — the version gap
+it flagged correctly.
+
+**#4357** vllm-ascend v0.11.0rc2 (`a2e4c3fe`) / vllm v0.11.0, Qwen3-Next-80B-A3B on
+8 visible cards with TP=4, `--max-model-len 32768 --gpu-memory-utilization 0.7
+--enforce-eager`, hand-built image adding `Ascend-BiSheng-toolkit` +
+`triton_ascend-3.2.0.dev20250914`: "Qwen3-Next-80B too slow 太慢",
+`Avg generation throughput: 5.3 tokens/s, Running: 1 reqs`. Track: single-stream
+decode throughput on a hybrid GDN MoE
+(`../performance-throughput/qwen3-next-decode-throughput.md`). The arithmetic and
+the v0.11.0rc2 map were right (the project's own command carries `--enforce-eager`,
+`FULL_AND_PIECEWISE` is degraded to `PIECEWISE`, prefill GDN is the pure-torch chunk
+loop, `tests/` has no `qwen3_next`), but delivery was cut mid-answer on its 14th
+turn (~38 K of reasoning) and the reporter answered "并没有" two days later — so the
+graph flip it led with is a hypothesis with a named confirmation line, not a fix,
+and the later release's `FULL_DECODE_ONLY` tutorial command is the real lever.
+Also missed in-flight: the paste's `served_model_name` is
+`Qwen3-235B-A22B-Instruct-2507`, not the reported model.

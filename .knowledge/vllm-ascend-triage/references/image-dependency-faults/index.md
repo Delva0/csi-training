@@ -11,6 +11,10 @@ Also the **hand-built** environment that follows the documented install steps
 instead of using the image: the image installs and sources components (CANN,
 NNAL/ATB, driver) that a manual build must reproduce itself, and a missing
 `source` line looks exactly like a missing package.
+The same ownership test covers the **Triton-Ascend compiler pair**: a kernel that
+fails to *compile* (`MLIRCompilationError`, `bishengir-compile … returned non-zero
+exit status 1`) belongs to the wheel/compiler that was installed into the image,
+not to vllm-ascend Python or the kernel's shapes.
 Inherit the rules in SKILL.md; this topic is the counterpart of
 `../startup-failures/index.md` for failures that never reach a worker.
 
@@ -73,6 +77,15 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   (`Dockerfile.a3:37` copies `tools/mooncake_installer.sh`) and upstream ships
   its own copy of that script. Diff the two dependency lists before blaming the
   component's code; the image builds against the stale copy.
+- A request dies in a **Triton-Ascend compile** although the engine started:
+  `triton.compiler.errors.MLIRCompilationError`,
+  `[ConvertLinalgRToBinary] encounters error: … operation's operand is unlinked`,
+  `bishengir-compile … returned non-zero exit status 1`, deepest `vllm_ascend`
+  frames in `vllm_ascend/ops/triton/fla/**`, under `triton/runtime/autotuner.py` —
+  and the report/launch script contains a `pip install triton-ascend` or an extra
+  BiSheng/AscendNPU-IR `.run` over the image → `triton-ascend-pair.md`. The phrase
+  "Failed to compile custom operators with Triton Ascend" is usually the reporter's
+  paraphrase; it is not the AscendC custom-op lane.
 
 ## Pages
 
@@ -92,6 +105,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   object file` while a connector module is imported in a launcher-managed
   deployment, when the ENV dump says the path is fine: the launch command's
   effective environment, the tutorials' exports, and the image-owns-it boundary.
+- `triton-ascend-pair.md` — a Triton-Ascend kernel that fails to *compile* on the
+  first real request: how to tell the paraphrase from the library error, the
+  versioned wheel+BiSheng pair the tutorial pins (`multi_npu_qwen3_next.md:48-61`
+  at vllm-ascend v0.11.0), and the maintainer-confirmed answer on #5750 — do not add
+  triton-ascend to these images, and move the release (v0.14.0rc1 needs none)
+  rather than the compiler.
 - `offline-source-build.md` — an offline source build: the own-source invocation
   chain (`setup.py` `build_aclnn` → `csrc/build_aclnn.sh` → `csrc/build.sh` →
   `csrc/CMakeLists.txt`), the five network legs with the existence gate that

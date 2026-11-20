@@ -42,7 +42,11 @@ leads were.
   All three had the ranked cause in hand well before the cut (#4057 and #6833 at
   turn four, #13853 at turn ten). A block of 2-16 K characters is not a
   scratchpad, it is the session; if a block is still planning when it passes a few
-  hundred tokens, the answer is already owed — write it.
+  hundred tokens, the answer is already owed — write it. #5750 (10 turns, ~40 K of
+  reasoning, 3.8 K of message text, no ranked answer ever sent) and #4357 (14 turns,
+  ~38 K, cut inside the answer it had just started) are the same arithmetic with the
+  per-turn verdict lines already in place: those lines are hypotheses, and the
+  ranked deliverable is still owed as one message.
 - **Truncation eats the tail, not the head.** Verdict and the one cheapest action in
   the first paragraph; each further action directly after its cause; the closing
   scope/open-questions block 3-5 lines. A cut answer must still be usable, and the

@@ -91,7 +91,7 @@ delivery pattern is rule 1.
    truncation: what decides the outcome is not how much evidence was gathered but
    whether the message exists. The runs that shipped **no answer at all** (#6784,
    #12339, #10985, #11739, #11759, #5295, #8724, #17991, #16111, #8788, #10546,
-   #17797, #5525)
+   #17797, #5525, #5750)
    each had a usable lead; #4296 answered completely in ten turns from one pasted
    traceback. Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
@@ -108,9 +108,14 @@ delivery pattern is rule 1.
      #16111 and #8788 were each cut after 11-49 K characters of reasoning with the
      ranked cause in hand and no message text; #6833's replay re-derived its verdict
      for ten turns and was cut inside its action ladder, and #16111 and #8788
-     composed the whole answer inside the reasoning block the cap landed on. A block
-     that restates the verdict, numbers the fixes or lays out the evidence table *is*
-     this turn's message: send it, then one tool call. Count characters, not turns.
+     composed the whole answer inside the reasoning block the cap landed on. #5750
+     (10 turns, ~40 K characters of reasoning against 3.8 K of message text, no
+     ranked answer ever emitted) and #4357 (14 turns, ~38 K, cut inside the answer
+     it had just begun) are the next form of the same waste, with per-turn verdict
+     lines already in place: a verdict line is a *hypothesis*, and the ranked
+     deliverable is still owed as one message. A block that restates the verdict,
+     numbers the fixes or lays out the evidence table *is* this turn's message:
+     send it, then one tool call. Count characters, not turns.
    - **Reasoning is a scratchpad, a few lines per turn:** what the last result
      proved, the single next check, go. It spends the **same output budget** as the
      answer: #15815 and #11759 each spent ~30 K characters of reasoning against
@@ -219,8 +224,10 @@ delivery pattern is rule 1.
    - Never list a history or attachments directory, never dump `SOURCES.json`, and
      never bundle a listing with the `skill_view` call (it lands before this rule is
      read): a listing cost ~24-28 KB (#13699: 2857 entries), and recent batches
-     still paid 13-54 KB per session (#9335, #9183, #11739, #8984, #12487). Load
-     the skill alone, then make the first shell call `ls /workspace`
+     still paid 13-54 KB per session (#9335, #9183, #11739, #8984, #12487);
+     #5750 paid 104 KB in its very first call by bundling `cat SOURCES.json` with
+     `ls /workspace/history`. Load the skill alone, then make the first shell call
+     `ls /workspace`
      plus `bash <skill_root>/scripts/sources-summary.sh`, nothing else — it prints
      the version contract and `unavailable` repos in ~10 lines, not 20-54 KB of
      `cat SOURCES.json`. Orientation is one level of `/workspace`
@@ -339,6 +346,7 @@ delivery pattern is rule 1.
 | `[Community Test]` / `[Doc]` / 资料验证 / 测试报告, or "the tutorial's command does not work as written" | Tutorial-document verification: grade the page against the pinned tree; the report is the deliverable | `references/tutorial-verification/index.md` |
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
 | Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class (a missing *quantization tensor* such as `aclnn_input_scale` is the DSA row below, not drift) — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, Python `TypeError: … got an unexpected keyword argument` (the pydantic form is the schema row above), `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
+| `RuntimeError: Invalid request status: <STATUS>` (e.g. `WAITING_FOR_FSM`) raised from `vllm_ascend/core/scheduler.py` when the request carries `guided_*` / `response_format` / `structured_outputs`, while plain chat works; EngineCore dead, client 500, `nanobind: leaked … GrammarMatcher` at shutdown | Downstream **scheduler-fork drift**: `AscendScheduler` is a fork of upstream's v1 scheduler and never learned the request state upstream sets for grammars — and its `SchedulerOutput` hardwires the bitmask empty, so "stop the raise" alone degrades to silent non-enforcement. First move is one grep on `platform.py`: at rc0 the fork is **force-enabled** for a default dense serve (an explicit `enabled: false` is overwritten), later builds are opt-in — so the escape is a gate input (`--structured-outputs-config '{"backend": "xgrammar"}'`) or dropping the key, not reading xgrammar | `references/upstream-downstream-drift/scheduler-fork-missing-status.md` |
 | `AttributeError: 'AscendRowParallelLinear' object has no attribute 'aclnn_input_scale'` (or `aclnn_input_scale_reciprocal` / `aclnn_input_offset`), deepest frame `vllm_ascend/attention/sfa_v1.py:707` in `_init_o_proj_tp_full_params` reached from `:544` in `process_weights_after_loading`, on a DSA model (GLM-5/5.1, DeepSeek-V3.2 — `index_topk` in `hf_text_config`) with `VLLM_ASCEND_ENABLE_FLASHCOMM1` / `VLLM_ASCEND_ENABLE_FLASHCOMM` / shared-expert-DP on, and a **W4A8 or BF16** checkpoint | DSA-CP o_proj TP/Full weight switching exists only for a W8A8-static o_proj: the three tensors are created by the static-w8a8 method alone, so this is an unsupported feature×quant combination, not install or patch drift — FLASHCOMM1 off, or the tutorial's W8A8 weights | `references/dsa-sparse-attention/o-proj-quant-attribute-crash.md` |
 | The same `AttributeError` raised **inside an upstream vllm file** on a class vllm-ascend is meant to replace — `'ZeroExpertFusedMoE' object has no attribute 'select_experts'` — or the reporter asks "did it ever reach vllm-ascend's ops?" | Downstream registry drift: the Ascend replacement is keyed by class *name* (`CustomOp.register_oot`), so an upstream refactor that adds a class silently keeps upstream code | `references/upstream-downstream-drift/oot-class-registration-drift.md` |
 | An `AttributeError` inside an upstream vllm file whose message contradicts the code — `'<QuantMethod>' object has no attribute '<property>'. Did you mean: '<similarly named method>'?` — reached from an upstream model's `forward` at startup (`profile_run`), where the property exists and calling it directly gives `'NoneType' object has no attribute '<property>'` | Downstream patch **incomplete**, not absent: a factory/property rebound only in its defining modules while the model module cached the old binding at import. Compare the three attributes, do not read more of the model | `references/upstream-downstream-drift/stale-module-binding.md` |
@@ -346,6 +354,7 @@ delivery pattern is rule 1.
 | `TypeError: 'NoneType' object is not callable` from an upstream module-level name that is `None` on non-CUDA platforms (`fused_experts = None`), with the `forward_oot` frame in `vllm/model_executor/custom_op.py` and `forward_native = forward_cuda` next in the trace; often `--distributed_executor_backend ray` or a `spawn` worker | The downstream op patch was never installed **in that process**: it is imported as a side effect of a driver-only hook (`check_and_update_config`), so fresh-interpreter workers keep upstream code | `references/upstream-downstream-drift/patch-import-side-effect.md` |
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
 | Per-rank traceback whose frames are `torch/_subclasses/fake_tensor.py` and `torch/_ops.py`, ending `NotImplementedError: <ns>::<op>: attempted to run this operator with Meta tensors` (e.g. `_C::rotary_embedding`), after the weights loaded and before capture | Compile-phase fake-tensor trace: a custom op registered for `PrivateUse1` only. The namespace dates the tree (`_C` pre-rename vs `_C_ascend` + `meta_registration.py`), the selecting predicate is a dtype/shape test, and `--enforce-eager` is rung 1 | `references/startup-failures/meta-kernel-missing.md` |
+| Model construction (after `Starting to load model`, **no** `vllm_ascend` frame below the loader) ends in `AssertionError: Torch not compiled with CUDA enabled`, from an upstream `__init__` such as a `get_rope` branch — a checkpoint `config.json` key (`dual_chunk_attention_config`) selecting an upstream class that hardcodes `torch.cuda`; the env dump's `torch==2.7.1+cpu` is normal on NPU | Checkpoint-config → upstream CUDA-only path: an unimplemented NPU feature, not a torch install, CANN, driver or flag problem. Three checks (device-agnostic class, OOT registry, consumer of the emitted tensor) decide whether a device patch is even credible; the workaround is stripping the key from a copy of `config.json`, with the feature's accuracy caveat | `references/startup-failures/checkpoint-config-cuda-only-path.md` (one call: `scripts/cuda-only-path-audit.sh`) |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range"; several ranks reporting the same `pc start` in the same second | Custom-op runtime fault, after the timestamp gate — a shared PC across chips is software address computation, not several bad cards | `references/hccl-and-hardware/error-report-timestamps.md`, then `references/custom-ops-runtime-faults/index.md` |
 | `507035` + `ERR00100 PTA call acl api failed` + `EZ9999 … aivec error` + `The DDR address of the MTE instruction is out of range`, one `pc start` repeated on every core, and the deepest frame is `torch_npu.npu_scatter_nd_update_` in `vllm_ascend/attention/sfa_v1.py` with fault kernel `ScatterNdUpdate_…`; the crash follows concurrency (mixed prefill+decode batch) while single requests are fine | DSA indexer-cache write with the wrong index tensor: a host-side slicing bug, not a card — compare the index tensor's row count with the source's before any hardware theory | `references/dsa-sparse-attention/indexer-cache-scatter-fault.md` |
@@ -387,6 +396,7 @@ delivery pattern is rule 1.
 | Output degenerates (`</think>` leaking into `content`, repetition collapse, 乱码) at long-ish context **and** concurrency on a **documented** model with PD / spec-decode / prefix-cache flags, with **both** `vllm serve` commands pasted and no ablation | Config-diff track: the tree's own `docs/source/tutorials/models/<model>.md` ships the validated P and D commands and a `Recommended Configurations` table, so the first answer is that diff plus the ablation matrix — never a walk through the KV connector; #13002's five deviations are ranked ablation rows, not established causes | `references/accuracy-benchmarks/garbled-long-context-output.md` |
 | "服务崩溃" / 崩溃 under concurrency or high load with **no** error text, no traceback and no plog pasted, while single-request serving is correct (often DeepSeek-V3.2 + MTP + DP/EP) | Report-gap track: nothing in the paste can confirm a mechanism, so the answer is the config diff against the project's own validated command at the pinned commit plus 1-2 single-variable A/Bs | `references/dsa-sparse-attention/concurrency-crash-with-no-log.md`; `references/runtime-memory/index.md` for the OOM row |
 | "多并发时请求排队那么久" / "生成吞吐只有个位数" / `Prefix cache hit rate: 0.0%`, with a `loggers.py` metrics block, a healthy engine and no error text | Throughput/queueing on a healthy engine: TTFT is prefill work ÷ prefill throughput, the interference is `gen tok/s ÷ Running`, and the cache line is a capability switch before it is a tuning knob | `references/performance-throughput/index.md` (both pages in one turn when the paste carries both complaints — the arithmetic page first) |
+| `Running: 1`, `Waiting: 0`, KV usage below 1 %, `Avg generation throughput` 4-6 tok/s on a hybrid GDN MoE (Qwen3-Next-80B-A3B) at TP=4, when the project's own tutorial command at that ref already carries `--enforce-eager` | Single-stream decode on a release that cannot capture a full graph: ~190 ms/step against a ~1 ms per-card HBM floor is dispatch-bound, so the lever is the release (newer `FULL_DECODE_ONLY` tutorial command), not a flag diff — and the flag flip is a hypothesis until the `PIECEWISE compilation enabled on NPU` line is confirmed | `references/performance-throughput/qwen3-next-decode-throughput.md` |
 | A 19-token to few-hundred-token prompt on a hybrid GDN model (Qwen3-Next) answered as a digit run or a repeated phrase while ordinary chat is fine, `finish_reason: length`, no traceback | Hybrid linear-attention numeric path (accuracy track): the prefill GDN kernel is a downstream fp32 re-implementation while decode keeps a patched Triton kernel | `references/accuracy-benchmarks/qwen3-next-gdn-numeric-path.md` |
 | "去掉 `HCCL_OP_EXPANSION_MODE`(AIV) / `PYTORCH_NPU_ALLOC_CONF` 就能拉起", first in-window error `aclnnMoeDistributeDispatchV4` / `…CombineV4 … 107020`, `event wait timeout … task_timeout` | The env knob changed the **selected MoE path**, not the hardware: AIV × MC2 dispatch/combine is a defect family (#14928, #13688, #15195), rank arithmetic decides whether MC2 was eligible, and `expandable_segments` is innocent apart from the CaMem pool assert | `references/hccl-and-hardware/aiv-mc2-env-ablation.md` |
 | The reporter wants `--enable-expert-parallel` **and** `--data-parallel-size` > 1 together ("同时开启 EP + DP", "去掉 EP 或 DP 设成 1 就不报错"), or engine init dies at `vllm_ascend/ops/fused_moe/prepare_finalize.py` `dist.all_gather` behind `No available shared memory broadcast block found in 60 second(s)` on 910B | MoE communication-method selection, not a flag bug: A2 picks `MC2` only when `num_tokens <= mc2_tokens_capacity` **and** `world_size_across_dp/pp >= 16`, so DP2×TP8 = 16 is the boundary while DP=1 and EP-off fall to `ALLGATHER` by arithmetic; `PrepareAndFinalizeWithMC2` inherits the All2All `finalize`, so that all_gather **is** the MC2 path | `references/feature-enable-recipes/moe-expert-parallel-with-dp.md` |
@@ -397,6 +407,7 @@ delivery pattern is rule 1.
 | Deepest `vllm_ascend` frame is `counts_cpu[: counts.shape[0]].copy_(counts, non_blocking=True)` in `_copy_valid_sampled_token_count` (`model_runner_v1.py:1393`), batched with `Execution_Error_SDMA` / `rtMemcpyAsyncEx … reason=the model stream execute failed`, an `aivec … timeout or trap error` and an HCCL `AllGather`/`AllReduce` line carrying `rankSize` / `numBlocks`; DP or PD deployment, under concurrency | Device fault surfacing at the drafter's valid-count D2H copy (Lane C sync point) — and the frame is also free evidence: it only runs with `--async-scheduling` **and** spec decode **and** the padded drafter batch, so the paste proves the launch shape. Resolve the collective by rank size against the DP×PCP×TP group arithmetic (a 2-rank group is not `fc3_quant_x` on DP2×TP4), then `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` for attribution | `references/spec-decode-mtp/drafter-count-copy-device-fault.md` |
 | `ACL stream synchronize failed, error code:507015` / `EE9999 … aicore exception` whose deepest frame is an attention backend while the step held **both** decodes and prefills; often "completes with spec decode disabled" | Mixed-batch split **units**: `num_decodes` counts requests while `num_decode_tokens` counts tokens (× `1+num_spec`), so a request-indexed `block_tables`/`seq_lens` sliced by the token count, or an unrebased `query_start_loc` passed as `cu_seqlens`, reads out of its own storage; the reported line is often the decode half's `.npu()` | `references/mixed-batch-splits/index.md`, then `fa3-mixed-batch-split.md` (one call: `scripts/batch-split-audit.sh <root>`) |
 | KV pool / MemCache on **800I/T A3** with a DeepSeek-V4 (`compress_ratios`) model: first request fine, the **second** kills the workers (`HCCL watchdog … ERR02005`), or the `host_shm` variant dies at memcache init with a "device id 转换异常"; reporter says "懒加载" | KV-pool store lane: lazy init is the documented A3+DSV4+`device_sdma` behaviour (#9975) and a rank-local save failure is swallowed before it desyncs collectives (#14106) — diff the resolved `mmc-local.conf` against the tree's tables first | `references/kv-pool-store/memcache-a3-dsv4-init.md` |
+| `triton.compiler.errors.MLIRCompilationError` + `[ConvertLinalgRToBinary] encounters error: … operation's operand is unlinked` + `bishengir-compile … returned non-zero exit status 1`; engine started, the first real request dies; deepest `vllm_ascend` frames in `vllm_ascend/ops/triton/fla/**` under `triton/runtime/autotuner.py`; the recipe has a `pip install triton-ascend` or a standalone BiSheng/AscendNPU-IR `.run` over the image | Triton-Ascend kernel **compile** pair installed into the image — not the AscendC/aclnn custom-op lane and not the kernel's shapes: the wheel and `bishengir-compile` come from different builds | `references/image-dependency-faults/triton-ascend-pair.md` (remove the install, then move the release — maintainer-confirmed on #5750) |
 | Compiler or missing-header error while installing/building — or `pip install` from source in a pod with **no public network** (custom-ops step pulls from `gitcode.com`, `fetch failed`) | Build-time dependency closure, else the general sequence below | `references/image-dependency-faults/offline-source-build.md`, else skip the topical routes |
 
 ## Procedure
@@ -436,7 +447,13 @@ delivery pattern is rule 1.
      ascend_config.py, utils.py), read the log's own `Calculated ...` / `N → M`
      lines, and reproduce the number with
      `bash <skill_root>/scripts/aclgraph-size-budget.sh` instead of reading the
-     formula by eye.
+     formula by eye. The same holds for **behaviour switches**: downstream
+     `check_and_update_config` may turn a feature on that the reporter never
+     requested — at v0.11.0rc0 `platform.py:139-150` force-enables the
+     `AscendScheduler` fork for a default dense serve and overwrites an explicit
+     `enabled: false` — so grep the config field in `vllm_ascend/platform.py`
+     before asking which flags they passed, and before believing "you must have
+     enabled it" (recorded #3979).
    - Then the per-track checks: `references/first-checks/index.md` routes to
      `cheap-checks-by-track.md`, the full list (image/native aborts, source
      builds, connector and config-attribute lanes, PD transport, single-node
@@ -524,6 +541,15 @@ delivery pattern is rule 1.
   `<file> :: <title>` line per matching history issue, so a family is triaged
   without reading bodies. Run as `bash <skill_root>/scripts/history-titles.sh
   '<regex>'`, where `skill_root` is the path `skill_view` reports.
+- `scripts/cuda-only-path-audit.sh <vllm-root> [subpath] [vllm-ascend-root]` — the
+  upstream half of `AssertionError: Torch not compiled with CUDA enabled`: per file,
+  the unguarded `torch.cuda` lines, whether the file has any `current_platform`
+  guard, the `forward_*` implementations, the class and its `CustomOp.register` op
+  name, then whether the downstream tree mentions either (a mention is not a
+  replacement — look for `register_oot` or a subclass with its own `__init__`).
+  Verified on #4309: one hit in the whole `rotary_embedding/` package
+  (`dual_chunk_rope.py:37`, 0 guards, `forward_cuda,forward_native`) and no
+  downstream mention.
 - `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one
   line per repo with coverage and `runtime_verified` flags, plus the
   `unavailable` repos, so "is `cann/hixl` in this snapshot?" needs no JSON dump.
@@ -649,7 +675,10 @@ delivery pattern is rule 1.
   `meta-kernel-missing.md` (compile-phase `NotImplementedError: <ns>::<op>:
   attempted to run this operator with Meta tensors` — a custom op without a
   Meta/fake impl, namespace `_C` vs `_C_ascend` dating the tree, #1895),
-  `acl-graph-capture.md` (capture-phase stall, #3389), `quantization-method-gate.md`
+  `checkpoint-config-cuda-only-path.md` (`AssertionError: Torch not compiled with
+  CUDA enabled` from an upstream `__init__` that a checkpoint config key selected,
+  #4309), `acl-graph-capture.md` (capture-phase stall, #3389),
+  `quantization-method-gate.md`
   (`<method> quantization is currently not supported in npu`, #6800).
 - `references/upstream-downstream-drift/index.md` — Python attribute/signature errors
   from a vllm-ascend module subclassing/re-implementing an upstream class, **including
@@ -660,7 +689,11 @@ delivery pattern is rule 1.
   import side effect only the arg-parsing process runs, so Ray/`spawn` workers keep
   upstream's `forward_oot`, #253); `stale-module-binding.md` (patch ran, the consumer
   module had cached the factory, #15815); `patch-copy-vs-upstream.md` (the `patch/**`
-  frame: extract-and-diff, formatting vs added statement, #8724).
+  frame: extract-and-diff, formatting vs added statement, #8724);
+  `scheduler-fork-missing-status.md` (the `AscendScheduler` fork of upstream's v1
+  scheduler missing a `RequestStatus` — `RuntimeError: Invalid request status:
+  WAITING_FOR_FSM` — plus the `SchedulerOutput` payload it never fills, the rc0
+  force-enable that puts the fork in a default serve, and the escape flags, #3979).
 - `references/pd-disaggregation/index.md` — PD/EPD with the engine up but KV not
   moving, or moved and wrong. `transport-topology.md`: `HIXL Connect failed |
   103900`, `RanktableCheck`, `device_ip`, non-hostNetwork Pods,

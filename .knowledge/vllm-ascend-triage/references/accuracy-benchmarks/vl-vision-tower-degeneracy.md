@@ -6,7 +6,9 @@ token, with no traceback and a healthy process; often reported together with
 "特别耗时 / unusually slow". The first suspect is the downstream vision tower
 (`vllm_ascend/models/qwen2_5_vl*.py`, `qwen2_vl.py`), not the sampler — and the
 first check is one env var. Text-only prompts answered as garbage are the
-`short-prompt-corruption.md` / `garbled-long-context-output.md` profile instead;
+`short-prompt-corruption.md` / `garbled-long-context-output.md` profile instead —
+unless only the **first** call degenerates or the run is a text-only launch of a
+VL-capable checkpoint, which is `first-generate-degenerate.md`;
 the presence of an image plus a repeated single token is what selects this page.
 
 ## Grade the symptom before theorising

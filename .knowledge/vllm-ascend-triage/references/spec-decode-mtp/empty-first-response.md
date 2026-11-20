@@ -15,6 +15,7 @@ hybrid GDN model (Qwen3.5/Qwen3.6 family), 2 cards, `--speculative-config` with
 | `content: null`, text inside `reasoning` | output routing; `../accuracy-benchmarks/reasoning-output-routing.md` |
 | `finish_reason: "stop"`, `completion_tokens: 1`, `content: ""` | **this page**: the engine emitted one token that detokenizes to nothing (a stop token stripped by `skip_special_tokens`, or a token whose text is empty). `enable_thinking`, the chat template and the weights are not implicated by this shape |
 | `content: ""` with `completion_tokens` 0 and no `finish_reason` | the request never ran: check the scheduler/queue and the frontend, not the model |
+| **offline `LLM.generate()`**, call 1 only, **no MTP**: a constant token id repeated to `finish_reason: "length"`, an immediate stop after `<think>`, or `AttributeError: 'NoneType' object has no attribute 'size'` through `compilation/acl_graph.py`, on a VL-capable architecture at TP≥2 with `enable_sleep_mode=True` | not this page (no draft model, and the answer is degenerate rather than blank): `../accuracy-benchmarks/first-generate-degenerate.md` — text-only `is_multimodal_model` drift, then the first-request sync/allocator rows |
 
 `usage.prompt_tokens` also tells you whether the template produced a plausible
 prompt (a Qwen chat turn with an empty system block is ~14-20 tokens; a much

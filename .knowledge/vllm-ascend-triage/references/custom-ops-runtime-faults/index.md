@@ -40,6 +40,23 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed`) is not a custom op at all: the
   image's CANN kernel package does not cover the running SoC —
   `../soc-platform-paths/kernel-package-vs-card.md`.
+- **A built-in `aclnn<Op>` *execution* error has no vllm-ascend owner, and the host
+  driver outranks every tiling theory.** `aclnnRmsNorm` / `aclnnAddRmsNorm` /
+  `aclnnLayerNorm` and friends are CANN library ops reached through `torch_npu`
+  (`vllm_ascend/ops/layernorm.py` calls `torch_npu.npu_rms_norm` /
+  `npu_add_rms_norm`); one `ls csrc` at the reporter's ref says whether *any*
+  vllm-ascend kernel with that name exists there (it does not at v0.12.0rc1, so the
+  `add_rms_norm_bias` map in this topic — verified at v0.19.1rc1 — is unusable for
+  that report). When the sentence is `aclnn<Op> operator execution error` with no
+  error code, no dump and no `csrc/` op at the pin, rank the **host driver / CANN
+  pairing** first: `npu-smi info` header version, `cat
+  /usr/local/Ascend/driver/version.info`, the image's CANN base — reporter-confirmed
+  on #5236 ("solved by updating the npu driver to 25.25.0", Qwen3-235B,
+  v0.12.0rc1). Second is the async-attribution rerun (`--enforce-eager` +
+  `ASCEND_LAUNCH_BLOCKING=1`, plog) because the named op is then a sync point
+  (`../hccl-and-hardware/collective-error-chain.md`). Ask for the error text before
+  mapping any caller: with only the op name in the title, the version triple and the
+  first error line are the whole next step.
 - **`Failed to register custom ops, all custom ops will be disabled` is not a defect
   in every image.** At vllm-ascend v0.7.3 the official image ships without the
   extension by design: `setup.py:296-298` builds `vllm_ascend.vllm_ascend_C` only

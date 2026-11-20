@@ -1,16 +1,18 @@
 ---
 name: vllm-ascend-triage
-description: 'Triage vllm-ascend deploy, HCCL/PD, OOM, accuracy, logs'
+description: 'Triage vllm-ascend deploy, HCCL/PD, OOM, accuracy, docs'
 ---
 
 # vLLM-Ascend issue, deployment and support triage
 
 ## Problem class this covers
 
-Four entry shapes, one deliverable: which component and line owns the symptom (or
+Six entry shapes, one deliverable: which component and line owns the symptom (or
 which failure lane and phase), what the reported evidence proves and does not
 prove, ranked candidate causes each with the cheapest confirming check, and the
-concrete next step for the reporter.
+concrete next step for the reporter. The last two shapes deliver a *decision*
+(sizing) or a *document review* instead of a root cause, but the same rules
+apply — answer first, evidence pinned to the reported version, gaps stated.
 
 - **Issue report** (usually Chinese or English, template-shaped: environment dump
   + logs + narrative) about something that went wrong on an Ascend NPU host: a
@@ -39,6 +41,21 @@ concrete next step for the reporter.
   transfer succeeds and the decode node emits wrong or alternating output on a
   hybrid linear-attention model. Transport identity and rank tables are a
   topology question, not a connector bug — `references/pd-disaggregation/index.md`.
+- **Deployment sizing / stage layout**: nothing has crashed yet and the question
+  is a plan — "does this model fit on 2×64 GB", "the GPU docs do a 2-device
+  stage deploy and mine does not come up on 2 NPUs", a bundled
+  `platforms.<vendor>` yaml with more stages than the reporter has cards, "how do
+  I pin stage 1 to one card". Answer with per-card arithmetic plus the
+  device-visibility variable, not with a source walk —
+  `references/deploy-sizing/index.md`.
+- **Community-test / doc-verification task** (`[Community Test]`, a 众测任务书 row
+  with 蓝区镜像 / 权重链接 / 卡数 / 交付件 测试报告, or a `[Doc]` report that a
+  tutorial step does not work as written): the deliverable is a *report about a
+  document*, graded on completeness/usability/correctness and produced without
+  the reporter's hardware. The evidence is the pinned tree — which command no
+  longer parses, which path is absent from the image, which baseline predates the
+  image, whether the stated card count matches the weights —
+  `references/tutorial-verification/index.md`.
 
 Recorded uses (issue: version, symptom, track): #8944 v0.19.1rc1
 `aclnnAddRmsNormBias` device fault; #10068 evalscope vs ais-bench MMLU-Pro gap;
@@ -78,7 +95,18 @@ generation (an upstream frontend gate checklist, not an Ascend defect — the ru
 spent the whole budget and shipped no answer); #4812 v0.11.0.rc2-310P,
 Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
 `Memory_Allocation_Failure(EL0004)` + `507013` / SDMA at a KV-cache
-`npu_format_cast` during `initialize_kv_cache_tensors`.
+`npu_format_cast` during `initialize_kv_cache_tensors`; #9335 v0.19.1rc1
+Qwen3-Omni-30B-A3B on 2×910B, where vllm-omni's 2-NPU stage layout is
+memory-infeasible and `CUDA_VISIBLE_DEVICES` is inert on NPU (a sizing answer,
+not a fault); #11739 v0.18.0 community-test report on the
+Qwen3-Omni-30B-A3B-Thinking tutorial, where the run spent all 16384 completion
+tokens auditing the page and shipped no report; #9183 v0.18.0rc1 A3 1P1D
+DeepSeek-V3.2-w8a8 whose quoted `107030` capture-mode plog block turned out to be
+the **previous day's** crash, while the reporter's later plog put an `EZ9999`
+fftsplus-aivector / MTE-DDR exception inside the reported window on three chips at
+once; #6800 v0.13.0 MiniMax-M2.5-AWQ rejected by the platform quantization gate
+(`awq` is not in `[ascend, compressed-tensors]`) — a re-quantize answer, not a
+defect.
 
 ## Rules that apply whenever this skill is used
 
@@ -120,6 +148,15 @@ Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
      they are answered in 3-4 calls. #10985 spent 49.1K reasoning characters and
      28 tool calls inside `vllm/entrypoints/openai/**` on exactly that question
      and shipped no text at all.
+   - **When the deliverable is a document, the document is the gate.** A
+     community-test/verification task asks for a report file, and G1-G3 still
+     bound it: open the file on the 2nd-3rd turn with the skeleton plus the first
+     verified section, append one section per finished check group, and make the
+     final message the condensed report (path, defects, open items). Never hold
+     it for a complete audit: #11739 spent 16384 tokens, 40 tool calls and 39.9K
+     characters of reasoning, wrote 79 characters of message text and no report,
+     with two command-breaking doc defects and a stale baseline already in hand
+     before the halfway point.
    - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
      write it at G2 *in place of* the reasoning block, and skip it entirely when
      the session is near the cap. Composing it late is what cost #11519 its
@@ -178,18 +215,27 @@ Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
      case returned ~3k filenames (~24 KB) for no information, and on the
      v0.23.0rc1 case (#13699) a first-turn listing of `/workspace/history`
      printed 2857 entries (~28 KB). The trap is bundling that listing with the
-     `skill_view` call, so it lands before this rule is read: orientation is one
-     level of `/workspace` (`search_files (target='files')`) plus
+     `skill_view` call, so it lands before this rule is read — and all four runs
+     of the last two batches repeated it anyway: a first-turn `ls /workspace`,
+     `cat SOURCES.json` (at #9335/#9183 capped at 100 lines) and an
+     `ls /workspace/history` beside `skill_view` returned 13.7 KB of stdout
+     twice (#9335, #9183), 43.2 KB when the line cap was dropped (#11739), and
+     3.7 KB when the history listing was left out (#6800); the 100-line cap
+     stops mid-repo anyway. That is
+     context tax rather than answer budget, but it is paid in the same session.
+     Load the skill alone, then make the first shell call `ls /workspace` plus
+     `bash <skill_root>/scripts/sources-summary.sh`, nothing else. Orientation
+     is one level of `/workspace` (`search_files (target='files')`) plus
      `sources-summary.sh`, and a missing `/workspace/attachments` also makes a
      bundled shell listing exit 2, which reads like a failed orientation. Search
      by token (`grep -rl`, `rg -l`) or with `scripts/history-titles.sh`, and read
      `SOURCES.json` through `scripts/sources-summary.sh` instead of dumping the
-     whole file. `cat SOURCES.json` is 20-54 KB and the two runs that dumped it
-     paid it (#12339 34 KB, #14506 54 KB) although the script prints the same
-     version contract plus the `unavailable` repos in ~10 lines. It is the right
-     first shell call; `history-titles.sh` prints the matching body line when the regex
-     hit the body rather than the title, so one call separates a real family from
-     a lexical accident.
+     whole file. `cat SOURCES.json` is 20-54 KB and the runs that dumped it paid
+     it (#12339 34 KB, #14506 54 KB, #11739 43 KB in its first turn), although
+     the script prints the same version contract plus the `unavailable` repos in
+     ~10 lines. It is the right first shell call; `history-titles.sh` prints the
+     matching body line when the regex hit the body rather than the title, so one
+     call separates a real family from a lexical accident.
 8. **The prior-month corpus is not evidence of absence.** `history/*.md` and
    lexical issue search cover only earlier issues; a current issue is never in
    them. Make one grep for the distinctive token (op name, error string, dataset
@@ -248,6 +294,20 @@ Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
     already found the jemalloc omission and ranked it low. Route:
     `references/image-dependency-faults/index.md`, then
     `references/image-dependency-faults/native-import-abort.md`.
+13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
+    recorded device/runtime error block inside a fresh traceback and keeps that
+    block's original date, so the sentence in the issue title can be a day older
+    than the incident. Recorded #9183: the quoted `rtMemcpy ... 107030 the current
+    capture mode does not support this operation` lines were all dated the previous
+    day, and the in-window first error was an `EZ9999` fftsplus-aivector /
+    MTE-DDR exception — the recorded answer built a capture-window mechanism out of
+    the stale block and named the wrong owner. One call decides it:
+    `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <paste>`;
+    families it flags as older are history, and if none is in-window the paste does
+    not contain the fault at all — say that and ask for the plog covering the
+    failure minute. Same trap as rule 11 one level up: not just the sentence but
+    the whole block can be the wrong one.
+    `references/hccl-and-hardware/error-report-timestamps.md`.
 
 ## Classify the evidence
 
@@ -259,12 +319,16 @@ Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
 | P/D will not connect although both engines started: `HIXL Connect failed \| HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
 | PD deployment that connects and then corrupts on a **hybrid** model (Qwen3.5/Qwen3.6 GDN, DeepSeek-V4, GLM): alternating good/bad answers, empty or wrong first decoded token, works with MTP but not without | PD hybrid-state transfer: connector choice plus the `mamba_cache_mode='align'` gate only the KV-store connectors satisfy | `references/pd-disaggregation/hybrid-state-transfer.md` |
 | `ValueError: Non-MoE models do not support external data parallel mode`, or any `ValueError`/`AssertionError` raised from `vllm/engine/arg_utils.py` that names a parallel mode or flag (`data_parallel_*`, `nnodes`, `node_rank`), with no `WorkerProc` line in the log | Startup argument validation in upstream vLLM — launch-command fix, not a defect | `references/startup-failures/arg-validation-errors.md` |
+| The report asks whether a plan fits rather than what broke: "can this model run on N cards", a multi-stage orchestrator (`--stage-id`, `--headless`, `platforms.<vendor>` yaml) that works on GPU, stages that must share a card, `CUDA_VISIBLE_DEVICES` in a command aimed at an NPU host | Deployment sizing / stage layout: memory arithmetic plus the device-visibility variable, not a fault | `references/deploy-sizing/index.md` |
+| `[Community Test]` / `[Doc]` / 资料验证 / 测试报告, or "the tutorial's command does not work as written" | Tutorial-document verification: grade the page against the pinned tree; the report is the deliverable | `references/tutorial-verification/index.md` |
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
 | Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, `unexpected keyword argument`, `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
 | The same `AttributeError` raised **inside an upstream vllm file** on a class vllm-ascend is meant to replace — `'ZeroExpertFusedMoE' object has no attribute 'select_experts'` — or the reporter asks "did it ever reach vllm-ascend's ops?" | Downstream registry drift: the Ascend replacement is keyed by class *name* (`CustomOp.register_oot`), so an upstream refactor that adds a class silently keeps upstream code | `references/upstream-downstream-drift/oot-class-registration-drift.md` |
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
-| Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range" | Custom-op runtime fault | `references/custom-ops-runtime-faults/index.md` |
+| Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range"; several ranks reporting the same `pc start` in the same second | Custom-op runtime fault, after the timestamp gate — a shared PC across chips is software address computation, not several bad cards | `references/hccl-and-hardware/error-report-timestamps.md`, then `references/custom-ops-runtime-faults/index.md` |
+| `rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this operation]` / `MemCopySync ... kind = 1` on a small `cnt` (72/456 B), often with `deepseek_mtp` + `FULL_DECODE_ONLY` | Capture/replay-time host→device sync copy — a real family (#6002, #4208, #8502) **only** when it is the in-window first error; check its record date first (rule 13) | `references/startup-failures/acl-graph-capture.md` |
+| `<method> quantization is currently not supported in npu` inside a pydantic `ValidationError` from `ModelConfig` (e.g. `--quantization awq`), or `Unknown quantization method: <x>`; no `WorkerProc` line | Platform quantization gate before any worker: the NPU platform declares only `ascend` and `compressed-tensors` — re-quantize, not a defect | `references/startup-failures/quantization-method-gate.md` |
 | An attention op **runs**, returns a correctly shaped tensor, and the numbers are wrong (uniform average, softmax apparently dropped, error only vs an fp32 reference); often a framework-free `torch_npu` repro, never a dump | Silent operator numerics — below the framework | `references/custom-ops-runtime-faults/attention-op-numeric-errors.md` |
 | `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` — aclnn cannot resolve the op for the SoC before any launch | Custom-op **build/install** fault: package built for another SoC, stale vendor package, wrong image tag | `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
@@ -363,6 +427,35 @@ Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
      vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
      check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before
      any leak theory (`references/runtime-memory/hbm-growth-and-oom.md`).
+   - Any pasted plog / RUNTIME excerpt that carries more than one error family: run
+     `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>` before
+     naming a cause. Blocks it flags as older are re-printed records (rule 13); the
+     in-window first error is the one to classify
+     (`references/hccl-and-hardware/error-report-timestamps.md`).
+   - Quantization method rejected before any worker (`<method> quantization is
+     currently not supported in npu`, `--quantization awq`): answer from
+     `references/startup-failures/quantization-method-gate.md` — three calls, and
+     the flag is not the only trigger, since the checkpoint's own `quant_method`
+     reaches the same gate.
+   - Deployment sizing / stage layout (does it fit on N cards, why a stage
+     layout fails): run `bash <skill_root>/scripts/card-budget.sh` with the
+     checkpoint's parameter count, the TP and the per-stage
+     `gpu_memory_utilization`/device lists, and report the two numbers it prints
+     (weights per card vs card budget; per-device gmu sum). Check the device
+     variable first: `ASCEND_RT_VISIBLE_DEVICES`, not `CUDA_VISIBLE_DEVICES`
+     (`vllm_ascend/platform.py:101` at v0.19.1rc1;
+     `references/deploy-sizing/card-budget-and-device-visibility.md`). A sibling
+     project's yaml/CLI absent from `SOURCES.json` (vllm-omni) is a stated gap,
+     not something to infer.
+   - Community-test / doc-verification task: run the eight checks of
+     `references/tutorial-verification/tutorial-command-audit.md` in order
+     (flag existence at the pinned vllm, bench argument names, image WORKDIR vs
+     the doc's relative paths, relied-on defaults, card-count arithmetic vs
+     sibling docs and the CI config, baseline release, one precedent pass,
+     support matrix/release notes) and write the report file as sections become
+     true (`references/tutorial-verification/community-test-report.md`). Stop
+     auditing after 3-5 tiered defects; never present a doc baseline as a
+     measurement.
    - Accuracy/corruption: establish whether both numbers came from the same
      server, weights and serve flags before choosing a culprit
      (`references/accuracy-benchmarks/index.md`); for a garbled prompt, get the
@@ -461,6 +554,32 @@ Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
   maximum captureable batch sizes for a model/parallel configuration and the
   sampled subset, so a startup log's size list can be checked arithmetically
   (verified: 94 layers, TP=16 gives 6 sizes = `[512,408,304,192,88,1]`, #3389).
+- `scripts/plog-timeline.sh [--since YYYY-MM-DD] <log|-> [more logs]` — per-error-family
+  timeline of a pasted plog / serve log: the span of the embedded device records vs
+  the log-line dates, which families are re-printed from an older date, and the
+  first error inside the incident window. Verified on #9183: without `--since` it
+  uses the newest date in the paste; with `--since 2026-05-13` it flags the
+  `107030` block as a 2026-05-12 replay and names the `EZ9999` aivector line as the
+  first in-window error.
+- `references/deploy-sizing/index.md` — deployment/capacity questions with no
+  crash: per-card weight footprint vs `gpu_memory_utilization`, the sum of gmu
+  over processes sharing a device, `ASCEND_RT_VISIBLE_DEVICES` vs the inert
+  `CUDA_VISIBLE_DEVICES`, and how to answer when the orchestrator (vllm-omni) is
+  not in the snapshot. `card-budget-and-device-visibility.md` is the worked #9335
+  case (30B-A3B Omni on 2×64 GB: TP=2 owns both cards, the 2-NPU three-stage
+  squeeze sums gmu to 1.8). Reproduce the numbers with
+  `scripts/card-budget.sh --params P [--dtype] [--tp] [--gmu] [--hbm] [--cards]
+  [--stage-gmu] [--stage-devices]`.
+- `references/tutorial-verification/index.md` — the document is the deliverable:
+  community-test/众测 reports and `[Doc]` reports that a tutorial step fails.
+  `community-test-report.md` gives the task shape, the report skeleton and the
+  staged-emission protocol (recorded #11739 shipped no report inside the cap);
+  `tutorial-command-audit.md` is the eight-check audit with the verified vllm
+  v0.18.0 / vllm-ascend v0.18.0 and v0.19.1rc1 examples (dead `--swap-space` and
+  `--disable-log-request`, `--random-input` vs `--random-input-len` and why the
+  abbreviation still parses, `WORKDIR /workspace` vs `/vllm-workspace/`, default
+  `limit_per_prompt` 999 and open media URLs, the boilerplate TP sentence that
+  contradicts the sibling docs, the `0.13.0rc1` baseline).
 - `references/image-dependency-faults/index.md` — faults the image or its build
   recipe owns, before any vllm-ascend code: an interpreter abort inside a bundled
   native module, a missing library the tutorials prescribe, a stale copied
@@ -483,7 +602,12 @@ Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
   (verified for #11863, v0.21.0rc1 + vllm v0.21.0/v0.24.0);
   `references/startup-failures/acl-graph-capture.md` for a failure or stall
   inside ACL graph capture, where the logged advice is canned and the
-  capture-size set is usually already the computed maximum (#3389, v0.11.0rc0).
+  capture-size set is usually already the computed maximum (#3389, v0.11.0rc0),
+  plus the `107030` capture-mode copy family and its timestamp guard;
+  `references/startup-failures/quantization-method-gate.md` for
+  `<method> quantization is currently not supported in npu` /
+  `Unknown quantization method` (#6800, v0.13.0: `awq` is not in the platform
+  list, so the answer is a re-quantized checkpoint).
 - `references/upstream-downstream-drift/index.md` — Python attribute/signature
   errors raised when a vllm-ascend module subclasses or re-implements an upstream
   vLLM/transformers class and the installed library moved on, **including when the
@@ -505,7 +629,9 @@ Qwen2.5-VL-3B fp16 eager, which the reporter's later dump showed as
   `mamba_cache_mode='align'` gate in `patch_mamba_config.py` and the runner paths
   it skips, and the ablation matrix (#12339).
 - `references/hccl-and-hardware/index.md` — HCCL, ACL/PTA and NPU device faults
-  (lane C): collective error chain then per-device health checks. Scope:
+  (lane C): the error-report timestamp gate first (which block in a mixed paste is
+  this incident, `error-report-timestamps.md`, #9183), then the collective error
+  chain, then per-device health checks. Scope:
   failures whose text names a collective or the runtime stack, not a
   Python-level cause; the recorded answer was a physical HCCS link fault on 6 of
   8 cards.

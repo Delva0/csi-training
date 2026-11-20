@@ -43,6 +43,21 @@ before quoting the string on a newer image.
 - A Python-shaped exception (`AttributeError`, `TypeError`, allocation failure)
   that merely surfaced here → classify on the exception, not on the phase.
 
+Capture-mode copy family: `MemCopySync:Memory copy sync failed` +
+`rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this
+operation]` with `kind = 1` and a small `cnt` (72/456 bytes at #9183) is the
+signature of a blocking host→device copy issued while a stream is being captured
+or replayed. Recorded family: #6002 (v0.11.0, DS-V3.1-w8a8, `deepseek_mtp` +
+`FULL_DECODE_ONLY`), #4208 (also `107033 AclmdlRICaptureTaskUpdateEnd`), #8502
+(reporter-confirmed: `multistream_overlap_shared_expert: true` and serving fails,
+"关闭多流后正常"). #6002 attributes it to a framework-side blocking copy and
+proposes a capture-mode switch; that is the reporter's reading with no confirmed
+fix in the record, so the cheap test stays `--enforce-eager` on the same traffic.
+Two guards before you use it: it must be the **in-window** first error (`../hccl-and-hardware/error-report-timestamps.md` —
+at #9183 the identical block was the previous day's crash, 36 h older than the
+failure), and the same block prints `threadCaptureMode=0, exchangeCaptureMode=0,
+contextCaptureMode=0`, so its own fields do not prove a capture was in progress.
+
 Timeline reading (recorded #3389, v0.11.0rc0, TP=16): 12 of the 16 ranks print
 `NPUGraph.cpp:149` within one second (the excerpt is filtered — the ranks that
 report the transport failure are not among them, so ask whether they ever

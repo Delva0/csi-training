@@ -10,7 +10,13 @@ dumps, collective hangs/timeouts during `profile_run` or
 
 Inherit the rules in SKILL.md. Order matters more than depth here:
 
-1. `collective-error-chain.md` — restore error attribution (the Python frame in
+1. `error-report-timestamps.md` — when the paste carries several error families at
+   once (`EE9999` runtime records, `EZ9999` chip dumps, `507011`, `ERR00100`,
+   `ERR02005`), decide *which block happened when the reporter says it failed*:
+   Ascend re-prints a recorded error with its original date, so the sentence in the
+   title can be a day older than the incident (#9183). One call:
+   `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>`.
+2. `collective-error-chain.md` — restore error attribution (the Python frame in
    the traceback is usually a later synchronization point), read the plog, and
    stop attributing the defect to whichever op the traceback names. That page
    also covers the compile-phase case: fusion-pattern registration runs sample
@@ -18,7 +24,7 @@ Inherit the rules in SKILL.md. Order matters more than depth here:
    ending in an `npu_*` op on a 2×4 tensor is a sync point, and it explains what
    `SUSPECT REMOTE ERROR` / 507057 is and why the reporting rank need not be the
    faulting chip.
-2. `device-health-checks.md` — check every device's health, correlate the
+3. `device-health-checks.md` — check every device's health, correlate the
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards.
 

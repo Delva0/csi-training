@@ -4,7 +4,9 @@
 
 The deployment is up, nothing crashed, and the report is about speed or cache
 behaviour: "多并发的时候请求要排队那么久", "为什么缓存命中为 0", "生成吞吐只有个位数",
-a benchmark table compared with a vendor number. The evidence is the engine
+a benchmark table compared with a vendor number — **or a rate that drops in a
+single step as one concurrency number is crossed** (256 running requests fine,
+258 collapsed, no error). The evidence is the engine
 metrics block (`Avg prompt throughput`, `Avg generation throughput`, `Running`,
 `Waiting`, `GPU KV cache usage`, `Prefix cache hit rate`, sometimes
 `Preemptions`), the serve command, and the prompt lengths of the load driver.
@@ -58,6 +60,22 @@ Not this topic, leave immediately:
   --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'`).
 - Never read `npu-smi` AICore%/power from an idle paste as load evidence: those
   numbers were taken while no request was running.
+- **A step change at a concurrency number is a fixed-size structure, and the
+  first candidate is the ACL-graph capture ceiling.** Running sequences ×
+  `(1 + num_speculative_tokens)` is compared with
+  `max_cudagraph_capture_size`, which vllm-ascend defaults to
+  `min(max_num_seqs * decode_query_len, 512)`; above it
+  `cudagraph_dispatcher` returns `NONE` with no log, so every step falls back to
+  eager while the metric block stays healthy. One call —
+  `bash <skill_root>/scripts/seq-cliff-capture-budget.sh --max-num-seqs N
+  --num-spec K` — gives the threshold from the serve command alone, so this
+  rule belongs in the *first* answer, not after a source walk
+  (`sequence-count-cliff-capture-size.md`). Two traps that make an otherwise
+  correct diagnosis look refuted: an ablation that moves the baseline
+  (`--enforce-eager` deletes the graph, so it cannot refute a graph-boundary
+  claim) and a user-set `max_cudagraph_capture_size` that the log says was
+  **truncated** before it took effect. A flat bare-HCCL all-gather benchmark, if
+  the reporter offers one, retires the transport lane for the whole family.
 - **On a hybrid GDN MoE, a low single-digit `Avg generation throughput` with
   `Running: 1` may be the release, not the flags.** When the project's own
   tutorial command at that ref already carries `--enforce-eager` and caps graph
@@ -91,6 +109,13 @@ Not this topic, leave immediately:
   chunk loop, no `qwen3_next` in `tests/`), why the newer release's
   `FULL_DECODE_ONLY` tutorial command is the real lever, and the paste-hygiene traps
   (#4357: `served_model_name` contradicts the reported command).
+- `sequence-count-cliff-capture-size.md` — throughput collapsing in one step as
+  running sequences cross a threshold (#14440: 256 → 258 at tp=8, MTP,
+  DeepSeek-V4-Flash on 910B2): the `min(max_num_seqs × (1+num_spec), 512)`
+  ceiling, the silent `NONE` dispatch, the one startup `warning_once` that names
+  both numbers, the `max_cudagraph_capture_size` A/B with its truncation trap,
+  which of the reporter's seven "collapses" rows cannot refute it, and what the
+  residual host-side candidate class looks like if the A/B does not move.
 - `zero-prefix-cache-hit-hybrid.md` — a hybrid GDN model (Qwen3-Next) reporting
   `Prefix cache hit rate: 0.0%`: the `SupportsMambaPrefixCaching` gate that
   disables prefix caching in `MambaModelConfig` at vllm v0.14.1, the model's own

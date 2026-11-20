@@ -20,6 +20,24 @@ classification table in `SKILL.md` routes by signature, topical pages by track, 
 
 ## Cases
 
+**#2873** vllm-ascend v0.10.1rc1 (`7e16b4a`) + vllm v0.10.1.1 (`1da94e6`), one
+910B host, Qwen3-Coder-30B-A3B at `-tp 8 --max-model-len 262144`: the machine
+died during engine start — the log stops at the eight
+`rank N in world size 8 is assigned ...` lines with no `Starting to load model`,
+then ssh drops ("machine crash and can not restart"; the reporter later added
+"已经跑挂了我两台机器" and `npu-smi` showing every card near-empty, then "work well
+with 0.10.0rc1"). Cause: every worker builds the eager `max_model_len²` host
+attention mask in `NPUModelRunner.__init__` (`model_runner_v1.py:234`,
+`attention_mask.py:18-33`) — 576 GiB peak per rank at 262144, so the box dies
+before weight load. The mask refactor is #2442 in the v0.10.1rc1 release note
+(v0.9.1rc3's #2326 for the other branch) and 0.10.0rc1 predates it. Route now:
+`../runtime-memory/attention-mask-host-allocation.md` +
+`scripts/attn-mask-budget.sh`. The recorded run found this mechanism on its own
+around the 21st tool call, but emitted **zero** message text on every turn and
+was cut at the 16 K output cap with the mechanism in the tail and no answer —
+the delivery lesson again, on a report where the first line of the log tail was
+already enough to state the host-RAM verdict.
+
 **#6279** vllm-ascend v0.13.0rc2 (`a17059a`) + vllm v0.13.0 (`72506c9`), 910B,
 Qwen3-32B with multi-LoRA in graph mode: a request that selects the **base**
 model kills the workers with `Worker failed with error 'CUDA graph capturing
@@ -883,3 +901,50 @@ already been read at turn 11. Cost detail worth keeping: `scripts/card-budget.sh
 was called with `--params 671e9` (a raw count, not billions) and printed a
 confident inverted FAIL which the run then had to disown and redo by hand — the
 script now refuses that input.
+
+**#14440** vllm-ascend v0.23.0rc1 (`f4a08bd`) + vllm v0.23.0 (`0fc695f`), 8×910B2,
+DeepSeek-V4-Flash-w8a8-mtp (tp=8, EP, MTP `num_speculative_tokens: 1`, FlashComm1,
+`FULL_DECODE_ONLY`, `--max-num-seqs 264`): decode throughput falls in one step as
+*engine* concurrency crosses 256 (3048 tok/s at 256, 1182 at 258, 1100 at 264),
+with `Waiting` 0, KV 81-84 %, AICore 32 % → 8 % and no error at all. Track:
+throughput. Mechanism (source-verified at the pins, not yet reporter-confirmed by
+A/B): the decode step is `running_seqs × (1 + num_spec)` tokens against
+`max_cudagraph_capture_size`, which Ascend defaults to
+`min(max_num_seqs × decode_query_len, 512)` (`platform.py:241`), so 264 requests
+= 528 tokens > 512 and `cudagraph_dispatcher` returns `NONE` with no log
+(`v1/cudagraph_dispatcher.py:276-285`) — every step eager. The reporter's later
+public follow-up supplied the localisation this page needed and one shape rule:
+the cliff is per engine (dp=2/tp=4 healthy at ≤224 with the aggregate ceiling
+doubling), it survives `--max-model-len 1024`, and a bare-HCCL all-gather
+microbenchmark is flat at ~0.3 ms from 256 to 640 tokens, which retires the
+transport lane. Their seven-row "collapses" ablation matrix is **not** a
+refutation: none of its rows carries its own below-cliff baseline, and
+`--enforce-eager` deletes the graph entirely. Delivery: the recorded run reached
+the ceiling argument by its 11th assistant turn and then shipped **no answer** —
+18 turns, 0 characters of message text, ~45 K characters of reasoning, cut
+inside a reasoning block; the arithmetic script
+(`scripts/seq-cliff-capture-budget.sh`) now produces the same verdict in one call,
+which is what `../performance-throughput/sequence-count-cliff-capture-size.md`
+tells the next session to do first.
+
+**#16079** vllm-ascend v0.26.0rc1 (`f2f74a16`) + vllm v0.26.0 (`568afb3a`), two
+nodes × (tp=8, dp=4) + EP, MTP/DFlash draft, 128 K prompts, `kimi-k2.7-Code`:
+an evalscope run dies with `ConnectionRefused [Errno 111]` on port 8016 because
+the API server died first; the worker-node log then shows `!!!!!!! Segfault
+encountered !!!!!!!` whose top frames are `rtEventCreateExWithFlag` →
+`NPUEvent::record` → `c10d_npu::ProcessGroupHCCL::_allgather_base`, then
+`VllmWorker-6 died unexpectedly (exit code: None)`, and the peers' gloo
+`all_reduce` in `_sync_metadata_across_dp` fails with `Connection closed by
+peer`. Track: HCCL/device (signal death). The dump carries **no**
+`vllm_ascend/*.py` frame — only native symbols and CPython's own entry — so the
+call site is a data gap; candidates are event/stream resources at collective
+entry, the per-step tp-group `all_gather` in `rejection_sampler.greedy_sample`
+(`enable_reduce_sample` defaults `False`, `ascend_config.py:346`, and the sampler
+prints `Using fallback (non-reduce-sample) path`), or the image/CANN pairing
+after an upgrade. Delivery: the run emitted three partial message blocks in
+Chinese with the right first-half classification (the client error is secondary,
+this is a worker segfault, not OOM) and was then cut **inside a source read** —
+16 turns, ~43.5 K characters of reasoning against 3.3 K of message text, no
+ranked ladder and no artefact request. The shape now lives in
+`../hccl-and-hardware/worker-segfault-no-python-frames.md`.
+

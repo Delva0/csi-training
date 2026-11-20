@@ -2,14 +2,14 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "efe0377163efc6c6ad4834c768b8b2aca1927bf2b43afe8be9b26f6970366981",
-    "size": 19623
+    "sha256": "e451336d284faf23d532e3d110235cfde96537a78daff5625d90f3a2869e8a4d",
+    "size": 25204
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/garbled-long-context-output.md",
     "mode": "100644",
-    "sha256": "b90bb8da07a9bbcaa44f2deeba55a3a7dcc358c2be10f8124728590db302ee66",
-    "size": 6341
+    "sha256": "fc26aee728509c83941dbad1a6d4d7f766162ad905707af0e95620352cc36145",
+    "size": 6539
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/harness-vs-engine-attribution.md",
@@ -20,14 +20,26 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/index.md",
     "mode": "100644",
-    "sha256": "602102b88398232167aaa7ad0037624c55112575572ec2bee03934939e7284bd",
-    "size": 2749
+    "sha256": "9c405f5b48e11055bbe5841be4f8453998b26655957a1ef78580dc5df1440b1e",
+    "size": 4108
+  },
+  {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/quantized-checkpoint-conversion.md",
+    "mode": "100644",
+    "sha256": "404ab584038adc40120b4d6ad316ca7faada9e4393aca6348c718f863bd40dc1",
+    "size": 6348
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/reasoning-output-routing.md",
     "mode": "100644",
     "sha256": "70394351c4d413c9c04915528e1a74406df2e757f6ccd28f9a9aaee8778619d7",
     "size": 2908
+  },
+  {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/short-prompt-corruption.md",
+    "mode": "100644",
+    "sha256": "db1ad528ed489eb70bd9768122a863159a1b688c0fb1c8adaaffa5432a61d536",
+    "size": 5192
   },
   {
     "path": "vllm-ascend-triage/references/custom-ops-runtime-faults/aclnn-error-dump-reading.md",
@@ -44,8 +56,8 @@
   {
     "path": "vllm-ascend-triage/references/custom-ops-runtime-faults/index.md",
     "mode": "100644",
-    "sha256": "e360db4b5fef527dd18b27ee9c915595725f80518839f93623d92e5f6c484eaa",
-    "size": 2499
+    "sha256": "33c56a896cf75db88a796a347e1023f1a5e03213b22c8bb0a4ced8697535dd58",
+    "size": 2986
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/case-layout.md",
@@ -56,26 +68,32 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
     "mode": "100644",
-    "sha256": "ec4a38aec713d14e520ff4ecbbd1ccf2ce96449148bdb79ec96416b091da9793",
-    "size": 3272
+    "sha256": "9b3ad24c5263244133ba185cc5d30967692a9c664dd1910c1cbce469574bb9e3",
+    "size": 3547
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/collective-error-chain.md",
     "mode": "100644",
-    "sha256": "7e6660c19db9e5813814b55b06e8940dc304c51ebcee25fd9c718664ccd9c5d9",
-    "size": 3808
+    "sha256": "458e5b7e510863a0bc4f575a9792c94579af60c41e1bf6586e59b7cb7482cd5c",
+    "size": 9016
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/device-health-checks.md",
     "mode": "100644",
-    "sha256": "59b7a7cb818bfb16699a2b49c15239361dcf1abb021ea3c52d028fd03cf54f71",
-    "size": 3585
+    "sha256": "a6af57859f254a2a20bc3a1e6da1e9690ae30cfa622028b73bc725c74f509fa6",
+    "size": 4592
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/index.md",
     "mode": "100644",
-    "sha256": "040a8009687edcfc1063aae4e8d98c7d98317c20df23b62dacfa93b8d46c79c7",
-    "size": 2000
+    "sha256": "8c4954628030bde4b3bd73993366455641bc49693c0f2722e7ba1ca8e22d3d43",
+    "size": 3042
+  },
+  {
+    "path": "vllm-ascend-triage/references/startup-failures/acl-graph-capture.md",
+    "mode": "100644",
+    "sha256": "dab12fcba4b1597b19c6c1f689cf5cfcccf57a4921874fac71c668ca0a3a173e",
+    "size": 7604
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/connector-config-attributes.md",
@@ -92,8 +110,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/index.md",
     "mode": "100644",
-    "sha256": "8e2fb97766b74b5856e8bd7764e426471eb267981c14984724142a3bde4133d5",
-    "size": 2728
+    "sha256": "4725c227d0fbc7ca1024380d759fd4c2a3289c9d7b31c4fba60215f242caa475",
+    "size": 3559
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/max-model-len-budget.md",
@@ -124,6 +142,12 @@
     "mode": "100644",
     "sha256": "3c2c556d69257076902d03ac651ed18f1fed48140d8ec71fb579b3a028b14d26",
     "size": 4672
+  },
+  {
+    "path": "vllm-ascend-triage/scripts/aclgraph-size-budget.sh",
+    "mode": "100644",
+    "sha256": "bc3c5dbef25cee8c41a10efb59cdb92dd9432e717516027d9d5b41a9a2183eab",
+    "size": 5646
   },
   {
     "path": "vllm-ascend-triage/scripts/history-titles.sh",

@@ -36,6 +36,22 @@ type, event state). Quote it, and look the code up in the hardware
 health-management fault definitions for that product/CANN line — the required
 action depends on the product, so prefer the vendor document over inference.
 
+## Which device actually failed
+
+The id in the PTA line is the **reporting** rank's device, not necessarily the faulting
+chip. In #10829 (A3, two nodes) node0 printed `ERR00100 PTA call acl api failed` for
+`Device:0` and, in the same output, an `EZ9999` dump of `The error from
+device(chipId:4, dieId:0), … there is an exception of fftsplus aivector error, … error
+code = 0x800000`; node1 printed only the bare `SUSPECT REMOTE ERROR`, with no chip
+dump at all. So the fault can sit on a card that never prints it, on either node.
+
+Order that costs one paste instead of a card swap: gather all ranks' logs, grep for the
+`EZ9999` / `chipId:` line and for the earliest ERROR in every rank's plog, then run the
+per-device health check below on **both** nodes and correlate that chip id (not the
+reporting `Device:N`). Statement to make in the answer: the reporting rank's device is
+correlated, the faulting chip is named only by the `chipId` dump, and if no dump exists
+the faulting card is still unknown.
+
 ## Recorded case (vllm-ascend issue #7477)
 
 - TP=4 with `ASCEND_RT_VISIBLE_DEVICES=0,1,2,3`, Qwen3.5-27B,

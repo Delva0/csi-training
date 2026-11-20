@@ -30,6 +30,12 @@ Inherit the rules in SKILL.md. Conditional routes:
 - If the log names a collective (`HcclAllreduce`, `hcclRet`, `ERR00100`) instead
   of a Python-level cause, leave this topic and use
   `../hccl-and-hardware/index.md`.
+- The log reached graph capture — `Starting to capture ACL graphs for cases:
+  [...]`, `Capturing ACL graphs (...): 0/N`, `ACLgraph sizes capture fail`,
+  `NPUGraph.cpp` "Waiting for pending NCCL work" — then failed or stalled →
+  `acl-graph-capture.md` first. The `ACLgraph has insufficient available streams`
+  sentence there is canned wrapper text printed for every capture exception, and
+  the capture-size set may already be the computed maximum.
 
 Common rules for this topic:
 
@@ -42,3 +48,8 @@ Common rules for this topic:
 3. A start-up flag difference (explicit `--max-model-len`, `--enforce-eager`,
    `--compilation-config`) is cheaper to test than a source-level theory. Ask for
    the re-run before proposing a bug.
+4. A count or list derived in the log that does not match the upstream default
+   is usually a vllm-ascend rewrite, not a reporter mistake; grep
+   `vllm_ascend/` for the config field before theorising. For graph-capture
+   sizes specifically, `acl-graph-capture.md` step 3 names the rewriting
+   function and `../../scripts/aclgraph-size-budget.sh` reproduces the number.

@@ -12,6 +12,12 @@ from a `csrc/<op>/*_torch_adpt.h` frame.
 - The dump names the operator and the error class; it does **not** identify the shape. Never
   assert "fails for hidden size N" without a shape-bearing artefact (reporter log line,
   tiling log, or a computed tiling decision).
+- Check the error family before the operator. When the same output also carries
+  `SUSPECT REMOTE ERROR` / `error code is 507057` / an `EZ9999 … chipId:` dump /
+  `error code = 0x8…`, it is a lane C device fault: the `fftsplus aivector error` there
+  names the chip's failure class, not a tiling defect in the named op (recorded #10829:
+  the reporting rank printed `Device:0`, the dump named `chipId:4`). Route to
+  `../hccl-and-hardware/index.md` and do not compute tiling for it.
 - Map the op name to its source tree first (`csrc/<op>/`), then to the tiling mode table in
   `op_host/<op>_tiling.cpp`: the same kernel entry runs several very different kernels
   (tiling key dispatch), so "the kernel" is ambiguous until you know the mode.

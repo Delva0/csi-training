@@ -29,12 +29,12 @@ leads were.
 - **The budget is cumulative output, so the turn numbers above are not the real
   guard.** Three of the recorded sessions show the difference: #4057 was cut on its
   *14th* assistant turn with ~49 K characters of reasoning and zero message text,
-  #6833 ran 19 turns and ~45 K characters the same way, #13853 burned ~11 K of a
-  16 K-token budget over 22 turns and was cut inside a reasoning block. All three had
-  the ranked cause in hand well before the cut (#4057 and #6833 at turn four, #13853
-  at turn ten). A block of 2-16 K characters is not a scratchpad, it is the session;
-  if a block is still planning when it passes a few hundred tokens, the answer is
-  already owed — write it.
+  #6833's first run ran 19 turns and ~45 K characters the same way, #13853 burned
+  ~11 K of a 16 K-token budget over 22 turns and was cut inside a reasoning block.
+  All three had the ranked cause in hand well before the cut (#4057 and #6833 at
+  turn four, #13853 at turn ten). A block of 2-16 K characters is not a
+  scratchpad, it is the session; if a block is still planning when it passes a few
+  hundred tokens, the answer is already owed — write it.
 - **Truncation eats the tail, not the head.** Verdict and the one cheapest action in
   the first paragraph; each further action directly after its cause; the closing
   scope/open-questions block 3-5 lines. A cut answer must still be usable, and the
@@ -51,6 +51,13 @@ leads were.
   third turn with the skeleton plus the first verified section, append one section
   per finished check group, and make the final message the condensed report (path,
   defects, open items). Never hold it for a complete audit.
+- **Verifying what a page already verified is not evidence, it is spent budget.** A
+  reference page records the pins it was checked at. When `SOURCES.json` carries
+  those same refs, cite its `path:line` and re-grep only the claims it marks as
+  version-specific. #6833's replay re-walked the whole prefix-cache gate chain at
+  identical pins (config hook, `MambaModelConfig`, the model's assert, the
+  downstream patch, the loggers line) — ten turns that bought nothing, and its
+  action ladder was the part that got cut.
 - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:** write
   it at G2 *in place of* the reasoning block, and skip it when the session is
   already long. Composing it late is what costs a run its ranked causes.
@@ -73,8 +80,19 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #14506 | the answer | complete answer, but half the session went into one final "one more angle" block that ran beside it |
 | #9583, #10985 | the registration gate and the decisive request | nothing: the session went into the owning module instead |
 | #13853 | the two-reason story (cache block never clamped to 128 on a hybrid model, `--block-size` raised by the mamba page-size constraint) by its 10th turn | **no answer at all**: 22 turns of reasoning (~11K tokens of a 16K output budget), every message a tool call, cut inside a reasoning block |
-| #6833 | the metric ratios (queue prefill-bound, 0.5-1 tok/s per request during prefill) | **no answer**: fifteen further turns inside the hybrid-KV-cache and prefix-caching sources |
+| #6833 | the metric ratios (queue prefill-bound, 0.5-1 tok/s per request during prefill) | run 1: **no answer**, fifteen further turns inside the hybrid-KV-cache and prefix-caching sources. Replay (same paste, after the worked page existed): verdict, arithmetic and the gate chain were written by turn 19 — then the session was cut mid-sentence in the action ladder, because it opened only the cache page and re-derived the queue arithmetic from source |
 | #4057 | the fp32 GDN prefill replacement and the tutorial's experimental note | **no answer**: cut mid-plan on turn 14 while re-deriving the kernel algebra |
+| #13002 | at turn ~10: the model's own tutorial carried the validated P and D commands, i.e. the config diff that *is* this report's answer | **no answer**: 21 turns and the full 16K output budget, ~8 of the turns inside one 2600-line `mooncake_connector.py`, cut inside a reasoning block after noting "I'm now at a good point to deliver" |
 
 Two consequences worth restating: an "I'll start by…" line is not an answer and
 does not satisfy G1, and a run whose last turn is a tool call has shipped nothing.
+
+A third, from #13002 and #6833 together: **a long source file is not a lead.** Both
+runs chose one big module (a 2600-line KV connector; the hybrid-KV/prefix-cache
+sources) and read it in slices, which is the most expensive way to spend an output
+budget and the least likely to produce a sentence the reporter can act on. When the
+next step would be "read more of this file", instead write the answer with the
+open question and the one command that settles it — the config diff, the ablation
+row, the `nm` line. Before that, notice when the evidence you already hold is the
+deliverable: at #13002 the model tutorial's validated commands were read at turn 17
+of 21, and the ranked causes were in hand from that read onward.

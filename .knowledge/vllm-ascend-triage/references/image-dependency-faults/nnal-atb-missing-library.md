@@ -72,10 +72,18 @@ the other.
    (`faqs.md:97-101`) can pass while the worker still fails, because
    `libop_plugin_atb.so` is only `load_library`-ed by `_register_atb_extensions()`;
    do not accept a clean triple-import as evidence that ATB resolves.
-5. Do **not** hand-copy one `libatb.so` into `/usr/lib64` or export a single
-   `cxx_abi_*` subdirectory: `nnal/atb/set_env.sh` picks `cxx_abi_0` vs
-   `cxx_abi_1` to match the torch ABI, and the wrong pick resurfaces as a
-   harder-to-trace crash rather than a load error.
+5. Choosing the `cxx_abi_0` vs `cxx_abi_1` root is *sometimes* the fix and never
+   a hand-copied file: do **not** copy one `libatb.so` into `/usr/lib64`, symlink
+   the two roots or preload one `.so`. `nnal/atb/set_env.sh` picks the root to
+   match the torch ABI, so a plain missing-library case is solved by sourcing it.
+   But when a **prebuilt third-party wheel** was compiled against the other side,
+   overriding the root *is* the reporter-confirmed remedy (#1144: `export
+   ATB_HOME_PATH=…/atb/cxx_abi_0` + its `lib` first on `LD_LIBRARY_PATH` made
+   `import mindie_turbo` work). Decide it from the failing `.so`'s mangled symbol
+   — `Ss` = old `std::string` ABI, `NSt7__cxx11` = new — not by guessing, and
+   check that torch_npu's own `libop_plugin_atb.so` does not need the opposite
+   side (both roots share the `libatb.so` SONAME, one per process). Steps in
+   `abi-undefined-symbol.md`; classifier: `scripts/abi-symbol-check.sh <paste>`.
 
 `ldd .../torch_npu/lib/libop_plugin_atb.so | grep -i atb` shows the unresolved
 dependency directly when the reporter cannot run the Python probe.

@@ -71,6 +71,21 @@ parser mis-classifies output. Do not assume either spelling: check the model's
 `chat_template.jinja` and prefer `enable_thinking` with the parser. (Corroborating issue
 precedent: #7061 / #7094 in `history/`, which also track the upstream parser fix PR 34779.)
 
+The spelling is per-parser, so one client body flips the branch by model family. At
+vllm **v0.23.0** (`0fc695f`), `vllm/reasoning/kimi_k2_reasoning_parser.py:40-46`
+does `thinking = bool(kwargs["chat_template_kwargs"].get("thinking", True))` and
+falls back to `IdentityReasoningParser` only when that is falsy — the **opposite**
+key from Qwen3's `enable_thinking`. Two consequences for a "`</think>` leaked into
+`content`" report on a Kimi-K2.x model (#13002's shape 1) before any corruption
+theory: (a) a request that sends `enable_thinking: false` does not by itself select
+the identity fallback, and (b) while the thinking branch *is* active, text arriving
+before an end token is emitted as `reasoning`, so a client that concatenates only
+`delta.content` / reads only `message.content` cannot distinguish a routing
+decision from a model-emitted token. Ask for one response that prints both
+`content` and `reasoning` (and `return_token_ids: true` for the emitted ids) — that
+is the whole gate; the probe is also right when the tag appears *after* a complete
+answer, which is the shape a truncated `</think>` strip produces.
+
 ## Documentation gap that produces this signature by itself
 
 At vllm-ascend v0.22.1rc1 only seven model pages pass `--reasoning-parser`

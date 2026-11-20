@@ -23,6 +23,13 @@ wrong output?**
   first token is wrong, on a **hybrid linear-attention (GDN/Mamba)** model —
   Qwen3.5/Qwen3.6, DeepSeek-V4, GLM — under PD →
   `hybrid-state-transfer.md`.
+- Connected, the answer degenerates only at long context **and** concurrency on a
+  **dense-attention MoE** model (Kimi-K2.x MLA, Qwen3-MoE) with spec decode and/or
+  prefix caching, and both serve commands are in the report: do not start in
+  `kv_p2p/`. Diff the two commands against
+  `docs/source/tutorials/models/<model>.md` first and hand back that diff plus the
+  ablation rows (ranked, none an established cause; #13002 never reached a
+  diagnosis) → `../accuracy-benchmarks/garbled-long-context-output.md`.
 - Nothing connects at all because the connector module itself fails to import —
   `ImportError: ascend_transport.so: cannot open shared object file` at
   `kv_p2p/mooncake_connector.py:24`, `No module named mooncake` — or the decode

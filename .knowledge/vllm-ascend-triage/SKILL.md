@@ -74,8 +74,8 @@ symptom, track, and what the run got right or wrong) is
 `references/evidence-workspace/recorded-cases.md`. Read it when placing a new report
 beside a precedent; the load-bearing pattern is in rule 1: the sessions that
 delivered said the answer early (#4296 in ten turns, #2586, #9183, #8122), and the
-ones that shipped **nothing** (#6784, #12339, #10985, #11739, #6833, #4057, #13853)
-all had a usable lead in hand when they kept going.
+ones that shipped **nothing** (#6784, #12339, #10985, #11739, #4057,
+#13853, and #6833's first run) all had a usable lead in hand when they kept going.
 
 ## Rules that apply whenever this skill is used
 
@@ -102,8 +102,11 @@ all had a usable lead in hand when they kept going.
      recorded failures died of volume before the turn count: #4057 was cut on its
      14th assistant turn after ~49 K characters of reasoning, #6833 after ~45 K
      characters over 19 turns, #13853 at ~11 K of a 16 K-token budget over 22 turns
-     — and none emitted one line of message text, although each had the ranked cause
-     in hand well before the cut (#4057 and #6833 by turn four, #13853 by turn ten).
+     — and the first two emitted no message text at all, although each had the
+     ranked cause in hand well before the cut (#4057 and #6833 by turn four, #13853
+     by turn ten). #6833's replay did write its verdict and its arithmetic, then
+     spent ten more turns re-deriving that same arithmetic from source and was cut
+     mid-sentence in its action ladder.
      A reasoning block that runs past a few hundred tokens is the answer; if it is
      still a plan or an enumeration of sections, it is neither an answer nor
      evidence. Count characters, not turns.
@@ -177,7 +180,10 @@ all had a usable lead in hand when they kept going.
    report citing `docs.vllm.ai/.../latest/…#<section>` is quoting a doc that may
    postdate the pinned release: check that section exists in the pinned tree,
    answer inside the pinned version, and if it is absent say so and ask for the
-   text rather than assuming what it says.
+   text rather than assuming what it says. A reference page states the pins it was
+   verified at: when those equal the refs in `SOURCES.json`, its `path:line` are
+   citable as they stand — re-grep only what the page itself marks as
+   version-specific, and spend the saved turns on the delivery.
 6. **Label the strength of every claim**: reporter-confirmed > verified in the
    pinned source (`path:line` at commit X) > precedent in the issue history
    (quote the issue id) > unverified hypothesis / recalled tool default. Never
@@ -295,6 +301,18 @@ all had a usable lead in hand when they kept going.
     C++ trees. That is what cost #10943 the whole session (six calls inside
     `cann/`, one line of answer). Route:
     `references/image-dependency-faults/native-string-abort.md`.
+    The third form is a **failed symbol resolution**, not an abort:
+    `ImportError: …/<pkg>/_ops.cpython-310-aarch64-linux-gnu.so: undefined symbol:
+    _ZNK6AsdOps3Ops18GetOperationByNameERKSs` from a prebuilt wheel. Demangle it —
+    `Ss` is the pre-C++11 `std::string` (`_GLIBCXX_USE_CXX11_ABI=0`), the cxx11 ABI
+    spells `NSt7__cxx1112basic_string…` — and compare with the env dump's
+    `ATB_HOME_PATH` / `…/atb/cxx_abi_{0,1}/lib` entry: NNAL ships both roots and the
+    wheel needed the other one. Answer with the three `nm` commands and the
+    matching-root export; **reporter-confirmed** on #1144 ("the env setting works
+    for me"), and the two consumers of that wheel degrade differently (a worker
+    `warning_once`, or `NotImplementedError: There is no available ascend quantizer`
+    on the quantised path). Route:
+    `references/image-dependency-faults/abi-undefined-symbol.md`.
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the sentence in the issue title can be a day older
@@ -366,9 +384,11 @@ all had a usable lead in hand when they kept going.
 | The server served traffic then died on memory: "运行一段时间后显存不释放最后崩溃", `NPU out of memory` / `NPUWorkspaceAllocator` / `Memory_Allocation_Failure(EL0004)`, `npu-smi` pinned at 100 %, a P node holding KV the D node never takes | Runtime memory after a healthy period: capacity vs growth vs a config key that never engaged (contrast the Lane C row, where the OOM happens during `profile_run` / `determine_available_memory` before the server is ready) | `references/runtime-memory/index.md` |
 | "The machine crashed" / the host became unusable / the reporter pastes `top` with every python3 rank at tens of GiB RES on one host, while the serve log has no device, collective or Python error | Host RAM (and host CPU), not the card: the ranks' resident footprints share one RAM budget, and `npu-smi` cannot see it | `references/runtime-memory/host-ram-and-per-rank-rss.md` + `scripts/host-ram-check.sh` |
 | Startup/KV-init failure whose deepest frame is `_convert_torch_format` / `torch_npu.npu_format_cast` with `Memory_Allocation_Failure(EL0004)`, `alloc device memory failed … 207001`, `507013`, SDMA/SMMU text | Allocation failure at KV-cache init — the cast is the allocation site, not an operator bug | `references/runtime-memory/kv-init-and-format-cast-alloc.md` |
+| `python -c "import <pkg>"` (or a first real use) raises `ImportError:` naming that package's own extension — `<pkg>/_ops.cpython-310-…so: undefined symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` — and the ENV dump selects `atb/cxx_abi_1` (or `cxx_abi_0`) | C++ `std::string`-ABI split between a prebuilt wheel and the selected NNAL/ATB root, pre-engine and not vllm-ascend code: `Ss` in the mangled name = old ABI, `NSt7__cxx11` = new | `references/image-dependency-faults/abi-undefined-symbol.md` (one call: `scripts/abi-symbol-check.sh <paste>`; the fix is reporter-confirmed on #1144, but which ATB file defines the symbol is still the reporter's `nm` step) |
 | `python -c "import <pkg>"` or the first use of an image-installed native module aborts the interpreter: `corrupted size vs. prev_size`, `free(): invalid pointer`, `double free or corruption`, `munmap_chunk(): invalid pointer`, `Aborted (core dumped)`, no Python frame, no NPU text | Image / bundled native module (pre-engine, not vllm-ascend code) | `references/image-dependency-faults/index.md` |
 | Engine init ends in a C++ exception with **no** Python frame: `terminate called after throwing an instance of 'std::logic_error'` / `what(): basic_string::_S_construct null not valid`, then `RuntimeError: Engine core initialization failed … Failed core proc(s): {}`; the last application line is plugin activation or `Initializing a V1 LLM engine` | Native null-string abort in a bundled `.so` during core/worker creation — an image/host question, not the checkpoint's config, processor or architecture (the same two lines appear for two unrelated models) | `references/image-dependency-faults/native-string-abort.md` |
 | `POST /start_profile` (or `/stop_profile`) returns `404 Not Found` although the server was started with `--profiler-config '{...}'`; or the same route answers 500 naming `Profiling is not enabled` | Observability/route registration: the endpoint is attached by upstream `serve/profile/api_router.py` `attach_router` only when the serving process's `args.profiler_config.profiler` is set — not a model/device question, and a down-stream worker miss is a 500, never a 404 | `references/observability-and-logs/online-profiling-endpoints.md` (one `openapi.json` request) |
+| `RuntimeError: Already borrowed` raised inside a HuggingFace fast tokenizer (`set_truncation_and_padding` → `self._tokenizer.no_truncation()`), typically under `_preprocess_chat` while a tool parser's `__init__` encodes its special tokens, wrapped by `serving.py … Error in preprocessing prompt inputs`; more generally any traceback whose frames are only `vllm/**` + `site-packages/**` with no `vllm_ascend` frame and no device text | Upstream serving-frontend / Python-dependency fault, not the NPU stack: one tokenizer object driven from the event loop and from a worker thread, and vLLM's own retry for this exception covers only the multimodal processor. Mechanism source-verified at vllm v0.16.0; the trigger (client concurrency) is unverified and the serial rerun settles it | `references/serving-frontend-faults/index.md`, then `tokenizer-already-borrowed.md` |
 | Report is about log text rather than a crash: `--enable-log-requests` / `--enable-log-outputs` set but no prompt or generation printed, `VLLM_LOGGING_LEVEL=DEBUG` seemingly ignored, `--max-log-len`, a stage of the startup log missing, or a proxy that swallows output | Observability/flag question — **upstream frontend config, not a vllm-ascend defect**; answer with a gate checklist and two greps, cap it at ~4 tool calls | `references/observability-and-logs/index.md`, then `request-output-logging-flags.md` |
 | A **tool call** is the symptom, not the prose: `JSON Parse error: Unterminated string` / `Expecting ',' delimiter` / `Unterminated string starting at: line 1 column N` while the client assembles `tool_calls[0].function.arguments`, arguments reported truncated / 格式错误 / 重复输出, or `stream: true` returns only CoT and no `tool_calls`; often with `--speculative-config '{"num_speculative_tokens": 3, ...}'` where 1 正常, or with `--async-scheduling` | Tool-call output integrity: upstream vLLM's delta assembly vs the vllm-ascend sampler vs the model stopping early — decided by concatenating the argument fragments, then by one `return_token_ids: true` request, not by reading a parser or a kernel | `references/tool-call-streaming/index.md`, then `streamed-arguments-audit.md` (one call: `scripts/sse-toolcall-audit.sh <raw-sse>`) |
 | A constant in the code equals the number in the report — `num_speculative_tokens: 3` fails while `1` (and `2`) work — and the wrong output is exact-form: tool-call JSON, ids, code | Named code branch, not an investigation: `using_block_verify = max_spec_len >= 3` is the only spec-decode branch keyed on that value, so state it with its two ablations (`n=2`, `temperature: 0`) before its kernel is read | `references/tool-call-streaming/mtp-block-verify-acceptance.md` |
@@ -376,8 +396,9 @@ all had a usable lead in hand when they kept going.
 | Host is **310P** (Atlas 300I Duo, `Ascend310P3`, image `-310P`), or the traceback sits on an `is_310p()` branch (NZ/`FRACTAL_NZ` format casts, no Ascend custom ops, `patch_mamba_config_310`) | SoC-conditional platform path: experimental per the pinned docs, NZ casts are real conversions, fp16/eager are mandatory | `references/soc-platform-paths/atlas-300i-310p.md` |
 | The report asks how to enable a feature rather than what broke: "如何正确开启 PCP/DCP", "F alone and G alone each报错，能否给个能跑通的示例", no log pasted, or two errors described in one sentence | Feature-enable / capability question: the validation verdict (docs statement at the pinned ref, whose hardware the measured table used, `tests/e2e/**` coverage, precedent versions) before any constraint list | `references/feature-enable-recipes/index.md`, then `context-parallel-pcp-dcp.md` |
 | `Communication_Error_Bind_IP_Port(EI0019)` / `Failed to enable listening for the host network adapter socket` / `port <n> have already been bound` where n is above 65535, often in the issue title | HCCL control-plane port band, not an OS socket conflict — and only if the record's date is inside the window (rule 13) | `references/hccl-and-hardware/control-plane-port-binding.md` |
+| Output degenerates (`</think>` leaking into `content`, repetition collapse, 乱码) at long-ish context **and** concurrency on a **documented** model with PD / spec-decode / prefix-cache flags, with **both** `vllm serve` commands pasted and no ablation | Config-diff track: the tree's own `docs/source/tutorials/models/<model>.md` ships the validated P and D commands and a `Recommended Configurations` table, so the first answer is that diff plus the ablation matrix — never a walk through the KV connector; #13002's five deviations are ranked ablation rows, not established causes | `references/accuracy-benchmarks/garbled-long-context-output.md` |
 | "服务崩溃" / 崩溃 under concurrency or high load with **no** error text, no traceback and no plog pasted, while single-request serving is correct (often DeepSeek-V3.2 + MTP + DP/EP) | Report-gap track: nothing in the paste can confirm a mechanism, so the answer is the config diff against the project's own validated command at the pinned commit plus 1-2 single-variable A/Bs | `references/dsa-sparse-attention/concurrency-crash-with-no-log.md`; `references/runtime-memory/index.md` for the OOM row |
-| "多并发时请求排队那么久" / "生成吞吐只有个位数" / `Prefix cache hit rate: 0.0%`, with a `loggers.py` metrics block, a healthy engine and no error text | Throughput/queueing on a healthy engine: TTFT is prefill work ÷ prefill throughput, the interference is `gen tok/s ÷ Running`, and the cache line is a capability switch before it is a tuning knob | `references/performance-throughput/index.md` (one of its two pages, by which complaint is the headline) |
+| "多并发时请求排队那么久" / "生成吞吐只有个位数" / `Prefix cache hit rate: 0.0%`, with a `loggers.py` metrics block, a healthy engine and no error text | Throughput/queueing on a healthy engine: TTFT is prefill work ÷ prefill throughput, the interference is `gen tok/s ÷ Running`, and the cache line is a capability switch before it is a tuning knob | `references/performance-throughput/index.md` (both pages in one turn when the paste carries both complaints — the arithmetic page first) |
 | A 19-token to few-hundred-token prompt on a hybrid GDN model (Qwen3-Next) answered as a digit run or a repeated phrase while ordinary chat is fine, `finish_reason: length`, no traceback | Hybrid linear-attention numeric path (accuracy track): the prefill GDN kernel is a downstream fp32 re-implementation while decode keeps a patched Triton kernel | `references/accuracy-benchmarks/qwen3-next-gdn-numeric-path.md` |
 | Compiler or missing-header error while installing/building, or any report with no matching track | General sequence below | skip the topical routes |
 
@@ -447,6 +468,12 @@ all had a usable lead in hand when they kept going.
      `gdb --batch -ex 'break std::__throw_logic_error' -ex run -ex bt`. Steps 1-3
      of `references/image-dependency-faults/native-string-abort.md` are the whole
      answer; the checkpoint's own config was already proven innocent.
+   - `ImportError: …/_ops*.so: undefined symbol: <mangled>` from a prebuilt wheel:
+     run `bash <skill_root>/scripts/abi-symbol-check.sh <paste>` first — it demangles,
+     says old (`Ss`) or new (`NSt7__cxx11`) `std::string` ABI, and prints the three
+     `nm` commands plus the matching `cxx_abi_0`/`cxx_abi_1` export. Reporter-confirmed
+     on #1144 ("the env setting works for me"), so this is a three-command lane, not
+     a rebuild (`references/image-dependency-faults/abi-undefined-symbol.md`).
    - Custom op that aclnn refuses to *resolve* (`EZ1001`, `Get regInfo failed`,
      `does not support opType`, `binary_info_config.json of socVersion`): registry
      and install, before launch. Do not open `csrc/<op>/`: check the tree's
@@ -558,6 +585,16 @@ all had a usable lead in hand when they kept going.
      made the attribution exact. The decisive check is an A/B on request concurrency
      (`--max-num-seqs 1` versus the failing value), not a plog
      (`references/dsa-sparse-attention/indexer-cache-scatter-fault.md`).
+   - Degenerate output (`</think>` in `content`, repetition collapse, 乱码) at long
+     context **and** concurrency on a model the tree documents, with both `vllm serve`
+     commands pasted: open `docs/source/tutorials/models/<model>.md` at the pinned
+     commit and diff the reporter's P and D commands against the validated ones plus
+     the `Recommended Configurations` tables **before** reading any connector — that
+     diff, with the ablation matrix, is the first answer
+     (`references/accuracy-benchmarks/garbled-long-context-output.md`). Recorded
+     #13002 spent 21 turns and its whole output budget inside a 2600-line
+     `mooncake_connector.py` and shipped nothing, though the tutorial's validated
+     commands deviated on five flags and were reachable in two calls.
    - A crash under concurrency with **no** error text pasted: do not hunt the mechanism.
      The answer is the gap, the config diff against the tree's own validated command
      (`tests/e2e/**`, `docs/source/tutorials/<model>.md`) and ranked candidates with one
@@ -814,7 +851,11 @@ all had a usable lead in hand when they kept going.
   — `SupportsMambaPrefixCaching` → `MambaModelConfig` disables prefix caching at
   vllm v0.14.1 (`patch_mamba_config.py` inherits it), the model's own `assert not
   cache_config.enable_prefix_caching`, the one log line that confirms it on the
-  reporter's host, and the later-version recheck.
+  reporter's host, and the later-version recheck. A paste that carries both
+  complaints needs **both** pages in one `skill_view` turn: the queue page is the
+  arithmetic, the cache page is the gate, and the recorded #6833 replay opened
+  only the cache page, re-derived the queue arithmetic from `scheduler.py`, and
+  was cut mid-answer.
 - `references/startup-failures/index.md` — engine/worker never becomes ready
   (lanes A/B): silent worker exit; `max_model_len` and memory budget
   (reporter-confirmed for #3543, but per-card HBM decides whether the default
@@ -928,6 +969,18 @@ all had a usable lead in hand when they kept going.
   set (`vllm/entrypoints/serve/profile/api_router.py` `attach_router`), so the
   answer is that gate plus one `openapi.json` request — and a worker-side miss is
   a 500, never a 404 (worked for #9583 at vllm v0.18.0 + vllm-ascend v0.18.0rc1).
+- `references/serving-frontend-faults/index.md` — a Python exception that
+  surfaces in the OpenAI server process while the report is filed as an Ascend
+  problem, and whose traceback has **no** `vllm_ascend` frame: the owner is
+  upstream vLLM or an installed Python dependency, so the answer is an ownership
+  verdict plus a client-side A/B, and the artefacts to ask for are the serve
+  command, the request body and the client concurrency — never a plog or
+  `npu-smi`. `tokenizer-already-borrowed.md` is the worked #7197 case:
+  `RuntimeError: Already borrowed` at `Hermes2ProToolParser.__init__` inside
+  `_preprocess_chat` (vllm v0.16.0), the event-loop thread plus the
+  `AsyncMicrobatchTokenizer` worker thread sharing one HF fast tokenizer, the
+  single retry upstream already ships for the same exception, and the
+  serialise/retry ladder.
 - `references/custom-ops-runtime-faults/index.md` — aclnn/AscendC custom-op
   device faults: reading the device dump, mapping the operator to `csrc/<op>/`,
   tiling-mode tables. The dump names the operator and error class, not the
@@ -1008,6 +1061,14 @@ all had a usable lead in hand when they kept going.
   recovered/bonus slots, the greedy exemption, the `parse_output` placeholder
   filter that removes slots silently, the missing strict-equivalence test, and the
   `n=2` / `temperature: 0` ablations.
+- `scripts/abi-symbol-check.sh <paste|-> [...]` — classifies a pasted native
+  `undefined symbol` against the two ATB/NNAL builds: demangles every mangled name
+  (`c++filt` when present) and labels the `std::string` ABI (`Ss` old vs
+  `NSt7__cxx11` new), notes line-wrapped fragments, reports which `cxx_abi_*` root
+  the env dump selects, warns when the same paste is really the missing-library or
+  old-`GLIBCXX` class, then prints the verdict, the three decisive `nm` commands and
+  the reporter-confirmed `cxx_abi_0` export. Verified on the #1144 paste (old-ABI
+  `AsdOps::Ops::GetOperationByName`, `ATB_HOME_PATH=…/cxx_abi_1`).
 - `scripts/sse-toolcall-audit.sh <capture|-> [more files]` — concatenates every
   `choices[i].delta.tool_calls[j].function.arguments` fragment in arrival order and
   prints per index the fragment count, the empty fragments, the `{ } [ ] "`

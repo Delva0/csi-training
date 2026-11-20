@@ -77,7 +77,9 @@ Five entry shapes leave this topic immediately and are not accuracy questions at
 - `reasoning-output-routing.md` — output-routing in both directions, and the place to
   answer a pure response-contract question that pastes no score at all: (a) verified
   upstream vLLM v0.19.1 behaviour that turns truncated thinking into `content: null`,
-  plus the `enable_thinking` vs `thinking` kwarg trap; (b) re-verified at vllm v0.22.1
+  plus the `enable_thinking` vs `thinking` kwarg trap (which is per-parser: Kimi-K2's
+  reads `thinking`, Qwen3's reads `enable_thinking` — vllm v0.23.0
+  `kimi_k2_reasoning_parser.py:40-46`); (b) re-verified at vllm v0.22.1
   that "thinking inside `content` + no `reasoning` field + `reasoning_tokens: 0`" is a
   missing `--reasoning-parser` (default `""`), that the chat field is now `reasoning`
   with `reasoning_content` only a deprecated input alias, and that the Qwen3.6 tutorial
@@ -86,10 +88,16 @@ Five entry shapes leave this topic immediately and are not accuracy questions at
   msmodelslim conversion: the two gates (engine version plus the msit branch, which
   differs between doc pages), the published-checkpoint split test, layer-localization by
   shape invariance, and the ownership boundary (Ascend/msit, not vllm-ascend).
-- `garbled-long-context-output.md` — long-input 乱码/garbage reports: grade the symptom, hand
-  the reporter a feature-ablation matrix (DCP, sparse c8, dsa_cp, KV offload, length sweep),
-  the `dcp_size == tp_size` / interleave constraints that make rows un-runnable, the tested
-  envelope at the pinned release, and the #12905 / #14320 precedents.
+- `garbled-long-context-output.md` — long-input 乱码/garbage reports: grade the symptom,
+  hand the reporter a feature-ablation matrix (DCP, sparse c8, dsa_cp, KV offload,
+  length sweep), the `dcp_size == tp_size` / interleave constraints that make rows
+  un-runnable, the tested envelope at the pinned release, and the #12905 / #14320
+  precedents. When the report pastes **both** serve commands for a model the tree
+  documents, its first section is the move: diff them against
+  `docs/source/tutorials/models/<model>.md` (validated P and D commands, §9.1
+  `Recommended Configurations`) and make that diff the opening answer — the worked
+  Kimi-K2.6 v0.23.0rc1 table is there, with #13002 as the cost of skipping it —
+  its five deviations are ranked rows, not proven causes.
 - `vl-vision-tower-degeneracy.md` — VL image/video requests that degenerate into one
   repeated token, with the co-reported "very slow": the two-implementation gate
   (`USE_OPTIMIZED_MODEL`, v0.9.2rc1 `b5b7e0e` `models/__init__.py:23-33`), the head-dim

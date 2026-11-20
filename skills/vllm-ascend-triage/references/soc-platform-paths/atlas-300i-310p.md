@@ -113,6 +113,17 @@ for that release even though the image is not byte-verified.
   allocation (`../hccl-and-hardware/worker-segfault-no-python-frames.md`,
   `## The startup variant`).
 
+## At v0.22+/v0.23: a quantized model that loads and then dies in an op
+
+When the weights load and the failure is an operator-level dtype sentence
+(`Bias dtype should be INT32, actual dtype is DT_FLOAT16`) rather than a Python
+traceback, the owning variable is the **checkpoint conversion**, not this page's
+gate table: 310P needs its own `-310`/`-310P` artifact, and the `_310p/`
+`W8A8_DYNAMIC` scheme passes the model's fp16 bias into `npu_quant_matmul` while
+the static/SC schemes pass the checkpoint's int32 `quant_bias` —
+`310p-quant-checkpoint-soc-match.md` (v0.23.0 line set, plus the doc trap that
+the 27B tutorial's 300I tab points at the generic `-w8a8` repo).
+
 ## Ranked actions for a 310P startup report
 
 1. Confirm the SoC and the real versions: `python -c "from vllm_ascend import

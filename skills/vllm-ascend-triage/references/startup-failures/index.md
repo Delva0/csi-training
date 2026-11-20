@@ -65,6 +65,15 @@ Inherit the rules in SKILL.md. Conditional routes:
   parallel mode or flag combination (no `WorkerProc` line, no rank prefix) →
   `arg-validation-errors.md`. Upstream argument validation: the fix is a launch
   command, and when the shape came from a tutorial it is also a doc bug.
+- Every rank dies in `torch.arange(world_size).reshape(...)` with
+  `RuntimeError: shape '[-1, <dp>, <pp>, <tp>]' is invalid for input of size <W>`,
+  frames `vllm_ascend/worker/worker_v1.py` → `ensure_model_parallel_initialized` →
+  `initialize_model_parallel`, often from `examples/offline_external_launcher.py` or
+  any `distributed_executor_backend="external_launcher"` launch → same page, third
+  raise site: the trailing literal is the requested TP and `size W` is the real
+  world size, which the launcher computed from `--node-size × --proc-per-node`.
+  No `raise` to grep and no automatic validation — the message's two numbers are
+  the whole diagnosis, before any weight load. Report the doc defects too.
 - The startup `ValueError` is raised by **vllm-ascend**, not by `arg_utils`:
   `KV transfer '<role>' config has a conflicting data parallel size. Expected 1,
   but got 2.` (or `tensor parallel size`) on a PD deployment whose

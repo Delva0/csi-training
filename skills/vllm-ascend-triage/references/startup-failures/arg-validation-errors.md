@@ -11,6 +11,10 @@ never an op, tensor, collective or model file:
   be 1 or None when data_parallel_rank is set`,
   `world_size=N must be divisible by nnodes=M.`, `node_rank=N must be less than
   nnodes=M.`
+- `RuntimeError: shape '[-1, <dp>, <pp>, <tp>]' is invalid for input of size <W>` —
+  same class, raised by `torch.reshape` inside upstream
+  `initialize_model_parallel`, so the "flag combination" is spelled as tensor
+  dimensions (third raise site below).
 - `KV transfer 'prefill' config has a conflicting data parallel size. Expected 1,
   but got 2.` — same class (a launch config the process rejects at startup), but
   raised by **vllm-ascend** against the connector's `kv_connector_extra_config`
@@ -41,7 +45,10 @@ the log's shape.
    platform validation, and a grep of only one tree returns an empty result that
    reads like a snapshot gap. Then `sed -n 'A,Bp'` around the hit and write the
    raising boolean expression in the answer. Nothing else about the run matters until
-   that expression is understood.
+   that expression is understood. One member of this family has **no** `raise` to
+   grep — a bare `torch.reshape`/`arange` in upstream `parallel_state.py` — so when
+   the frames are `worker → ensure_model_parallel_initialized → initialize_model_parallel`,
+   decode the numbers in the message instead (third raise site).
 2. Expand each term in the expression to the CLI argument that sets it, one grep
    per term. The trap in #11863: `--data-parallel-rank` is not "just a rank",
    it implies external load balancing —
@@ -142,6 +149,84 @@ Fix ladder:
 - Recheck per version with `rg -n 'conflicting data parallel size' vllm_ascend/`;
   `--data-parallel-rank` sets external LB (`data_parallel_size_local = 1`) and is
   *not* the compared number, so "drop `--data-parallel-rank`" is not the fix here.
+
+## Third raise site: the model-parallel group reshape (world size vs TP)
+
+Signature: engine start dies on every rank with
+
+```
+File "…/vllm/distributed/parallel_state.py", line 1098, in initialize_model_parallel
+    all_ranks = torch.arange(world_size).reshape(
+RuntimeError: shape '[-1, 1, 1, 4]' is invalid for input of size 2
+```
+
+and the frames above it are `vllm_ascend/worker/worker_v1.py` `init_device` →
+`_init_worker_distributed_environment` → `ensure_model_parallel_initialized`. In the
+recorded case the frames also carry `vllm/executor/uniproc_executor.py` — each
+spawned process is a **one-rank** executor, which is the first hint that the process
+count, not the card count, set the world size.
+
+**The two numbers in the message are the whole diagnosis.** `arange(world_size)`
+holds the *real* world size (`size 2`), and the reshape literal is
+`(-1, dp, pp, tp)` — trailing number = the requested `--tensor-parallel-size` (4),
+per the source comment `# the layout order is: ExternalDP x DP x PP x TP` (export
+`:1006`). Nothing else about the run matters until those two are read.
+
+Why no validation catches it: the launcher that owns `external_launcher` mode creates
+the process group itself, so upstream `init_distributed_environment` hits
+`if not torch.distributed.is_initialized():` (export `:937`) and **skips** its own
+`init_process_group(..., world_size=parallel_config.world_size)` — the argument is
+never compared against the real group, and `_WORLD` is built from
+`get_world_size()`.
+
+### Worked case #2973 — `examples/offline_external_launcher.py`, TP 4 vs 2 processes
+
+`[Doc]`-tagged, vllm-ascend v0.10.2rc1, single node:
+`python examples/offline_external_launcher.py --model="Qwen/Qwen3-30B-A3B"
+--tp-size=4 --proc-per-node=2 --enable-expert-parallel`, substrate vllm v0.10.2.
+
+| Fact | Evidence (vllm-ascend v0.10.2rc1 `048bfd5`; vllm export v0.9.1 `b6553be`) |
+|---|---|
+| The script computes the world size itself, from the node and process counts, and takes `--tp-size` as an independent value | `examples/offline_external_launcher.py:239-241`, `:251` `world_size = node_size * proc_per_node` |
+| It spawns exactly `proc_per_node` children per node, in `range(proc_per_node*node_rank, proc_per_node*(node_rank+1))` | same file, `:254-255` → one node, 2 procs, TP 4 |
+| Each child exports `WORLD_SIZE` and calls `init_process_group(backend="cpu:gloo,npu:hccl", world_size=world_size, rank=rank)` | same file, `:160-168` |
+| The worker then calls `init_distributed_environment(parallel_config.world_size, …)` and `ensure_model_parallel_initialized(tp, pp)` | `vllm_ascend/worker/worker_v1.py:318-325` |
+| Upstream skips its own init when the group exists, so the mismatch is never compared | export `parallel_state.py:937` (`init_distributed_environment`), `:1072` `ensure_model_parallel_initialized` |
+| The reshape is `torch.arange(world_size).reshape(-1, dp, pp, tp)` | export `:1015` (reporter's v0.10.2 build reports `:1098`) |
+| The paste corroborates world size 2: exactly two `non-default args` blocks and two `Initializing a V1 LLM engine` lines | the report's own log |
+| The documented usages are `--tp-size=1 --proc-per-node=2` (dense) and `--tp-size=2 --proc-per-node=2 --enable-expert-parallel` (this model) — both satisfy `tp ≤ world_size`, so the invariant is never stated | docstring `:22-56` |
+| CI runs the second one and asserts two TP ranks | `tests/e2e/multicard/test_external_launcher.py:87-89`, `:104` |
+
+Fix ladder:
+
+- **A (documented, CI-covered):** `--tp-size=2 --proc-per-node=2
+  --enable-expert-parallel`. Match the process count to the intent:
+  pure TP needs `--tp-size == --node-size × --proc-per-node`.
+- **B (TP 4 on one box, if it has 4 NPUs):** `--tp-size=4 --proc-per-node=4`.
+- **C (real multi-node):** `--node-size=2 --node-rank=0|1 --proc-per-node=2
+  --master-addr=<ip> --master-port=<free port>` on **both** nodes, same `--tp-size`.
+- **Not the fix:** `--enforce-eager`, the model, the card count, HCCL/driver — the
+  raise happens before a weight is loaded or a collective is issued.
+
+### Doc defects to report alongside (this shape is usually a `[Doc]` report)
+
+1. The invariant is never stated: `--proc-per-node` is documented as "Number of
+   processes per node" (`:96-99`), which reads like a hardware knob, while it is
+   half of the world size.
+2. The multi-node **Node 1** block omits `--proc-per-node=2` (`:47-55`): Node 1 then
+   computes `world_size = 2 × 1 = 2` against Node 0's 4 and spawns only rank 1, so
+   the job mismatches or hangs in `init_process_group` instead of erroring.
+3. Warn whoever writes the validation: when the world size **is** a multiple of TP
+   (e.g. `--tp-size=2 --proc-per-node=4`) the reshape succeeds and the extra ranks
+   become independent external-DP groups — the verl use case — so a wrong command can
+   appear to work with half the intended parallelism. Only the non-divisible case
+   raises.
+
+Recheck per release with `rg -n 'world_size = node_size \* proc_per_node'
+examples/offline_external_launcher.py` and the `reshape(` line in the installed
+`vllm/distributed/parallel_state.py`; the export here is vllm v0.9.1 while the
+reporter ran v0.10.2, so upstream line numbers differ by ~80 lines and structure is
+identical.
 
 ## Doc drift: `/latest` docs are not the pinned version
 

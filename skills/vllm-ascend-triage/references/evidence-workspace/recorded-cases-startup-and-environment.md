@@ -428,3 +428,40 @@ write, final message = condensed report); the 98 K-character `SKILL.md` read on
 turn 1 that already carried the `[Community Test]` routing row, plus three
 whole-page reference reads (tutorial-verification index, community-test-report,
 tutorial-command-audit) on turns 2-4, is what made the prompt budget that tight.
+
+**#2973** `[Doc]` vllm-ascend v0.10.2rc1 (`048bfd5`; upstream export is vllm
+v0.9.1 `b6553be`, `dated_reference_only`), one node, running the repo's own
+`examples/offline_external_launcher.py --tp-size=4 --proc-per-node=2
+--enable-expert-parallel` on Qwen3-30B-A3B: every rank dies in
+`initialize_model_parallel` with `RuntimeError: shape '[-1, 1, 1, 4]' is invalid for
+input of size 2`. Not a defect and not lane C — the script sets the world size from
+`--node-size × --proc-per-node` (`:251`) while `--tp-size` is an independent value,
+and upstream skips its own `init_process_group` when the group already exists, so
+nothing compares the two. Delivered: the two numbers decoded (`[-1, dp, pp, tp]` vs
+real world size), the documented `--tp-size=2 --proc-per-node=2` ladder, and three
+doc defects found in the same file (the invariant is never stated; the multi-node
+Node 1 block omits `--proc-per-node=2`, so it computes world 2 against Node 0's 4;
+a world size that *is* a multiple of TP silently becomes external-DP groups).
+16 tool calls / 9 turns / 9.3 K completion tokens, and the walk was longer than the
+message needed: one grep of `world_size|tp_size|node_size|proc_per_node` in the
+example gave the whole mechanism at call 2, and the `docs/source/` grep for the
+example's name returned nothing (it is not documented outside the docstring). Page
+`../startup-failures/arg-validation-errors.md` (third raise site). Open: how many
+NPUs the reporter's node has, and whether the 2-process gloo group formed cleanly.
+
+**#540** vllm-ascend v0.7.3rc2 (`00459aea`) + vllm v0.7.3, `vllm serve <model>
+--max-model-len 4096 --port 8000 -tp 4` from a conda env
+(`/root/miniconda3/envs/hzy_dev_vllm`), env dump `vllm 0.7.3+empty` /
+`vllm_ascend 0.7.3rc2` / torch-npu 2.5.1.dev20250308: the title
+"RuntimeError: Failed to infer device type" is the last line of a chain —
+`ERROR Failed to load plugin ascend` + `ModuleNotFoundError: No module named
+'vllm_ascend'`, `No platform detected, vLLM is running on UnspecifiedPlatform`, then
+`DeviceConfig` raising at `vllm/config.py:1660` inside the spawned `run_mp_engine`
+process. Track: environment / plugin import, before any worker. The recorded run
+classified the chain correctly and shipped one interim Chinese answer naming the
+editable-install residue (the rc-era docs' only route is `pip install -e .`; the wheel
+is marked "Unreleased yet"), then spent the rest of its budget on a synthetic
+dist-info probe under `/tmp` that vanished between calls, and was cut at the 16 K cap
+with no final answer. No reporter follow-up in the corpus: which residue case applied
+stays open. Route: `../image-dependency-faults/plugin-load-module-missing.md` (three
+candidates, one `python -c` check each).

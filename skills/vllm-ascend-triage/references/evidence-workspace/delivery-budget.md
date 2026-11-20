@@ -31,6 +31,10 @@ a delivered answer is ~4K of them.
 | #253 | 16384 (cap) | 12 turns / 20 tool calls | 47.6K (largest blocks 13.5K, 5.8K, 5.5K, 5.4K, 5.2K) | 72 | **no answer at all**; the mechanism was fully verified by turn 9 and the remaining three turns only re-confirmed it |
 | #9583 | 16384 (cap) | 20 turns / 30 tool calls | 47.6K (largest blocks 6.2K, 6.0K, 5.5K, 4.7K, 4.6K) | 69 | **no answer at all** (the 69 characters are an "I'll start by loading the relevant skill…" line); the cap hit on a 2.6K plan block, with the route gate and the decisive `openapi.json` request both in hand since turn 5 |
 | #12253 | 15164 | 14 turns / 16 tool calls | 38.0K (largest blocks 6.6K, 6.4K, 5.1K) | 5.3K | complete ranked answer delivered on the last turn; `findings.md` was written one turn earlier, so the answer survived the cap |
+| #10495 | 15293 | 18 turns / 24 tool calls | 35.5K (largest blocks 9.3K, 6.4K) | 6.0K | complete ranked answer on the last turn — but its lead cause (KV capacity/queue thrash) is the one the reporter's follow-up removed, so the ordering was wrong, not the budget |
+| #9355 | 16384 (cap) | 13 turns / 17 tool calls | 51.2K (largest blocks 10.2K, 8.1K) | 2.2K | classification + ranked causes delivered, then cut mid-sentence before the action block; the 10.2K and 8.1K blocks were mechanism re-derivation on a one-shot-state theory no evidence had established |
+| #6240 | 16384 (cap) | 18 turns / 28 tool calls | 37.9K (largest blocks 7.2K, 6.8K, 5.6K) | 4.5K, cut mid-sentence | answer started on the **last** turn only — G1/G2/G3 all crossed with zero message text before it; the ranked list survived, the closing scope block did not. The case had **no pasted error text**, which is what the extra turns were spent on |
+| #4296 | 8998 | 10 turns / 12 tool calls | 22.1K | 3.8K | complete ranked answer with a source-verified mechanism, fix and a one-A/B confirmation; 45 % of the cap unused — the paste carried a traceback, so the mechanism was visible by its 5th-6th turn and the answer could be written there |
 
 `#2586` and `#13699` are the calibration rows for this batch: both answered well
 inside the cap because the ranked shape was written at the 8th-13th turn, and
@@ -54,6 +58,20 @@ defaults and reading precedent bodies until the cap, and because the deliverable
 was a file rather than a message it emitted nothing at all. A report-shaped task
 is the worst case for the gates, so it needs the file opened early and appended —
 see `../tutorial-verification/community-test-report.md`.
+
+`#6240` and `#4296` are two DeepSeek-V3.2 cases that differ only in what the
+reporter pasted, and they are the cleanest evidence for the reporting gate.
+`#4296` pasted the traceback: the frames named `sfa_v1.py:969`, the batch
+composition explained the trigger, and the answer was delivered with 7.4K tokens
+of the cap unused. `#6240` pasted two launch commands and the sentence "多并发时
+服务崩溃": 18 turns went into looking for a mechanism the evidence could not
+contain, no message text was emitted before the final turn, and the answer that did
+arrive was cut mid-clause. When the paste has no failure text, the deliverable is
+the gap plus the config diff plus the ablation plan — it does not become better by
+being written later, and the config diff is a 3-4 call job
+(`../dsa-sparse-attention/concurrency-crash-with-no-log.md`). The same run also
+shows the cheapest context loss in this set: one `rg -rn ""` probe returned 65 KB,
+and the skill body itself was 78 KB in both runs.
 
 `#1865` and `#253` are the same case family (2025 vLLM DeepSeek deployments)
 answered and not answered. `#1865` finished at 14.4K of 16.4K with a 5.6K ranked
@@ -84,6 +102,19 @@ turns, findings written at turn 13, 5.3K answer on the last turn — the
 `findings.md`-at-G2 habit working — with the remaining defect in *evidence
 ordering* (it led with a mechanism the pinned code does not establish instead of
 the shipped support matrix).
+
+`#10495` and `#9355` are the newest pair and they cost budget in the *ordering*,
+not in the length. `#10495` delivered a complete 6.0K answer inside the cap after
+35.5K characters of reasoning, but ranked KV capacity and queue thrash above the MTP
+bookkeeping, so the first half argued a cause the reporter later removed by turning MTP
+off; the ordering rule that replaces it is now in
+`../spec-decode-mtp/acceptance-collapse.md` (MTP-off is row 1). `#9355` did hit the cap:
+51.2K characters over 13 turns, two blocks of 10.2K and 8.1K re-deriving a
+"first decode after capture is corrupted" mechanism from one report, and a 2.2K answer
+cut before its actions — while the two response fields (`completion_tokens: 1`,
+`finish_reason: "stop"`) plus a restart request would have carried the same answer in
+half the turns and ~10K fewer characters, which is what
+`../spec-decode-mtp/empty-first-response.md` now does.
 
 `#9183` and `#6800` then constrain the lesson from the other side. Both delivered
 inside the cap (13.2K and 10.3K completion tokens, answer written by the 10th

@@ -48,6 +48,11 @@ that line while it was a three-day-old re-print and the in-window error was an A
    ending in an `npu_*` op on a 2×4 tensor is a sync point, and it explains what
    `SUSPECT REMOTE ERROR` / 507057 is and why the reporting rank need not be the
    faulting chip.
+   Exception to that attribution rule: when the frames from `vllm_ascend/` inward are all
+   Python and the last one is a single `torch_npu` index/scatter write, and the failure
+   tracks batch composition instead of hardware, the named op *is* the owner's evidence —
+   the caller's index tensor. See `../dsa-sparse-attention/indexer-cache-scatter-fault.md`
+   (#4296) before asking for device health.
 3. `device-health-checks.md` — check every device's health, correlate the
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards.

@@ -104,7 +104,7 @@ CLI-parsing question in row 6-7 ("is `args.profiler_config` still a dict?") and
 hit the cap with a 2.6K-character *plan* block: 20 turns, 30 tool calls, 47.6K
 reasoning characters, 69 characters of message text, **no answer**. Rows 6-7 are
 one `sed -n '247,300p' vllm/engine/arg_utils.py` away and kill that whole thread;
-`references/evidence-workspace/delivery-budget.md` has the accounting.
+`../evidence-workspace/delivery-budget.md` has the accounting.
 
 Answer this shape as: (a) the symptom is route registration only, (b) the gate,
 (c) the two commands of check 1-2, (d) the ranked ways the flag can miss the

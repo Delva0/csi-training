@@ -2,8 +2,8 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "eb460fd696b677e2d1b5a4dc1cbb53b4c245a1def90b9838ff8ba22c1a053e70",
-    "size": 74435
+    "sha256": "840dd27938d35b52449e0f83e288cb97423cb2ca9936328cf6719877bfc4e358",
+    "size": 82053
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/early-eos-short-output.md",
@@ -26,8 +26,8 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/index.md",
     "mode": "100644",
-    "sha256": "eeeaff8fb506bb90e2737bed30c062684585f1e97f268b3430d9d453e324979b",
-    "size": 5994
+    "sha256": "12d3b3e364893c3bc1ca4f8eeb9e1f08a217c4b98bcb32663288a597048497e5",
+    "size": 6320
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/quantized-checkpoint-conversion.md",
@@ -74,8 +74,8 @@
   {
     "path": "vllm-ascend-triage/references/custom-ops-runtime-faults/index.md",
     "mode": "100644",
-    "sha256": "16cf8a5be48809c88619916113ff8eae06ca3a3b914a9631a2625a050e8cdb40",
-    "size": 6286
+    "sha256": "d24f555f80f750f6bdc81e5ba8b929b3a5edd5da41ca52062f6ebad6470fc353",
+    "size": 6921
   },
   {
     "path": "vllm-ascend-triage/references/custom-ops-runtime-faults/op-not-registered-for-soc.md",
@@ -96,6 +96,24 @@
     "size": 3486
   },
   {
+    "path": "vllm-ascend-triage/references/dsa-sparse-attention/concurrency-crash-with-no-log.md",
+    "mode": "100644",
+    "sha256": "50e539ca38f407280a90715250b85b2a47385bcade08b629431bc37297fef05f",
+    "size": 6306
+  },
+  {
+    "path": "vllm-ascend-triage/references/dsa-sparse-attention/index.md",
+    "mode": "100644",
+    "sha256": "7d08b0d74c5ffe396ec0bd8675ca55c3102ce028e1c47e16be3e7f205a1ec059",
+    "size": 2514
+  },
+  {
+    "path": "vllm-ascend-triage/references/dsa-sparse-attention/indexer-cache-scatter-fault.md",
+    "mode": "100644",
+    "sha256": "8a8b9a809f9ddbb679eda51df28b7bc17cd630ad88659858138879c67d1d1ef5",
+    "size": 6632
+  },
+  {
     "path": "vllm-ascend-triage/references/evidence-workspace/case-layout.md",
     "mode": "100644",
     "sha256": "816d1a51e1fc27507afb5c783d4a9aea493e31a5bb02d122f5ce1b96bcc94a2a",
@@ -104,8 +122,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/delivery-budget.md",
     "mode": "100644",
-    "sha256": "ef9b0b185eb94944ce97162fb210c71d301ee4cd294d948919f0c616b9eb62d3",
-    "size": 13233
+    "sha256": "756382b96585e6d5ba19fa0e981b880df1a56e73e7e70edfefda23cfcbe4317f",
+    "size": 16369
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
@@ -152,8 +170,8 @@
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/index.md",
     "mode": "100644",
-    "sha256": "6cc8df3b6323b52826575721e3c60e6f4ca8a6a55041fb24fcba3f211b6b745b",
-    "size": 7372
+    "sha256": "5c6c255f079919865bfdb7308312135f21f366dfebcd33b3ecdc929b3d1d9d2a",
+    "size": 7777
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/rpc-watchdog-timeouts.md",
@@ -182,8 +200,8 @@
   {
     "path": "vllm-ascend-triage/references/observability-and-logs/online-profiling-endpoints.md",
     "mode": "100644",
-    "sha256": "cdd7a07dac98f4f795ac46bf282c3bc7aa437f1e64468d2e232c9ca3c002d24c",
-    "size": 8343
+    "sha256": "4250cdbd7845729cc43269294f844b53cf65327a4c26f95fc3b97124ea596ba0",
+    "size": 8335
   },
   {
     "path": "vllm-ascend-triage/references/observability-and-logs/request-output-logging-flags.md",
@@ -244,6 +262,24 @@
     "mode": "100644",
     "sha256": "72b8467d6f286ab2fab1fd416585c8252a497dd54930508c814cc2b11c2e006f",
     "size": 2737
+  },
+  {
+    "path": "vllm-ascend-triage/references/spec-decode-mtp/acceptance-collapse.md",
+    "mode": "100644",
+    "sha256": "ad82c756b3dfd165f6805f964ac4bd30dc10efc8a3f52ea378ecdcb3cf6e15ea",
+    "size": 8359
+  },
+  {
+    "path": "vllm-ascend-triage/references/spec-decode-mtp/empty-first-response.md",
+    "mode": "100644",
+    "sha256": "6b20f49774ab813f652c8dd6e5004c09c1723fa8f3bd8cff515321ba76f2f3e2",
+    "size": 7590
+  },
+  {
+    "path": "vllm-ascend-triage/references/spec-decode-mtp/index.md",
+    "mode": "100644",
+    "sha256": "157068691ac6501791480a535273842830affcb1fe26b7aed098c16b35c03060",
+    "size": 3537
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/acl-graph-capture.md",

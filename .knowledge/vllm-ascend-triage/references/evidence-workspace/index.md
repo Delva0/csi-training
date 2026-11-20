@@ -31,7 +31,11 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   5776 files, `src/transformers/models/` held only `gpt2`, yet `docs/source/en/` had 406
   model pages and `docs/source/en/modeling_rules.md` carried the exact rule needed to
   diagnose a modeling bug. When the dependency's model source is missing, search its
-  `docs/` and `utils/` before declaring the question unanswerable.
+  `docs/` and `utils/` before declaring the question unanswerable. Architecture
+  facts therefore come from `docs/source/en/model_doc/<model>.md` plus the
+  upstream vllm config path, never from `src/transformers/models` in these
+  snapshots (recorded twice: #5585, and #11863 where the dense-vs-MoE question for
+  Qwen3.6-27B had only the model doc page to stand on).
 - Precedent: `history/` holds thousands of issue bodies, no index. **Never `ls` it** —
   recorded runs dumped ~3k filenames (~24 KB) in one call for zero information. Start with
   `scripts/history-titles.sh '<regex>'`, which prints `<file> :: <title>` per hit so a whole

@@ -1,6 +1,6 @@
 ---
 name: vllm-ascend-triage
-description: 'Triage vllm-ascend deploy, HCCL, support, accuracy faults'
+description: 'Triage vllm-ascend deploy, HCCL, image, OOM, accuracy faults'
 ---
 
 # vLLM-Ascend issue, deployment and support triage
@@ -15,15 +15,17 @@ concrete next step for the reporter.
 - **Issue report** (usually Chinese or English, template-shaped: environment dump
   + logs + narrative) about something that went wrong on an Ascend NPU host: a
   device-side operator crash, an accuracy/score disagreement, a garbled long-input
-  output, or a performance claim. When the task is just "explain/answer this
-  issue", the answer is still expected to be evidentiary, not a summary of the
-  report.
+  output, a long-run OOM / "VRAM not released" report, a performance claim, or a
+  bare `python -c "import <pkg>"` that aborts inside a library the image shipped.
+  When the task is just "explain/answer this issue", the answer is still expected
+  to be evidentiary, not a summary of the report.
 - **Deployment failure**: a vLLM / vLLM-Ascend deployment fails to come up or
   fails during engine start — `EngineCore failed to start`, `WorkerProc
   initialization failed`, silent worker death, `HcclAllreduce` / allreduce
   errors, `ERR01100`/`ERR00100`, OOM, "the model failed to load", a Python
   `AttributeError`/`TypeError` raised from a vllm-ascend patched forward or a KV
-  connector, or a deployment question filed with only a trimmed log.
+  connector, a `ValueError` from upstream `arg_utils` rejecting the parallel/DP
+  flags, or a deployment question filed with only a trimmed log.
 - **Support / version question**: "does vllm-ascend <version> deploy <model>?",
   `… has model type '<mt>' but Transformers does not recognize this
   architecture`. This is not a bug hunt; it is a version gate with a one-line
@@ -42,21 +44,28 @@ a capture-phase HCCL timeout; #10503 v0.20.2rc1 Kimi-K2.5-w4a8 on 2×A2 with
 tp8/dp2/EP, 乱码 on a 3.6K-token prompt; #17357 v0.26.0rc1-a3 DeepSeek-V4-Pro
 w4a8 `SUSPECT REMOTE ERROR`/507057 surfacing at a compile-phase pattern-registration
 sample op (lane C, reporting rank unrelated to the faulting chip); #5585 msmodelslim
-W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phase).
+W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phase);
+#5609 v0.12.0rc1 `corrupted size vs. prev_size` abort on
+`from mooncake.store import MooncakeDistributedStore` in the official image (image-owned
+native module, before any vllm-ascend code); #11863 v0.21.0rc1 dense Qwen3.6-27B
+launched from the 27B tutorial's multi-node PD recipe → upstream non-MoE external-DP
+gate (usage error plus a real doc bug); #16022 v0.23.0rc1 4×910B4 Qwen3.6-27B
+long-run HBM growth then crash, with `torchair_graph_config`/`ascend_scheduler_config`
+keys that never engaged.
 
 ## Rules that apply whenever this skill is used
 
 1. **Say the answer in a message, early, and budget for it.** The budget is
    16384 completion tokens for the whole session — reasoning, answer text and
-   tool-call arguments together — and it is not replenished per turn. Before this
-   step every recorded run ended with no reply: the final message was reasoning
-   text with no answer and no tool call, the run stopped on `output_truncated`
-   (`stop_reason: output_tokens`), one earlier run ended in a refusal, and the
-   diagnoses reached in reasoning were sound. In this step #17357 and #5585
-   delivered on the pattern below and still spent 15577 and 14542 tokens — nothing
-   spare — while #3389 and #10503 hit the cap with the answer beginning only in
-   the final turn: 44K and 36K characters of reasoning (78% and 68% of all
-   output, single blocks of 6-9K) over 25 and 30 tool calls, so one headline plus
+   tool-call arguments together — and it is not replenished per turn. The earliest
+   recorded runs all ended with no reply: the final message was reasoning text
+   with no answer and no tool call, the run stopped on `output_truncated`
+   (`stop_reason: output_tokens`), one ended in a refusal, and the diagnoses
+   reached in reasoning were sound. Later runs delivered on the pattern below and
+   still spent 15577 (#17357) and 14542 (#5585) tokens — nothing spare — while #3389
+   and #10503 hit the cap with the answer beginning only in the final turn: 44K
+   and 36K characters of reasoning (78% and 68% of all output, single blocks of
+   6-9K) over 25 and 30 tool calls, so one headline plus
    classification (1.4K characters) was delivered and one closing action table
    (4.4K characters) was lost. The mechanism is per-turn reasoning volume. So:
    - **Reasoning is a scratchpad, not the deliverable.** One short paragraph per
@@ -73,16 +82,20 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
      it as message text; a reasoning-only turn delivers nothing.
    - Emit in instalments: headline answer + lane/track classification + ranked
      causes with their confirming checks by ~10 tool calls, then re-emit the
-     corrected version at the end. An earlier answer stays valid, a missing one
-     does not, and everything after the first answer is refinement that must not
-     delay it.
+     corrected version at the end. A one-line "now let me check…" note is not an
+     instalment: #16022 emitted thirteen of them (40-140 characters each) and its
+     first real answer was the truncated final turn. An earlier answer stays
+     valid, a missing one does not, and everything after the first answer is
+     refinement that must not delay it.
    - Every assistant message should be a tool call or answer text. A "now let
      me…" plan line spends budget and delivers neither.
    - Do not carry a running hypothesis list in reasoning — that list belongs in
      the answer, where it is delivered. Keep confirmed findings in
      `/workspace/scratch/findings.md` so a late turn composes the answer without
-     re-reading sources; both successful runs wrote it and the answer as their
-     last two calls, so write it at the checkpoint, not at the end.
+     re-reading sources; the successful runs wrote it and the answer as their
+     last two calls, so write it at the checkpoint, not at the end — but treat it
+     as the answer draft: composing it cost #16022 a 7.7K-character reasoning
+     block and left no budget for the answer itself.
    - Version archaeology ("which release dropped attribute X", "when did this
      model land") is optional depth: state it as an open question plus the one
      command the reporter can run, instead of resolving it first. Do not open a
@@ -91,6 +104,17 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
      decisive evidence was a single omitted flag and one hardware health code,
      not a source-level defect. Cutting exploration is always cheaper than cutting
      the answer.
+   - **Count characters, not calls.** Output runs ~3.3 characters per token here,
+     so the whole session is roughly 50K characters of reasoning, answer and
+     tool arguments. #11863 finished at 13095 tokens using 26.6K characters of
+     reasoning plus a 4.2K-character answer; #16022 used 37.4K characters of
+     reasoning (15 blocks, one of 7.7K) and the cap arrived inside the answer. Budget
+     the answer at ~4K characters and total reasoning under ~20K; when either is
+     reached, stop investigating and write.
+   - **Truncation eats the tail, not the head.** #16022 delivered its verdict,
+     evidence table and causes 1-2, then died mid-clause at `动作：`. Put each
+     action directly after its cause and keep the closing scope / open-questions
+     block to 3-5 lines, so a capped answer still ends in something usable.
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C
    (table below); for a runtime report, decide whether it is a device-op fault,
    an accuracy/score gap, a corruption report or a performance claim. The
@@ -109,7 +133,11 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
 5. **Pin evidence to the reported version.** Read `/workspace/repos/SOURCES.json`
    before citing code: it records repo, ref, commit, basis and coverage cutoffs.
    Every code claim gets `path:line` plus the commit/ref it came from. State
-   recheck conditions when a constant, table or log line is version-specific.
+   recheck conditions when a constant, table or log line is version-specific. A
+   report citing `docs.vllm.ai/.../latest/…#<section>` is quoting a doc that may
+   postdate the pinned release: check that section exists in the pinned tree,
+   answer inside the pinned version, and if it is absent say so and ask for the
+   text rather than assuming what it says.
 6. **Label the strength of every claim**: reporter-confirmed > verified in the
    pinned source (`path:line` at commit X) > precedent in the issue history
    (quote the issue id) > unverified hypothesis / recalled tool default. Never
@@ -159,6 +187,24 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
     error is the evidence and the wrapper is not. Say which text you trust and why.
     Same family as the sync-point trap in procedure step 3: the line where
     an error surfaced is not necessarily the owner of the defect.
+12. **A crash inside a native module the image installed is an environment
+    question, and it is answerable without that module's source.** If the
+    repro is one `python -c "import <pkg>"` line and the process aborts with
+    glibc allocator text (`corrupted size vs. prev_size`, `free(): invalid
+    pointer`, `double free or corruption`, `Aborted (core dumped)`) and no
+    vllm-ascend frame, then: identify which file is actually imported (Ascend
+    images carry a second copy under `<toolkit>/python/site-packages/`),
+    interpose one allocator (`apt install libjemalloc2` +
+    `LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2` on Ubuntu,
+    `yum install jemalloc` + `/usr/lib64/libjemalloc.so.2` on openEuler), and
+    diff the Dockerfile's *copied* installer against the component's own
+    dependency script. The project's `docs/source/tutorials/*.md` startup blocks
+    are the list of ingredients the image is expected to provide. Cap the source
+    work at ~6 calls and emit the answer; #5609's recorded triage spent both
+    output budgets on ABI/RPATH/`glog` archaeology and delivered nothing, having
+    already found the jemalloc omission and ranked it low. Route:
+    `references/image-dependency-faults/index.md`, then
+    `references/image-dependency-faults/native-import-abort.md`.
 
 ## Classify the evidence
 
@@ -167,6 +213,7 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
 | Startup log: generic `WorkerProc initialization failed due to an exception in a background process`, **no** per-rank worker traceback; optional `[ERROR] TBE Subprocess[task_distribute] raise error[], main process disappeared!`; long silence before failure | Lane A: worker died without reporting | `references/startup-failures/silent-worker-exit.md`, then `references/startup-failures/max-model-len-budget.md` |
 | Startup log: per-rank `WorkerProc failed to start.` / `WorkerProc hit an exception.` plus a traceback with rank prefix | Lane B: worker raised a Python error | `references/startup-failures/environment-correspondence.md` (diff against the known-good tutorial/CI config) |
 | The traceback ends in `AttributeError: '<X>Config' object has no attribute '<attr>'` with a frame in `vllm_ascend/distributed/*connector*.py`, reached from `ensure_kv_transfer_initialized` (usually a VL/MoE model under PD disaggregation) | Lane B: connector reads a nested config attribute | `references/startup-failures/connector-config-attributes.md` |
+| `ValueError: Non-MoE models do not support external data parallel mode`, or any `ValueError`/`AssertionError` raised from `vllm/engine/arg_utils.py` that names a parallel mode or flag (`data_parallel_*`, `nnodes`, `node_rank`), with no `WorkerProc` line in the log | Startup argument validation in upstream vLLM — launch-command fix, not a defect | `references/startup-failures/arg-validation-errors.md` |
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
 | Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, `unexpected keyword argument`, `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
@@ -176,7 +223,9 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
 | Per-layer `MSE loss` / epoch table printed while converting a checkpoint with msmodelslim (W4A4/W8A8), one layer far above its neighbours, or "the converted checkpoint answers garbage" with no engine-side failure | Quantization-conversion phase: converter-owned, before the engine starts | `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` |
 | A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
 | 乱码 / token soup on a few-thousand-token prompt, process alive, no traceback, `finish_reason: length`, often MoE + EP across nodes or a quantised weight set | Generation corruption, short-prompt profile | `references/accuracy-benchmarks/short-prompt-corruption.md` |
-| Install, build, import, performance claim, or any report with no matching track | General sequence below | skip the topical routes |
+| The server served traffic then died on memory: "运行一段时间后显存不释放最后崩溃", `NPU out of memory` / `NPUWorkspaceAllocator` / `Memory_Allocation_Failure(EL0004)`, `npu-smi` pinned at 100 %, a P node holding KV the D node never takes | Runtime memory after a healthy period: capacity vs growth vs a config key that never engaged (contrast the Lane C row, where the OOM happens during `profile_run` / `determine_available_memory` before the server is ready) | `references/runtime-memory/index.md` |
+| `python -c "import <pkg>"` or the first use of an image-installed native module aborts the interpreter: `corrupted size vs. prev_size`, `free(): invalid pointer`, `double free or corruption`, `munmap_chunk(): invalid pointer`, `Aborted (core dumped)`, no Python frame, no NPU text | Image / bundled native module (pre-engine, not vllm-ascend code) | `references/image-dependency-faults/index.md` |
+| Compiler or missing-header error while installing/building, a performance claim, or any report with no matching track | General sequence below | skip the topical routes |
 
 ## Procedure
 
@@ -210,6 +259,15 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
      lines, and reproduce the number with
      `bash <skill_root>/scripts/aclgraph-size-budget.sh` instead of reading the
      formula by eye.
+   - Image / bundled-native-module abort (no vllm-ascend frame, glibc allocator
+     text): which copy is imported, then allocator interposition, then the
+     installer-vs-upstream dependency diff — steps 1-3 of
+     `references/image-dependency-faults/native-import-abort.md`. Skip the
+     module's C++.
+   - Runtime memory after a healthy period: take the two-sample split (capacity
+     vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
+     check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before
+     any leak theory (`references/runtime-memory/hbm-growth-and-oom.md`).
    - Accuracy/corruption: establish whether both numbers came from the same
      server, weights and serve flags before choosing a culprit
      (`references/accuracy-benchmarks/index.md`); for a garbled prompt, get the
@@ -286,6 +344,12 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
   maximum captureable batch sizes for a model/parallel configuration and the
   sampled subset, so a startup log's size list can be checked arithmetically
   (verified: 94 layers, TP=16 gives 6 sizes = `[512,408,304,192,88,1]`, #3389).
+- `references/image-dependency-faults/index.md` — faults the image or its build
+  recipe owns, before any vllm-ascend code: an interpreter abort inside a bundled
+  native module, a missing library the tutorials prescribe, a stale copied
+  installer. `references/image-dependency-faults/native-import-abort.md` is the
+  worked #5609 case (mooncake `corrupted size vs. prev_size`; toolkit-copy
+  shadowing, jemalloc preload, version that works).
 - `references/startup-failures/index.md` — engine/worker never becomes ready
   (lanes A/B): silent worker exit; `max_model_len` and memory budget
   (reporter-confirmed for #3543, but per-card HBM decides whether the default
@@ -296,6 +360,10 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
   `references/startup-failures/connector-config-attributes.md` for the
   `AttributeError` on a nested multimodal config inside a PD KV connector
   (verified for #5572, v0.12.0rc1);
+  `references/startup-failures/arg-validation-errors.md` for a `ValueError` that
+  names a flag combination instead of a device fault — the non-MoE external-DP
+  gate reached by following a MoE-shaped DP tutorial with a dense model
+  (verified for #11863, v0.21.0rc1 + vllm v0.21.0/v0.24.0);
   `references/startup-failures/acl-graph-capture.md` for a failure or stall
   inside ACL graph capture, where the logged advice is canned and the
   capture-size set is usually already the computed maximum (#3389, v0.11.0rc0).
@@ -309,6 +377,13 @@ W4A4 Qwen3-32B with one blown-up decoder layer (converter-owned, conversion phas
   failures whose text names a collective or the runtime stack, not a
   Python-level cause; the recorded answer was a physical HCCS link fault on 6 of
   8 cards.
+- `references/runtime-memory/index.md` — the service was healthy and later died on
+  HBM ("显存不释放", `NPU out of memory`): the capacity/growth/dead-key split, the
+  `PYTORCH_NPU_ALLOC_CONF` injection gate that `max_split_size_mb` silently
+  disables, the KV-pool and profile-peak arithmetic against the tutorial's
+  hardware floor, why `torchair_graph_config` / `ascend_scheduler_config` are
+  accepted and ignored, and the recorded OOM/leak precedent family (#12692,
+  #13185, #13248, #13240, #3198, #2650; worked for #16022 at v0.23.0rc1).
 - `references/custom-ops-runtime-faults/index.md` — aclnn/AscendC custom-op
   device faults: reading the device dump, mapping the operator to `csrc/<op>/`,
   tiling-mode tables. The dump names the operator and error class, not the

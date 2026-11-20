@@ -22,6 +22,12 @@ Inherit the rules in SKILL.md. Order matters more than depth here:
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards.
 
+If the text is an allocation failure that merely names a collective or an
+operator (`HcclAllGather` / `current working operator name is …`) after a server
+has been running for a while, the collective is the allocation site, not the
+owner: use `../runtime-memory/index.md` for the capacity/growth split instead of
+reading that op's shape code.
+
 If the collective failed while the engine was still capturing ACL graphs, take
 `../startup-failures/acl-graph-capture.md` as well: the advice printed around it
 there is canned wrapper text, and the capture-size set needs the arithmetic check

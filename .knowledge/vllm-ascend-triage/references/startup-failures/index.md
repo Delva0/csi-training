@@ -25,6 +25,11 @@ Inherit the rules in SKILL.md. Conditional routes:
   answer no/yes + the earliest release that works, then show the gates.
 - Suspicion of "model X is unsupported", wrong image/vllm pairing, or an
   obvious maintainer "works on my machine" reply → `environment-correspondence.md`.
+  That page also carries the scope of the question: the launch environment is
+  **one environment per worker process**, so on `ray`/multi-node a driver-shell
+  `source set_env.sh` proves nothing about a worker on another node — ask for
+  `pip show vllm vllm-ascend`, `import triton` and `which bishengir-compile`
+  per node (#3098).
 - The per-rank traceback is `AssertionError: Current device type:
   AscendDeviceType.A5 does not match the installed version's device type:
   AscendDeviceType.A2, please check your installation package.` (or

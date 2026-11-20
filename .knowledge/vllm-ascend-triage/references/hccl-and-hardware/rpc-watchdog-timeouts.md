@@ -28,6 +28,13 @@ env override `:933-934`). `collective_rpc` turns it into an absolute deadline
 (`:176`) and re-raises as above. `check_health` uses 10 s (`:269`) — a
 `check_health` timeout means the worker was already dead before the step.
 
+In a **startup** log the same 60 s line is often benign and self-clearing: it fires
+while the workers are still compiling (recorded #12534: the warning at 10:22:53 with
+the ranks saving their compiled graphs at 10:22:59-10:23:01, i.e. ~7 s late). Read it
+against the ranks' own milestones — the rank with no compile/AOT line after the
+warning is the one to chase, and a warning followed by every rank's milestone is not
+a hang. Only the *bare `TimeoutError`* shape below is the watchdog lane.
+
 So: the reporter's "card-to-card communication timeout" **is the framework's
 watchdog for one worker that stopped answering**, not a message from HCCL. The
 same mailbox also produces the DEBUG line

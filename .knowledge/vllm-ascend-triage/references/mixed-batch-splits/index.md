@@ -25,14 +25,20 @@ next blocking sync, so **the reported line can belong to the decode half while
 the fault is in the prefill launch of the previous layer**.
 
 Not this topic: a pure decode-only or prefill-only crash (read that backend's own
-page), a device fault raised from the indexer/`npu_scatter_nd_update_` of a
-sparse-attention model (`../dsa-sparse-attention/indexer-cache-scatter-fault.md`,
+page), **the variant the operator itself refuses** — `EZ9999 … When layout is TND,
+queryT(N) must be equal to the last element of actualSequenceLengthQ(M)`, which is
+padding bookkeeping in a `FULL_DECODE_ONLY` graph rather than a wrong split
+(`../spec-decode-mtp/fia-tnd-seqlen-mismatch.md`) —, a device fault raised from the
+indexer/`npu_scatter_nd_update_` of a sparse-attention model (`../dsa-sparse-attention/indexer-cache-scatter-fault.md`,
 which is the same class on the DSA path), a collective (`../hccl-and-hardware/`),
 and slow mixed batches with no fault (`../performance-throughput/`).
 
 ## Rules
 
-1. **Audit the split before the kernel.** `bash
+1. **Audit the split before the kernel.** When the op itself names two numbers that
+   must be equal, the units are already suspect *and already localised* — take
+   `../spec-decode-mtp/fia-tnd-seqlen-mismatch.md` (one script call) instead of this
+   audit, which is for the silent variant. Otherwise, `bash
    <skill_root>/scripts/batch-split-audit.sh <vllm-ascend-root>` lists every site
    that slices a request-indexed tensor by a token count and every
    `query_start_loc`/`actual_seq_lengths` slice passed without rebasing. One call,

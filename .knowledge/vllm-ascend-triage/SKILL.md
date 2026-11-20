@@ -409,6 +409,7 @@ delivery pattern is rule 1.
 | …or the box died **during engine start** and there is no `top` to sample: ssh lost, the log's last lines are the per-rank `rank N in world size M is assigned ...` set with **no** `Starting to load model`, and `--max-model-len` is 128K+ (256K = `Using max model len 262144`) | One eager host allocation, not a workload footprint: every worker builds the `max_model_len²` attention mask in `NPUModelRunner.__init__` — 9·N² bytes **peak** per rank (576 GiB at 262144, ×TP on one host) — before a weight is loaded, so `npu-smi` shows cards nearly empty and the reporter's "313T"/HCCL framing is a red herring (#2873 reporter-confirmed, 0.10.1rc1 mask refactor #2442; 0.10.0rc1 works; #3002) | `references/runtime-memory/attention-mask-host-allocation.md` + `scripts/attn-mask-budget.sh` |
 | A container-scoped counter climbs for days while the service stays healthy — `container_memory_working_set_bytes` "持续增加，7 天增加 80G", `container_memory_rss` / `container_memory_cache` beside it, `npu-smi` flat, no traceback and no OOM | Container **host** memory, not HBM: the counter sums every process in the container plus active page cache, so split rss from cache and convert the slope to bytes/request before any code read — the device-side knobs in the report cannot move it | `references/runtime-memory/container-working-set-growth.md` (one call: `scripts/working-set-arithmetic.sh`) |
 | Startup/KV-init failure whose deepest frame is `_convert_torch_format` / `torch_npu.npu_format_cast` with `Memory_Allocation_Failure(EL0004)`, `alloc device memory failed … 207001`, `507013`, SDMA/SMMU text | Allocation failure at KV-cache init — the cast is the allocation site, not an operator bug | `references/runtime-memory/kv-init-and-format-cast-alloc.md` |
+| Engine start dies on **every** rank in `torch.npu.empty_cache()`: `RuntimeError: unmapHandles:…NPUCachingAllocator.cpp:595 … AclrtUnmapMem((char *)ptr_ + segment_size_ * i, getHcclComm()), error code is 507899` with `ERR00100` / `EL0003`, deepest frame `patch_torch_accelerator.py` inside the `memory_profiling` window right after graph compile; the issue title is often a different line (`unable to save AOT compiled function`), and the reporter's own launch script exports `expandable_segments:True` (`unset` does not help — see the other column) | The allocator **unmap** under `expandable_segments:True`, not an OOM and not a collective: 507899 is the driver's own internal error, and vllm-ascend injects `expandable_segments:True` itself (`platform.py:761-779` at v0.23.0rc1) unless the value already carries `expandable_segments` / `max_split_size_mb` / `garbage_collection_threshold` — so `unset` is not off. Reporter-confirmed on 310P: `expandable_segments:False` starts it | `references/runtime-memory/allocator-expandable-segments-unmap-crash.md` (one grep: `Set PYTORCH_NPU_ALLOC_CONF`) |
 | `python -c "import <pkg>"` (or a first real use) raises `ImportError:` naming that package's own extension — `<pkg>/_ops.cpython-310-…so: undefined symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` — and the ENV dump selects `atb/cxx_abi_1` (or `cxx_abi_0`) | C++ `std::string`-ABI split between a prebuilt wheel and the selected NNAL/ATB root, pre-engine and not vllm-ascend code: `Ss` in the mangled name = old ABI, `NSt7__cxx11` = new | `references/image-dependency-faults/abi-undefined-symbol.md` (one call: `scripts/abi-symbol-check.sh <paste>`; the fix is reporter-confirmed on #1144, but which ATB file defines the symbol is still the reporter's `nm` step) |
 | `python -c "import <pkg>"` or the first use of an image-installed native module aborts the interpreter: `corrupted size vs. prev_size`, `free(): invalid pointer`, `double free or corruption`, `munmap_chunk(): invalid pointer`, `Aborted (core dumped)`, no Python frame, no NPU text | Image / bundled native module (pre-engine, not vllm-ascend code) | `references/image-dependency-faults/index.md` |
 | Engine init ends in a C++ exception with **no** Python frame: `terminate called after throwing an instance of 'std::logic_error'` / `what(): basic_string::_S_construct null not valid`, then `RuntimeError: Engine core initialization failed … Failed core proc(s): {}`; the last application line is plugin activation or `Initializing a V1 LLM engine` | Native null-string abort in a bundled `.so` during core/worker creation — an image/host question, not the checkpoint's config, processor or architecture (the same two lines appear for two unrelated models) | `references/image-dependency-faults/native-string-abort.md` |
@@ -419,6 +420,7 @@ delivery pattern is rule 1.
 | A **tool call** is the symptom, not the prose: `JSON Parse error: Unterminated string` / `Expecting ',' delimiter` / `Unterminated string starting at: line 1 column N` while the client assembles `tool_calls[0].function.arguments`, arguments reported truncated / 格式错误 / 重复输出, `JSON.parse` failing on `{"hvd": Pura900"}` (balanced braces, one quote short, `stream: false` clean), or `stream: true` returns only CoT and no `tool_calls`; often with `--speculative-config '{"num_speculative_tokens": 3, ...}'` where 1 正常, or with `--async-scheduling` | Tool-call output integrity: upstream vLLM's delta assembly vs the vllm-ascend sampler vs the model stopping early — decided by concatenating the argument fragments, then by one `return_token_ids: true` request, not by reading a parser or a kernel; a *string* value streamed with no opening quote is the parser's delta keyed on the argument's declared JSON-Schema type | `references/tool-call-streaming/index.md`, then `streamed-arguments-audit.md` (one call: `scripts/sse-toolcall-audit.sh <raw-sse>`) and, for the missing-opening-quote shape, `arg-type-gate-unquoted-value.md` (`scripts/tool-schema-type-audit.py <request-body.json>`) |
 | A constant in the code equals the number in the report — `num_speculative_tokens: 3` fails while `1` (and `2`) work — and the wrong output is exact-form: tool-call JSON, ids, code | Named code branch, not an investigation: `using_block_verify = max_spec_len >= 3` is the only spec-decode branch keyed on that value, **but newer refs also require `rejection_sampler_config.enable_block_verify`, default `False` (v0.23.0rc1) — read the line first**; then state it with its two ablations (`n=2`, `temperature: 0`) before its kernel is read | `references/tool-call-streaming/mtp-block-verify-acceptance.md` |
 | Report pastes only a response body: the CoT/thinking text sits in `content`, `message.reasoning` / `reasoning_content` never appears, `completion_tokens_details.reasoning_tokens` is `0`, thinking language mixed, or the complaint is only "回答中英混杂 / the answer is in English" while `content` reads `null` | Output routing — **upstream OpenAI frontend, not a vllm-ascend defect**: `reasoning_parser` defaults to `""`, so `--reasoning-parser <name>` (e.g. `qwen3`) is the whole gate; invariant to image tag and MTP | `references/accuracy-benchmarks/reasoning-output-routing.md` |
+| Startup fails with `KeyError: "Reasoning parser '<name>' not found. Available parsers: …"` (or `invalid reasoning parser: <name> (chose from {…})`), usually right after the reporter tries a name taken from their `--tool-call-parser` line (`qwen3_coder`), or asks "qwen3_coder可以吗?" | Two separate registries: `--reasoning-parser` reads `vllm/reasoning/__init__.py`, `--tool-call-parser` reads `vllm/tool_parsers/__init__.py` (v0.18.0), so the flag is the whole gate and the printed list also fingerprints the release. A Coder / non-thinking checkpoint needs **no** reasoning parser: `qwen3` with no `</think>` routes the whole answer to `reasoning` and leaves `content` empty | `references/accuracy-benchmarks/reasoning-output-routing.md` (name-space section) |
 | Host is **310P** (Atlas 300I Duo, `Ascend310P3`, image `-310P`), or the traceback sits on an `is_310p()` branch (NZ/`FRACTAL_NZ` format casts, no Ascend custom ops, `patch_mamba_config_310`) | SoC-conditional platform path: experimental per the pinned docs, NZ casts are real conversions, fp16/eager are mandatory | `references/soc-platform-paths/atlas-300i-310p.md` |
 | `EngineCore failed to start` whose deepest frame is `worker.py` → `check_ascend_device_type()` with **no** `Starting to load model` line: `AssertionError: Current device type: AscendDeviceType.A5 does not match the installed version's device type: AscendDeviceType.A2, please check your installation package.` (or `RuntimeError: Can not support soc_version: <n>`), typically on a 950PR/A5 host that installed a mirror wheel | SoC/package correspondence: the device type is **baked into the package at build time** (`_build_info.__device_type__` from `SOC_VERSION`), the release pipeline ships a2/a3/310p variants only while `Dockerfile.a5` exists in-tree, so an A5 host needs a source build on the node — and the guard must not be patched | `references/soc-platform-paths/device-type-build-vs-runtime.md` (two one-liners decide it) |
 | The report asks how to enable a feature rather than what broke: "如何正确开启 PCP/DCP", "F alone and G alone each报错，能否给个能跑通的示例", no log pasted, or two errors described in one sentence | Feature-enable / capability question: the validation verdict (docs statement at the pinned ref, whose hardware the measured table used, `tests/e2e/**` coverage, precedent versions) before any constraint list | `references/feature-enable-recipes/index.md`, then `context-parallel-pcp-dcp.md` |
@@ -439,6 +441,7 @@ delivery pattern is rule 1.
 | Deepest `vllm_ascend` frame is `counts_cpu[: counts.shape[0]].copy_(counts, non_blocking=True)` in `_copy_valid_sampled_token_count` (`model_runner_v1.py:1393`), batched with `Execution_Error_SDMA` / `rtMemcpyAsyncEx … reason=the model stream execute failed`, an `aivec … timeout or trap error` and an HCCL `AllGather`/`AllReduce` line carrying `rankSize` / `numBlocks`; DP or PD deployment, under concurrency | Device fault surfacing at the drafter's valid-count D2H copy (Lane C sync point) — and the frame is also free evidence: it only runs with `--async-scheduling` **and** spec decode **and** the padded drafter batch, so the paste proves the launch shape. Resolve the collective by rank size against the DP×PCP×TP group arithmetic (a 2-rank group is not `fc3_quant_x` on DP2×TP4), then `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` for attribution | `references/spec-decode-mtp/drafter-count-copy-device-fault.md` |
 | `ACL stream synchronize failed, error code:507015` / `EE9999 … aicore exception` whose deepest frame is an attention backend while the step held **both** decodes and prefills; often "completes with spec decode disabled" | Mixed-batch split **units**: `num_decodes` counts requests while `num_decode_tokens` counts tokens (× `1+num_spec`), so a request-indexed `block_tables`/`seq_lens` sliced by the token count, or an unrebased `query_start_loc` passed as `cu_seqlens`, reads out of its own storage; the reported line is often the decode half's `.npu()` | `references/mixed-batch-splits/index.md`, then `fa3-mixed-batch-split.md` (one call: `scripts/batch-split-audit.sh <root>`) |
 | KV pool / MemCache on **800I/T A3** with a DeepSeek-V4 (`compress_ratios`) model: first request fine, the **second** kills the workers (`HCCL watchdog … ERR02005`), or the `host_shm` variant dies at memcache init with a "device id 转换异常"; reporter says "懒加载" | KV-pool store lane: lazy init is the documented A3+DSV4+`device_sdma` behaviour (#9975) and a rank-local save failure is swallowed before it desyncs collectives (#14106) — diff the resolved `mmc-local.conf` against the tree's tables first | `references/kv-pool-store/memcache-a3-dsv4-init.md` |
+| `ERR00100 PTA call acl api failed` + `EZ9999 … When layout is TND, queryT(16) must be equal to the last element of actualSequenceLengthQ(4)` (`CheckFASeqlenDataInTND`, `fused_infer_attention_score.cpp`), no Python frame, real requests after a healthy start, on `FULL_DECODE_ONLY` + MTP (`num_speculative_tokens` recorded as 3), often `--data-parallel-size` > 1 with EP, on an MLA model (GLM-4.x, DeepSeek-V3.x) | The operator's own TND invariant refused two padding bookkeepings that disagree: `queryT` is the graph bucket (local `pad_for_cudagraph`, then the DP-wide max) while `last(actualSequenceLengthQ)` is the real per-request cumsum, padded only on the FULL + `uniform_decode` gate (drafter: only when `graph_pad_size > num_reqs`) — one call, `scripts/fia-tnd-seqlen-check.sh`, splits bucket-vs-real; `PIECEWISE` is rung 1, and the tree's GLM-4.x tutorial pins `num_speculative_tokens: 1` + explicit capture sizes + single node | `references/spec-decode-mtp/fia-tnd-seqlen-mismatch.md` |
 | `triton.compiler.errors.MLIRCompilationError` + `[ConvertLinalgRToBinary] encounters error: … operation's operand is unlinked` + `bishengir-compile … returned non-zero exit status 1`; engine started, the first real request dies; deepest `vllm_ascend` frames in `vllm_ascend/ops/triton/fla/**` under `triton/runtime/autotuner.py`; the recipe has a `pip install triton-ascend` or a standalone BiSheng/AscendNPU-IR `.run` over the image | Triton-Ascend kernel **compile** pair installed into the image — not the AscendC/aclnn custom-op lane and not the kernel's shapes: the wheel and `bishengir-compile` come from different builds | `references/image-dependency-faults/triton-ascend-pair.md` (remove the install, then move the release — maintainer-confirmed on #5750) |
 | The report **is a pip resolution error** and nothing has crashed: `ERROR: Could not find a version that satisfies the requirement torch-npu==2.5.1.post1.dev20250619`, `No matching distribution found for <pkg>`, or a title like "unmatched torch version between vllm=X and vllm-ascend=Y"; also `pip install pandas` inside the shipped image ending in `No matching distribution found` after an `ImportError: Please install vllm[bench] …` | Index visibility, not compatibility: the tree's `--extra-index-url`/`--pre` option lines never reach the wheel's metadata (`setup.py` skips `--` lines), the same requirement set can straddle two torch lines, and an air-gapped image's `global.index-url` makes every lookup unreachable — one call (`scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]`) prints both sides' `torch`/`torch-npu`/`torchvision` pins | `references/image-dependency-faults/pip-index-visibility.md` (#1796, #4737) |
 | Compiler or missing-header error while installing/building — or `pip install` from source in a pod with **no public network** (custom-ops step pulls from `gitcode.com`, `fetch failed`) | Build-time dependency closure, else the general sequence below | `references/image-dependency-faults/offline-source-build.md`, else skip the topical routes |
@@ -590,109 +593,48 @@ rule 1).
 | P/D or EPD starts but cannot move KV, or moves it and the output alternates | `references/pd-disaggregation/index.md` |
 | throughput, queueing, prefix-cache hit rate on a healthy engine | `references/performance-throughput/index.md` |
 | an embedding/pooling service never starts (checkpoint served as generate, score/rerank arch-name routing, fp32 head weight format), dies under concurrency, or returns wrong vectors | `references/pooling-embedding/index.md` |
-| OOM after a healthy period, HBM not released, host RAM, container working set, KV-init allocation failure | `references/runtime-memory/index.md` |
+| OOM after a healthy period, HBM not released, host RAM, container working set, KV-init allocation failure, or an `expandable_segments` unmap crash at `empty_cache` | `references/runtime-memory/index.md` |
 | traceback frames are only `vllm/**` + `site-packages/**` (tokenizer `Already borrowed`, frontend preprocessing) | `references/serving-frontend-faults/index.md` |
 | a SoC-conditional path: 310P/300I, A5 vs A2 wheel, kernel package for the running SoC | `references/soc-platform-paths/index.md` |
-| spec-decode/MTP symptoms: acceptance collapse, empty first response, async bookkeeping, drafter count copy, or a device dump at `execute_dummy_batch` on a launch with MTP + `FULL_DECODE_ONLY` | `references/spec-decode-mtp/index.md` |
+| spec-decode/MTP symptoms: acceptance collapse, empty first response, async bookkeeping, drafter count copy, a device dump at `execute_dummy_batch` on a launch with MTP + `FULL_DECODE_ONLY`, or an operator-level TND `queryT`/`actualSequenceLengthQ` refusal | `references/spec-decode-mtp/index.md` |
 | engine/worker never becomes ready (both lanes), model-type/quantization gates, arg validation, metadata/capture phase, first-weight-group `ValueError` (embedding checkpoint served as generate) | `references/startup-failures/index.md` |
 | the symptom is a tool call (`JSON Parse error` in `arguments`, no `tool_calls` while streaming) | `references/tool-call-streaming/index.md` |
 | the deliverable is a report about a document (community test, `[Doc]`, tutorial commands) | `references/tutorial-verification/index.md` |
 | `AttributeError`/`TypeError` in a downstream patch, or an upstream refactor that kept upstream code | `references/upstream-downstream-drift/index.md` |
 
 Scripts are re-runnable; `<skill_root>` is the path `skill_view` reports, and each
-script's own header carries its full flag list:
+script's own header carries its full flag list. Arguments, output and the issue
+each derivation came from are in
+`references/first-checks/scripts-catalogue.md`; this table is the name index:
 
-- `scripts/history-titles.sh '<regex>' [root] [limit]` — precedent index, one
-  `<file> :: <title>` line per matching history issue (rule 8: titles first).
-- `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one line
-  per repo with coverage and `runtime_verified`, plus the unavailable repos.
-- `scripts/oom-budget-split.sh --line '<OOM line>' --gmu F [--params P] [--tp N]
-  [--dtype D] [--hbm GB]` — splits a device-side OOM into inside vs outside the
-  `gmu x total` budget, then prices weights/TP and the remainder (#6572).
-- `scripts/card-budget.sh --params P [--dtype] [--tp] [--gmu] [--hbm] [--cards]
-  [--stage-gmu] [--stage-devices]` — weights-per-card vs budget and the gmu sum
-  over processes sharing a device (#9335). `P` is **billions** of parameters
-  (`671`, not `671e9`); the script exits 2 on a raw count rather than printing
-  arithmetic that inverts the verdict.
-- `scripts/aclgraph-size-budget.sh --layers N [--tp --dp --pcp --dcp --ep --moe
-  --aiv --max-num-seqs --sizes]` — the capture-size budget: maximum captureable
-  sizes and the sampled subset (94 layers, TP=16 gives 6 sizes, #3389).
-- `scripts/seq-cliff-capture-budget.sh --max-num-seqs N [--num-spec K]
-  [--max-num-batched-tokens T] [--running 256,258,264]
-  [--max-cudagraph-capture-size V] [--tp --dp] [--enforce-eager]` — the
-  concurrency cliff: the Ascend default capture ceiling
-  (`min(max_num_seqs × (1+num_spec), 512)`), the capture-size list near the
-  boundary, the running-sequence count where dispatch flips to `NONE`, the
-  padded size per step, and the `max_cudagraph_capture_size` A/B value with its
-  truncation trap (#14440).
-- `scripts/working-set-arithmetic.sh --growth 80GiB --days 7 --rps 20-40
-  [--tokens N] | --samples <paste|->` — the container-memory lane: bytes/request
-  and bytes/decode-step from the slope, or the rss-vs-cache split (#16563).
-- `scripts/host-ram-check.sh [--total-gib N] <paste|-> [...]` — host RAM vs the
-  per-rank RSS sum, with the VIRT and first-sample `%CPU` caveats (#3902).
-- `scripts/attn-mask-budget.sh --max-model-len N [--ranks K] [--dtype] [--host-gib]
-  [--log file]` — the eager `max_model_len²` host attention mask: peak (9·N²) and
-  retained (2·N²) bytes per rank, the total across ranks, the share of host RAM,
-  and the largest `--max-model-len` that fits (#2873, #3002).
-- `scripts/kvpool-segment-check.sh <mooncake.json|serve-log|-> [...]` — the
-  `global_segment_size` / `local_buffer_size` gate and the HDK band (#13439).
-- `scripts/store-put-code-check.sh <paste|-> [...]` — the store **put** lane:
-  maps `hccl_result = N` / `error_codes=[…]` to `hcclResult_t` and Mooncake's
-  `ErrorCode` (`4` = generic INTERNAL, `-1` = generic store error, `-200` = out of
-  space), reads the master's `PutStart`/`PutEnd`/`PutRevoke` as control-plane vs
-  data-plane, and flags the canned `Check memory and store capacity` text (#11454).
-- `scripts/ranktable-check.sh <rank_table.json|log> [...] | -` — `server_count` /
-  `server_id` / duplicate `device_ip`, i.e. multi-server vs local HCCS (#14506).
-- `scripts/plog-timeline.sh [--since YYYY-MM-DD] <log|-> [...]` — per-error-family
-  timeline and the first in-window error of a plog (#9183); an older record it
-  lists is a previous run **or** this process's own `init engine (...)` window, so
-  read it against the startup lines before discarding it (#10700).
-- `scripts/executor-timeout-check.sh <log|->` — vLLM's RPC/ringbuffer watchdog vs
-  a real collective timeout; tolerates screenshot-OCR garble (#1865).
-- `scripts/device-type-check.sh <paste|serve-log|-> | --soc-version N` — which side
-  of the device-type assert is the card and which is the wheel (#12141).
-- `scripts/cuda-only-path-audit.sh <vllm-root> [subpath] [vllm-ascend-root]` — the
-  unguarded `torch.cuda` lines and whether the downstream tree replaces the class
-  (#4309).
-- `scripts/batch-split-audit.sh <vllm-ascend-root>` — every site that slices a
-  request-indexed tensor by a token count (#17991).
-- `scripts/lora-graph-descriptor-audit.sh <vllm-ascend-root> [vllm-root]` — the
-  LoRA lane in one call: the punica binding (`torch_ops` vs the AscendC
-  `lora_ops`) with its SoC / `max_lora_rank` predicate, every `has_lora`
-  producer split into live-batch vs config-constant, whether the capture loop's
-  per-case `activate_lora` is ever consumed, and upstream's guard / `lora_cases`
-  / `cudagraph_specialize_lora` default (#6279, #1812).
-- `scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` — the install-time
-  pin arithmetic behind "could not find a version that satisfies" / "unmatched torch
-  version": reads both trees' `torch` / `torch-npu` / `torchvision` pins, flags the
-  metadata-vs-tree split for `--pre` / `--extra-index-url`, and names each
-  contradiction (a torch-npu line off the torch line, a torchvision cap that excludes
-  the vllm pin) (#1796, #4737).
-- `scripts/abi-symbol-check.sh <paste|->` — the `std::string`-ABI split in a
-  bundled wheel (#1144).
-- `scripts/checkpoint-key-prefix.py <model-dir|*.safetensors|*.index.json|->` — the
-  checkpoint's root tensor-name prefixes from the safetensors header (no device, no
-  weight load), plus `lm_head` presence, `config.json` `architectures` and any
-  `config_sentence_transformers.json`; exit 1 = root-level names, which cannot load into a
-  `…ForCausalLM` class (#5549).
-- `scripts/sse-toolcall-audit.sh <raw-sse>` — the streamed `tool_calls` argument
-  fragments, their assembly and a per-call verdict (`balanced` / `tail-lost` /
-  `quote-gap` / `malformed`) (#17797, #12261).
-- `scripts/seq-cls-arch-check.sh <vllm-root> <Arch>[,<Arch> ...] [--list '<frag>']`
-  — resolve a `--hf_overrides architectures` string the way
-  `ModelRegistry._normalize_arch` does: registered directly, else the first
-  registered suffix rewrite, with the model family (text vs multimodal) that
-  decides a `TypeError: Invalid type of HuggingFace config` report (#14817).
-- `scripts/nz-format-gate-check.sh <paste|-> [vllm-ascend-root]` — which `EZ1001`
-  family the paste is (aclnn registry vs dtype × layout), the phase of the first
-  hit, and the NZ gate's fp32 policy at the checked-out ref (`is_enable_nz` vs
-  `_should_trans_nz`), i.e. whether an fp32 pooling/score head is being cast to
-  `FRACTAL_NZ` (#4679).
-- `scripts/tool-schema-type-audit.py <request-body.json|->` — per tool argument,
-  the declared JSON-Schema type, flagging the arguments a streaming parser will
-  emit **unquoted** (`anyOf: [string, null]` and other schemas with no top-level
-  `"type": "string"`); run it on the client's own body before reading a parser
-  (#12261).
+| script | answers |
+|---|---|
+| `history-titles.sh '<regex>'` | precedent index by issue title (rule 8) |
+| `sources-summary.sh` | version contract, coverage per repo |
+| `oom-budget-split.sh` | OOM inside vs outside the gmu budget (#6572) |
+| `card-budget.sh` | weights per card vs budget (#9335) |
+| `aclgraph-size-budget.sh` | max captureable graph sizes (#3389) |
+| `seq-cliff-capture-budget.sh` | capture list and the concurrency cliff (#14440) |
+| `fia-tnd-seqlen-check.sh` | FIA TND `queryT` vs `actualSequenceLengthQ` (#6598) |
+| `working-set-arithmetic.sh` | container bytes/request, rss vs cache (#16563) |
+| `host-ram-check.sh` | host RAM vs the per-rank RSS sum (#3902) |
+| `attn-mask-budget.sh` | eager mask peak, largest fitting length (#2873) |
+| `kvpool-segment-check.sh` | segment/buffer size gate (#13439) |
+| `store-put-code-check.sh` | store put result codes (#11454) |
+| `ranktable-check.sh` | rank-table ids, duplicate `device_ip` (#14506) |
+| `plog-timeline.sh` | error-family timeline, first in-window error (#9183) |
+| `executor-timeout-check.sh` | RPC watchdog vs collective timeout (#1865) |
+| `device-type-check.sh` | card vs wheel on the device-type assert (#12141) |
+| `cuda-only-path-audit.sh` | unguarded `torch.cuda` lines (#4309) |
+| `batch-split-audit.sh` | request-indexed tensors sliced by a token count (#17991) |
+| `lora-graph-descriptor-audit.sh` | LoRA binding and `has_lora` producers (#6279) |
+| `pip-pairing-check.sh` | `torch`/`torch-npu` pins, both trees (#1796) |
+| `abi-symbol-check.sh` | `std::string` ABI split in a wheel (#1144) |
+| `checkpoint-key-prefix.py` | root tensor-name prefixes (#5549) |
+| `sse-toolcall-audit.sh` | streamed `tool_calls` fragments (#17797) |
+| `seq-cls-arch-check.sh` | `architectures` override resolution (#14817) |
+| `nz-format-gate-check.sh` | which `EZ1001` family, NZ fp32 policy (#4679) |
+| `tool-schema-type-audit.py` | argument types vs the unquoted stream (#12261) |
 
 Precedent index, per-issue outcomes and the recorded sessions behind the rules stay
 in `references/evidence-workspace/recorded-cases.md`.

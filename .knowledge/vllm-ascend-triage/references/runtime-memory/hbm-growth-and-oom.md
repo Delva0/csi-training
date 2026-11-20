@@ -58,6 +58,13 @@ startup memory lines, and the crash tail. Then:
 - Therefore `-e PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` in a launch script
   silently turns the anti-fragmentation default **off** — it looks like tuning
   and acts like a regression.
+- The same value can also be the *failing site* rather than a tuning choice: on a
+  host whose driver rejects the segment unmap, `expandable_segments:True` dies in
+  `torch.npu.empty_cache()` with `unmapHandles … 507899` before the server is ready,
+  and `expandable_segments:False` starts it (reporter-confirmed #12534) —
+  `allocator-expandable-segments-unmap-crash.md`. Decide which lane you are in by
+  the frame (an `AclrtUnmapMem` inside `empty_cache` = that page; a request-path OOM
+  = this page).
 - The effective value is logged: `Set PYTORCH_NPU_ALLOC_CONF=%s`
   (`platform.py:779`). One grep of the reporter's serve log
   (`grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <log>`) settles the branch; no source

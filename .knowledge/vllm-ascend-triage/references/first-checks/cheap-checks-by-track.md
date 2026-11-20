@@ -247,7 +247,12 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   apply the 300I environment (`--enforce-eager`, `--dtype float16`,
   `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256`) and a smaller
   `--max-model-len` before blaming the platform
-  (`references/soc-platform-paths/atlas-300i-310p.md`).
+  (`references/soc-platform-paths/atlas-300i-310p.md`). Write the allocator value
+  explicitly — on 310P `expandable_segments:True` crashed every rank at
+  `empty_cache` (`unmapHandles … 507899`) while `:False` deployed
+  (`references/runtime-memory/allocator-expandable-segments-unmap-crash.md`) — and
+  with TP > 1 quote the graph budget before any HCCL theory
+  (`docs/source/tutorials/hardwares/310p.md:20-30`).
 - Device allocation failure before the engine is ready
   (`Memory_Allocation_Failure(EL0004)`, `runtime result = 207001`, `507013`
   plus SDMA/SMMU text) at a KV-cache or weight `npu_format_cast`: read
@@ -255,6 +260,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   (`--max-model-len`, then `--gpu-memory-utilization`) before any
   driver/hardware theory
   (`references/runtime-memory/kv-init-and-format-cast-alloc.md`).
+  If instead the frame is `torch.npu.empty_cache()` and the text is
+  `unmapHandles … 507899`, nothing failed to allocate: `grep -m1
+  'Set PYTORCH_NPU_ALLOC_CONF' <serve log>`, then relaunch with an explicit
+  `expandable_segments:False`
+  (`references/runtime-memory/allocator-expandable-segments-unmap-crash.md`).
 - Runtime memory after a healthy period: take the two-sample split (capacity
   vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
   check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before

@@ -29,6 +29,45 @@ in the subsets with the longest CoT. A harness that strips think tags from the r
 (ais-bench's `extract_non_reasoning_content`) or reads `reasoning` too does not lose them.
 That asymmetry alone can produce a multi-point tool-vs-tool gap on the same server.
 
+## The parser *name* space: `--reasoning-parser` is not `--tool-call-parser`
+
+Recorded follow-up on #8022. The reporter asked "qwen3_coder可以吗?" and got:
+
+```text
+KeyError: "Reasoning parser 'qwen3_coder' not found. Available parsers: deepseek_r1,
+deepseek_v3, ernie45, glm45, granite, holo2, hunyuan_a13b, kimi_k2, minimax_m2,
+minimax_m2_append_think, mistral, nemotron_v3, olmo3, openai_gptoss, qwen3, seed_oss,
+step3, step3p5"
+```
+
+`qwen3_coder` is a **tool-call** parser (`vllm/tool_parsers/__init__.py:125-128` →
+`Qwen3CoderToolParser`), not a reasoning parser: the two flags read two separate
+registries (`vllm/reasoning/__init__.py:22-95` versus `vllm/tool_parsers/__init__.py`,
+both at vllm v0.18.0 `bcf2be9`), so a name copied from the `--tool-call-parser` line of
+the same serve command produces exactly this KeyError. The correct answer for a Coder
+(or any non-thinking) checkpoint is **no `--reasoning-parser` at all**: it emits no
+`</think>`, and `qwen3` with thinking enabled returns `(model_output, None)` — the
+whole answer is routed to `reasoning` and `content` stays empty
+(`vllm/reasoning/qwen3_reasoning_parser.py:81-87`). Keep
+`--tool-call-parser qwen3_coder` (with `--enable-auto-tool-choice`) for tools and drop
+the reasoning flag.
+
+Two readings of the same mistake, both at boot and both upstream config, never the
+model or the device:
+
+| message | site |
+|---|---|
+| `KeyError: Reasoning parser '<x>' not found. Available parsers: a, b, …` | `vllm/reasoning/abs_reasoning_parsers.py:180-199` (`get_reasoning_parser`, reached from the serving / structured-output construction); names sorted by `list_registered` (`:200-204`) |
+| `KeyError: invalid reasoning parser: <x> (chose from { a,b,… })` | `vllm/entrypoints/openai/api_server.py:503-511`, the arg pre-check |
+
+The printed list is also a **version fingerprint**: the 18 v0.18.0 keys include the
+aliases `glm45` and `holo2` (both `DeepSeekV3ReasoningWithThinkingParser`) and the
+names `openai_gptoss` / `seed_oss`, which differ from their files
+(`gptoss_reasoning_parser.py`, `seedoss_reasoning_parser.py`); `minimax_m2` and
+`minimax_m2_append_think` are two classes in one file. Grep
+`_REASONING_PARSERS_TO_REGISTER` at the claimed ref instead of trusting the spellings,
+and never propose a name you have not found there or in the reporter's own list.
+
 ## The inverse shape: "thinking is inside `content` and `reasoning_tokens` is 0"
 
 Re-verified at vllm v0.22.1 (`0decac0d96c4`) + vllm-ascend v0.22.1rc1 (`5f6faa0`),
@@ -45,7 +84,7 @@ layer, so say that before any device theory.
 | no parser class ⇒ no split and no counting | `vllm/entrypoints/openai/chat_completion/serving.py:98,125-126,143,253-255` build the parser only when the name is set; the split branch is guarded by `elif reasoning_parser:` / `if reasoning_parser` (`:343-362,1124-1133`) |
 | `qwen3` covers Qwen3 **and** 3.5/3.6 | `vllm/reasoning/__init__.py:107-110`; the parser strips a leading `<think>`, since from Qwen3.5 the template puts it in the prompt (`qwen3_reasoning_parser.py:21-24`) |
 | `reasoning_tokens` is parser-derived, not a sampler counter | `vllm/reasoning/basic_parsers.py:183` `count_reasoning_tokens`, consumed at `vllm/entrypoints/openai/responses/serving.py:861-893` |
-| a *wrong* name is not this failure | `vllm/entrypoints/openai/api_server.py:524-530` raises `KeyError: invalid reasoning parser` at boot, so a server that came up had either the right name or none |
+| a *wrong* name is not this failure (it is a boot failure) | two upstream boot-time `KeyError`s list the registered names — `vllm/reasoning/abs_reasoning_parsers.py:180-199` and `vllm/entrypoints/openai/api_server.py:503-511` (v0.18.0) — so a server that came up had either the right name or none; the list also fingerprints the release ("The parser *name* space", above) |
 
 Reporter-supplied scope (#11715, later comment): 910B + Ubuntu 22.04 + CANN 25.5.1,
 two images (v0.20.2rc1, v0.18.0), MTP on and off, English and Chinese prompts, both

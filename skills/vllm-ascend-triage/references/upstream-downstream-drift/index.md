@@ -23,6 +23,12 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
 - the named class subclasses a `transformers`/`vllm` class or is registered as a
   drop-in replacement for one (`PluggableLayer`, `ModelRegistry.register_model`,
   monkey-patched `forward`);
+- a downstream **fork of a whole upstream file** lags the upstream *state machine*
+  rather than its signatures — `vllm_ascend/core/scheduler.py` (the `AscendScheduler`
+  fork of `vllm/v1/core/sched/scheduler.py`) rejects a request status upstream added
+  (`RuntimeError: Invalid request status: WAITING_FOR_FSM`),
+  `scheduler-fork-missing-status.md` (the `npu_input_batch.py` copy below is the
+  other direction: the copy grew a branch upstream does not have);
 - a downstream **verbatim copy** of an upstream worker module has grown an extra
   branch the upstream file does not have, and that branch is what fails — e.g.
   `vllm_ascend/worker/npu_input_batch.py` at v0.11.0 (a copy of
@@ -31,7 +37,8 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   concurrency, `../pooling-embedding/batch-index-desync.md`. Same method as
   `patch-copy-vs-upstream.md`, different directory, and the diff is what proves
   ownership;
-- the error is a Python attribute/type error, not a device dump, not a collective.
+- the error is a Python attribute/type/state error (including a `RuntimeError`
+  raised by a fork's own state handling), not a device dump, not a collective.
 
 The one `NotImplementedError` that belongs to startup instead: a **custom op**
 registered by the downstream C++ extension without a Meta/fake implementation
@@ -150,6 +157,20 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
   `VllmConfig` is built. Ray ranks and `spawn` workers keep upstream's
   `forward_oot`; the default `fork` inherits the patched class. Includes the
   frame-file discriminator and the two-line host check.
+- `scheduler-fork-missing-status.md` — worked case vllm-ascend #3979
+  (v0.11.0rc0 `00ba071` / vllm v0.11.0rc3 `8ce5d31`): a `guided_choice` request
+  raises `RuntimeError: Invalid request status: WAITING_FOR_FSM` at
+  `vllm_ascend/core/scheduler.py:274` and kills EngineCore. The fork's status
+  whitelist (`:269-274`) never learned upstream's FSM state
+  (`vllm/v1/request.py:75`, gate at `vllm/v1/core/sched/scheduler.py:357-366`),
+  the fix has three sites because the fork also hardwires
+  `structured_output_request_ids={}` / `grammar_bitmask=None` (`:475-476`), and
+  the first move is a grep on `platform.py`: rc0 **force-enables** the fork for a
+  default dense serve (`platform.py:139-150`, so an explicit `enabled: false` is
+  overwritten) and the block is gone by `v0.11.0rc1`, which flips the escape
+  between a gate-input flag and dropping the key. Includes the method-set diff
+  recipe, the CI-coverage gap, the shutdown `nanobind` noise, and the recheck
+  command.
 - `patch-copy-vs-upstream.md` — the `patch/**` frame: the extract-and-diff recipe
   with exact line ranges, the formatting-vs-added-statement classification, the
   version gate that binds a copy to one upstream release, and worked #8724

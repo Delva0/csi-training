@@ -83,6 +83,16 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   dtype/shape predicate that selects the branch — then answer `--enforce-eager`
   before proposing a patch, with the dtype that skips the branch as rung 2
   (`references/startup-failures/meta-kernel-missing.md`).
+- Startup traceback whose deepest frame is **upstream** and ends
+  `AssertionError: Torch not compiled with CUDA enabled`, e.g. a `get_rope`
+  branch constructing a device in `__init__` (`dual_chunk_rope.py:37` at vllm
+  v0.11.0): one call runs
+  `bash <skill_root>/scripts/cuda-only-path-audit.sh <vllm-root> <subpath> <vllm-ascend-root>`,
+  which lists the unguarded `torch.cuda` hits, whether the file has any
+  `current_platform` guard, the `forward_*` implementations, and whether the
+  downstream tree replaces the class at all. The `torch==2.7.1+cpu` line in the
+  env dump is normal on NPU and is **not** the cause
+  (`references/startup-failures/checkpoint-config-cuda-only-path.md`, #4309).
 - Degenerate output whose trigger the reporter names as *token content* ("only when
   these special tokens are in the prompt", identical across several releases, one
   model only): refute or confirm that claim from the paste before any source read —
@@ -98,6 +108,16 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   patch rebinds, check for a pre-patch alias in the consumer module —
   `consumer.<name> is defining_mod.<name>` settles it in one line
   (`references/upstream-downstream-drift/stale-module-binding.md`, #15815).
+- `RuntimeError: Invalid request status: <STATUS>` (e.g. `WAITING_FOR_FSM`)
+  raised from `vllm_ascend/core/scheduler.py` while the server was serving: the
+  `AscendScheduler` fork lags an upstream request status. One call —
+  `grep -n '    def '` on the fork and on `vllm/v1/core/sched/scheduler.py` —
+  shows the missing methods (`get_grammar_bitmask`), and one more
+  (`grep -n "ascend_scheduler_config.enabled = True" …/platform.py`) says whether
+  the fork was force-enabled for a default serve (rc0) or is opt-in — that decides
+  between a gate-input flag and dropping the key, and whether the three-site patch
+  is even needed
+  (`references/upstream-downstream-drift/scheduler-fork-missing-status.md`, #3979).
 - PD / EPD transport complaint: **first ask whether a KV pool is configured**
   (`AscendStoreConnector` in a `MultiConnector`, `MOONCAKE_CONFIG_PATH`). A pool
   with **no** PD, or one that initialises and then fails while saving, is not

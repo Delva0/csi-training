@@ -10,6 +10,12 @@ error`, MTE/DDR "out of range", retCode `0x7150050` / runtime result `507011`, o
 from a `csrc/<op>/*_torch_adpt.h` frame. The silent counterpart belongs here too: an
 attention op that runs, returns the right shape and the wrong numbers, with no dump and
 often a framework-free `torch_npu` repro (`attention-op-numeric-errors.md`).
+A Triton-Ascend kernel that fails to *compile* — `MLIRCompilationError`,
+`[ConvertLinalgRToBinary] encounters error`, `bishengir-compile … returned non-zero
+exit status 1` with `vllm_ascend/ops/triton/**` frames — is **not** this lane even when
+the reporter words it as "failed to compile custom operators": nothing here touches
+the AscendC extension, and the owner is the installed wheel/compiler pair
+(`../image-dependency-faults/triton-ascend-pair.md`).
 
 ## Rules
 

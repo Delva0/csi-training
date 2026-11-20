@@ -97,3 +97,10 @@ should be in the first answer as the reporter's next step.
   per-sequence prefill loop are v0.11.0rc0 facts. Re-grep
   `patch_triton.py`, `ops/fla.py` and `models/qwen3_next.py` at any later pin — the
   same three sites moved in later releases.
+- The `patch_common/` directory in the row above is itself version-specific: at
+  v0.11.0 (`2f1aed9`) and v0.11.0rc2 (`a2e4c3f`) the file is
+  `vllm_ascend/patch/worker/patch_triton.py` with the same five rebinds at
+  `:12-16` (`causal_conv1d_update` binds to `causal_conv1d_update_npu`), and
+  `torch_chunk_gated_delta_rule` is defined at `vllm_ascend/ops/fla.py:205` with
+  `chunk_size=64`, calling into `vllm_ascend/ops/sigmoid_gating.py:45-46` for the
+  decode kernel. Cite the path you grepped, not this one.

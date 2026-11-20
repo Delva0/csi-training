@@ -64,6 +64,13 @@ Inherit the rules in SKILL.md. Conditional routes:
   compilation traces with fake tensors; `--enforce-eager` is the first rung, the
   dtype that skips the gated branch is the second, and the namespace in the message
   (`_C` vs `_C_ascend`) dates the tree.
+- The traceback reached `Starting to load model`, has **no** `vllm_ascend` frame
+  below the loader, and ends `AssertionError: Torch not compiled with CUDA
+  enabled` (typically from a `torch.cuda.current_device()` inside an upstream
+  `__init__`) → `checkpoint-config-cuda-only-path.md`. A checkpoint
+  `config.json` key selected an upstream CUDA-only class that vllm-ascend does
+  not implement; the env dump's `torch==2.7.1+cpu` is normal on NPU and is not
+  the cause. One call: `../../scripts/cuda-only-path-audit.sh`.
 - If the log names a collective (`HcclAllreduce`, `hcclRet`, `ERR00100`) instead
   of a Python-level cause, leave this topic and use
   `../hccl-and-hardware/index.md`.

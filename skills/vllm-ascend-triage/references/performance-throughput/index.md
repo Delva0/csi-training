@@ -58,6 +58,13 @@ Not this topic, leave immediately:
   --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'`).
 - Never read `npu-smi` AICore%/power from an idle paste as load evidence: those
   numbers were taken while no request was running.
+- **On a hybrid GDN MoE, a low single-digit `Avg generation throughput` with
+  `Running: 1` may be the release, not the flags.** When the project's own
+  tutorial command at that ref already carries `--enforce-eager` and caps graph
+  mode at `PIECEWISE` (`platform.py:207-208` at v0.11.0rc2), the config diff finds
+  nothing and the answer is the version ladder — `qwen3-next-decode-throughput.md`.
+  Do not promise the flag flip as a fix: it is a hypothesis with a named log line to
+  confirm.
 
 ## Pages
 
@@ -68,6 +75,13 @@ Not this topic, leave immediately:
   If the paste's samples match that table line for line, the arithmetic is
   settled — cite it and spend the remaining turns on the answer, not on
   re-deriving it.
+- `qwen3-next-decode-throughput.md` — Qwen3-Next-80B-A3B at 4-6 tok/s on one
+  request: the per-step arithmetic that rules capacity and queueing out, the
+  verified v0.11.0rc2 map (`--enforce-eager` in the project's own command,
+  `FULL_AND_PIECEWISE` degraded to `PIECEWISE`, prefill GDN rebound to a pure-torch
+  chunk loop, no `qwen3_next` in `tests/`), why the newer release's
+  `FULL_DECODE_ONLY` tutorial command is the real lever, and the paste-hygiene traps
+  (#4357: `served_model_name` contradicts the reported command).
 - `zero-prefix-cache-hit-hybrid.md` — a hybrid GDN model (Qwen3-Next) reporting
   `Prefix cache hit rate: 0.0%`: the `SupportsMambaPrefixCaching` gate that
   disables prefix caching in `MambaModelConfig` at vllm v0.14.1, the model's own

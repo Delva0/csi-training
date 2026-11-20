@@ -63,6 +63,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   (#8745 v0.13.0rc3 DeepSeek-V4-Flash and #10943 v0.20.2rc1 print the same two
   lines; #10943's reporter confirmed the unmodified checkpoint crashes
   identically and eight model-side changes moved nothing).
+- `pip install` **from source** in a pod without public network fails in the
+  custom-ops step ("pulls dependencies from the public network", sometimes only
+  `fetch failed`): the build chain fetches a `catlass` git submodule plus four
+  third-party tarballs from `gitcode.com` at configure time →
+  `offline-source-build.md` for the inventory, the pre-seed gates and the two knobs
+  that do not work (`CANN_PKG_SERVER`, an exported `CANN_3RD_LIB_PATH`).
 - You suspect the image at all: the Dockerfile `cp`s a helper from the repo
   (`Dockerfile.a3:37` copies `tools/mooncake_installer.sh`) and upstream ships
   its own copy of that script. Diff the two dependency lists before blaming the
@@ -86,6 +92,11 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   object file` while a connector module is imported in a launcher-managed
   deployment, when the ENV dump says the path is fine: the launch command's
   effective environment, the tutorials' exports, and the image-owns-it boundary.
+- `offline-source-build.md` — an offline source build: the own-source invocation
+  chain (`setup.py` `build_aclnn` → `csrc/build_aclnn.sh` → `csrc/build.sh` →
+  `csrc/CMakeLists.txt`), the five network legs with the existence gate that
+  suppresses each, and the report-shape answer (which leg stopped, and where to
+  seed).
 
 ## Common rules
 

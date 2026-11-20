@@ -75,6 +75,13 @@ leads were.
   it at G2 *in place of* the reasoning block, and skip it when the session is
   already long. Composing it late is what costs a run its ranked causes.
 
+**A block that has already started the answer is not closer to delivery.** #16111
+wrote `Verified facts (pinned …)` and #8788 wrote `**Answer**: Yes, real.` inside
+`reasoning_content`; both were cut there, so the reporter received neither. Copy the
+sentence out into the message in the turn it is written — a verdict line, a numbered
+fix list or an evidence table inside reasoning is the same spend with the same risk as
+a plan.
+
 **Copy the sentence, not the plan.** #17991 is the clearest recorded case: the mechanism was settled in the reasoning block and the message text said it was about to check two more facts. The remedy is mechanical — when the reasoning block reaches a sentence that names the owner and the line, that sentence is the message text of *this* turn; the tool call rides along after it. A block ending in a plan ("let me pin two last facts") ships nothing, and the next call may never run.
 
 ## Why: the recorded pattern
@@ -103,6 +110,8 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #8724 | the frame line and the three-traceback signature by turn 3; the decisive patch-vs-upstream diff was the one step that never ran | **no answer**: 29 turns, every message a tool call, ~48.5 K characters of reasoning against 73 characters of text, cut inside a reasoning block on the turn it finally started the diff (`../upstream-downstream-drift/patch-copy-vs-upstream.md`) |
 | #17991 | the full source-verified diagnosis (`fa3_v1.py:132-136`, request-indexed `block_tables` sliced by a token count) written in the reasoning at its 17th turn | **no answer**: ~51 K characters of reasoning against 255 characters of message text; the 186-character message on that turn was `Confirmed the fault mechanism. Let me pin two last facts`, and the cap landed on the next tool call (`../mixed-batch-splits/fa3-mixed-batch-split.md`) |
 | #11759 | each section as it became true: the absent benchmark section (turn 6), the ignored `max_completion_tokens` (turn 8), the one-card sizing arithmetic (turn 11), the `transformers==4.51.0` pin conflict (turn 14) | **no file, no message text**: 16 turns, 46.5 K characters (29.8 K reasoning, 69 characters of message text), the report heredoc written on the last turn and discarded — a 5.7 K-character composition after a 3.5 K-character script the turn before |
+| #16111 | by turn ~12: the lazy init is documented (#9975), the config-table diff (`dram.size` per die, the non-existent `standalone.dram.size`) and the #14106 swallowed-save → collective-desync family | **no answer at all**: 36 turns, every message a bare tool call, cut inside a reasoning block that was composing the deliverable ("Verified facts (pinned …)") — the answer existed only as reasoning |
+| #8788 | by turn ~18: the invocation chain and the four `csrc/third_party` fetches plus the catlass submodule | **no answer at all**: 30 turns, every message a bare tool call, cut inside a block that had already begun "**Answer**: Yes, real…" |
 
 Two consequences worth restating: an "I'll start by…" line is not an answer and
 does not satisfy G1, and a run whose last turn is a tool call has shipped nothing.

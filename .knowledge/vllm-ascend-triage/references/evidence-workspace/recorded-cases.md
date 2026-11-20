@@ -353,7 +353,13 @@ every message a bare tool call, ~48.5 K characters of reasoning against 73
 characters of message text, cut inside a reasoning block on the very turn it began
 the patch-vs-upstream diff — the first step that should have been taken
 (`../upstream-downstream-drift/patch-copy-vs-upstream.md`,
-`../spec-decode-mtp/async-spec-bookkeeping-desync.md`).
+`../spec-decode-mtp/async-spec-bookkeeping-desync.md`). A later replay that
+started from the classification row and that page **answered it in 8 assistant
+turns (8.4 K characters of message text)**: four confirmation reads (the
+`KeyError` line, the `-1` fill in `eagle_proposer.py:825`, the index-map filter,
+the `vllm_version_is('0.13.0')` install gate), then the ranked answer with the
+upstream identity, the temperature anchor and the honest gap (which step discards
+a row). The page, not more source, is what closed it.
 
 **#17991** vllm-ascend `v0.23.0rc1` (`f4a08bdd`) / vllm `0.23.0` (`0fc695fc`),
 8×910B3, FA3 NPU `v0.4.2`, Qwen3-0.6B with `attention_config={"backend":
@@ -422,3 +428,59 @@ rebuilding the paste into a scratch file to feed
 `plog-timeline.sh` — a gate that needs a long-form timestamped record
 (`[PID: n] <YYYY-MM-DD-HH:MM:SS>`) the paste did not have. The ranked answer
 existed from about turn 8 (`../hccl-and-hardware/aiv-mc2-env-ablation.md`).
+
+**#10546** vllm-ascend `v0.20.2rc1` (`367b8e6`) / vllm `v0.20.2` (`bc150f5`),
+DeepSeek-V4-flash 1P1D, decode instance DP2×TP4 + EP, 10-way concurrency: the
+decode worker dies with `rtMemcpyAsyncEx … reason=the model stream execute
+failed`, an `aivec … timeout or trap error … subErrType:4` dump and an HCCL
+`AllGather` task line (`rankSize 2`, `numBlocks 2`, `size 65536`), inside a
+traceback that ends at `model_runner_v1.py:1393 counts_cpu[: counts.shape[0]]
+.copy_(counts, non_blocking=True)` in `_copy_valid_sampled_token_count`
+(`srclen=24` → six `int32` rows on that rank). The recorded run got the
+load-bearing reading right by turn 3 — the copy is a sync point, the collective
+is the fault — and then verified the DSV4 config surface
+(`VLLM_ASCEND_APPLY_DSV4_PATCH` default `0` gating `patch_speculative_config`,
+the `deepseek_v4`→`deepseek_mtp`/`DeepSeekV4MTPModel` remap, the nightly A3 yaml
+as the only in-tree recipe, `disable_padded_drafter_batch` default `False`)
+before being cut with **no answer**: 14 assistant turns, 23 tool results, 16.4 K
+completion tokens, ~41.6 K characters of reasoning against ~2.6 K of message
+text (every turn's text was a one-line status note). **Delivery cost**: from
+turn 4 on, each turn opened with "I need to answer now" and made one more call;
+turn 12 spent itself writing `/workspace/scratch/findings.md` instead of message
+text; turn 14 carried 3.6 K characters of reasoning and zero text. It was also heading for a wrong
+mechanism: it read `rankSize 2` as "the shared-expert DP AllGather", while
+`fc3_quant_x`/`mc2` are `DP×PCP×TP` groups (`parallel_state.py:85-110`) and
+cannot be 2 ranks on DP2×TP4. Both lessons are in
+`../spec-decode-mtp/drafter-count-copy-device-fault.md` and in the classification
+row that now routes there.
+
+**#16111** vllm-ascend `v0.26.0rc1` (`f2f74a1`) + vllm `v0.26.0`; 800I A3 single node,
+DeepSeek-V4-Flash-0731-w8a8, DP4×TP4, AscendStore + MemCache three-tier cache. Two
+cases in one report: `device_sdma` → first curl fine, second crashes with
+`HCCL watchdog thread terminated with exception` / `ERR02005 DIST internal error`
+(reporter suspects "vllm-ascend 懒加载"); `host_shm` → dies at memcache init with
+"device id 转换异常". A later public comment by the original reporter (2026-09-14)
+adds a wiki log link for the device-id case — unreadable here, so it changes which
+sub-case is live but supplies no quotable line. Real findings (source-read at the
+pin, never delivered): lazy init is the documented A3+DSV4+`device_sdma`
+behaviour (#9975 item 2), the resolved `mmc-local.conf` carries two keys that
+exist nowhere (`ock.mmc.local_service.standalone.dram.size`, `hugepage_mem_gb`)
+while `dram.size` is per-die and should be `0GB` on A3/HCCS (`kv_pool.md:511`,
+`:761-790`), and the HCCL line is downstream of a swallowed rank-local save
+failure (#14106). **Shipped no answer**: 36 turns, every message a bare tool call,
+cut inside a reasoning block that was composing the answer ("Verified facts
+(pinned v0.26.0rc1 …)"). Lane: classify from the protocol value in the resolved
+config file, then the config/version diff (`../kv-pool-store/memcache-a3-dsv4-init.md`).
+
+**#8788** vllm-ascend `v0.13.0rc3` (`bbe9bc0`) + vllm `v0.13.0`; A3 16 cards,
+"Cannot install from source in an offline pod: custom-ops step pulls dependencies
+from the public network". Real finding (source-read, never delivered): the chain
+`setup.py` `build_aclnn` → `csrc/build_aclnn.sh` → `csrc/build.sh --pkg` →
+`csrc/CMakeLists.txt` fetches a `catlass` git submodule (always, since
+`csrc/third_party` is gitignored) plus json/abseil-cpp/ascend_protobuf/makeself
+from `gitcode.com`, each behind an existence gate under `CANN_3RD_LIB_PATH`;
+`CANN_PKG_SERVER` reaches only two orphan cmake files, and `setup.py` never
+forwards `CANN_3RD_LIB_PATH` to CMake. **Shipped no answer**: 30 turns, every
+message a bare tool call, cut inside a block that had already written
+"**Answer**: Yes, real…". Lane: name the fetch legs and the pre-seed directory
+(`../image-dependency-faults/offline-source-build.md`).

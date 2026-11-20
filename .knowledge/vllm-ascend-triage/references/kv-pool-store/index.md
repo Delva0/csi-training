@@ -1,0 +1,71 @@
+# KV pool store: AscendStore + MemCache/Mooncake attached to serving
+
+## Scope
+
+A deployment with a **KV pool / three-tier cache attached** — `AscendStoreConnector`
+(alone or in a `MultiConnector`), backend `memcache` or `mooncake`, the
+`ock.mmc.*` config family, `MMC_LOCAL_CONFIG_PATH` — where the fault is in storing
+or fetching KV, not in the model. Both shapes occur: **single node, no PD**
+(`--data-parallel-size N --tensor-parallel-size M` on one host, one pool) and PD /
+EPD. The pool's *own* config and versions decide before any vLLM code does.
+
+Different from `../pd-disaggregation/index.md`: that topic starts from a P/D pair
+that cannot connect; this one starts from "the pool is configured and the request
+path breaks". Ask which one you have first — a pool fault on a single node has no
+transport topology to inspect.
+
+## Routes
+
+- MemCache backend, DeepSeek-V4 (`compress_ratios`) on **800I/T A3** with
+  `ock.mmc.local_service.protocol = device_sdma`, and the crash arrives on the
+  **second** request (`HCCL watchdog thread terminated with exception`,
+  `ERR02005 DIST internal error`, `EI0002`, `507001`) or at store init with a
+  "device id" anomaly → `memcache-a3-dsv4-init.md`. Do not walk `MemcacheBackend`
+  or the memcache C++ first: the lazy-init behaviour, the config keys and the
+  failure family are already recorded there.
+- `503900` / `E19999` / `HcclCommPrepare ret: 0x13` on the **first** transfer with
+  a pool configured → the store segment size:
+  `../pd-disaggregation/kv-pool-store-segments.md` and
+  `scripts/kvpool-segment-check.sh`.
+- PD on a hybrid linear-attention model and the decode node emits corrupt output →
+  `../pd-disaggregation/hybrid-state-transfer.md`.
+- The connector module itself will not import (`ascend_transport.so`, `No module
+  named mooncake`) → `../image-dependency-faults/launch-env-and-library-path.md`.
+
+## Rules
+
+Inherit the rules in SKILL.md; these add the pool-specific ones.
+
+1. **The store's config file is evidence; the launcher's JSON is not.** vllm-ascend
+   reads the memcache protocol straight out of the file named by
+   `MMC_LOCAL_CONFIG_PATH` (`memcache_backend.py:16-29` at v0.26.0rc1) — a JSON
+   block in the reporter's launcher script is only the *intended* content. Ask for
+   the resolved `mmc-local.conf` (or `pip show memcache_hybrid` →
+   `{Location}/memcache_hybrid/config/`) before reading the key values as fact.
+2. **A key that exists nowhere is a finding.** Config keys in these reports are
+   frequently invented by a launcher wrapper. Grep the pinned memcache/memfabric
+   export and the vllm-ascend docs for the literal key before explaining what it
+   does; an unknown key is either ignored (silent no-op) or a validation error,
+   and that difference is the answer.
+3. **Name the owning component: MemCache/MemFabric, not vllm-ascend.** A CQE
+   error, an SDMA/`BatchCopyData` failure, an `mmc_init` return code and a device-id
+   conversion message come from `Ascend/memcache` + `Ascend/memfabric_hybrid`; the
+   vllm-ascend side owns *when* the store is initialised, which device id it
+   passes, and whether a failure is swallowed. Say which side you are naming.
+4. **A pool fault surfaces as a collective fault.** The save path runs on a
+   per-rank thread and its result is not propagated, so the first visible error is
+   often HCCL (`ERR02005`, `EI0002`, `507001`, `STUCK`) several seconds later. The
+   in-window first error in the MemCache/MemFabric log is the one to classify.
+5. **Versions first.** The tree pins `memcache_hybrid` / `memfabric_hybrid`
+   (`requirements.txt:33-35`, values differ per release), a snapshot export of
+   `Ascend/memcache` may be a *different* release than the pin, and layerwise
+   transfer has a hard floor (`>=1.2.0`, #12390). Ask `pip show memcache_hybrid
+   memfabric_hybrid` in the reporting environment; a version-only verdict is
+   already actionable.
+
+## Pages
+
+- `memcache-a3-dsv4-init.md` — A3 + DeepSeek-V4 + `device_sdma`: the deliberate
+  lazy init (and why it is not the bug), the two inits a reporter sees, the
+  `dram.size` / separated-deployment key gates, the version pins, and the
+  put-failure → collective-desync family with its ablation ladder.

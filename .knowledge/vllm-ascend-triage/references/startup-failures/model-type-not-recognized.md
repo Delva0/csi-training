@@ -62,6 +62,35 @@ answer: it moves the failure from config load to model build.
   either way (`grep -rli 'qwen3\.5\|qwen3_5' docs/` returned nothing at
   v0.13.0).
 
+## Gate 4 for an MTP launch: the draft config is remapped downstream
+
+When the report is a *spec-decode* launch (`--speculative-config`), the model type
+that has to resolve is the **draft** model's, and vllm-ascend supplies it through a
+patch, not through upstream vllm. Verified at vllm-ascend `367b8e6` (v0.20.2rc1):
+
+- `vllm_ascend/envs.py:116` — `VLLM_ASCEND_APPLY_DSV4_PATCH`, `bool(int(os.getenv(...)))`,
+  **default `0`**;
+- `vllm_ascend/patch/platform/__init__.py:46-48` — only when that flag is truthy
+  are `patch_kv_cache_coordinator` and `patch_speculative_config` imported;
+- `vllm_ascend/patch/platform/patch_speculative_config.py:15-24` —
+  `hf_config_override` rewrites `model_type` for `deepseek_v3`, `deepseek_v32`,
+  `deepseek_v4`, `glm_moe_dsa` → `"deepseek_mtp"`, and for `deepseek_v4` also sets
+  `architectures=["DeepSeekV4MTPModel"]`; the same hook does the equivalent for
+  the other MTP families (`qwen3_next`, `qwen3_5`/`qwen3_5_moe`, `glm4_moe(_lite)`,
+  `ernie4_5_moe`, `longcat_flash`, `step3p5`, MiMo, pangu).
+
+For a DeepSeek-V4 MTP launch, gate 4 is therefore: is the flag in the launched
+process's environment? The tree's own DSV4 tests set it
+(`tests/e2e/multicard/4-cards/test_deepseek_v4.py:31,72`), as does the nightly
+`tests/e2e/nightly/single_node/models/configs/DeepSeek-V4-Flash-W8A8-A3.yaml`.
+Without it the draft keeps the base `model_type`, so "the draft is not the
+validated MTP model" is the finding even when the engine starts. At this ref DeepSeek-V4 has
+**no** row in `docs/source/user_guide/support_matrix/supported_models.md` and no
+`docs/source/tutorials/models/DeepSeek-V4*.md`, so the nightly yaml is the only
+in-tree recipe — quote it as such, and treat the reporter's hardware deviation
+(the yaml is A3) as a deviation to name, not a verdict. The MTP/runtime side of
+the same family is `../spec-decode-mtp/drafter-count-copy-device-fault.md`.
+
 ## Precedent, cheaply
 
 ```bash

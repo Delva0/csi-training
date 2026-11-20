@@ -83,9 +83,10 @@ ASCEND_LAUNCH_BLOCKING=1 vllm serve ...   # synchronous ops: real failing op/fra
 ```
 Unset `ASCEND_LAUNCH_BLOCKING` after debugging (documented performance penalty).
 
-Blocking mode is *refused* while ACL graph is on: `vllm_ascend/platform.py:601-613`
-raises `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING=1` whenever
-`compilation_config.cudagraph_mode != NONE`. Add `--enforce-eager` first, then re-run
+Blocking mode is *refused* while ACL graph is on: `AscendPlatform.check_and_update_config`
+(`vllm_ascend/platform.py`; `:457-469` at v0.20.2rc1, elsewhere `:601-613` — grep the
+message) raises `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING=1`
+whenever `compilation_config.cudagraph_mode != NONE`. Add `--enforce-eager` first, then re-run
 with `ASCEND_LAUNCH_BLOCKING=1`; otherwise the flag does not take effect at all.
 
 ## Step 3 — read the plog

@@ -6,6 +6,10 @@ decided by two questions: **is a KV pool in the deployment?** then **did the
 peers fail to connect, or did they connect and the decode node then produce
 wrong output?**
 
+- A KV pool (MemCache/Mooncake `AscendStoreConnector`) on a **single node, no PD**,
+  or a store that initialises and then fails while saving: this topic's transport
+  rules do not apply — `../kv-pool-store/index.md` (A3 + DeepSeek-V4 +
+  `device_sdma`: `../kv-pool-store/memcache-a3-dsv4-init.md`).
 - Connect/handshake failures **with a KV pool in the config**
   (`AscendStoreConnector`, alone or inside a `MultiConnector`, `MOONCAKE_CONFIG_PATH`,
   `pool_worker.py` / `pool_scheduler.py`): `Failed to connect to target … 503900`

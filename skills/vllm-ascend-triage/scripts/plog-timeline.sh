@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # plog-timeline.sh -- decide which error block in a pasted Ascend plog / serve log
-# belongs to the reported incident, and which blocks are replayed records from an
-# earlier run: Ascend re-prints the device/runtime error record inside a new
-# traceback and keeps that record's original date.
+# belongs to the reported incident and which carry an older date: Ascend re-prints
+# the device/runtime error record inside a new traceback and keeps that record's
+# original date, so an older record is either an earlier run's replay or this
+# process's own init/capture window reported late. Process identity and position in
+# the log decide which (SKILL.md rule 13), never the size of the gap.
 #
 # usage: bash plog-timeline.sh [--since YYYY-MM-DD] <log-file> [more files ...]
 #        ... - < log.txt
 #
 #   --since <date>  the date the reporter's failure happened. Records dated before
-#                   it are replays; if no record reaches it, the pasted window does
-#                   not contain the fault at all.
+#                   it are older: a previous run's replay, or this process's own
+#                   `init engine (...)` / graph-capture window when the report is
+#                   late -- check the startup lines and the pid before discarding
+#                   one. If no record reaches it, the pasted window does not contain
+#                   the fault at all.
 #
 # For each error family it prints the span of the embedded device-record timestamps
 # (long form `YYYY-MM-DD-HH:MM:SS`) and of the log-line timestamps (`MM-DD HH:MM:SS`
@@ -111,10 +116,10 @@ END {
   printf "VERDICT: incident window %s-%s-%s (%s); device records span %s..%s\n", \
     substr(newest,1,4), substr(newest,5,2), substr(newest,7,2), \
     (forcenewest != "" ? "given by --since" : "newest log line in the paste"), rfirstshow, rlastshow
-  if (stale != "") printf "  replayed/older records (dated before the incident window, NOT this failure's cause): %s\n", stale
+  if (stale != "") printf "  older records (dated before the incident window): %s\n", stale
   if (live != "") printf "  first error inside the incident window: %s at %s\n", live, liveshow
   else print "  no device-record block falls inside the incident window: the pasted window does not contain the fault."
-  if (stale != "" || live == "") print "  --> quote an older block as history only and ask for the plog window around the reported failure."
+  if (stale != "" || live == "") print "  --> before quoting an older block as history, check whether it sits inside this same log's `init engine (...)` / graph-capture window: then it is this incident recorded at init and reported late (rule 13). Otherwise quote it as the previous run's and ask for the plog window around the reported failure."
 }
 AWK
 

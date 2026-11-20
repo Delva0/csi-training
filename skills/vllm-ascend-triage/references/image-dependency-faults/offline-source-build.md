@@ -12,6 +12,10 @@ network fails: the custom ops compilation step pulls dependencies from the
 public network." Usually no error text, sometimes `fetch failed` or a cmake
 download error.
 
+Not this page: a **resolution** error with no build step in play (`Could not find a
+version that satisfies the requirement …`, `No matching distribution found for …`) —
+that is index visibility and wheel metadata, `pip-index-visibility.md`.
+
 ## The invocation chain (source-verified)
 
 1. `pip install .` / `pip install -e .` with `COMPILE_CUSTOM_KERNELS=1` (the

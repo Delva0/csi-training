@@ -67,6 +67,17 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   (#8745 v0.13.0rc3 DeepSeek-V4-Flash and #10943 v0.20.2rc1 print the same two
   lines; #10943's reporter confirmed the unmodified checkpoint crashes
   identically and eight model-side changes moved nothing).
+- The report **is a pip resolution error about a requirement**, with no engine and no
+  crash: `ERROR: Could not find a version that satisfies the requirement
+  torch-npu==2.5.1.post1.dev20250619`, `No matching distribution found for <pkg>`, or
+  a title like "unmatched torch version between vllm=X and vllm-ascend=Y" — at install
+  time from the published wheel, or inside a deployed image when adding an extra
+  (`ImportError: Please install vllm[bench] …` then `pip install pandas` → `No matching
+  distribution found`) → `pip-index-visibility.md` first, **before** any version
+  survey: `bash scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` prints the
+  `torch` / `torch-npu` / `torchvision` pins of both sides and the contradictions, and
+  the page carries the three-way split (mirror-only metadata pin vs unsatisfiable pin
+  set vs unreachable index) plus both answer shapes (#1796, #4737).
 - `pip install` **from source** in a pod without public network fails in the
   custom-ops step ("pulls dependencies from the public network", sometimes only
   `fetch failed`): the build chain fetches a `catlass` git submodule plus four
@@ -117,6 +128,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   at vllm-ascend v0.11.0), and the maintainer-confirmed answer on #5750 — do not add
   triton-ascend to these images, and move the release (v0.14.0rc1 needs none)
   rather than the compiler.
+- `pip-index-visibility.md` — the requirement exists but no index pip can see serves
+  it: a wheel pin on a mirror-only dev build with the `--extra-index-url`/`--pre` option
+  lines dropped from the metadata (`setup.py` skips `--` lines), the torch /
+  torch-npu / torchvision line arithmetic that makes a documented pip pair
+  unsatisfiable (#1796), and the air-gapped image extra (`vllm[bench]` → `pandas` /
+  `datasets`, the image's own `global.index-url`, the wheelhouse recipe) (#4737).
 - `offline-source-build.md` — an offline source build: the own-source invocation
   chain (`setup.py` `build_aclnn` → `csrc/build_aclnn.sh` → `csrc/build.sh` →
   `csrc/CMakeLists.txt`), the five network legs with the existence gate that

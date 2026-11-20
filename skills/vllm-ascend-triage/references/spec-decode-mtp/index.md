@@ -25,7 +25,13 @@ speculative-decoding path (`--speculative-config` with `method: mtp`,
   `_copy_valid_sampled_token_count` (`model_runner_v1.py:1393`) and the paste also
   carries `rtMemcpyAsyncEx … reason=the model stream execute failed`, an `aivec
   error … timeout or trap error` and an HCCL task line with `rankSize` /
-  `numBlocks` (`drafter-count-copy-device-fault.md`).
+  `numBlocks` (`drafter-count-copy-device-fault.md`);
+- or it dies with a device dump whose frames are
+  `execute_dummy_batch` → `_dummy_run` → `acl_graph.__call__` →
+  `stream.synchronize()`, on a launch carrying MTP + `FULL_DECODE_ONLY`
+  (+ `npugraph_ex`), with `fftsplus aicore/aivector … MTE DDR out of range` and a
+  capture-mode `rtMemcpy … 107030` record stamped inside engine init
+  (`draft-graph-capture-device-fault.md`).
 
 Not this topic: a launch/startup failure (`../startup-failures/index.md`), a
 collective or device fault whose sync point is **not** the drafter's count copy
@@ -106,6 +112,14 @@ from the acceptance numbers.
   DP-sized), the ordered ablations, the DeepSeek-V4 `VLLM_ASCEND_APPLY_DSV4_PATCH`
   and `deepseek_mtp` remap gates with the only in-tree validated config, and the
   worked #10546 row (v0.20.2rc1, which shipped no answer).
+- `draft-graph-capture-device-fault.md` — the draft forward captured into the
+  `FULL` graph under `npugraph_ex`: what the `execute_dummy_batch` frame proves
+  (a DP dummy pass, not a request) and does not prove (it runs the target **and**
+  the drafter), the two-timestamp reading that makes "ran fine for a while"
+  compatible with a fault recorded at init, the ranked candidates with the
+  recorded `aclnnAddRmsNormBias` sibling stack, and the ablation ladder with its
+  measured cost (spec-scoped `enforce_eager` = stable but several times slower;
+  still broken at v0.22.1rc1). Worked #10700 row.
 - `async-spec-bookkeeping-desync.md` — `--async-scheduling` + MTP and the
   three-traceback signature: the discarded-request chain
   (`model_runner_v1.py:838-842` mask → `prev_req_id_to_index` built without those

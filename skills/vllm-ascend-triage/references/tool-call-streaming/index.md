@@ -41,7 +41,10 @@ Not this topic — leave with the linked route:
    the assembled string, not the model.** Concatenate
    `choices[i].delta.tool_calls[j].function.arguments` in arrival order and ask
    what the concatenation is (`bash <skill_root>/scripts/sse-toolcall-audit.sh
-   <raw-sse-or-paste>`). It has four outcomes and they have different owners:
+   <raw-sse-or-paste>`; it now labels the outcome itself — `balanced`,
+   `quote-gap` = balanced braces with an odd quote count, `tail-lost`,
+   `malformed` — so its verdict no longer has to be overridden by hand). It has
+   four outcomes and they have different owners:
    parses as JSON → the client's accumulation/framing; missing tail
    (unbalanced `{`/`"` at the end, `finish_reason` still `tool_calls`) → the
    stream stopped short; **braces balanced but quotes odd, with the gap inside a

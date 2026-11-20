@@ -100,12 +100,50 @@ off (`../startup-failures/acl-graph-capture.md`).
 
 Two conditions before you adopt it:
 
-- **It must be the in-window first error.** If its timestamps predate the failure
-  (as in #9183), it is the previous crash.
+- **It must belong to this process.** A record older than the failure *minute* is
+  either the previous crash (#9183: 36 h and a different process) or **this
+  process's own init/capture window** (#10700: recorded at `10:01:23`, inside
+  `init engine (profile, create kv cache, warmup model)`, reported at `10:28:19`).
+  Compare it with the log's own startup lines before discarding it — see
+  "A record from this process's own init is not a stale replay" below.
 - The same block prints `threadCaptureMode=0, exchangeCaptureMode=0,
   contextCaptureMode=0`, i.e. its own diagnostic fields show no capture in
   progress. The sentence therefore does not explain itself; ask for a re-run with
   `--enforce-eager` (graph off) rather than reasoning from the wording.
+
+## A record from this process's own init is not a stale replay
+
+The #9183 lesson ("older than the failure -> the previous crash") has a twin that
+reads identically on the page and is the opposite case: the record predates the
+failure **minute** because the fault happened during this process's own engine
+init, and only a later launch/synchronize reported it.
+
+Recorded #10700 (vllm-ascend v0.21.0rc1 `80610e4`, 2x Atlas 800I-A2, GLM-5.1,
+DP2 x TP8 + EP, `deepseek_mtp` 3, `FULL_DECODE_ONLY`, `enable_npugraph_ex`):
+
+| Fact | Evidence in the paste |
+|---|---|
+| Every rank's `EE9999` inner record is stamped `2026-06-24-10:01:23.68x`, sub-10 ms apart across chips (`.685`, `.686`, `.688`, `.689`, `.690`) | one device-wide event at that instant, not eight independent ones |
+| `10:01:23` sits inside the same log's `init engine (profile, create kv cache, warmup model) took 144.14 s (compilation: 52.37 s)`, printed `10:02:16`; the graph-capture line is `10:02:13` | the record is from this process's init window |
+| The Python traceback reporting it is stamped `10:28:19`, and its frames are `worker.py execute_dummy_batch -> model_runner_v1._dummy_run -> _model_forward -> acl_graph.__call__ -> torch.npu.current_stream().synchronize()` | the *report* is the first launch/sync that surfaced it, tens of minutes later |
+| The service had answered `200 OK` between `10:02:24` and `10:13`, i.e. after the record and before the report | "ran fine for a while" is compatible with a fault recorded at init |
+| A later release reproduced it: v0.22.1rc1, record `2026-07-01-01:19:08`, report `03:00:17` (~101 min), same frames, same `MTE` / `0x800000` / `507011` family | the gap is a report delay, not a fixed bug |
+
+So the discriminator is not the gap's size but **process identity plus position in
+the log**: a record inside `init engine ...` / `Graph capturing finished` /
+`Capturing ACL graphs` of the same log belongs to this incident; a record from
+before the process started (or with a different pid, container or dataset) does
+not. Say "recorded at init, reported at <time>" rather than "crashed at <time>",
+and ask for the plog covering *both* ends.
+
+Mechanism still open at that report: the record text is
+`rtMemcpy execution failed, reason=the current capture mode does not support this
+operation`, so a host/device copy was submitted while the stream was in capture
+mode; what then surfaced 27 min later is an `fftsplus aicore/aivector ... error
+code = 0x800000 ... The DDR address of the MTE instruction is out of range`. Name
+the owner from the plog's `[AIC_INFO] fault kernel_name=`, not from the wording —
+route `../spec-decode-mtp/draft-graph-capture-device-fault.md` when the launch
+carries MTP + `FULL_DECODE_ONLY`.
 
 ## Worked case #9183 — the answer that quoted the previous day's crash
 

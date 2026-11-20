@@ -1,13 +1,13 @@
 ---
 name: vllm-ascend-triage
-description: 'vllm-ascend: deploy, HCCL/PD, hangs, OOM, accuracy, LoRA'
+description: 'pip/install, deploy, HCCL/PD, hangs, OOM, accuracy, LoRA'
 ---
 
 # vLLM-Ascend issue, deployment and support triage
 
 ## Problem class this covers
 
-Eight entry shapes, one deliverable: which component and line owns the symptom (or
+Nine entry shapes, one deliverable: which component and line owns the symptom (or
 which failure lane and phase), what the reported evidence proves and does not
 prove, ranked candidate causes each with the cheapest confirming check, and the
 concrete next step for the reporter. The last shapes deliver a *decision*
@@ -27,6 +27,15 @@ reported version, gaps stated.
   inside a library the image shipped.
   When the task is just "explain/answer this issue", the answer is still expected
   to be evidentiary, not a summary of the report.
+- **Install / pip-resolution report**: no engine, no worker, no traceback from the
+  NPU stack — the body is two `pip install` commands and the error line they produced
+  (`Could not find a version that satisfies the requirement torch-npu==<dev>`,
+  `No matching distribution found for <pkg>`, "unmatched torch version between vllm=X
+  and vllm-ascend=Y", or an `ImportError: Please install vllm[bench] …` inside a shipped
+  image). The deliverable is *which* artefact pip could not see — a mirror-only wheel
+  pin that the metadata cannot carry, an unsatisfiable torch/torch-npu/torchvision set,
+  or an air-gapped container with no reachable index — plus the command that shows it;
+  never a release survey — `references/image-dependency-faults/pip-index-visibility.md`.
 - **Deployment failure**: a vLLM / vLLM-Ascend deployment fails to come up or
   fails during engine start — `EngineCore failed to start`, `WorkerProc
   initialization failed`, silent worker death, `HcclAllreduce` / allreduce
@@ -97,9 +106,9 @@ delivery pattern is rule 1.
    truncation: what decides the outcome is not how much evidence was gathered but
    whether the message exists. The runs that shipped **no answer at all** (#6784,
    #12339, #10985, #11739, #11759, #5295, #8724, #17991, #16111, #8788, #10546,
-   #17797, #5525, #5750, #6572, #6275, #11454, #12261, #2015, #2873, #14440)
-   each had a usable lead; #4296 answered completely in ten turns from one pasted
-   traceback. Hard stops:
+   #17797, #5525, #5750, #6572, #6275, #11454, #12261, #1796, #2015, #2873,
+   #14440) each had a usable lead; #4296 answered completely in ten turns from one
+   pasted traceback. Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
      reporter's literal question plus the track/lane classification. A pasted
      traceback, one config value or one registry listing is enough; do not hold
@@ -309,8 +318,13 @@ delivery pattern is rule 1.
     `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <paste>`;
     families it flags as older are history, and if none is in-window the paste does
     not contain the fault at all — say that and ask for the plog covering the
-    failure minute. The script needs a timestamped record — long-form
-    `YYYY-MM-DD-HH:MM:SS` device records (the usual `[PID: n]` headers) or
+    failure minute. The twin case matters as much: a record older than the failure
+    *minute* but still inside **this process's own** `init engine (...)`, graph
+    capture or warmup window is this incident reported late, not a replay (#10700:
+    record `10:01:23` inside engine init, report `10:28:19` at `execute_dummy_batch`,
+    reproduced unchanged on v0.22.1rc1) — decide by process identity and position in
+    the log, never by the size of the gap. The script needs a timestamped record —
+    long-form `YYYY-MM-DD-HH:MM:SS` device records (the usual `[PID: n]` headers) or
     `MM-DD HH:MM:SS` line prefixes; a paste of ordinary `W<MMDD>`/`E<MMDD>` lines
     yields its "no timestamped error line found" verdict, so do not rebuild it into
     a file first (#18315). Same trap as rule 11 one level up: not just the
@@ -368,7 +382,7 @@ delivery pattern is rule 1.
 | Startup was clean and **one request** kills the workers: `RuntimeError: Worker failed with error 'CUDA graph capturing detected at an inappropriate time. This operation is currently disabled.'`, logged from `patch_core.py` as "EngineCore encountered a fatal error"; typically `--enable-lora` with graph mode, where the **base-model** request dies while adapter requests work (or the reverse) | A graph was captured **at request time**: upstream `vllm/compilation/monitor.py` arms that guard `False` only after startup capture, and both capture wrappers (upstream `compilation/cuda_graph.py`, downstream `compilation/acl_graph.py`) capture lazily — so the dispatcher advertised a `BatchDescriptor` key (`num_tokens`, `num_reqs`, `uniform`, `has_lora`) that startup never built. Diff the advertised key set against the captured one; do not read the line as a device refusal | `references/lora-adapters/graph-capture-descriptor-mismatch.md` (one call: `scripts/lora-graph-descriptor-audit.sh`) |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range"; several ranks reporting the same `pc start` in the same second | Custom-op runtime fault, after the timestamp gate — a shared PC across chips is software address computation, not several bad cards | `references/hccl-and-hardware/error-report-timestamps.md`, then `references/custom-ops-runtime-faults/index.md` |
 | `507035` + `ERR00100 PTA call acl api failed` + `EZ9999 … aivec error` + `The DDR address of the MTE instruction is out of range`, one `pc start` repeated on every core, and the deepest frame is `torch_npu.npu_scatter_nd_update_` in `vllm_ascend/attention/sfa_v1.py` with fault kernel `ScatterNdUpdate_…`; the crash follows concurrency (mixed prefill+decode batch) while single requests are fine | DSA indexer-cache write with the wrong index tensor: a host-side slicing bug, not a card — compare the index tensor's row count with the source's before any hardware theory | `references/dsa-sparse-attention/indexer-cache-scatter-fault.md` |
-| `rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this operation]` / `MemCopySync ... kind = 1` on a small `cnt` (72/456 B), often with `deepseek_mtp` + `FULL_DECODE_ONLY` | Capture/replay-time host→device sync copy — a real family (#6002, #4208, #8502) **only** when it is the in-window first error; check its record date first (rule 13) | `references/startup-failures/acl-graph-capture.md` |
+| `rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this operation]` / `MemCopySync ... kind = 1` on a small `cnt` (72/456 B), often with `deepseek_mtp` + `FULL_DECODE_ONLY` | Capture/replay-time host→device sync copy — a real family (#6002, #4208, #8502) **only** when the record belongs to this process: an earlier date can be this log's own init/capture window (#10700: record 27 min before the traceback, still this process) as easily as a replay, so place it against `init engine (...)` before discarding it (rule 13) | `references/startup-failures/acl-graph-capture.md`; with MTP + `FULL_DECODE_ONLY` (+ `npugraph_ex`) also `references/spec-decode-mtp/draft-graph-capture-device-fault.md` |
 | `<method> quantization is currently not supported in npu` inside a pydantic `ValidationError` from `ModelConfig` (e.g. `--quantization awq`), or `Unknown quantization method: <x>`; no `WorkerProc` line | Platform quantization gate before any worker: the NPU platform declares only `ascend` and `compressed-tensors` — re-quantize, not a defect | `references/startup-failures/quantization-method-gate.md` |
 | An msmodelslim-converted W8A8 checkpoint (DeepSeek-R1-w8a8 and friends) dies at start behind the bare `RuntimeError: Engine core initialization failed` with **no worker traceback**, launched without `quantization="ascend"` / `--quantization ascend` | The gate that never fires: the documented export has **no** `quantization_config` in `config.json`, so upstream's auto-detect has nothing to read and the int8 tensors are loaded against a dense model — the flag is mandatory, not a preference (#2015) | `references/startup-failures/quantization-method-gate.md` (section B), then `silent-worker-exit.md` |
 | An attention op **runs**, returns a correctly shaped tensor, and the numbers are wrong (uniform average, softmax apparently dropped, error only vs an fp32 reference); often a framework-free `torch_npu` repro, never a dump | Silent operator numerics — below the framework | `references/custom-ops-runtime-faults/attention-op-numeric-errors.md` |
@@ -423,6 +437,7 @@ delivery pattern is rule 1.
 | `ACL stream synchronize failed, error code:507015` / `EE9999 … aicore exception` whose deepest frame is an attention backend while the step held **both** decodes and prefills; often "completes with spec decode disabled" | Mixed-batch split **units**: `num_decodes` counts requests while `num_decode_tokens` counts tokens (× `1+num_spec`), so a request-indexed `block_tables`/`seq_lens` sliced by the token count, or an unrebased `query_start_loc` passed as `cu_seqlens`, reads out of its own storage; the reported line is often the decode half's `.npu()` | `references/mixed-batch-splits/index.md`, then `fa3-mixed-batch-split.md` (one call: `scripts/batch-split-audit.sh <root>`) |
 | KV pool / MemCache on **800I/T A3** with a DeepSeek-V4 (`compress_ratios`) model: first request fine, the **second** kills the workers (`HCCL watchdog … ERR02005`), or the `host_shm` variant dies at memcache init with a "device id 转换异常"; reporter says "懒加载" | KV-pool store lane: lazy init is the documented A3+DSV4+`device_sdma` behaviour (#9975) and a rank-local save failure is swallowed before it desyncs collectives (#14106) — diff the resolved `mmc-local.conf` against the tree's tables first | `references/kv-pool-store/memcache-a3-dsv4-init.md` |
 | `triton.compiler.errors.MLIRCompilationError` + `[ConvertLinalgRToBinary] encounters error: … operation's operand is unlinked` + `bishengir-compile … returned non-zero exit status 1`; engine started, the first real request dies; deepest `vllm_ascend` frames in `vllm_ascend/ops/triton/fla/**` under `triton/runtime/autotuner.py`; the recipe has a `pip install triton-ascend` or a standalone BiSheng/AscendNPU-IR `.run` over the image | Triton-Ascend kernel **compile** pair installed into the image — not the AscendC/aclnn custom-op lane and not the kernel's shapes: the wheel and `bishengir-compile` come from different builds | `references/image-dependency-faults/triton-ascend-pair.md` (remove the install, then move the release — maintainer-confirmed on #5750) |
+| The report **is a pip resolution error** and nothing has crashed: `ERROR: Could not find a version that satisfies the requirement torch-npu==2.5.1.post1.dev20250619`, `No matching distribution found for <pkg>`, or a title like "unmatched torch version between vllm=X and vllm-ascend=Y"; also `pip install pandas` inside the shipped image ending in `No matching distribution found` after an `ImportError: Please install vllm[bench] …` | Index visibility, not compatibility: the tree's `--extra-index-url`/`--pre` option lines never reach the wheel's metadata (`setup.py` skips `--` lines), the same requirement set can straddle two torch lines, and an air-gapped image's `global.index-url` makes every lookup unreachable — one call (`scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]`) prints both sides' `torch`/`torch-npu`/`torchvision` pins | `references/image-dependency-faults/pip-index-visibility.md` (#1796, #4737) |
 | Compiler or missing-header error while installing/building — or `pip install` from source in a pod with **no public network** (custom-ops step pulls from `gitcode.com`, `fetch failed`) | Build-time dependency closure, else the general sequence below | `references/image-dependency-faults/offline-source-build.md`, else skip the topical routes |
 | Nothing crashed and the complaint is a **version string**: `pip show vllm-ascend` reports an older release than the reporter installed ("版本号显示不对", "0.9.0rc2 instead of 0.9.1dev"), or they ask whether a `-dev`/branch name is a valid version | Build-metadata question: the number is `setuptools_scm`'s description of the build tree's tags (`setup.py:305-311`), `vllm_ascend/` has no version constant and no runtime reader, and the pairing gates read `vllm.__version__` — decide it with the import path plus `git describe`, not a version survey | `references/image-dependency-faults/installed-version-vs-checkout.md` |
 
@@ -564,7 +579,7 @@ rule 1).
 | "how do I turn feature F on" / capability verdict (PCP, DCP, EP+DP) | `references/feature-enable-recipes/index.md` |
 | the first cheap checks after classification | `references/first-checks/index.md` |
 | a collective/device error (`HcclAllreduce`, `ERR00100`, `507035`, `EZ9999`), device health, port band, MC2 profile-run hang, RPC watchdog | `references/hccl-and-hardware/index.md` |
-| the interpreter/image owns it: native aborts, missing `libatb.so`/`ascend_transport.so`, ABI split, triton-ascend pair, offline source build | `references/image-dependency-faults/index.md` |
+| the interpreter/image owns it: native aborts, missing `libatb.so`/`ascend_transport.so`, ABI split, triton-ascend pair, offline source build, a pip requirement no visible index serves | `references/image-dependency-faults/index.md` |
 | a KV pool (AscendStore + MemCache/Mooncake) is attached and the request path breaks | `references/kv-pool-store/index.md` |
 | a LoRA-enabled serve is far slower than its base model, or dies when a graph is captured on a request | `references/lora-adapters/index.md` |
 | a device fault or corruption whose deepest frame is an attention backend in a mixed decode+prefill batch | `references/mixed-batch-splits/index.md` |
@@ -575,7 +590,7 @@ rule 1).
 | OOM after a healthy period, HBM not released, host RAM, container working set, KV-init allocation failure | `references/runtime-memory/index.md` |
 | traceback frames are only `vllm/**` + `site-packages/**` (tokenizer `Already borrowed`, frontend preprocessing) | `references/serving-frontend-faults/index.md` |
 | a SoC-conditional path: 310P/300I, A5 vs A2 wheel, kernel package for the running SoC | `references/soc-platform-paths/index.md` |
-| spec-decode/MTP symptoms: acceptance collapse, empty first response, async bookkeeping, drafter count copy | `references/spec-decode-mtp/index.md` |
+| spec-decode/MTP symptoms: acceptance collapse, empty first response, async bookkeeping, drafter count copy, or a device dump at `execute_dummy_batch` on a launch with MTP + `FULL_DECODE_ONLY` | `references/spec-decode-mtp/index.md` |
 | engine/worker never becomes ready (both lanes), model-type/quantization gates, arg validation, metadata/capture phase | `references/startup-failures/index.md` |
 | the symptom is a tool call (`JSON Parse error` in `arguments`, no `tool_calls` while streaming) | `references/tool-call-streaming/index.md` |
 | the deliverable is a report about a document (community test, `[Doc]`, tutorial commands) | `references/tutorial-verification/index.md` |
@@ -626,7 +641,9 @@ script's own header carries its full flag list:
 - `scripts/ranktable-check.sh <rank_table.json|log> [...] | -` — `server_count` /
   `server_id` / duplicate `device_ip`, i.e. multi-server vs local HCCS (#14506).
 - `scripts/plog-timeline.sh [--since YYYY-MM-DD] <log|-> [...]` — per-error-family
-  timeline and the first in-window error of a plog (#9183).
+  timeline and the first in-window error of a plog (#9183); an older record it
+  lists is a previous run **or** this process's own `init engine (...)` window, so
+  read it against the startup lines before discarding it (#10700).
 - `scripts/executor-timeout-check.sh <log|->` — vLLM's RPC/ringbuffer watchdog vs
   a real collective timeout; tolerates screenshot-OCR garble (#1865).
 - `scripts/device-type-check.sh <paste|serve-log|-> | --soc-version N` — which side
@@ -642,10 +659,17 @@ script's own header carries its full flag list:
   producer split into live-batch vs config-constant, whether the capture loop's
   per-case `activate_lora` is ever consumed, and upstream's guard / `lora_cases`
   / `cudagraph_specialize_lora` default (#6279, #1812).
+- `scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` — the install-time
+  pin arithmetic behind "could not find a version that satisfies" / "unmatched torch
+  version": reads both trees' `torch` / `torch-npu` / `torchvision` pins, flags the
+  metadata-vs-tree split for `--pre` / `--extra-index-url`, and names each
+  contradiction (a torch-npu line off the torch line, a torchvision cap that excludes
+  the vllm pin) (#1796, #4737).
 - `scripts/abi-symbol-check.sh <paste|->` — the `std::string`-ABI split in a
   bundled wheel (#1144).
 - `scripts/sse-toolcall-audit.sh <raw-sse>` — the streamed `tool_calls` argument
-  fragments and their assembly (#17797).
+  fragments, their assembly and a per-call verdict (`balanced` / `tail-lost` /
+  `quote-gap` / `malformed`) (#17797, #12261).
 - `scripts/tool-schema-type-audit.py <request-body.json|->` — per tool argument,
   the declared JSON-Schema type, flagging the arguments a streaming parser will
   emit **unquoted** (`anyOf: [string, null]` and other schemas with no top-level

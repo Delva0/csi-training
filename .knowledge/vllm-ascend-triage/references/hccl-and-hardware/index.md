@@ -33,6 +33,14 @@ If the collective failed while the engine was still capturing ACL graphs, take
 there is canned wrapper text, and the capture-size set needs the arithmetic check
 before any "insufficient streams" reading.
 
+If the text is a P/D transport connect failure rather than a training-style
+collective (`HIXL Connect failed | 103900`, `RanktableCheck`,
+`'device_ip' is not set correctly, must be set when multi Server`,
+`get dev list error:serverId[...]`), the collective is only the messenger: the
+report is decided by the rank table's `server_count`, which is a topology input.
+Leave this topic for `../pd-disaggregation/transport-topology.md` and run
+`<skill_root>/scripts/ranktable-check.sh` first.
+
 Common rules for this topic:
 
 1. Reproduce with `--enforce-eager` and `ASCEND_LAUNCH_BLOCKING=1` before
@@ -46,8 +54,13 @@ Common rules for this topic:
    case the reported `count[75497472]` matched both a `[8192, 9216]` language
    model allreduce and a `[65536, 1152]` vision allreduce exactly, and neither
    was the defect.
-4. HCCL's pipeline/opbase internals are closed; the public `cann/hccl` export has
-   no `streamNotifyMain_`/opbase sources. One grep pass, then move on.
+4. The HCCL implementation sources are usually exported as **`cann/hcomm`**, not
+   `cann/hccl`: `src/framework/op_base/src/`, `src/algorithm/impl/operator/`,
+   `src/algorithm/base/alg_template/` (that is where `streamNotifyMain_` lives) and
+   `src/platform/common/externalinput.cc` (env parsing). Grep `cann/hcomm` before
+   saying a behaviour is undocumented, then check `SOURCES.json: unavailable` for
+   the genuinely absent repos (`cann/hixl`, `cann/opbase`, `cann/ge`, `ops-*`).
+   One pass per tree; after that, use the plog, not more source.
 5. Before blaming the hardware, exclude the cheap software knobs
    (`HCCL_BUFFSIZE`, `HCCL_DETERMINISTIC`, `HCCL_OP_EXPANSION_MODE`,
    `PYTORCH_NPU_ALLOC_CONF`), the device visibility set, rank-dependent collective

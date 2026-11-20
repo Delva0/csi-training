@@ -9,10 +9,16 @@ Also covers the corruption end of the same track — a prompt that comes back as
 garbled / repeated / empty text rather than as a wrong answer — because that is decided by
 the same first question (is anything being compared, or is the engine wrong per se).
 
-One entry shape leaves this topic immediately: a number printed while the checkpoint is
-being *converted* (per-layer `MSE loss`, an epoch table, a bad quantized artifact) is
-converter output and precedes any engine comparison — go to
-`quantized-checkpoint-conversion.md`.
+Two entry shapes leave this topic immediately and are not accuracy questions at all:
+
+- Wrong or alternating answers in a **PD/EPD** deployment on a hybrid
+  linear-attention model (GDN/Mamba: Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) — the
+  suspect is the state the decode node received, not the numerics. Go to
+  `../pd-disaggregation/hybrid-state-transfer.md` (connector matrix plus the
+  `mamba_cache_mode` gate) and bring back its ablation rows as the deliverable.
+- A number printed while the checkpoint is being *converted* (per-layer
+  `MSE loss`, an epoch table, a bad quantized artifact) is converter output and
+  precedes any engine comparison — go to `quantized-checkpoint-conversion.md`.
 
 ## Rules
 

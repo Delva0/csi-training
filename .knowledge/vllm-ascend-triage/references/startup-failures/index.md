@@ -30,7 +30,10 @@ Inherit the rules in SKILL.md. Conditional routes:
   (typically a VL/MoE model under PD disaggregation) → `connector-config-attributes.md`.
 - Python `AttributeError`/`TypeError` in a `vllm_ascend/{ops,patch,models}` frame
   whose class subclasses or re-implements an upstream vLLM/transformers class
-  (e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`)
+  (e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`),
+  **or the same error inside an upstream vllm file on a class vllm-ascend
+  replaces** (e.g. `'ZeroExpertFusedMoE' object has no attribute
+  'select_experts'` — the replacement is keyed by class name)
   → `../upstream-downstream-drift/index.md`; this is drift, not a config value.
 - If the log names a collective (`HcclAllreduce`, `hcclRet`, `ERR00100`) instead
   of a Python-level cause, leave this topic and use

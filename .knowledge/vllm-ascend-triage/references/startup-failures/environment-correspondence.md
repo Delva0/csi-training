@@ -12,6 +12,21 @@ known-good path — before writing a theory about model code.
    substitute current knowledge for a `null` runtime verification.
 2. From the reporter: image tag, `vllm` and `vllm-ascend` versions, `torch` /
    `torch_npu`, `ascend-toolkit`, `nnal`, `ASCEND driver`, plus the full command.
+   Where the pair is actually recorded (two files, not `requirements.txt`):
+   `docs/source/community/versioning_policy.md` release compatibility matrix, and
+   the `.github/workflows/pr_test_*.yaml` `vllm_version` matrix. At v0.14.0rc1 the
+   matrix row is `v0.14.1rc1 | v0.14.0/v0.14.1`
+   (`docs/source/community/versioning_policy.md:26`) and CI pins
+   `[d68209402ddab3f54a09bc1f4de9a9495a283b60, v0.14.1]`
+   (`.github/workflows/pr_test_full.yaml:78`). `requirements.txt` does not pin
+   vllm at that commit (its only `vllm` mention is a comment at `:19`), so a grep
+   for `vllm==` there returns nothing.
+   **The snapshot's vllm pin can be older than the image's.** Recorded #6784:
+   `SOURCES.json` pinned vllm `v0.13.0` while the image is vllm-ascend
+   `v0.14.0rc1`, which pairs with vllm `v0.14.0/v0.14.1`. A traceback frame
+   naming a vllm file absent from the pinned tree is therefore a
+   snapshot-coverage gap, not evidence about upstream — say so, ask for
+   `pip show vllm`, and do not hunt for the missing line.
 3. Recorded pairs:
    - vllm-ascend `v0.11.0rc0` (`00ba07102212c7c7a40de427f09848f2e203c498`) with
      vllm `v0.11.0rc3` (`8ce5d3198d00631a76e1aa02a57947b46bc7218c`), image

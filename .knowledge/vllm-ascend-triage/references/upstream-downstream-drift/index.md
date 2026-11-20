@@ -13,6 +13,11 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
 - the failing frame is in `vllm_ascend/ops/`, `vllm_ascend/patch/`,
   `vllm_ascend/models/` or `vllm_ascend/attention/`
   (collectively `vllm_ascend/{ops,patch,models}` below);
+- **or the failing frame is an upstream vllm file whose class vllm-ascend is
+  supposed to replace** — the Ascend implementation is registered by class
+  *name* (`CustomOp.register_oot` / `REGISTERED_ASCEND_OPS`), so an upstream
+  refactor that adds or renames a class leaves that class running upstream code.
+  The owner is still downstream; do not answer "upstream bug" (recorded #6784);
 - the named class subclasses a `transformers`/`vllm` class or is registered as a
   drop-in replacement for one (`PluggableLayer`, `ModelRegistry.register_model`,
   monkey-patched `forward`);
@@ -57,9 +62,20 @@ It is the wrong entry for an aclnn/AscendC device fault
    vllm-ascend commit, the dependency pin and the image tag. If the reporter is
    on a different image than the one named in the issue, the claim has to be
    re-derived.
+7. **A traceback file that is absent from the pinned upstream tree is a snapshot
+   fact, not an upstream bug.** Say what it proves (the image ships a different
+   upstream ref), get the real pairing from the project's compatibility matrix
+   (`docs/source/community/versioning_policy.md`) and CI `vllm_version` matrix,
+   and ask for `pip show vllm`. Do not keep grepping the pinned tree for the
+   missing line — that loop cost a recorded run its whole budget.
 
 ## Pages
 
 - `patched-forward-api-drift.md` — worked case vllm-ascend #11661 (v0.22.1rc1,
   DeepSeek-OCR-2): `AscendQwen2DecoderLayer` has no `attention_type`, the
   evidence table, the decisive check, and what the report still leaves open.
+- `oot-class-registration-drift.md` — worked case vllm-ascend #6784
+  (v0.14.0rc1-a3-openeuler, LongCat-Flash): `'ZeroExpertFusedMoE' object has no
+  attribute 'select_experts'`, raised inside an upstream file. The name-keyed
+  OOT registry, why the missing upstream file is version evidence, where the
+  vllm↔vllm-ascend pair is actually recorded, and the checks that settle it.

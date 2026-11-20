@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The SOURCES.json version contract, one line per repo, without dumping 20+ KB
-# of JSON into the transcript.
+# The SOURCES.json version contract (one line per repo) plus the `unavailable`
+# repos, without dumping 20-54 KB of JSON into the transcript.
 #
 #   scripts/sources-summary.sh [SOURCES.json ...]
 #
@@ -43,4 +43,13 @@ for path in paths:
             repo=str(r.get('repo'))[:52], ref=str(r.get('ref'))[:24],
             commit=str(r.get('commit'))[:12], mode=str(r.get('mode')),
             coverage=coverage, rv=r.get('runtime_commit_verified')))
+    missing = doc.get('unavailable') or []
+    if missing:
+        print('  unavailable (no verified public source in this snapshot):')
+        for entry in missing:
+            if isinstance(entry, dict):
+                print('    {repo:<50} {reason}'.format(
+                    repo=str(entry.get('repo'))[:50], reason=entry.get('reason')))
+            else:
+                print(f'    {entry}')
 PY

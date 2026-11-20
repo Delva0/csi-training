@@ -28,6 +28,14 @@ has been running for a while, the collective is the allocation site, not the
 owner: use `../runtime-memory/index.md` for the capacity/growth split instead of
 reading that op's shape code.
 
+If the text is `507013` + `sdma copy error` + `The SMMU returns a Terminate error
+during page table translation` **together with** `Memory_Allocation_Failure(EL0004)`
+or `alloc device memory failed, runtime result = 207001`, the synchronizing copy is
+reporting a failure that happened while KV cache or weights were being placed, not
+inside a collective: read the timestamps, then use
+`../runtime-memory/kv-init-and-format-cast-alloc.md`. Contrast `507057`
+(`SUSPECT REMOTE ERROR`), which is a device-error category and stays in this topic.
+
 If the collective failed while the engine was still capturing ACL graphs, take
 `../startup-failures/acl-graph-capture.md` as well: the advice printed around it
 there is canned wrapper text, and the capture-size set needs the arithmetic check

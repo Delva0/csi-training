@@ -41,7 +41,11 @@ known-good path — before writing a theory about model code.
   `Qwen3VLMoeForConditionalGeneration` and `Qwen3VLForConditionalGeneration`
   (both to `vllm_ascend.models.qwen2_5_vl_without_padding`), `Qwen2VL...`,
   `Qwen2_5_VL...`, DeepSeek V2/V3/V3.2, `Qwen3MoeForCausalLM`,
-  `Qwen3NextForCausalLM`, `PanguProMoEForCausalLM`.
+  `Qwen3NextForCausalLM`, `PanguProMoEForCausalLM`. A VL key registered **twice**
+  under an env gate (Qwen2.5-VL: `USE_OPTIMIZED_MODEL` picks `qwen2_5_vl` vs
+  `qwen2_5_vl_without_padding` at v0.9.2rc1) means the flag is itself a
+  known-good-baseline row — that is the first ablation for a VL accuracy report,
+  see `../accuracy-benchmarks/vl-vision-tower-degeneracy.md`.
 - Upstream files: vllm v0.11.0rc3 ships `vllm/model_executor/models/qwen3_vl.py`
   and `qwen3_vl_moe.py`. So "Qwen3-VL unsupported in this image" is **false**
   for that pair — verify before suggesting it.

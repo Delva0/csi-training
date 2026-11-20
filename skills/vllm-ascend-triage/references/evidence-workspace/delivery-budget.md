@@ -19,9 +19,22 @@ a delivered answer is ~4K of them.
 | #11519 | 16384 (cap) | 19 turns | 43.3K | 1.0K | headline + classification only, cut mid-sentence inside the second section |
 | #12339 | 16384 (cap) | 20 turns | 49.0K (largest blocks 7.2K, 6.6K) | 75 | **no answer at all** (the 75 characters are an intro line); last turn had neither text nor a tool call |
 | #14506 | 14865 | 13 turns | 32.1K, of which one 12.3K block on the answering turn | 6.1K | delivered a complete answer — but half the session went into the last "one more angle" block, which ran beside it |
+| #2586 | 12697 | 19 turns | 26.0K | 4.7K | complete ranked answer, gates never reached |
+| #13699 | 9889 | 13 turns | 22.6K | 6.2K | complete answer; the loss was context (a 28 KB turn-1 history listing), not output |
+| #10985 | 16384 (cap) | 15 turns / 28 tool calls | 49.1K (largest blocks 10.5K, 8.5K) | 70 | **no answer at all** (the 70 characters are an "I'll start by loading the skill…" line); the last tool call was dropped as truncated |
+| #4812 | 10218 | 13 turns | 20.6K | 5.0K | complete ranked answer; the reporter then posted the traceback, which moved the lead from "platform unsupported" to an allocation failure at KV-cache init |
 
-Three shapes recur in the capped runs, and all are diagnostic rather than
-unlucky:
+`#2586` and `#13699` are the calibration rows for this batch: both answered well
+inside the cap because the ranked shape was written at the 8th-13th turn, and
+both spent more on reasoning than on the answer (26.0K/4.7K and 22.6K/6.2K
+characters). The second one shows the other kind of waste — input context, not
+output: one turn-1 listing of `history/` bought nothing and cost ~28 KB of the
+prompt. Cheap context is still a tax on the same session; the output gates do
+not meter it. `#4812` is the other uncapped row: 20.6K of reasoning and a 5.0K
+ranked answer in 13 turns, delivered before the reporter posted the traceback
+that moved the lead.
+
+Four shapes recur in these runs, and all are diagnostic rather than unlucky:
 
 - **The archaeology loop** (#6784): ten turns of 1.4-12K characters each,
   re-deciding "which upstream vllm does this image really ship", each block
@@ -33,6 +46,17 @@ unlucky:
   actions, missing artefacts, "Keep ~4K chars" — and spent it on a `findings.md`
   heredoc plus a 4.2K-character block instead of message text. The answer that
   followed was 1.0K characters and truncated.
+- **The ownership hunt** (#10985): the report was "`--enable-log-requests` /
+  `--enable-log-outputs` set, no prompt or generation printed in 0.18.0" — a
+  question whose owner is the upstream OpenAI frontend and a five-line gate
+  checklist, reachable with four greps. The run instead walked
+  `vllm/entrypoints/openai/**` for 15 turns looking for a downstream defect,
+  accumulated a complete correct diagnosis in reasoning (nearly verbatim what the
+  gate table now says) and never wrote any of it as message text. Whenever the
+  report is "a flag/feature did nothing", write the ownership sentence plus the
+  gate checklist in the same turn as the first tool call, then allow at most one
+  confirming grep — that class is not a code walk, and reading more entrypoints
+  cannot improve it.
 - **The "one more angle" turn** (#12339, #14506): the first turns are cheap;
   the loss happens when a new hypothesis needs a new code area and gets its own
   source walk. #12339 walked four mechanisms (rank mapping, mamba mode, A5 MXFP8

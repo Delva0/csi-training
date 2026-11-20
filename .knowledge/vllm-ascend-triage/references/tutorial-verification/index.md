@@ -7,14 +7,22 @@ Scope: the task is to *judge a document*, not to explain a crash. Entry shapes:
   a report covering deploy script, curl and `vllm bench` commands, the doc's
   完整性/易用性/正确性 scores and a FAQ;
 - a `[Doc]` / `[Usage]` issue reporting that a tutorial step, command or number
-  does not work as written;
+  does not work as written — including a command from the repo's own
+  `examples/*.py` whose docstring/argparse block is the defect;
 - any "verify this recipe" request where the reporter's hardware is not
   available to you and the evidence is the **pinned tree**, not a run.
 
-Leave this topic when the report contains an actual failure log with a lane
-(`../startup-failures/index.md`, `../hccl-and-hardware/index.md`,
-`../runtime-memory/index.md`) — then the task is a fault triage and the doc is
-only context.
+Leave this topic when the report contains an actual failure log **and** the
+reporter's own environment is in question (a device/collective lane:
+`../hccl-and-hardware/index.md`, `../runtime-memory/index.md`, or a startup fault
+whose owner is neither the command nor the doc,
+`../startup-failures/index.md`) — then the task is a fault triage and the doc is
+only context. A `[Doc]` report whose pasted traceback *is* the documented command
+failing on argument arithmetic stays here: there is nothing wrong with the
+reporter's box, the finding is the command block plus the invariant it omits, and
+`../startup-failures/arg-validation-errors.md` (third raise site, #2973) supplies
+the mechanism to cite. Grade the doc even when the paste looks like a lane-B
+startup failure.
 
 Inherit the rules in SKILL.md, plus these:
 

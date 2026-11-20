@@ -29,6 +29,19 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `free(): invalid pointer`, `double free or corruption`,
   `munmap_chunk(): invalid pointer`, `Aborted (core dumped)` — with no Python
   frame and no NPU/collective text → `native-import-abort.md`.
+- The **platform plugin fails to import**: `vllm serve` prints
+  `ERROR Failed to load plugin ascend` + `ModuleNotFoundError: No module named
+  'vllm_ascend'`, then `No platform detected, vLLM is running on
+  UnspecifiedPlatform`, and dies with `RuntimeError: Failed to infer device type`
+  although `pip show`/the env dump lists `vllm_ascend <ver>` →
+  `plugin-load-module-missing.md`. The title error is downstream (verified at vllm
+  v0.7.3 `config.py:1654,1660` / `platforms/__init__.py:210-212` /
+  `plugins/__init__.py:26-46`), and entry-point discovery and `plugin.load()` share
+  one `sys.path`, so it is a metadata-vs-module residue: editable install whose
+  checkout moved, two interpreters on one host, or a source-built `vllm`
+  (`0.7.3+empty`) beside another env's install. One `python -c "import
+  vllm_ascend, sys; print(sys.executable, vllm_ascend.__file__)"` in the serving
+  env decides it; the device, CANN and driver are innocent.
 - A `python -c "import <pkg>"` (or the first real use) fails **at symbol
   resolution**, not at open: `ImportError: …/<pkg>/_ops.cpython-310-…so: undefined
   symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` and the ENV dump selects
@@ -153,6 +166,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   root are on opposite sides of the `_GLIBCXX_USE_CXX11_ABI` switch (`Ss` vs
   `NSt7__cxx11`), one process can load only one `libatb.so` SONAME, and the
   reporter-confirmed remedy is the `cxx_abi_0`/`cxx_abi_1` export.
+- `plugin-load-module-missing.md` — the out-of-tree platform plugin cannot import at
+  all: the metadata/dist-info is present, `vllm_ascend` is not, and vLLM degrades to
+  `UnspecifiedPlatform` and then `Failed to infer device type`. The log chain with
+  its pinned anchors, the two entry-point names both refs register, the PEP 660
+  `.pth`/`egg-link` residue check, the two-interpreter signature that the paste's own
+  `site-packages` paths already expose, and the `+empty` marker that says vllm was
+  source-built. Worked for #540 (v0.7.3rc2), cause left open.
 - `launch-env-and-library-path.md` — `ImportError: <name>.so: cannot open shared
   object file` while a connector module is imported in a launcher-managed
   deployment, when the ENV dump says the path is fine: the launch command's

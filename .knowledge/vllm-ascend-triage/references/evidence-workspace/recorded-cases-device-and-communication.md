@@ -211,3 +211,25 @@ all zeros). The reporter's later public comment is only a ping ("@wangxiyuan Hi,
 please take a look at this?"), so no resolution is recorded. Route:
 `../hccl-and-hardware/weight-sync-hccl-cascade.md`. Delivery: cut at the 16 K cap inside a
 reasoning block with no answer text at all.
+
+**#541** vllm-ascend v0.7.3rc1 (`f025df05`) + vllm v0.7.3 (`ed6e907`), torch-npu
+2.5.1.dev20250308, CANN 8.0.0, 2×910B2 on one host: title "[Bug]: dp attention failed
+when use hccl backend in dist.all_reduce", body = the offline
+`examples/offline_inference/data_parallel.py` launcher (`VLLM_DP_*` env vars plus
+`LLM(..., device="npu:N")` in one `multiprocessing.Process` per rank). Rank 0 prints
+its two outputs at `2/2` and exits after `sleep(1)`; rank 1 dies at the first step in
+`set_forward_context` → `dist.all_reduce(num_tokens_tensor,
+group=get_dp_group().cpu_group)` with gloo `pair.cc:534 Connection closed by peer
+[127.0.0.1]:21428`. Track: DP multiprocess launch / engine mode. The recorded run got
+both load-bearing facts and delivered neither: pinned vllm v0.7.3 has no `get_dp_group`
+and a 101-line `forward_context.py` (`:92` is inside the batchsize-stats block) and
+vllm-ascend v0.7.3rc1 has no DP symbol at all, so the paste comes from a newer or
+patched checkout; and the lockstep story is in its own evidence (`init engine … took
+14.98` vs `17.27` seconds, `max_tokens=[16, 20][global_dp_rank % 2]`, `0/2` on the
+surviving rank). Cut at the 16 K cap inside a reasoning block, no answer text.
+Reporter-confirmed resolution (2025-04-18): "经过调试，demo可以运行，但
+multiprocess_mode推理只在V1版本支持"; the follow-up log's `parallel_state.py` prints
+`test current_platform.device_name` and `config.parallel_config.data_parallel_size is
+2`, i.e. an instrumented tree, so the working V0 run does not make V0 supported. Route:
+`../hccl-and-hardware/dp-group-peer-close.md`; the classification row now lets the
+verdict land on the first turn.

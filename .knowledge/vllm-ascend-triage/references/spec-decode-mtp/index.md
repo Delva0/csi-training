@@ -2,10 +2,11 @@
 
 ## Scope
 
-The deployment is up, there is no traceback, and the symptom is produced by the
-speculative-decoding path (`--speculative-config` with `method: mtp`,
-`qwen3_5_mtp`, `eagle`, `draft_model`, or an `AscendEagleProposer` /
-`AscendDraftModelProposer` frame in the stack). Two shapes:
+The deployment is up and the symptom is produced by the speculative-decoding path
+(`--speculative-config` with `method: mtp`, `qwen3_5_mtp`, `ngram`, `eagle`,
+`draft_model`, or an `AscendEagleProposer` / `AscendDraftModelProposer` frame in the
+stack). Usually there is no traceback; one shape is a plain `AssertionError` raised
+at request time. The shapes:
 
 - the spec-decode metrics collapse and request throughput follows: `Accepted: 0`
   with `Drafted: N > 0`, `Per-position acceptance rate: 0.000` for every position,
@@ -37,6 +38,14 @@ speculative-decoding path (`--speculative-config` with `method: mtp`,
   the last element of actualSequenceLengthQ(4)` (`CheckFASeqlenDataInTND`,
   `fused_infer_attention_score.cpp`), on MTP + `FULL_DECODE_ONLY`, often with
   `--data-parallel-size > 1` and EP (`fia-tnd-seqlen-mismatch.md`).
+- or it dies at **request time** on every rank in the same second with a bare
+  `AssertionError` whose last frame is `attention_v1.py … assert
+  attn_metadata.attn_mask is not None`, on a dense model with `method: ngram` (any
+  non-`eagle` method): `AscendAttentionState.SpecDecoding` is declared in the enum
+  but the dense backend has no branch for it, and `_make_attention_mask` returns
+  `None` for that state (`dense-attn-state-gap.md`). The traceback may pass through
+  `<eval_with_key>.N` / `unified_ascend_attention_with_output` — that is the graph
+  wrapper around the same eager body, not a capture fault.
 
 Not this topic: a launch/startup failure (`../startup-failures/index.md`), a
 collective or device fault whose sync point is **not** the drafter's count copy
@@ -106,6 +115,14 @@ from the acceptance numbers.
   provenance, three symptoms" in the first sentence; a reporter reading three
   tracebacks otherwise reads three causes.
 
+- **The attention backend, not the proposer, decides whether a spec method is
+  supported.** One grep — `rg -n '<StateName>|<mask field>' vllm_ascend/attention/`
+  — returns which backends consume the state and which merely declare it. A state
+  that exists in the enum and is consumed by zero branches of the backend that is
+  running is a coverage gap, not a config value and not a device fault. The recorded
+  #2071 run reached that verdict only after re-reading three overlapping regions of
+  `model_runner_v1.py`; the grep answers it in one call (`dense-attn-state-gap.md`).
+
 ## Pages
 
 - `acceptance-collapse.md` — the acceptance metric reading, the ordered ablation,
@@ -144,6 +161,17 @@ from the acceptance numbers.
   the `FIA_SEQ_LEN_LIMIT = 16` / RFC #3003-#4300 constraint text, the GLM-4.x
   tutorial diff that is the first half of the answer, the six-rung ladder and the
   worked #6598 row (v0.14.0rc1, DP2×TP8 A2 two-node, `num_speculative_tokens: 3`).
+- `dense-attn-state-gap.md` — `assert attn_metadata.attn_mask is not None`
+  (`attention_v1.py:413`) under `method: ngram`: the three state branches plus one
+  catch-all `else:` that serves `ChunkedPrefill` *and* the unknown states, the
+  `use_eagle`-only split at `model_runner_v1.py:977-981` that hands every non-eagle
+  method `SpecDecoding`, `_make_attention_mask` returning `None` for it, the
+  `spec_attn_mask` consumer table (MLA only) as the one-grep verdict, why the crash
+  arrives after a healthy period (first draft-producing decode step), the
+  `pytest.skip("Not current support for the test.")` at
+  `tests/e2e/singlecard/spec_decode_v1/test_v1_spec_decode.py:72` as the tree's own
+  statement, the ladder that excludes `--enforce-eager`, and the worked #2071 row
+  (v0.9.2rc1).
 - `async-spec-bookkeeping-desync.md` — `--async-scheduling` + MTP and the
   three-traceback signature: the discarded-request chain
   (`model_runner_v1.py:838-842` mask → `prev_req_id_to_index` built without those

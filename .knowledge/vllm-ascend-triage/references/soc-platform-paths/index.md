@@ -59,6 +59,12 @@ Conditional routes:
 - The traceback on a 310P host ends in `npu_format_cast` /
   `_convert_torch_format` with a device allocation error →
   `../runtime-memory/kv-init-and-format-cast-alloc.md`.
+- A **quantized** model on 310P fails at the first quantized linear with an
+  op-level dtype/layout complaint instead of a Python raise — e.g. `Bias dtype
+  should be INT32, actual dtype is DT_FLOAT16` in the title alone: the
+  checkpoint artifact decides (310-suffixed conversion vs the generic `-w8a8`),
+  and the 310P `W8A8_DYNAMIC` scheme is the one path that forwards the model's
+  fp16 bias → `310p-quant-checkpoint-soc-match.md` (three checks, no engine walk).
 - The op cannot be resolved for the SoC at all (`EZ1001`, `Get regInfo failed`,
   `does not support opType [X] … socVersion [ascend910_93]`) — a build/install
   fault, not a platform path →

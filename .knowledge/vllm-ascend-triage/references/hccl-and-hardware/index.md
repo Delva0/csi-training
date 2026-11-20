@@ -9,7 +9,8 @@ dumps, collective hangs/timeouts during `profile_run` or
 `determine_available_memory`, a **long-run** hang reported as
 `hccl fftsplus task timeout ... stuck notify num:1, timeout=<N>s` with
 `[TaskExecStage][HeartbeatAbnormal] ... Heartbeat Lost Occurred`, and processes
-killed by a device fault.
+killed by a device fault, or the DP group's gloo `cpu_group` reporting
+`pair.cc:534 Connection closed by peer`.
 
 Inherit the rules in SKILL.md. **`hcclRet -> N` / `hccl_result = N` is the
 `hcclResult_t` enum**: `0` SUCCESS, `1` PARA, `2` PTR, `3` MEMORY, **`4`
@@ -127,6 +128,20 @@ proc(s): {'EngineCore': -11}`, the `TBE Subprocess … main process disappeared`
 block after it — is the startup section of that page: `-11` is SIGSEGV, a trivial
 CPU `torch.zeros` at the top of the dump is where the damage surfaced, and the
 answer is the image/CANN pairing plus the release's own validated command.
+
+**Then separate a peer that *finished* from a peer that died.** `Connection closed
+by peer` also appears when the DP group's gloo `cpu_group` loses a rank that exited
+**normally**: the offline multiprocess DP demo (`VLLM_DP_*` env vars plus
+`LLM(device="npu:N")` in one `multiprocessing.Process` per rank) gives each rank its
+own `max_tokens`, the first rank returns from `generate()`, sleeps and exits, and its
+peer dies at `set_forward_context` → `dist.all_reduce(num_tokens_tensor,
+group=get_dp_group().cpu_group)`. The same report usually needs the engine-mode answer
+first: external multiprocess DP is a **V1** feature (#541 reporter-confirmed), and at
+vllm v0.7.3 + vllm-ascend v0.7.3rc1/rc2 there is no `get_dp_group` anywhere, so that
+traceback cannot come from the pair the report names. `dp-group-peer-close.md` has
+both steps, the peer-log discriminator (printed `Processed prompts: 100%` = finished
+launch shape, `exit code: None`/sigquit dump = killed rank) and the "works after
+debugging" caveat.
 
 1. `error-report-timestamps.md` — when the paste carries several error families at
    once (`EE9999` runtime records, `EZ9999` chip dumps, `507011`, `ERR00100`,

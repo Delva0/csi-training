@@ -418,3 +418,24 @@ give some time, then no error will occur"). Version scope from the reporter:
 still reproducing on v0.23.0 and v0.26.0rc1 (`token_ids=[0]*100`, second call
 normal), clean on nightly main at vllm 0.27.1. Page:
 `../accuracy-benchmarks/first-generate-degenerate.md`.
+
+**#2071** vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`), Qwen3-32B
+(dense, team `--quantization ascend`, `--compilation_config` capture sizes), served
+fine through ~40 s of `vllm bench serve --dataset-name random` and then every rank
+died in the same second: `AssertionError` at `attention_v1.py:413`
+`assert attn_metadata.attn_mask is not None`, reached through
+`unified_ascend_attention_with_output` from `<eval_with_key>.2`. Cause: ngram spec
+decode has no branch in the dense backend — `SpecDecoding` is declared at
+`attention_v1.py:117` and consumed by nobody there, the runner hands it to every
+non-`use_eagle` method (`model_runner_v1.py:977-981`), `_make_attention_mask`
+returns `None` for it (:712-714), and only `mla_v1` reads `runner.spec_attn_mask`.
+Delivered: verdict first with the "remove `--speculative-config`" rung, the
+`--enforce-eager`-is-not-the-fix statement, the first-draft-hit timing, and the
+tree's own `pytest.skip("Not current support for the test.")` at
+`test_v1_spec_decode.py:72` as the project's statement of non-support. Cost 22 tool
+calls over 13 turns / 871 K prompt tokens: the decisive facts arrived by re-reading
+`model_runner_v1.py` in three overlapping windows, where one
+`rg -n 'SpecDecoding|spec_attn_mask' vllm_ascend/attention/` returns the whole
+consumer table. Page `../spec-decode-mtp/dense-attn-state-gap.md`. Open: whether
+`deepseek_mtp` on a dense model fails identically (same branch, no run), and whether
+a later ref implements the state (no later ref in this snapshot).

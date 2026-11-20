@@ -35,6 +35,8 @@ a delivered answer is ~4K of them.
 | #9355 | 16384 (cap) | 13 turns / 17 tool calls | 51.2K (largest blocks 10.2K, 8.1K) | 2.2K | classification + ranked causes delivered, then cut mid-sentence before the action block; the 10.2K and 8.1K blocks were mechanism re-derivation on a one-shot-state theory no evidence had established |
 | #6240 | 16384 (cap) | 18 turns / 28 tool calls | 37.9K (largest blocks 7.2K, 6.8K, 5.6K) | 4.5K, cut mid-sentence | answer started on the **last** turn only — G1/G2/G3 all crossed with zero message text before it; the ranked list survived, the closing scope block did not. The case had **no pasted error text**, which is what the extra turns were spent on |
 | #4296 | 8998 | 10 turns / 12 tool calls | 22.1K | 3.8K | complete ranked answer with a source-verified mechanism, fix and a one-A/B confirmation; 45 % of the cap unused — the paste carried a traceback, so the mechanism was visible by its 5th-6th turn and the answer could be written there |
+| #3902 | 6962 | 5 turns / 7 tool calls | 14.7K | 7.0K | complete ranked answer with 58 % of the cap unused; the scope error was ordering, not budget — it led with the capture-phase collective lane and put host memory at rank 3, and the reporter's later `top` (16 ranks, 1472 of 2014 GiB host RAM, swap 0) is the number that lane owes first |
+| #10943 | 16384 (cap) | 11 turns / 17 tool calls | 52.2K (largest blocks 15.2K, 9.3K, 7.5K, 7.1K) | 79 | **no answer at all** (the 79 characters are an "I'll start by loading the relevant skill" line); six calls grepped the exported `cann/`, `Ascend/pytorch` and `triton-ascend` trees for the `std::string(nullptr)` site, and the final 7.1K block was the whole answer spent as reasoning |
 
 `#2586` and `#13699` are the calibration rows for this batch: both answered well
 inside the cap because the ranked shape was written at the 8th-13th turn, and
@@ -131,12 +133,23 @@ Four shapes recur in these runs, and all are diagnostic rather than unlucky:
   re-deciding "which upstream vllm does this image really ship", each block
   restating the previous block's open questions. The decisive observation (the
   traceback names a vllm file that does not exist in the pinned tree) had
-  arrived by turn 5 and was never written as text.
+  arrived by turn 5 and was never written as text. #10943 is the same loop one
+  layer below Python: six calls grepping `cann/ascend-transformer-boost`,
+  `Ascend/pytorch` and `triton-ascend` for the code that builds a `std::string`
+  from a null `char*`, in trees that the exports do not contain in full and that
+  no grep can resolve — the owner was one `gdb break std::__throw_logic_error`
+  backtrace away, and the deliverable (stock-model discriminator, three probes,
+  backtrace request) needed no C++ at all.
 - **The late plan** (#11519): the reasoning block at turn 18 already contained
   the whole answer — classification, four ranked causes, evidence table,
   actions, missing artefacts, "Keep ~4K chars" — and spent it on a `findings.md`
   heredoc plus a 4.2K-character block instead of message text. The answer that
-  followed was 1.0K characters and truncated.
+  followed was 1.0K characters and truncated. #10943 is the second member and
+  the cleaner one: its final 7.1K block held the headline, the lane, five ranked
+  causes with one check each and the exact `vllm_ascend/worker/worker.py` lines —
+  and the cap landed there, so the session ended with 79 characters of message
+  text. The same block written two turns earlier as text would have been a
+  complete answer.
 - **The ownership hunt** (#10985): the report was "`--enable-log-requests` /
   `--enable-log-outputs` set, no prompt or generation printed in 0.18.0" — a
   question whose owner is the upstream OpenAI frontend and a five-line gate

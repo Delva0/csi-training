@@ -12,6 +12,12 @@ Scope, part 2: the engine never became ready because an allocation failed —
 Same decision (capacity vs growth vs dead key), different phase and different
 cheapest test (a smaller `--max-model-len` instead of two timestamped samples).
 
+Scope, part 3: the **host** ran out, not the card — the reporter says the machine
+crashed (ssh lost, box unusable) or pastes a `top`/`free` with every python3 rank
+holding tens of GiB RES, and the NPU log carries no device or collective error.
+Host RAM is invisible to `npu-smi`, so it is the first thing a "machine crashed"
+report needs a number for (`host-ram-and-per-rank-rss.md`).
+
 Not an accuracy or corruption report, and not a collective error even when the
 crash text names one (`HcclAllGather` in a late OOM is the allocation site); go
 to `../hccl-and-hardware/index.md` first only when a real collective failure
@@ -54,5 +60,9 @@ Conditional routes:
   first. The format cast is the allocation site, not the defect; a 310P host adds
   the `FRACTAL_NZ` copy and the 300I allocator prescription
   (`../soc-platform-paths/atlas-300i-310p.md`).
+- "The machine crashed" / ssh lost / a `top` paste whose python3 ranks each hold
+  tens of GiB RES on one host, with no NPU-side error → `host-ram-and-per-rank-rss.md`
+  and `bash <skill_root>/scripts/host-ram-check.sh <paste|->` (worked: #3902,
+  16 ranks × 88-100 GiB = 1472 of 2014 GiB on a 2 TB host, swap 0).
 - The report is about score/accuracy dropping under memory pressure, or about
   garbled output after long runs → `../accuracy-benchmarks/index.md`.

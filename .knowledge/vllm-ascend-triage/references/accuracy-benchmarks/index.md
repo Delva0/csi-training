@@ -9,7 +9,9 @@ Also covers the corruption end of the same track — a prompt that comes back as
 garbled / repeated / empty text rather than as a wrong answer — and the shortest sibling
 symptom, output that is fluent but stops after tens of tokens ("被截断") — because both are
 decided by the same first question (is anything being compared, or is the engine wrong per
-se), then by `finish_reason`.
+se), then by `finish_reason`. A report that pastes only a response body — thinking text in
+`content`, `reasoning`/`reasoning_content` missing, `reasoning_tokens: 0` — is also this
+topic: the answer is the serve flag's presence, not a kernel.
 
 Four entry shapes leave this topic immediately and are not accuracy questions at all:
 
@@ -58,8 +60,14 @@ Four entry shapes leave this topic immediately and are not accuracy questions at
 - `harness-vs-engine-attribution.md` — knob-by-knob checklist (thinking, max tokens,
   sampling, extraction, aggregation), where the project's own baselines live, and the
   decisive experiment to run.
-- `reasoning-output-routing.md` — verified upstream vLLM v0.19.1 behaviour that turns
-  truncated thinking into `content: null`, plus the `enable_thinking` vs `thinking` kwarg trap.
+- `reasoning-output-routing.md` — output-routing in both directions, and the place to
+  answer a pure response-contract question that pastes no score at all: (a) verified
+  upstream vLLM v0.19.1 behaviour that turns truncated thinking into `content: null`,
+  plus the `enable_thinking` vs `thinking` kwarg trap; (b) re-verified at vllm v0.22.1
+  that "thinking inside `content` + no `reasoning` field + `reasoning_tokens: 0`" is a
+  missing `--reasoning-parser` (default `""`), that the chat field is now `reasoning`
+  with `reasoning_content` only a deprecated input alias, and that the Qwen3.6 tutorial
+  omits the flag while seven sibling pages pass it.
 - `quantized-checkpoint-conversion.md` — per-layer loss tables and bad artifacts from
   msmodelslim conversion: the two gates (engine version plus the msit branch, which
   differs between doc pages), the published-checkpoint split test, layer-localization by

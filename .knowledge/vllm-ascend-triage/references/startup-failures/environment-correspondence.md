@@ -57,6 +57,21 @@ known-good path — before writing a theory about model code.
   (`tests/e2e/multicard/4-cards/test_qwen3_5.py` for TP=4 Qwen3.5-27B in
   v0.17.0rc1) as the known-good baseline.
 
+## Read the environment dump's gaps before its contents
+
+An empty `CANN:` field (or a missing component version) in the issue's
+`collect_env.py` block is usually the *collector*, not the install:
+`collect_env.py` reads hard-coded default roots (`collect_env.py:300` at
+v0.20.2rc1 reads
+`/usr/local/Ascend/ascend-toolkit/latest/<arch>-linux/ascend_toolkit_install.info`),
+so an install under `/usr/local/Ascend/cann-9.0.0` or a conda prefix reports
+`None`. Reporter-confirmed on #10525: the path existed, "但这个检查脚本确实没检查到".
+Cross-check `ASCEND_HOME_PATH`, `python3 -c "import acl; print(acl.get_soc_name())"`
+and `which npu-smi`, and ask for the actual install root before building a
+thesis on a missing component. The same rule applies to components the image
+installs but a hand-built environment must add itself (NNAL/ATB:
+`../image-dependency-faults/nnal-atb-missing-library.md`).
+
 ## Diff the reporter's configuration against a known-good baseline
 
 CI e2e tests and the pinned vllm-ascend `docs/source/tutorials/*.md` are the shipped known-good command

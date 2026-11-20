@@ -127,7 +127,16 @@ Five entry shapes leave this topic immediately and are not accuracy questions at
   MoE/EP/quantisation ablation rows (EP off, FLASHCOMM1, prefix caching, `--enforce-eager`,
   `max-model-len`, both nodes' weights and image), and the gateway/model-echo caveat.
   `usage.prompt_tokens`, not the size of the pasted request, decides which of the two
-  corruption pages you are in.
+  corruption pages you are in — and a **short** prompt with a tens-of-thousands-token
+  completion that repeats sentences is neither: see `long-output-repetition.md`.
+- `long-output-repetition.md` — a few responses in a long accuracy run come back with
+  sentences repeated ("5 条响应的句子重复"), fluent and on-topic, on a documented model
+  with PD + MTP + prefix caching and a large `max_tokens`. The identity row
+  (`--max-num-seqs 1`, `temperature: 0`, same request 3×) comes first, then the tutorial
+  P/D diff for the decode side, the three traps in reading that diff
+  (`--enable-prefix-caching` is default-on at vllm v0.23.0; a Mooncake
+  `VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT` hit is a log line, not a generation bound; the
+  block-verify gate is off by default there), and the recorded #13719 diff table.
 - `qwen3-next-gdn-numeric-path.md` — the hybrid linear-attention (Gated-DeltaNet) shape:
   a 19-token to few-hundred-token prompt on Qwen3-Next-80B-A3B answered as a digit run or a
   phrase loop while ordinary chat is fine. What vllm-ascend replaces on that path at

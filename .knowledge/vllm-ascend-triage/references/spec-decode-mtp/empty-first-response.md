@@ -175,9 +175,10 @@ path off while leaving the target model's `FULL_DECODE_ONLY` graphs on.
 
 A `num_speculative_tokens` of 1 or 2 never reaches the block-verify kernel —
 `using_block_verify = max_spec_len >= 3 and draft_probs is not None`
-(`vllm_ascend/sample/rejection_sampler.py:116` at v0.18.0) — so name that branch
-(`../tool-call-streaming/mtp-block-verify-acceptance.md`) as out of scope instead of
-walking it.
+(`vllm_ascend/sample/rejection_sampler.py:116` at v0.18.0; newer refs also AND
+`rejection_sampler_config.enable_block_verify`, default `False` at v0.23.0rc1) — so
+name that branch (`../tool-call-streaming/mtp-block-verify-acceptance.md`) as out of
+scope instead of walking it.
 
 ## Recorded runs: #9355 (vllm-ascend v0.18.0, Qwen3.6-27B bf16, 2×910B3)
 

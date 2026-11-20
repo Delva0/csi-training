@@ -75,6 +75,8 @@ leads were.
   it at G2 *in place of* the reasoning block, and skip it when the session is
   already long. Composing it late is what costs a run its ranked causes.
 
+**Copy the sentence, not the plan.** #17991 is the clearest recorded case: the mechanism was settled in the reasoning block and the message text said it was about to check two more facts. The remedy is mechanical — when the reasoning block reaches a sentence that names the owner and the line, that sentence is the message text of *this* turn; the tool call rides along after it. A block ending in a plan ("let me pin two last facts") ships nothing, and the next call may never run.
+
 ## Why: the recorded pattern
 
 The difference between the runs that delivered and the runs that did not is not the
@@ -98,6 +100,8 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #13002 | at turn ~10: the model's own tutorial carried the validated P and D commands, i.e. the config diff that *is* this report's answer | **no answer**: 21 turns and the full 16K output budget, ~8 of the turns inside one 2600-line `mooncake_connector.py`, cut inside a reasoning block after noting "I'm now at a good point to deliver" |
 | #5295 | by turn 10: the selector predicate (`world_size_across_dp/pp >= 16` on A2), the correction that MC2 inherits the All2All `finalize`, and the capacity arithmetic from `cudagraph_capture_sizes: [4]` | **no answer**: 16 turns, every message a tool call, ~46 K characters of reasoning, cut inside a block that was opening `ascend_forward_context.py` to check `padded_num_tokens` — the check that refutes the theory it was about to state (`../feature-enable-recipes/moe-expert-parallel-with-dp.md`) |
 | #15815 | the whole chain (stale factory alias, `OOT, None`, masked property) by turn 12 and the traceback lines matching the pin by turn 3 | complete ranked answer — but only in its **15th** turn, after 50 K characters of output of which 31 K were reasoning (14,553 of a 16,384-token cap). It shipped because 1.8 K tokens were left; nothing about the session was shaped to survive a cut |
+| #8724 | the frame line and the three-traceback signature by turn 3; the decisive patch-vs-upstream diff was the one step that never ran | **no answer**: 29 turns, every message a tool call, ~48.5 K characters of reasoning against 73 characters of text, cut inside a reasoning block on the turn it finally started the diff (`../upstream-downstream-drift/patch-copy-vs-upstream.md`) |
+| #17991 | the full source-verified diagnosis (`fa3_v1.py:132-136`, request-indexed `block_tables` sliced by a token count) written in the reasoning at its 17th turn | **no answer**: ~51 K characters of reasoning against 255 characters of message text; the 186-character message on that turn was `Confirmed the fault mechanism. Let me pin two last facts`, and the cap landed on the next tool call (`../mixed-batch-splits/fa3-mixed-batch-split.md`) |
 | #11759 | each section as it became true: the absent benchmark section (turn 6), the ignored `max_completion_tokens` (turn 8), the one-card sizing arithmetic (turn 11), the `transformers==4.51.0` pin conflict (turn 14) | **no file, no message text**: 16 turns, 46.5 K characters (29.8 K reasoning, 69 characters of message text), the report heredoc written on the last turn and discarded — a 5.7 K-character composition after a 3.5 K-character script the turn before |
 
 Two consequences worth restating: an "I'll start by…" line is not an answer and

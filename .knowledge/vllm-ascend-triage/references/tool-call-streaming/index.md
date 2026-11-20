@@ -69,8 +69,11 @@ Not this topic — leave with the linked route:
    `num_speculative_tokens: 3` fails and `1` works: `vllm_ascend/sample/
    rejection_sampler.py:114` is `using_block_verify = max_spec_len >= 3` with the
    comment "When num_speculative_tokens>=3, using block verify" — a threshold on
-   the reported value. State it as the branch, label it source-verified, give the
-   n=2 A/B that confirms it, and put the mechanism
+   the reported value. **Read the line at the reporter's ref first**: from
+   v0.23.0rc1 it also ANDs `rejection_sampler_config.enable_block_verify`, which
+   defaults `False` (`ascend_config.py:766`), so the threshold alone may select
+   nothing there. Where it does hold, state it as the branch, label it
+   source-verified, give the n=2 A/B that confirms it, and put the mechanism
    (`mtp-block-verify-acceptance.md`) behind that A/B. The recorded #7580 run
    reached that branch on its tenth turn and then spent its remaining nine turns
    on the acceptance kernel, the pytorch twin and the test files, and ended with

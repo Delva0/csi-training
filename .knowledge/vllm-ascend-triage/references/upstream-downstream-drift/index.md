@@ -83,7 +83,19 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
    consumer module's (`qwen3_moe.FusedMoE is not patch._ascend_FusedMoE`) and see
    `stale-module-binding.md`. Check `hasattr(CustomOp, 'op_registry_oot')` before
    quoting the name-keyed page.
-8. **A traceback file that is absent from the pinned upstream tree is a snapshot
+8. **A `patch/**` frame is a copy, so attribute it with a diff.** Every module
+   under `vllm_ascend/patch/` assigns a verbatim upstream method onto an upstream
+   class under a `vllm_version_is('<ver>')` gate, so the innermost traceback frame
+   names vllm-ascend while the failing statement may be upstream text. Extract the
+   class-level definition from the pinned upstream file (dedent by 4), diff it
+   against the module-level copy, and classify the hunks: formatting-only means
+   the owner is upstream at that pin, and only an *added statement* can be
+   vllm-ascend's — then check whether that statement is even live for the
+   reporter's command (PD `is_kv_consumer`, `use_async_scheduling`, an
+   `additional_config` key). Doing this first is 2-3 calls; the recorded #8724 run
+   derived the same conclusion from proxies over 29 turns and shipped nothing
+   (`patch-copy-vs-upstream.md`).
+9. **A traceback file that is absent from the pinned upstream tree is a snapshot
    fact, not an upstream bug.** Say what it proves (the image ships a different
    upstream ref), get the real pairing from the project's compatibility matrix
    (`docs/source/community/versioning_policy.md`) and CI `vllm_version` matrix,
@@ -113,6 +125,13 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
   `VllmConfig` is built. Ray ranks and `spawn` workers keep upstream's
   `forward_oot`; the default `fork` inherits the patched class. Includes the
   frame-file discriminator and the two-line host check.
+- `patch-copy-vs-upstream.md` — the `patch/**` frame: the extract-and-diff recipe
+  with exact line ranges, the formatting-vs-added-statement classification, the
+  version gate that binds a copy to one upstream release, and worked #8724
+  (v0.13.0rc3/v0.13.0): the patch is upstream `gpu_model_runner.py:753-1018`
+  re-indented plus one `is_kv_consumer`-gated hunk the reporter's non-PD command
+  never runs, so the `KeyError` at `patch_model_runner.py:154` is upstream's — plus
+  the one-provenance reading of its three tracebacks.
 - `oot-class-registration-drift.md` — worked case vllm-ascend #6784
   (v0.14.0rc1-a3-openeuler, LongCat-Flash): `'ZeroExpertFusedMoE' object has no
   attribute 'select_experts'`, raised inside an upstream file. The name-keyed

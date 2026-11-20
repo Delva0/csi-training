@@ -13,7 +13,13 @@ speculative-decoding path (`--speculative-config` with `method: mtp`,
   `Running`;
 - a response comes back empty (`content: ""`) with `usage.completion_tokens: 1`,
   usually on the first request(s) after the server starts, and later requests are
-  fine.
+  fine;
+- the **process** dies instead: a worker `KeyError` in
+  `vllm_ascend/patch/worker/patch_model_runner.py` `_update_states`, a
+  `'NoneType' object has no attribute 'sampled_token_ids'` in the EngineCore and a
+  negative `Counters can only be incremented by non-negative amounts`, together,
+  with `--async-scheduling` and `--speculative-config` in the same launch and a
+  fractional `temperature` (`async-spec-bookkeeping-desync.md`).
 
 Not this topic: a launch/startup failure (`../startup-failures/index.md`), a
 collective or device fault (`../hccl-and-hardware/index.md`), wrong or alternating
@@ -24,9 +30,10 @@ client cannot parse (`Unterminated string`, 格式错误, 参数被截断) while
 itself is fine is also not here: the open question is whether the stream or the
 assembly lost the tail, so start at `../tool-call-streaming/index.md`. When its
 failing `num_speculative_tokens` is >= 3 and 1 or 2 works, that topic's
-`mtp-block-verify-acceptance.md` carries the `max_spec_len >= 3` branch — name it
-with the `n=2` and `temperature: 0` ablations rather than re-deriving it from the
-acceptance numbers.
+`mtp-block-verify-acceptance.md` carries the `max_spec_len >= 3` branch (at newer
+refs it also ANDs `rejection_sampler_config.enable_block_verify`, default `False`)
+— name it with the `n=2` and `temperature: 0` ablations rather than re-deriving it
+from the acceptance numbers.
 
 ## Rules
 
@@ -59,6 +66,16 @@ acceptance numbers.
   `"enforce_eager": true` inside `--speculative-config` and default capture sizes,
   and those two deviations are the cheapest rows.
 
+- **Three tracebacks from a spec-decode deployment are usually one provenance.**
+  Read them bottom-up: the worker exception is causal, the EngineCore `None`
+  output is the worker having died, and the sampler/metrics complaint is a
+  *second* symptom of the same bad state, not a third bug. The recorded #8724 set
+  (`KeyError` in `_update_states` + `NoneType … sampled_token_ids` + negative
+  counter) all traces to one request whose sampled-token row was discarded, i.e.
+  to `num_accepted = valid_sampled_token_count[...] - 1 == -1`. Say "one
+  provenance, three symptoms" in the first sentence; a reporter reading three
+  tracebacks otherwise reads three causes.
+
 ## Pages
 
 - `acceptance-collapse.md` — the acceptance metric reading, the ordered ablation,
@@ -73,3 +90,11 @@ acceptance numbers.
   drafter batch live and switchable at `eagle_proposer.py:136-142`), the
   draft-side `enforce_eager` / `disable_padded_drafter_batch` ablation rows, the
   `min_tokens` mitigation, and the worked #9355 row (v0.18.0).
+- `async-spec-bookkeeping-desync.md` — `--async-scheduling` + MTP and the
+  three-traceback signature: the discarded-request chain
+  (`model_runner_v1.py:838-842` mask → `prev_req_id_to_index` built without those
+  indices → `-1`-filled row → `num_accepted = -1` → unguarded lookup), why the
+  statement is upstream v0.13.0's and the patch only carries it, the
+  `0 < temperature < 1` branch anchor in the rejection sampler with what remains
+  unverified, the ladder (async off → MTP off → token step), and the upstream fix
+  shape (#8724).

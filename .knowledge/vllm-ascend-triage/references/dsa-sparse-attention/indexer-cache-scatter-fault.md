@@ -98,3 +98,15 @@ Consequences for ranking, all cheap to state:
   `decode_slot_mapping = attn_metadata.slot_mapping` at `:1120`). Whether the
   torchair metadata is already phase-split at that point was not verified here;
   list it as an open question if the reporter switches to graph mode.
+
+## Same class outside DSA
+
+The unit rule behind this page — a request-indexed tensor sliced by a token count,
+or a cumulative `cu_seqlens` array handed over without rebasing, turning into a
+device fault once speculative decoding multiplies the offset — is general to every
+hand-written decode/prefill split in the tree, and it was re-recorded on the FA3
+backend (#17991: `attention/fa3_v1.py:132-136`, `507015`). When the batch was
+mixed and the frame is an attention backend rather than `sfa_v1.py`, start at
+`../mixed-batch-splits/index.md`, whose `scripts/batch-split-audit.sh` lists every
+such site in one call. What does not transfer: the DSA path's write/read
+asymmetry (`slot_mapping` vs `slot_mapping_cp`) is specific to `sfa_v1.py`.

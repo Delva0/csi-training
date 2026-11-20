@@ -61,7 +61,18 @@ release, not a flag — `../lora-adapters/decode-overhead-vs-base-model.md`.
    CANN `8.3.rc2-310p`; a host driver older than that pairing is a real candidate.
 2. Apply the 300I environment (`PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256`),
    `--enforce-eager`, `--dtype float16` — the tutorial treats all three as
-   mandatory, and the reporter usually has only the last two.
+   mandatory, and the reporter usually has only the last two. Write an explicit
+   value: `unset` re-enables vllm-ascend's `expandable_segments:True` injection, and
+   on 310P (v0.23.0rc1 `-310p` image, CANN 9.1.0-beta.1, torch_npu 2.10.0.post2)
+   that value crashed every rank in `torch.npu.empty_cache()` with `unmapHandles …
+   507899` while `expandable_segments:False` deployed (reporter-confirmed #12534 —
+   `../runtime-memory/allocator-expandable-segments-unmap-crash.md`). Also quote the
+   graph budget when TP > 1: `FULL_DECODE_ONLY` is supported but "the number of
+   capturable graphs is limited and depends on the model depth … Qwen3-32B can
+   capture and replay 2 graphs", with no limit at TP=1
+   (`docs/source/tutorials/hardwares/310p.md:20-30` at v0.23.0rc1) — so a
+   "2 cards fine, 4 cards stall" report takes `--enforce-eager` and
+   `cudagraph_capture_sizes: [1]` before any HCCL theory.
 3. Shrink the budget (`--max-model-len`, `--gpu-memory-utilization`) before
    blaming the platform: 310P cards are small and the documented KV/profile
    arithmetic in `../startup-failures/max-model-len-budget.md` applies unchanged.

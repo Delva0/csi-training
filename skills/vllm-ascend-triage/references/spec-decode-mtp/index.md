@@ -32,6 +32,11 @@ speculative-decoding path (`--speculative-config` with `method: mtp`,
   (+ `npugraph_ex`), with `fftsplus aicore/aivector … MTE DDR out of range` and a
   capture-mode `rtMemcpy … 107030` record stamped inside engine init
   (`draft-graph-capture-device-fault.md`).
+- or it dies with an **operator-level message and no Python frame**: `ERR00100 PTA
+  call acl api failed` + `EZ9999 … When layout is TND, queryT(16) must be equal to
+  the last element of actualSequenceLengthQ(4)` (`CheckFASeqlenDataInTND`,
+  `fused_infer_attention_score.cpp`), on MTP + `FULL_DECODE_ONLY`, often with
+  `--data-parallel-size > 1` and EP (`fia-tnd-seqlen-mismatch.md`).
 
 Not this topic: a launch/startup failure (`../startup-failures/index.md`), a
 collective or device fault whose sync point is **not** the drafter's count copy
@@ -80,6 +85,17 @@ from the acceptance numbers.
   `"enforce_eager": true` inside `--speculative-config` and default capture sizes,
   and those two deviations are the cheapest rows.
 
+- **When the operator names two numbers that must be equal, the arithmetic is the
+  classification — not the third source file.** `queryT(N)` vs
+  `last(actualSequenceLengthQ)(M)` (or any op message of the form "A must equal
+  B") is a host-side bookkeeping disagreement: `N` is the graph bucket after
+  `pad_for_cudagraph` *and* the DP-wide maximum, `M` is the real per-request
+  cumsum. Run `scripts/fia-tnd-seqlen-check.sh` on the pair and the launch, state
+  both readings with the one log line that separates them (`Running: <n>`), and
+  put `PIECEWISE`/`--enforce-eager` in the first paragraph. Recorded #6598 spent
+  its whole 16 K output budget re-deriving which of two padding branches produced
+  the pair and shipped no answer (`fia-tnd-seqlen-mismatch.md`).
+
 - **Three tracebacks from a spec-decode deployment are usually one provenance.**
   Read them bottom-up: the worker exception is causal, the EngineCore `None`
   output is the worker having died, and the sampler/metrics complaint is a
@@ -120,6 +136,14 @@ from the acceptance numbers.
   recorded `aclnnAddRmsNormBias` sibling stack, and the ablation ladder with its
   measured cost (spec-scoped `enforce_eager` = stable but several times slower;
   still broken at v0.22.1rc1). Worked #10700 row.
+- `fia-tnd-seqlen-mismatch.md` — the FIA TND refusal (`queryT` vs
+  `last(actualSequenceLengthQ)`): reading the two numbers as bucket-vs-real, the
+  five padding sites that disagree at v0.14.0rc1 (`:588-591` local
+  `pad_for_cudagraph`, `:606` DP-wide max, `:856-881` FULL+`uniform_decode` gate,
+  `mla_v1.py:565-605` `graph_pad_size`, `mtp_proposer.py:434-448` drafter arange),
+  the `FIA_SEQ_LEN_LIMIT = 16` / RFC #3003-#4300 constraint text, the GLM-4.x
+  tutorial diff that is the first half of the answer, the six-rung ladder and the
+  worked #6598 row (v0.14.0rc1, DP2×TP8 A2 two-node, `num_speculative_tokens: 3`).
 - `async-spec-bookkeeping-desync.md` — `--async-scheduling` + MTP and the
   three-traceback signature: the discarded-request chain
   (`model_runner_v1.py:838-842` mask → `prev_req_id_to_index` built without those

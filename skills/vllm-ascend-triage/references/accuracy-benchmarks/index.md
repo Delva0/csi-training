@@ -94,6 +94,13 @@ Six entry shapes leave this topic immediately and are not accuracy questions at 
   `finish_reason` budget, then model/template thinking language (`#6848`), then a
   hand-written `--hf-overrides` rope block (`#10405`, hypothesis row), then the version
   gate before recommending `enable_thinking: false` (`#7094` / `#7061`, upstream PR 34779).
+  (d) A **boot-time parser `KeyError`**: `Reasoning parser '<name>' not found. Available
+  parsers: …` or `invalid reasoning parser: <name> (chose from {…})`, typically right
+  after a name copied from the reporter's `--tool-call-parser` line (`qwen3_coder`) —
+  `--reasoning-parser` and `--tool-call-parser` read two separate registries, so the
+  flag is the whole gate, the printed list fingerprints the release, and a Coder /
+  non-thinking checkpoint needs no reasoning parser at all (#8022; the name-space
+  section of the page).
 - `quantized-checkpoint-conversion.md` — per-layer loss tables and bad artifacts from
   msmodelslim conversion: the two gates (engine version plus the msit branch, which
   differs between doc pages), the published-checkpoint split test, layer-localization by

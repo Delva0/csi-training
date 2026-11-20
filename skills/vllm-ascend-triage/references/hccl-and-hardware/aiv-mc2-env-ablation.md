@@ -34,7 +34,11 @@ still reaches `EngineCore` and dies during `profile_run`, i.e. no traffic yet.
   `assert "expandable_segments:True" not in conf, "Expandable segments are not
   compatible with memory pool."` (`vllm_ascend/device_allocator/camem.py:153`,
   v0.26.0rc1 `f2f74a1`) — so a pooled/KV-pool deployment that trips the pool would
-  raise that assert, not a hang.
+  raise that assert, not a hang. Do not carry "`expandable_segments` is innocent"
+  beyond this shape: on a host where the driver rejects the segment unmap, the same
+  variable is itself the crashing site (`unmapHandles … 507899` in
+  `torch.npu.empty_cache()`, reporter-confirmed #12534) —
+  `../runtime-memory/allocator-expandable-segments-unmap-crash.md`.
 - A documented multi-node A2/A3 command sets both (and `HCCL_BUFFSIZE`,
   `HCCL_EXEC_TIMEOUT`, `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS`); a missing
   `HCCL_EXEC_TIMEOUT` only changes how long the hang takes to surface.

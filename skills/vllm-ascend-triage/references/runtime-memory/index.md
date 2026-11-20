@@ -49,7 +49,9 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    cause is whatever grew; say that explicitly before the reporter patches an op.
    The startup counterpart is a `npu_format_cast` frame in KV-cache
    initialisation: it is where a second buffer was requested, not an operator
-   defect (`kv-init-and-format-cast-alloc.md`).
+   defect (`kv-init-and-format-cast-alloc.md`); an *unmap* failure is the same
+   class of statement about a release site
+   (`allocator-expandable-segments-unmap-crash.md`).
 3. **Ask for two timestamped samples**, not one `npu-smi` dump: monotonic growth
    and a flat near-full pool look identical in a single sample.
 4. **Check flag liveness before attributing behaviour to a flag.** On pre-migration
@@ -86,6 +88,14 @@ Conditional routes:
 - The crash instead happens during `profile_run`/`determine_available_memory`
   before the server is ready → `../startup-failures/index.md`
   (`max-model-len-budget.md`) — that is a configuration budget, not a leak.
+- The failure is a **free/unmap**, not an allocation: `unmapHandles …
+  AclrtUnmapMem(… getHcclComm()) error code is 507899` with `ERR00100` /
+  `EL0003`, raised in `torch.npu.empty_cache()` inside the `memory_profiling`
+  window on every rank, right after graph compile → the expandable-segments
+  allocator lane, `allocator-expandable-segments-unmap-crash.md` (reporter-confirmed
+  #12534: `expandable_segments:False` starts; note vllm-ascend injects `True`
+  unless the variable already carries another of the three keys, so "unset" is
+  not "off").
 - The failure is an allocation error inside KV-cache initialisation, with the
   deepest frame in `_convert_torch_format` / `torch_npu.npu_format_cast` and
   `507013` / SDMA / SMMU text around it → `kv-init-and-format-cast-alloc.md`

@@ -60,7 +60,11 @@ leads were.
 - **A new hypothesis that needs a new code area is not this session's job.** Put it
   in the answer as an open question with the one command that decides it. For an
   accuracy/corruption or topology report, a ranked list plus an ablation matrix
-  already *is* the full answer.
+  already *is* the full answer. The same holds when two code paths produce the
+  identical observation: write both readings and the single check that separates
+  them, instead of reading the third file to pick one. Recorded #6598 had the two
+  padding candidates for its operator message by its 8th turn and spent the rest of
+  the budget choosing between them.
 - **An ownership question is answered by naming the owner.** "The flag did
   nothing", "the log line is missing", "the client cannot parse the tool call" are
   gate checklists on the owning component, and they are answered in 3-4 calls.
@@ -132,6 +136,8 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #15815 | the whole chain (stale factory alias, `OOT, None`, masked property) by turn 12 and the traceback lines matching the pin by turn 3 | complete ranked answer — but only in its **15th** turn, after 50 K characters of output of which 31 K were reasoning (14,553 of a 16,384-token cap). It shipped because 1.8 K tokens were left; nothing about the session was shaped to survive a cut |
 | #8724 | the frame line and the three-traceback signature by turn 3; the decisive patch-vs-upstream diff was the one step that never ran | **no answer**: 29 turns, every message a tool call, ~48.5 K characters of reasoning against 73 characters of text, cut inside a reasoning block on the turn it finally started the diff (`../upstream-downstream-drift/patch-copy-vs-upstream.md`) |
 | #17991 | the full source-verified diagnosis (`fa3_v1.py:132-136`, request-indexed `block_tables` sliced by a token count) written in the reasoning at its 17th turn | **no answer**: ~51 K characters of reasoning against 255 characters of message text; the 186-character message on that turn was `Confirmed the fault mechanism. Let me pin two last facts`, and the cap landed on the next tool call (`../mixed-batch-splits/fa3-mixed-batch-split.md`) |
+| #6598 | the two numbers from the screenshot OCR (a padded graph bucket vs the real `actualSequenceLengthQ`) plus both candidate padding owners and the tutorial diff, by turn ~8 | **no answer**: 11 turns, ~35 K characters of reasoning against 1.2 K of status-line text, cut at the 16 K output cap inside a block that had just written "I must emit the answer NOW" (`../spec-decode-mtp/fia-tnd-seqlen-mismatch.md`) |
+| #3098 | the model-specific split (the same ray cluster serves the sibling) and the release note's first-support statement | a ranked answer did reach the message, but the cap landed inside its own ladder (rung 3 of 6): the closing "what to send back" list never shipped, which is the block the answer-size rule above says keeps 2-3 lines |
 | #11759 | each section as it became true: the absent benchmark section (turn 6), the ignored `max_completion_tokens` (turn 8), the one-card sizing arithmetic (turn 11), the `transformers==4.51.0` pin conflict (turn 14) | **no file, no message text**: 16 turns, 46.5 K characters (29.8 K reasoning, 69 characters of message text), the report heredoc written on the last turn and discarded — a 5.7 K-character composition after a 3.5 K-character script the turn before |
 | #16111 | by turn ~12: the lazy init is documented (#9975), the config-table diff (`dram.size` per die, the non-existent `standalone.dram.size`) and the #14106 swallowed-save → collective-desync family | **no answer at all**: 36 turns, every message a bare tool call, cut inside a reasoning block that was composing the deliverable ("Verified facts (pinned …)") — the answer existed only as reasoning |
 | #8788 | by turn ~18: the invocation chain and the four `csrc/third_party` fetches plus the catlass submodule | **no answer at all**: 30 turns, every message a bare tool call, cut inside a block that had already begun "**Answer**: Yes, real…" |

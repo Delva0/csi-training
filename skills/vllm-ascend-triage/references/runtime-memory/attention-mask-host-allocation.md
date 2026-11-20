@@ -86,6 +86,30 @@ table and the largest fitting length for a given host.
   boundary = release-note PR ids + the reporter's version ablation
   (reporter-confirmed for 0.10.0rc1, inferred for the rest).
 
+## A works/fails model pair is only a control after both configs are read
+
+Reports arrive as "the same cluster serves model X fine and model Y dies", and the
+temptation is to price Y's `max_model_len` and call the pair decisive. The mask
+length is the checkpoint's own `max_position_embeddings` (never the prompt), so the
+pair only supports the arithmetic when the two checkpoints really differ there:
+
+- Original **Qwen3-30B-A3B** is a 32,768-token checkpoint while
+  **Qwen3-Next-80B-A3B-Instruct** is 262,144: the pair does validate #2873-style
+  arithmetic (9·N² per rank, 144 GiB at 128K vs 576 GiB at 256K).
+- The **2507 refresh** (`Qwen/Qwen3-30B-A3B-Instruct-2507`) extends the context to
+  262,144 — the same ceiling as Qwen3-Next (confirm from each checkpoint's
+  `config.json`). Recorded #3098's reporter answered exactly that sibling when
+  asked "2507 or the original", i.e. the model that "可以部署" carries the same
+  mask budget, so on that report the pair does **not** exonerate or incriminate
+  this page's mechanism: both models build the same per-rank mask and what
+  separates them is the failing model's own path (hybrid GDN + triton-ascend
+  kernels + no prefix caching: `../image-dependency-faults/triton-ascend-pair.md`,
+  `../performance-throughput/qwen3-next-decode-throughput.md`).
+- Ask for both serve commands and both `Using max model len <N>` lines before
+  quoting a number. A reporter who passed `--max-model-len` on the working model
+  has excluded the term for *that* model only, which is exactly the reading that
+  turns a pair into a control.
+
 ## What the post-crash artefacts do and do not say
 
 The reporter later pasted `npu-smi info` from the rebooted box: 8 × 910B3, HBM

@@ -20,6 +20,35 @@ classification table in `SKILL.md` routes by signature, topical pages by track, 
 
 ## Cases
 
+**#8022** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`),
+Qwen3.5-27B, streaming chat: with `--reasoning-parser qwen3` (or `deepseek_r1`)
+`reasoning_content` stayed null, the thinking vanished from `content`, and the first
+token looked "极慢". Track: output routing (upstream OpenAI frontend). The recorded
+run got the mechanism right at the pinned commit — the chat field is `reasoning`
+(not `reasoning_content`), the deltas carry the CoT as `reasoning`, and the "slow
+first token" is the first **content** delta arriving after the thinking — and said so
+in one paragraph. What it could not close: the only later evidence is the reporter's
+next question ("qwen3_coder可以吗?"), who then ran `--reasoning-parser qwen3_coder` and
+hit the boot `KeyError: "Reasoning parser 'qwen3_coder' not found. Available parsers:
+deepseek_r1, …, qwen3, seed_oss, step3, step3p5"` — a **tool-call** parser name
+(`vllm/tool_parsers/__init__.py:125`). The lesson now sits in the name-space section of
+`../accuracy-benchmarks/reasoning-output-routing.md`: name both registries in the first
+answer, and say that a Coder / non-thinking checkpoint needs no reasoning parser at all.
+
+**#12534** vllm-ascend v0.23.0rc1 (`f4a08bbd`, `v0.23.0rc1-310p-openeuler` image),
+torch_npu 2.10.0.post2, CANN 9.1.0-beta.1, Ascend310P3 ×4, Qwen3.5-35B-A3B w8a8 with
+MTP: engine start died on all four ranks in `torch.npu.empty_cache()` with
+`unmapHandles … 507899` / `ERR00100` / `EL0003`, and the reporter's own suspicion
+(`PYTORCH_NPU_ALLOC_CONF=expandable_segments:True`) was the trigger. The recorded run
+verified the injection block (`platform.py:761-779`), the `memory_profiling` exit site
+and the segment Map/Unmap evidence, then offered `max_split_size_mb:256` / explicit
+`:False` first — but keep the driver/CANN pairing as an unverified hypothesis.
+Reporter-confirmed afterwards: `expandable_segments:False` deploys; the same host then
+ran TP=2 and stalled at `shm_broadcast` on TP=4. Route:
+`../runtime-memory/allocator-expandable-segments-unmap-crash.md`, which also carries
+the 310P graph-budget follow-up and the "the 60 s broadcast line during startup
+compilation is not yet a hang" reading.
+
 **#2873** vllm-ascend v0.10.1rc1 (`7e16b4a`) + vllm v0.10.1.1 (`1da94e6`), one
 910B host, Qwen3-Coder-30B-A3B at `-tp 8 --max-model-len 262144`: the machine
 died during engine start — the log stops at the eight
@@ -1103,3 +1132,49 @@ recorded run loaded `../runtime-memory/kv-init-and-format-cast-alloc.md` plus th
 K+V; `7.56 + 2 × 26.95 GB` vs a 46.43 GB card) and a `--gpu-memory-utilization`
 ladder — the page worked as written, and its peak-arithmetic block now carries
 that table so the next session does not re-derive it with an ad-hoc snippet.
+
+**#6598** vllm-ascend v0.14.0rc1 (`52d4acf`) + vllm v0.14.1 (`d7de043`), A2 two
+nodes x 8 cards, GLM-4.7 BF16, `--data-parallel-size 2 --data-parallel-size-local 1
+--tensor-parallel-size 8 --enable-expert-parallel --quantization ascend
+--speculative-config '{"num_speculative_tokens": 3, "method": "mtp"}'
+--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}' --async-scheduling`:
+the service starts, inference dies with `ERR00100 PTA call acl api failed` +
+`EZ9999 … When layout is TND, queryT(16) must be equal to the last element of
+actualSequenceLengthQ(4)` (`CheckFASeqlenDataInTND`), pasted only as a screenshot.
+Track: FIA's own TND invariant, i.e. host-side padding bookkeeping. `queryT` is the
+graph bucket (local `pad_for_cudagraph`, `model_runner_v1.py:588-591`, then the
+DP-wide max at `:606`), `last(actualSequenceLengthQ)` is the real per-request
+cumsum, padded only on the FULL + `uniform_decode` gate (`:856-881`); the MTP
+drafter pads its own list only when `graph_pad_size > num_reqs`
+(`attention/mla_v1.py:565-605`, `graph_pad_size` set only at
+`spec_decode/mtp_proposer.py:284`). Route now:
+`../spec-decode-mtp/fia-tnd-seqlen-mismatch.md`, one call
+(`scripts/fia-tnd-seqlen-check.sh --query-t 16 --seqlen-last 4 --max-num-seqs 16
+--num-spec 3 --dp 2`), rung 1 `PIECEWISE` / `--enforce-eager`, then the tree's own
+GLM-4.x tutorial diff (`docs/source/tutorials/GLM4.x.md:89-104`, and `:112` for the A2 multi-node note: `num_speculative_tokens: 1`,
+pinned `cudagraph_capture_sizes`, single node, EP off, "not recommended" multi-node
+on A2). Delivery: the recorded run found the pair, both padding candidates and the
+tutorial diff by its 8th turn, then spent the rest of the 16 K cap re-deriving which
+branch it was and shipped **no answer** — the "write both readings plus the one check" rule
+now in `delivery-discipline.md`.
+
+**#3098** vllm-ascend v0.10.2rc1 (`048bfd5`), ray over 2 nodes x 8 910B4,
+Qwen3-Next-80B-A3B-Instruct: "该ray集群部署Qwen3-30B-A3B-Instruct正常运行，而部署
+Qwen3-Next-80B-A3B-Instruct报错", with no error text at all — the body pastes only the
+ray cluster resource view. Track: the model-specific support surface of the first
+release that claims the model. Facts at that ref: the release note
+(`user_guide/release_notes.md:9`, PR #2917) says EP and MTP "doesn't work with this
+release"; the family tutorial makes triton-ascend + the BiSheng toolkit a manual
+per-node, aarch64-only install (`tutorials/multi_npu_qwen3_next.md:41-68`, `:75-78`)
+and validates exactly one shape (`:89`: `--tensor-parallel-size 4 --max-model-len
+4096 --gpu-memory-utilization 0.7 --enforce-eager`); the model asserts no prefix
+caching (`vllm_ascend/models/qwen3_next.py:1186`). The recorded run answered in 7
+turns, ranking "node 2 lacks triton-ascend / has a different vllm-vllm_ascend" first
+— and the reporter's later clarification (the working sibling is
+`Qwen/Qwen3-30B-A3B-Instruct-2507`, not the original 30B) took away its third
+candidate: the 2507 refresh carries the same 262,144 context as Qwen3-Next, so the
+eager `max_model_len²` mask arithmetic could not separate the pair
+(`../runtime-memory/attention-mask-host-allocation.md`, section on works/fails
+pairs). Route now: `../startup-failures/environment-correspondence.md` (per-worker
+environment on ray) plus the Qwen3-Next pages. Delivery: the answer shipped, but the
+cap landed inside its own ladder and dropped the closing artefact list.

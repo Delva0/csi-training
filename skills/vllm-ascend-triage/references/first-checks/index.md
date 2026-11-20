@@ -4,7 +4,9 @@
 
 The executable half of `SKILL.md` procedure step 3: for each lane and track, the
 checks to take **before** any source archaeology, each ending at the topical page
-that owns the rule. It is consulted per report — place the report with the
+that owns the rule. `scripts-catalogue.md` is the same material one level down:
+the flag synopsis and expected reading of every re-runnable script the two pages
+name. It is consulted per report — place the report with the
 classification table in `SKILL.md`, then read only the entry for that track.
 `SKILL.md` keeps the Lane A/B/C ordering, the attribution rule and the delivery
 gates; this topic keeps the per-track detail that used to sit beside them.
@@ -26,6 +28,9 @@ gates; this topic keeps the per-track detail that used to sit beside them.
 
 ## Routes
 
+- `scripts-catalogue.md` — every script under `scripts/`, with its arguments and
+  what its output decides. Open it when a track or topical page names a script;
+  the script's own header repeats the flags and is authoritative.
 - `cheap-checks-by-track.md` — the full list, in the order the tracks appear in
   `SKILL.md`: image/native-module aborts, launch-env and library-path, the
   connector/config-attribute and schema lanes, custom-op resolve/build and

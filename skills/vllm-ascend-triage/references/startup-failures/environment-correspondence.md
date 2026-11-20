@@ -72,6 +72,42 @@ thesis on a missing component. The same rule applies to components the image
 installs but a hand-built environment must add itself (NNAL/ATB:
 `../image-dependency-faults/nnal-atb-missing-library.md`).
 
+## The launch environment is one environment per worker process
+
+On `--distributed_executor_backend ray` (and any multi-node launch) every worker is
+a separate interpreter on its own node, started by that node's raylet: a `source
+set_env.sh` or `export …` in the driver's shell does **not** reach it. Requirements
+that are per-process therefore have to be checked inside each node's worker, not in
+the shell that submitted the job:
+
+```bash
+pip show vllm vllm-ascend | grep -E 'Name|Version'
+python -c "import triton; print(triton.__version__, triton.__file__)"
+which bishengir-compile
+```
+
+Run it once per node (or carry the values through ray `runtime_env` `env_vars` /
+`worker_process_setup_hook`), and ask the reporter for that output rather than for
+"the versions".
+
+Recorded #3098 (vllm-ascend v0.10.2rc1, ray with 2 nodes x 8 910B4,
+Qwen3-Next-80B-A3B): that model imports Triton at module import
+(`vllm_ascend/ops/fla.py:11-12`, `ops/casual_conv1d.py:14-15`), and the release's
+own tutorial makes triton-ascend plus the BiSheng toolkit a manual, **aarch64-only**
+install (`docs/source/tutorials/multi_npu_qwen3_next.md:41-68`, with
+`source /usr/local/Ascend/8.3.RC1/bisheng_toolkit/set_env.sh` at `:54` and repeated
+at `:75-78` as a precondition for inference; the x86_64 tab is "Coming soon" at
+`:67-68`). In a multi-node launch that install and that `source` have to exist in
+every node's worker, and a node that skipped either fails alone — which is exactly
+the "model X deploys here, model Y 报错" split of that report, and why the pair of
+models is not the first evidence. The same release note
+(`docs/source/user_guide/release_notes.md:9`) says EP and MTP "doesn't work with
+this release" (Qwen3 Next, PR #2917), so those flags are ablation rows there, and
+its `:89` command (`--tensor-parallel-size 4 --max-model-len 4096
+--gpu-memory-utilization 0.7 --enforce-eager`) is the only validated shape — a
+cross-node TP16 launch has no published recipe at that ref. For the wheel/compiler
+pairing itself, `../image-dependency-faults/triton-ascend-pair.md`.
+
 ## Diff the reporter's configuration against a known-good baseline
 
 CI e2e tests and the pinned vllm-ascend `docs/source/tutorials/*.md` are the shipped known-good command

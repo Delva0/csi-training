@@ -4,17 +4,7 @@ Orientation (cheap, one call):
 
 ```bash
 ls /workspace
-uv run --no-project python - <<'PY'
-import json,glob
-p=glob.glob('/workspace/repos*/SOURCES.json')+glob.glob('/workspace/repos/*/SOURCES.json')
-for f in p:
-    d=json.load(open(f))
-    print(f, d.get('opened_at'))
-    for r in d['repositories']:
-        print(' ', r['repo'], r.get('ref'), r['commit'][:12], r['mode'],
-              r.get('basis'), 'files=%s/%s'%(r.get('files'), r.get('regular_files')),
-              'runtime_verified=%s'%r.get('runtime_commit_verified'))
-PY
+bash <skill_root>/scripts/sources-summary.sh   # version contract, 1 line per repo
 ```
 
 Source reading at the pinned commit (when the repo is a one-commit git):
@@ -29,13 +19,31 @@ sed -n '240,300p' path/to/file.cpp
 is no divergence history, so "when was this introduced" cannot be answered from the export.
 Say that instead of guessing.
 
-History precedent:
+The release's own validation record (vllm-ascend ships one per release when present):
 
 ```bash
-rg -l "aclnnAddRmsNormBias|DDR address of the MTE" /workspace/history | head
-rg -l "evalscope|mmlu|思考|精度" /workspace/history | head
-sed -n '1,60p' /workspace/history/<issue>.md
+ls /workspace/repos/<...>/vllm-ascend/tests/vllm_ascend_v*_test_conclusion.md
+sed -n '1,20p' .../tests/vllm_ascend_v0.26.0rc1_test_conclusion.md   # validated models
+sed -n '50,76p' .../tests/vllm_ascend_v0.26.0rc1_test_conclusion.md  # known issues + ids
 ```
+
+At v0.26.0rc1 §1 names "the following 4 models, which are the only models
+supported in this release" and §3 lists the unresolved known issues with issue
+ids. That separates "inside the tested envelope" from "untested combination"
+before you build a theory, and the issue ids are ready-made precedent.
+
+History precedent (never `ls` the history directory — thousands of entries):
+
+```bash
+S=<skill_root>/scripts        # skill_root is reported by skill_view
+bash $S/history-titles.sh 'aclnnAddRmsNormBias|DDR address of the MTE'
+bash $S/history-titles.sh 'qwen3\.5|qwen3_5'
+sed -n '1,60p' /workspace/history/<issue>/<id>.md    # flat layout: /workspace/history/<issue>.md
+```
+
+`grep -rn` / `rg -n` are safe; `rg -rn` and `rg -rl` are not (`-r` is `--replace`, so the
+matches are rewritten to `n`/`l` and the output looks like corrupted source). `grep -rn`
+over the same tree is the tie-breaker when output looks mangled.
 
 Quote precedent as `#<id>: <one-line fact>` (e.g. "upstream parser fix tracked in vllm PR
 34779, referenced by #7061/#7094"). Distinguish "the same symptom was reported" from "the

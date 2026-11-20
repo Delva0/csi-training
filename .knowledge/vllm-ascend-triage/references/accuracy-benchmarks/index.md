@@ -5,6 +5,9 @@
 Reports of the shape "score with tool A is N points below tool B / the vendor number /
 another image", and reports of accuracy regressions after a code change. Covers MMLU-Pro,
 gsm8k, ceval and friends as seen through evalscope, ais-bench, lm_eval and vendor blogs.
+Also covers the corruption end of the same track — a prompt that comes back as 乱码 /
+garbled / repeated / empty text rather than as a wrong answer — because that is decided by
+the same first question (is anything being compared, or is the engine wrong per se).
 
 ## Rules
 
@@ -33,3 +36,7 @@ gsm8k, ceval and friends as seen through evalscope, ais-bench, lm_eval and vendo
   decisive experiment to run.
 - `reasoning-output-routing.md` — verified upstream vLLM v0.19.1 behaviour that turns
   truncated thinking into `content: null`, plus the `enable_thinking` vs `thinking` kwarg trap.
+- `garbled-long-context-output.md` — long-input 乱码/garbage reports: grade the symptom, hand
+  the reporter a feature-ablation matrix (DCP, sparse c8, dsa_cp, KV offload, length sweep),
+  the `dcp_size == tp_size` / interleave constraints that make rows un-runnable, the tested
+  envelope at the pinned release, and the #12905 / #14320 precedents.

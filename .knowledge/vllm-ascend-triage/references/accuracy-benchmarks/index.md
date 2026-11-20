@@ -13,7 +13,7 @@ se), then by `finish_reason`. A report that pastes only a response body — thin
 `content`, `reasoning`/`reasoning_content` missing, `reasoning_tokens: 0` — is also this
 topic: the answer is the serve flag's presence, not a kernel.
 
-Four entry shapes leave this topic immediately and are not accuracy questions at all:
+Five entry shapes leave this topic immediately and are not accuracy questions at all:
 
 - Wrong or alternating answers in a **PD/EPD** deployment on a hybrid
   linear-attention model (GDN/Mamba: Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) — the
@@ -39,6 +39,15 @@ Four entry shapes leave this topic immediately and are not accuracy questions at
 
 ## Rules
 
+- A corruption report whose "clean" and failing commands differ by a **scheduling**
+  knob — `--block-size`, `--enable-prefix-caching`, `--mamba-cache-mode`,
+  `--enforce-eager` — on a **hybrid linear-attention** model (Qwen3.5/Qwen3.6 GDN and
+  siblings) is a KV-cache-geometry question, not a kernel-numerics one: on those
+  models the cache block is never clamped to 128 and is only ever *raised* to match
+  the mamba page size. Separate the knobs (the recorded #13853 "clean" command
+  changed two) and go to `hybrid-block-size-corruption.md`. A short *digit-heavy*
+  prompt on the same model family (Qwen3-Next) with **no** knob difference is the
+  other hybrid shape: `qwen3-next-gdn-numeric-path.md`.
 - First question: **did both numbers come from the same server, weights and serve flags?**
   If yes, the engine produced identical logits for identical prompts, so the gap lives in
   prompt template, sampling, decoding budget, output routing, extraction or aggregation — not
@@ -93,9 +102,24 @@ Four entry shapes leave this topic immediately and are not accuracy questions at
   (`pass_config.enable_sp` on a non-VL MoE w4a8 model): the key is honored, not dropped;
   the matrix excludes that class; FC1 is a complementary feature, not a rename; plus the
   ablation rows and the version-flip gap.
+- `hybrid-block-size-corruption.md` — 乱码 on a hybrid GDN/Mamba model that follows
+  `--block-size` (or prefix caching / `--enforce-eager`): the two-knob confound in the
+  reporter's own command pair, the verified clamps at v0.20.2rc1 (`refresh_block_size`
+  hybrid early-return, the upward page-size override in `patch_mamba_config`, the 16:1
+  physical→logical block split), the five-row matrix whose prefix-caching row decides
+  align-mode state block vs attention-side split, and the stop rule that cost #13853
+  its session. Recorded case #13853 (Qwen3.5-0.8B, 2048 vs 512 + eager).
 - `short-prompt-corruption.md` — the same symptom on a few-thousand-token prompt: test the
   prompt shape first (a repeated body at temperature 0 can collapse on its own), then the
   MoE/EP/quantisation ablation rows (EP off, FLASHCOMM1, prefix caching, `--enforce-eager`,
   `max-model-len`, both nodes' weights and image), and the gateway/model-echo caveat.
   `usage.prompt_tokens`, not the size of the pasted request, decides which of the two
   corruption pages you are in.
+- `qwen3-next-gdn-numeric-path.md` — the hybrid linear-attention (Gated-DeltaNet) shape:
+  a 19-token to few-hundred-token prompt on Qwen3-Next-80B-A3B answered as a digit run or a
+  phrase loop while ordinary chat is fine. What vllm-ascend replaces on that path at
+  v0.11.0rc0 (the prefill `chunk_gated_delta_rule` swapped for an fp32 pure-torch
+  re-implementation with a hard-coded x2 head expansion, while decode keeps the patched
+  Triton kernel), the reporter-confirmed serve command that already rules out graph mode,
+  MTP, EP and quantisation, the ablation matrix that separates model, platform and kernel
+  ownership, and the #3689 / #3571 / #4057 precedents with what remains unestablished.

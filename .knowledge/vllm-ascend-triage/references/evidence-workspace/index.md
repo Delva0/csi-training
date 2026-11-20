@@ -61,3 +61,8 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   nothing".
 - `case-layout.md` — concrete commands for orientation, source reading at a pinned commit,
   and history search; what to quote in the final answer.
+- `recorded-cases.md` — the per-issue index behind rule 1: version, symptom, track,
+  and how each recorded session ended (delivered early, delivered late, cut
+  mid-answer, or shipped nothing). Read it to place a new report beside a precedent,
+  or before deciding that a session which already has a usable lead should keep
+  digging.

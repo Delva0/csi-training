@@ -67,6 +67,21 @@ the rule that it is a finding only when it is in-window — in #12487 the title 
 that line while it was a three-day-old re-print and the in-window error was an AICPU
 `reduce_scatter` param-invalid on a chip the reporting rank did not own.
 
+**Then separate a signal death from a collective error.** `!!!!!!! Segfault
+encountered !!!!!!!` plus `Worker proc VllmWorker-<n> died unexpectedly (exit
+code: None)` is a rank killed by signal: no error code, no Python exception, and
+the peer ranks' gloo `all_reduce` in `_sync_metadata_across_dp` (`Connection
+closed by peer`) is only the messenger. A client-side `ConnectionRefused` from
+the benchmark harness is secondary as well. Read the dump's direction — top
+frames are the last native calls (event create inside
+`ProcessGroupHCCL::_allgather_base` in the recorded case), bottom frames are
+CPython's own entry — and count the `vllm_ascend/*.py` frames: zero means the
+call site is a data gap, so ask for the plog and an
+`--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` rerun instead of reading an
+attention backend. `worker-segfault-no-python-frames.md` has the candidate table
+and the precedent families behind that marker (#16079, and #10136 / #10522 /
+#10532 / #14283 / #14860 for the other mechanisms that share it).
+
 1. `error-report-timestamps.md` — when the paste carries several error families at
    once (`EE9999` runtime records, `EZ9999` chip dumps, `507011`, `ERR00100`,
    `ERR02005`), decide *which block happened when the reporter says it failed*:

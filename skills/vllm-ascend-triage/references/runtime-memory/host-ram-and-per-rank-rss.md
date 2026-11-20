@@ -34,6 +34,25 @@ per-process virtual reservation and appears on healthy hosts), and do not quote
 `%Cpu(s)` from a first sample (it is a since-boot average; this paste shows 94 %
 idle beside a load average of 422 and 17 running tasks).
 
+## When there is no `top` to sample: read the log's last line
+
+A host that died during engine start leaves nothing to sample — ssh is gone by the
+time the reporter returns. Take the bracket from the log instead: if the last
+lines are the per-rank `rank N in world size M is assigned as DP rank ...` set and
+no `Starting to load model` follows, the workers died inside
+`NPUModelRunner.__init__` (before weight load), and one eager host allocation
+there is large enough to kill the box on its own — the `max_model_len²`
+attention mask, `attention-mask-host-allocation.md` (price it with
+`scripts/attn-mask-budget.sh`). A long `--max-model-len` (128K-256K) is the
+give-away; the reporter's narrative ("machine crashed", "313T", "cannot
+restart") adds nothing.
+
+Prefer that reading over this page's `top` route when the report has **no**
+`top`/`free` paste and the log ends mid-startup: a real resident footprint cannot
+be measured on the dead box, but an arithmetic peak can be computed from the
+flags alone. Both routes end at the same levers (`free -g`, `dmesg -T | grep -iE
+'oom|kill'`, fewer ranks per host, smaller `--max-model-len`).
+
 ## Steps
 
 1. Get the numbers, not the adjective: `free -g`, `nproc`, and

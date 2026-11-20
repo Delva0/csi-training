@@ -16,7 +16,12 @@ Scope, part 3: the **host** ran out, not the card — the reporter says the mach
 crashed (ssh lost, box unusable) or pastes a `top`/`free` with every python3 rank
 holding tens of GiB RES, and the NPU log carries no device or collective error.
 Host RAM is invisible to `npu-smi`, so it is the first thing a "machine crashed"
-report needs a number for (`host-ram-and-per-rank-rss.md`).
+report needs a number for (`host-ram-and-per-rank-rss.md`). When there is no
+`top` to sample because the box died **during engine start** — the log's last
+lines are the per-rank `rank N in world size M is assigned ...` set and no
+`Starting to load model` follows — the suspect is one eager host allocation, the
+`max_model_len²` attention mask every worker builds
+(`attention-mask-host-allocation.md`, `scripts/attn-mask-budget.sh`).
 
 Scope, part 4: the host did **not** run out — a container-scoped counter climbed
 for days while the service stayed healthy and `npu-smi` stayed flat:
@@ -76,6 +81,12 @@ Conditional routes:
   tens of GiB RES on one host, with no NPU-side error → `host-ram-and-per-rank-rss.md`
   and `bash <skill_root>/scripts/host-ram-check.sh <paste|->` (worked: #3902,
   16 ranks × 88-100 GiB = 1472 of 2014 GiB on a 2 TB host, swap 0).
+- The host died with **nothing** to sample: the log stops at the per-rank
+  `rank N in world size M is assigned ...` lines, there is no
+  `Starting to load model`, and `--max-model-len` is 128K+ → the eager
+  `max_model_len²` host attention mask, `attention-mask-host-allocation.md` and
+  `bash <skill_root>/scripts/attn-mask-budget.sh --log <serve.log> --host-gib N`
+  (#2873 reporter-confirmed: 262144 at TP=8, 0.10.1rc1, 0.10.0rc1 works).
 - The report is about score/accuracy dropping under memory pressure, or about
   garbled output after long runs → `../accuracy-benchmarks/index.md`.
 - The paste is a **container metric** (`container_memory_working_set_bytes`,

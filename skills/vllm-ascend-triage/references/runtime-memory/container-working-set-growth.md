@@ -126,7 +126,7 @@ diff it against the pinned recipe before reading source:
 | #2650 | DeepSeek + torchair, A3 8-node PD, jmeter long run | D node **host** memory +1-2 GB/h, +100 GB in a 3 h mixed run — same metric family and magnitude, mechanism never stated in the body |
 | #5847 | v0.13.0.rc1, CPU-memory leak reproduced with vllm-ascend alone | the leak can live entirely in vllm/vllm-ascend, not in the reporter's launcher |
 | #12345 | DeepSeek-V4-Pro on A3/A5, PD and co-located | memory growth on both sides, reporter unsure whether device or host — ask which number grows before ranking |
-| #3002 | attention-mask family, Qwen3-30B-A3B-Instruct-2507 at a 256K `max_seq_len` | the reporter's own arithmetic for `_generate_attn_mask`: the bool mask is `2 × (256K)² × 1 B ≈ 128 GiB` and the float32 `zeros`/`masked_fill` `2 × (256K)² × 4 B ≈ 512 GiB` (≈640 GiB peak) — a host-memory **peak** family, so a report of that shape is an allocation-size bug, not a slow leak |
+| #3002 | attention-mask family, Qwen3-30B-A3B-Instruct-2507 at a 256K `max_seq_len` | a host-memory **peak** family (≈ 576 GiB peak per rank at 256K, see `attention-mask-host-allocation.md` for the arithmetic and version scope), so a report of that shape is an allocation-size bug, not a slow leak — and when the box dies instead of leaking, that page is the route, not this one |
 
 ## What the answer still owes when the paste is only a curve
 

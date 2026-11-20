@@ -251,11 +251,32 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
   check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before
   any leak theory (`references/runtime-memory/hbm-growth-and-oom.md`).
+- Throughput that falls in **one step** at a concurrency number (256 running
+  requests fine, 258 collapsed; `Waiting` 0, KV under 90 %, no error text, NPUs
+  idle and host cores busy): run
+  `bash <skill_root>/scripts/seq-cliff-capture-budget.sh --max-num-seqs N
+  --num-spec K` before any graph/compile source — it prints the sequence count
+  where `cudagraph_dispatcher` silently returns `NONE`, and the value to put in
+  `--compilation-config '{"max_cudagraph_capture_size": N×(1+K)}'`. Then one grep
+  for the `max_cudagraph_capture_size … is smaller than the potential max tokens`
+  startup line, then the A/B. Ablations that move the baseline
+  (`--enforce-eager`) or leave the ceiling unchanged (FlashComm1, DSA-CP,
+  `npugraph_ex`, `--async-scheduling`) cannot refute it, so quote them only
+  against their own below-cliff N
+  (`references/performance-throughput/sequence-count-cliff-capture-size.md`,
+  #14440).
 - "The machine crashed" / the host dropped / a `top` paste whose python3 ranks
   each hold tens of GiB RES: run
   `bash <skill_root>/scripts/host-ram-check.sh <paste|->` and report the ratio
   before any NPU lane, quoting RES and never the `8326g` VIRT
   (`references/runtime-memory/host-ram-and-per-rank-rss.md`).
+- Same crash but **no** `top` to sample and the log stops mid-startup: last lines
+  are the per-rank `rank N in world size M is assigned ...` set, no
+  `Starting to load model` after them, `--max-model-len` 128K+. Run
+  `bash <skill_root>/scripts/attn-mask-budget.sh --log <serve.log> --host-gib N`:
+  the eager `max_model_len²` host mask is 9·N² bytes **peak per rank** before any
+  weight load, so at 262144 nothing survives
+  (`references/runtime-memory/attention-mask-host-allocation.md`).
 - A **container** counter climbing for days on a healthy service
   (`container_memory_working_set_bytes` "持续增加"), no crash and `npu-smi` flat:
   run `bash <skill_root>/scripts/working-set-arithmetic.sh --growth <reported>
@@ -263,6 +284,15 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   cAdvisor series at two timestamps plus a per-PID RSS sample, and diff the
   reporter's serve flags against the model tutorial's own recipe before any
   source read (`references/runtime-memory/container-working-set-growth.md`).
+- The benchmark/eval client's own traceback is the report ("推理正常、性能测试崩溃",
+  `ConnectionRefused [Errno 111]`): treat the client as secondary and locate the
+  first in-window server fault — the API process does not listen because it died.
+  If the server log shows `!!!!!!! Segfault encountered !!!!!!!` plus
+  `died unexpectedly (exit code: None)`, take
+  `references/hccl-and-hardware/worker-segfault-no-python-frames.md`: count the
+  `vllm_ascend/*.py` frames in the dump (zero = call site unknown, ask for the
+  plog and an `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` rerun), and do not
+  read the attention backend the top native frames happen to sit under.
 - Any pasted plog / RUNTIME excerpt that carries more than one error family: run
   `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>` before
   naming a cause. Blocks it flags as older are re-printed records (rule 13); the

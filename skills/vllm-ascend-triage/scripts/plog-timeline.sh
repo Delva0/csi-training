@@ -41,8 +41,87 @@ if [ "$#" -eq 0 ]; then
 fi
 
 AWK_PROG=$(mktemp "${TMPDIR:-/tmp}/plog-timeline.XXXXXX.awk")
-trap 'rm -f "$AWK_PROG"' EXIT
+DETECT_PROG=$(mktemp "${TMPDIR:-/tmp}/plog-detect.XXXXXX.awk")
+HELPERS=$(mktemp "${TMPDIR:-/tmp}/plog-helpers.XXXXXX.awk")
+trap 'rm -f "$AWK_PROG" "$DETECT_PROG" "$HELPERS"' EXIT
+
+cat > "$HELPERS" <<'AWKHELPERS'
+# --- time-base helpers -------------------------------------------------------
+# Ascend dumps put the collector's prefix ([YYYY-MM-DD HH:MM:SS.mmm][sv-...]) in
+# LOCAL time while the app logger (`ERROR MM-DD HH:MM:SS`) and every embedded
+# device record (`YYYY-MM-DD-HH:MM:SS.mmm.uuu`) keep the container's UTC clock.
+# A constant whole-hour lag between the two is therefore a timezone offset, not a
+# replayed record (#16652: prefix 21:43:12 vs record 13:43:12 on a UTC+8 host).
+function days_from_civil(y, m, d,   era, yoe, doy, doe) {
+  y -= (m <= 2)
+  era = int((y >= 0 ? y : y - 399) / 400)
+  yoe = y - era * 400
+  doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+  doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+  return era * 146097 + doe - 719468
+}
+function civil_from_days(z,   era, doe, yoe, y, doy, mp, d, m) {
+  z += 719468
+  era = int((z >= 0 ? z : z - 146096) / 146097)
+  doe = z - era * 146097
+  yoe = int((doe - int(doe / 1460) + int(doe / 36524) - int(doe / 146096)) / 365)
+  y = yoe + era * 400
+  doy = doe - (365 * yoe + int(yoe / 4) - int(yoe / 100))
+  mp = int((5 * doy + 2) / 153)
+  d = doy - int((153 * mp + 2) / 5) + 1
+  m = mp + (mp < 10 ? 3 : -9)
+  y += (m <= 2)
+  return sprintf("%04d%02d%02d", y, m, d)
+}
+function key_seconds(k,   d) {
+  d = days_from_civil(substr(k, 1, 4) + 0, substr(k, 5, 2) + 0, substr(k, 7, 2) + 0)
+  return d * 86400 + (substr(k, 9, 2) + 0) * 3600 + (substr(k, 11, 2) + 0) * 60 + (substr(k, 13, 2) + 0)
+}
+function shiftkey(k, h,   t, day, sod) {
+  t = key_seconds(k) + h * 3600
+  day = int(t / 86400); sod = t - day * 86400
+  if (sod < 0) { sod += 86400; day -= 1 }
+  return civil_from_days(day) sprintf("%02d%02d%02d", int(sod / 3600), int((sod % 3600) / 60), sod % 60)
+}
+function keyshow(k) {
+  return substr(k,1,4) "-" substr(k,5,2) "-" substr(k,7,2) "-" substr(k,9,2) ":" substr(k,11,2) ":" substr(k,13,2)
+}
+function roundhour(delta,   h) {
+  h = (delta >= 0) ? int((delta + 1800) / 3600) : -int((-delta + 1800) / 3600)
+  return h
+}
+AWKHELPERS
+
+# Pass 1: the modal whole-hour offset between an embedded device record and the
+# log-line prefix on the same line (timezone of the collector vs UTC container).
+# Sub-minute differences are ignored and a genuinely older re-printed record never
+# counts, because its difference is not a whole number of hours.
+cat > "$DETECT_PROG" <<'AWKDETECT'
+{
+  line = $0
+  lkey = ""; rkey = ""
+  if (match(line, /[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) {
+    lkey = defyear substr(line, RSTART, RLENGTH); gsub(/[-: ]/, "", lkey)
+  }
+  if (match(line, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) {
+    rkey = substr(line, RSTART, RLENGTH); gsub(/[-:]/, "", rkey)
+  } else rkey = ""
+  if (lkey == "" || rkey == "") next
+  delta = key_seconds(rkey) - key_seconds(lkey)
+  h = roundhour(delta)
+  if (h != 0 && (delta - h * 3600 <= 3) && (h * 3600 - delta <= 3)) hist[h]++
+}
+END {
+  best = 0; besth = 0
+  for (h in hist) if (hist[h] > best) { best = hist[h]; besth = h + 0 }
+  # negate: the shift applied to a record must move it INTO the prefix's base
+  print -besth
+}
+AWKDETECT
+cat "$HELPERS" "$DETECT_PROG" > "$DETECT_PROG.tmp" && mv "$DETECT_PROG.tmp" "$DETECT_PROG"
+
 cat > "$AWK_PROG" <<'AWK'
+
 function add(l, r) { nf++; lab[nf] = l; re[nf] = r }
 BEGIN {
   add("EZ9999 device exception (chipId/dieId)", "EZ9999")
@@ -56,6 +135,7 @@ BEGIN {
   add("EL0004 / 207001 allocation failure", "EL0004|207001")
   add("HCCL / hcclRet", "HCCL|hcclRet")
 }
+
 {
   line = $0
   lshow = ""; lkey = ""; rshow = ""; rkey = ""
@@ -66,6 +146,7 @@ BEGIN {
   if (match(line, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) {
     rshow = substr(line, RSTART, RLENGTH)
     rkey = rshow; gsub(/[-:]/, "", rkey)
+    if (ofs != 0) { rkey = shiftkey(rkey, ofs); rshow = keyshow(rkey) }
   } else if (lkey != "") { rshow = lshow; rkey = lkey }
   if (rkey == "") next
   if (lkey == "") { lshow = rshow; lkey = rkey }
@@ -85,6 +166,9 @@ BEGIN {
       if (!(k in lmax) || lkey > lmax[k]) { lmax[k] = lkey; lmaxshow[k] = lshow }
       if (!((k, rd) in rmindk) || rkey < rmindk[k, rd]) { rmindk[k, rd] = rkey; rminshowd[k, rd] = rshow }
       if (rd != ld) carry[k]++
+      ch = substr(rkey, 1, 10)
+      clus[ch]++
+      if (!(ch in clusfirstkey) || rkey < clusfirstkey[ch]) { clusfirstkey[ch] = rkey; clusfirst[ch] = lab[k] }
       seen[k, rd] = 1
     }
   }
@@ -94,6 +178,7 @@ END {
   printf "log-line dates:"
   for (d in lday) { printf " %s-%s-%s(%d)", substr(d,1,4), substr(d,5,2), substr(d,7,2), lday[d]; if (d > lognewest) lognewest = d }
   newest = (forcenewest != "" ? forcenewest : lognewest)
+  if (ofs != 0) printf "\nNOTE: embedded device records use a different clock than the log-line prefix; shifted by %+d h before comparing (a constant whole-hour lag is the host timezone offset, not a replayed record).\n", ofs
   printf "\nrecord dates:  "
   for (d in rday) printf " %s-%s-%s(%d)", substr(d,1,4), substr(d,5,2), substr(d,7,2), rday[d]
   printf "\n"
@@ -118,10 +203,13 @@ END {
     (forcenewest != "" ? "given by --since" : "newest log line in the paste"), rfirstshow, rlastshow
   if (stale != "") printf "  older records (dated before the incident window): %s\n", stale
   if (live != "") printf "  first error inside the incident window: %s at %s\n", live, liveshow
-  else print "  no device-record block falls inside the incident window: the pasted window does not contain the fault."
-  if (stale != "" || live == "") print "  --> before quoting an older block as history, check whether it sits inside this same log's `init engine (...)` / graph-capture window: then it is this incident recorded at init and reported late (rule 13). Otherwise quote it as the previous run's and ask for the plog window around the reported failure."
+  else print "  no device-record block reaches the newest log-line day."
+  print "  record clusters (day-hour, n=lines, first family):"
+  for (c in clus) printf "    %s-%s-%s %s:00  n=%-3d  %s\n", substr(c,1,4), substr(c,5,2), substr(c,7,2), substr(c,9,2), clus[c], clusfirst[c]
+  print "  --> the window above is anchored on the NEWEST log line, which is right only for a paste that covers the failure minute. A dump spanning hours or days holds several incidents: pick the cluster at the time the reporter named and re-run with `--since <YYYY-MM-DD>`. A block earlier than that window is not automatically stale: check whether it sits inside this same log's `init engine (...)` / graph-capture window (this incident recorded at init, reported late, rule 13); otherwise quote it as an earlier run's and ask for the plog window around the reported failure."
 }
 AWK
+cat "$HELPERS" "$AWK_PROG" > "$AWK_PROG.tmp" && mv "$AWK_PROG.tmp" "$AWK_PROG"
 
 STDIN_TMP=""
 cleanup() { [ -n "$STDIN_TMP" ] && rm -f "$STDIN_TMP"; rm -f "$AWK_PROG"; }
@@ -144,6 +232,8 @@ for f in "$@"; do
     yearnote="no device-record timestamps; year for the MM-DD prefixes taken from the file date ($defyear)"
   fi
   echo "== $label  ($(wc -l < "$src") lines, $(wc -c < "$src") bytes, $yearnote)"
-  awk -v defyear="$defyear" -v forcenewest="$SINCE_KEY" -f "$AWK_PROG" "$src"
+  ofs=$(awk -v defyear="$defyear" -f "$DETECT_PROG" "$src")
+  [ -n "$ofs" ] || ofs=0
+  awk -v defyear="$defyear" -v forcenewest="$SINCE_KEY" -v ofs="$ofs" -f "$AWK_PROG" "$src"
   echo
 done

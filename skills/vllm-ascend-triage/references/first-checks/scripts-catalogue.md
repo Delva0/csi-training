@@ -89,7 +89,12 @@ after that keeps the header, not this text.
 - `scripts/plog-timeline.sh [--since YYYY-MM-DD] <log|-> [...]` — per-error-family
   timeline and the first in-window error of a plog (#9183); an older record it
   lists is a previous run **or** this process's own `init engine (...)` window, so
-  read it against the startup lines before discarding it (#10700).
+  read it against the startup lines before discarding it (#10700). It first
+  measures the whole-hour offset between each embedded device record and its
+  log-line prefix and normalises it (collector prefix local, records UTC; 8 h on
+  the recorded hosts, #16652), prints that shift as a `NOTE`, and lists the dump's
+  record clusters so a multi-hour/multi-incident dump is anchored with `--since`
+  instead of on its newest line.
 - `scripts/executor-timeout-check.sh <log|->` — vLLM's RPC/ringbuffer watchdog vs
   a real collective timeout; tolerates screenshot-OCR garble (#1865).
 - `scripts/device-type-check.sh <paste|serve-log|-> | --soc-version N` — which side

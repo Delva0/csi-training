@@ -63,9 +63,58 @@ and cite the id.
 matches are rewritten to `n`/`l` and the output looks like corrupted source). `grep -rn`
 over the same tree is the tie-breaker when output looks mangled.
 
+A bare 2-4 letter token is not a search key: every pasted `collect_env` dump in
+the corpus carries the CPU-flags line (`fp asimd evtstrm … fcma dcpop asimddp
+asimdfhm …`), so `dcp`, `dp`, `ep`, `mtp` or `hccl` match hundreds of unrelated
+issues — recorded #12677 spent its precedent call on `dcp|decode.context.parallel`
+and got "382 hits / 382 distinct issue ids", the first 40 of them `dcpop`
+matches. Search a flag- or message-shaped pattern instead
+(`--decode-context-parallel-size|decode.context.parallel|dcp==`, and `-i` only
+when the corpus capitalises the token), and read the script's
+`hits / distinct ids` line before opening a body.
+
 Quote precedent as `#<id>: <one-line fact>` (e.g. "upstream parser fix tracked in vllm PR
 34779, referenced by #7061/#7094"). Distinguish "the same symptom was reported" from "the
 same cause was confirmed".
+
+## Attached log dumps (multi-MB, several nodes, several incidents)
+
+A report can carry its whole evidence as attached dumps instead of a paste
+(#16652: four files, 0.5-5.5 MB, 62 K lines together, two separate crashes plus
+one hang). Read them by counting, never by printing:
+
+```bash
+cd /workspace/attachments/<issue> && cat ATTACHMENTS.txt          # 5-10 lines
+wc -l *.txt                                                       # size per file
+rg -c 'fftsplus|Heartbeat Lost|ERR02005|error cqe' *.txt          # tokens per file
+rg -o 'timeout=[0-9]+s' *.txt | sort | uniq -c                    # how many incidents
+```
+
+Three properties of the recorded format decide every later grep:
+
+- **Three time bases on one line.**
+  `[2026-09-06 21:43:12.113][sv-<host>-1] EE9999[PID: 3992] 2026-09-06-13:43:12.110.307 …`
+  — the collector's bracket prefix is **local** time, while the logger's own
+  `ERROR MM-DD HH:MM:SS` field and every embedded Ascend record
+  (`YYYY-MM-DD-HH:MM:SS.mmm.uuu`) are **UTC** (8 h behind on the recorded UTC+8
+  hosts). A constant whole-hour lag is a timezone, not a replayed record;
+  `bash <skill_root>/scripts/plog-timeline.sh <file>` detects and normalises it
+  and names the in-window family.
+- **Greps must use the field you mean.** A grep on the collector's local hour
+  (`'^\[2026-09-06 21:1'`) and one on the UTC hour inside the line (`'13:1'`)
+  select different windows; state which one you used before ordering events.
+- **Line order is not time order.** The recorded dumps print the newest line
+  first, so `head` and `tail` are the two ends of a 10-14 h span and a lower line
+  number can be a *later* instant. Locate a window by its timestamp string; do not
+  interpolate line numbers.
+
+One file per (node, engine restart) means a dump set can hold two incidents plus
+the restarts between them: anchor each incident on its own window (see
+`../hccl-and-hardware/error-report-timestamps.md` for the `timeout=` arithmetic
+that back-dates a stall) and say which of the reporter's "N times crashed" the
+attachments cover. For the second incident in a set, remember the UTC offset
+crosses local midnight — the record dates then read one day *earlier* than the
+log lines they belong to.
 
 Checklist for the final answer: repo+ref+commit cited once; every code claim has
 `path:line`; precedent ids quoted; missing artefacts listed; OCR/snapshot limits stated.

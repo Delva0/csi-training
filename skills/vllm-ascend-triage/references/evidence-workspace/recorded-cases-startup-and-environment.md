@@ -10,6 +10,25 @@ document cases and `[Community Test]` reports. Routes: `../startup-failures/inde
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#8286** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`),
+"[Installation]: vllm & vllm-ascend torch version conflict" — two wheel commands
+(`pip install vllm==0.18.0`, then `uv pip install … vllm-ascend==0.18.0rc1` from the
+huaweicloud variant index) followed by pip's post-install block: `vllm 0.18.0
+requires torch==2.10.0, but you have torch 2.9.0`, the same for torchaudio/torchvision,
+`opencv-python-headless>=4.13.0 … but you have 4.11.0.86`, plus `te 0.4.0 requires
+ml-dtypes` and `outlines 0.1.11 requires outlines_core`. Install/pip-resolution track,
+nothing crashed. The run delivered a complete ranked answer in 10 turns / 18 tool calls and got the
+`torch_npu` hard-pin mechanism right, but framed the pair as intended from
+`conf.py:80 ci_vllm_version: v0.18.0` and had to leave "does vllm 0.18.0 run on torch
+2.9.0?" open; the two greps that close it are `Dockerfile:52-56` (`VLLM_TAG=v0.18.0`
+installed with `VLLM_TARGET_DEVICE=empty`, so the project's own image pairs exactly
+this way) and upstream `setup.py:843-864` (`_no_device()` → `common.txt` with no torch
+pin, `_is_cuda()` → `cuda.txt` with `torch==2.10.0`), which is *why* the PyPI wheel is
+the only side carrying 2.10. `conf.py:75-76` shows the pair the tag documents is
+0.17.0 + 0.17.0rc1, and `tests/e2e/doctests/002-pip-binary-installation-test.sh:40-56`
+installs it and then hand-pins `torchvision==0.24.0 torchaudio==2.9.0`. Route now
+`../image-dependency-faults/pip-resolver-warning-block.md`.
+
 **#1784** vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`), "installing
 vllm-ascend 0.9.1dev and `pip show vllm-ascend` shows 0.9.0rc2": packaging metadata,
 no lane — `setup.py:305-311` derives the version with `setuptools_scm` from the build

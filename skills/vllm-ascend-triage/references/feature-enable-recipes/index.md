@@ -67,7 +67,14 @@ Rules for this topic:
 4. Cap it: verdict + constraints + staged run is the deliverable inside 3 turns;
    the recorded #8984 run spent 19 turns
    and still left the capability question open.
-5. A **parallel-topology** question ("how do I enable EP together with DP",
+5. A **transport-plane** question ("A3 双机 PD 分离，只能走参数面 RoCE，超平面不通、没有
+   灵衢交换机，是否支持") is a capability verdict whose deciding code is the P/D rank
+   table, not a feature flag: answer from
+   `../pd-disaggregation/plane-selection-a3-parameter-plane.md`, and label the plane
+   HCCL then selects as open (its sources are not in the snapshot). Do not read the
+   connector matrix in `../pd-disaggregation/index.md` — that lane starts from a
+   deployment that runs.
+6. A **parallel-topology** question ("how do I enable EP together with DP",
    "why does removing `--enable-expert-parallel` make it work") is answered from
    the tree's own selector, not from the flags' prose: quote the predicate that
    picks `MC2`/`ALLTOALL`/`ALLGATHER` for the reported SoC, the arithmetic of the

@@ -13,6 +13,10 @@ crashed yet. Two faces of one decision:
   support`, and the reporter's next attempt, `pip install pandas`, ends in
   `No matching distribution found for pandas` in the image (#4737).
 
+The sibling shape — the same two-command install ending in pip's *warning* block
+rather than an error — is `pip-resolver-warning-block.md`; it owns the "nothing
+failed" verdict and the device-gated metadata that decides it.
+
 Both are answered from **three files and one command**, never from a release survey:
 the downstream `requirements.txt` (and the `setup.py` that turns it into metadata), the
 upstream `requirements/*.txt` for the same three packages, and the reporter's own

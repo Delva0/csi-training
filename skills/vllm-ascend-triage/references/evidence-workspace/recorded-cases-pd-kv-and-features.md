@@ -10,6 +10,25 @@ Routes: `../pd-disaggregation/index.md`, `../kv-pool-store/index.md`,
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#3959** vllm-ascend `v0.11.0rc0` (`00ba071`) + vllm `v0.11.0rc3` (`8ce5d31`),
+"`v0.11.0rc0 Atlas 800T A3双机PD分离部署，当前是否支持走参数面网络通信？`" — no log, no
+serve command, only "两台机器通过参数面 ROCE 网络通信，超平面不通，没有灵衢交换机". Plane
+capability track, not a failure lane. Source-verified: the tree's only PD tutorial is
+A2 three-node (`multi_node_pd_disaggregation.md:7`), the feature table says PD is
+🟢 Functional with no SoC qualifier (`supported_features.md:25`), the A3 branch of
+`examples/disaggregated_prefill_v1/gen_ranktable.py:78-101` fills `device_ip` from
+`hccn_tool -vnic -g` where A2 uses `-ip -g`, and `llmdatadist_c_mgr_connector.py:681-762`
+declares `server_count "2"` + `device_ip` to HCCL and adds `super_pod_list` only on A3.
+Unverifiable at this ref: `cann/hccl`/`hcomm`/`hixl`/`driver` are in `SOURCES.json`'s
+unavailable list and the Mooncake export has no `ascend` string at all, so which plane
+HCCL selects is a plog question — the recorded answer said so, correctly. Delivery:
+verdict + the `hccn_tool` ping block landed in the opening paragraphs, then four
+expanding ranked causes consumed the 16 K cap and it was cut inside cause 4 with no
+scope/send-back close; 26 assistant turns, 25 of them bare tool calls (2.3 K chars of
+prose, all in the last message), ~8 of the 39 calls
+spent in `kvcache-ai/Mooncake` and `Ascend/mind-cluster` after a one-grep answer
+existed. Route now `../pd-disaggregation/plane-selection-a3-parameter-plane.md`.
+
 **#10961** v0.22.1rc1 Qwen3.X "PD 分离+MTP 存在精度问题" filed as an empty template
 (no log, no serve commands), where the run's top-ranked source-verified candidate
 — the `method == "mtp"` gate missing `qwen3_5_mtp` — is refuted by upstream's

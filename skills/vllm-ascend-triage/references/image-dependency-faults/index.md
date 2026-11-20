@@ -81,7 +81,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   survey: `bash scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` prints the
   `torch` / `torch-npu` / `torchvision` pins of both sides and the contradictions, and
   the page carries the three-way split (mirror-only metadata pin vs unsatisfiable pin
-  set vs unreachable index) plus both answer shapes (#1796, #4737).
+  set vs unreachable index) plus both answer shapes (#1796, #4737). Its sibling case
+  is the one where **nothing failed**: a two-command wheel install that only prints
+  pip's post-install block (`vllm 0.18.0 requires torch==2.10.0, but you have torch
+  2.9.0`, plus torchaudio/torchvision/opencv lines) → `pip-resolver-warning-block.md`
+  (which requirement file supplied each pin, and why raising torch is the one thing
+  that breaks the install).
 - The complaint is that an artefact **does not exist for the reporter's machine**:
   "找不到支持 linux on arm64 的 310p 镜像", the quay tag page shows an arm64 tag
   while the pull lands on amd64 (`WARNING: The requested image's platform
@@ -114,6 +119,19 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   BiSheng/AscendNPU-IR `.run` over the image → `triton-ascend-pair.md`. The phrase
   "Failed to compile custom operators with Triton Ascend" is usually the reporter's
   paraphrase; it is not the AscendC custom-op lane.
+- The engine dies inside the **compiled model forward**, naming a symbol from an
+  optional accelerator wheel — `torch._dynamo.exc.Unsupported: Graph break due to
+  unsupported builtin mindie_turbo._ops.PyCapsule.rms_norm`, frames going up
+  through `vllm/compilation/decorators.py` `patched_inline_call` and
+  `torch/_dynamo/**` — with `mindie-turbo` installed (often asked as
+  "mindie_turbo 算子不支持图模式?") → `mindie-turbo-graph-break.md`. Same wheel as
+  the ABI route above, opposite failure mode: it imports fine and both worker
+  classes load it **unconditionally** (`worker_v1.py:78-81`,
+  `utils.py:172-182`, no flag), so the trigger is [installed] × [compile
+  enabled]; the `MindIE Turbo is installed. vLLM inference will be accelerated
+  with MindIE Turbo.` INFO line is the probe for *which* process had it, decisive
+  when the reporter says another entry path worked, and that ref's compatibility
+  matrix has no MindIE Turbo column filled (answer the pairing question from it).
 - Nothing crashes and the question is a **version string**: `pip show
   vllm-ascend` reports `0.9.0rc2` while the reporter installed "0.9.1dev", or asks
   whether that version exists at all → `installed-version-vs-checkout.md`. The
@@ -155,6 +173,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   is a **910b** base and `SOC_VERSION` is baked in) — verified at v0.9.2rc1 for
   #2178, with the rewritten v0.23.0rc1 layout (`_schedule_image_build.yaml`
   arch matrix + `schedule_image_build_and_push.yaml` suffix list) beside it.
+- `pip-resolver-warning-block.md` — the install **succeeded** and pip only warned: a
+  two-command `vllm` + `vllm-ascend` wheel install whose gap is the torch line, decided
+  by upstream `setup.py:843-864` device-gated requirement files (`common.txt` for
+  `VLLM_TARGET_DEVICE=empty`, `cuda.txt` with `torch==2.10.0` for the PyPI wheel), the
+  `Dockerfile:52-56` `VLLM_TAG`/`empty` build the project ships, `conf.py:75-76`'s
+  documented pip pair with the CI doctest that hand-patches torchvision/torchaudio,
+  the three unrelated leftover lines, and the "never raise torch" rule (#8286).
 - `pip-index-visibility.md` — the requirement exists but no index pip can see serves
   it: a wheel pin on a mirror-only dev build with the `--extra-index-url`/`--pre` option
   lines dropped from the metadata (`setup.py` skips `--` lines), the torch /
@@ -166,6 +191,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `csrc/CMakeLists.txt`), the five network legs with the existence gate that
   suppresses each, and the report-shape answer (which leg stopped, and where to
   seed).
+- `mindie-turbo-graph-break.md` — an op-substituting accelerator wheel versus
+  `torch.compile`: the `Unsupported … PyCapsule.<op>` graph break at
+  `fullgraph=True`, the unconditional worker-side import and its INFO line, the
+  `PIECEWISE`/eager log pair that says whether that process compiled at all, why
+  the recorded report's other (working) entry path is the first evidence, and the
+  versioning-policy/`faqs.md`/`setup.py` answer to "does this plugin pair with
+  this release" (#1534, v0.9.1rc1).
 - `installed-version-vs-checkout.md` — `pip show` naming a different version than
   the reporter installed ("版本号显示不对"): what `setuptools_scm` can and cannot
   produce, why a shallow dev-branch clone yields `0.0.0` rather than a real number,

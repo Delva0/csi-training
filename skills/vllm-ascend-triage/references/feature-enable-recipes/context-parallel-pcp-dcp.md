@@ -96,7 +96,60 @@ FlashComm1 + PCP: `vllm_ascend/ascend_config.py:91-104` rounds
 FLASHCOMM1, the max_num_batched_tokens should be divisible by tp_size * pcp_size
 (%s). It has been adjusted to %s." — expected, not an error.
 
-## 3. Precedent family for DeepSeek-V3.2 + PCP (quote with versions)
+## 3. PD disaggregation: DCP is a *matched* launch parameter, not per-node tuning
+
+Reporter-confirmed on **#12677** (v0.23.0rc1, GLM-5.2 W8A8C8, A2, PD
+disaggregation, MemCache ("mmc") KV pool, `tp=2`/`dcp=2`, "推理时 P 实例报错";
+the paste held only the APIServer's `EngineDeadError: EngineCore encountered an
+issue. See stack trace (above)`). The reporter's own later comment on that issue:
+"配置存在问题，使用 1M 配置 dcp=8，PD 需要同并行 dcp，可以 mmc 池化使用" — i.e. the
+deployment was misconfigured, the 1M recipe's `dcp=8` is the value, **both sides
+must launch the same dcp**, and the MemCache pool works with that config. The
+engine had reached `Application startup complete`, so no startup check was
+involved and the source was never the owner of the symptom.
+
+Why only the two serve commands could have settled it (source-verified at
+v0.23.0rc1 `f4a08bd`, in case the same shape arrives without the reporter's
+answer):
+
+- The prefill side advertises its own size to the decode side in the handshake
+  (`vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py:1863`
+  `remote_dcp_size=self.dcp_size`); the decode side stores it per request
+  (`:1440`).
+- The first request that needs a transfer builds the block/port mapping and
+  asserts divisibility there:
+  `assert (meta.remote_pcp_size * meta.remote_dcp_size) % (self.pcp_size *
+  self.dcp_size) == 0` (`mooncake_connector.py:2663-2664`, called from `:2843`;
+  the module-level twin is `distributed/kv_transfer/utils/utils.py:88-104`). So a
+  P/D pair with dcp 2 on one side and 8 on the other is `2 % 8 != 0` and raises
+  inside EngineCore **on the first transfer** — after serving started, which is
+  the reported shape. There is no launch-time check for this pair. The failure
+  text is not confirmed for #12677 (no traceback was pasted): the site and the
+  config verdict are, the exact message is a hypothesis.
+- Two related gates raise at *startup* instead, so a deployment that reached
+  serving already satisfies them: sparse-attention models need `dcp == tp`
+  (`vllm_ascend/platform.py:716-724`, predicate
+  `vllm_ascend/utils.py:114-136` — `index_topk` present, `compress_ratios`
+  absent), and KV transfer with `pcp*dcp > 1` needs
+  `cp_kv_cache_interleave_size == block_size` (`platform.py:731-740`).
+
+The tree's own 1M table is symmetric and says so
+(`docs/source/tutorials/models/GLM5.2.md:1218-1220`): single-node `DCP16`,
+dual-node `DCP8`, 1P1D PD `Prefill DP4 TP8 PCP1 DCP8, Decode DP4 TP8 PCP1 DCP8`,
+all with `--cp-kv-cache-interleave-size 128` (`:1306`, `:1362`, `:1433`).
+
+So for a PD report with DCP on and the first request killing an EngineCore:
+**put the two serve commands side by side before any source walk** — compare
+`--tensor-parallel-size`, `--decode-context-parallel-size`,
+`--prefill-context-parallel-size`, `--cp-kv-cache-interleave-size`,
+`--block-size`. A dcp that differs between the sides, or a recipe value edited on
+one side only (1M `dcp=8` → `2`), *is* the answer; the KV pool is not the
+suspect, and `dcp` equal to the recipe on **both** sides is rung 1 of the
+experiment ladder. Later rungs: `--max-model-len` down to the value the reporter
+needs, then `--decode-context-parallel-size 1` on both sides, then the
+connector/pool pages (`../pd-disaggregation/index.md`).
+
+## 4. Precedent family for DeepSeek-V3.2 + PCP (quote with versions)
 
 - #8580 v0.18.0rc1 2×A2 TP8/PCP2/DCP8 — serves short inputs, fails ~32K (A2) /
   ~64K (A3) with `507015` at the SFA indexer select; the closest thing to an A2
@@ -111,7 +164,7 @@ FLASHCOMM1, the max_num_batched_tokens should be divisible by tp_size * pcp_size
   claiming it is fixed.
 - #7375 v0.13.0 A3 — MTP + PCP tensor mismatch (same w4a8-mtp-QuaRot family).
 
-## 4. Staged experiment to hand back (one axis per launch)
+## 5. Staged experiment to hand back (one axis per launch)
 
 1. DCP only, co-located, short input: `--tensor-parallel-size 8
    --decode-context-parallel-size 2 --max-model-len 8192 --enforce-eager` — no

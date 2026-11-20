@@ -1,13 +1,13 @@
 ---
 name: vllm-ascend-triage
-description: 'Triage vllm-ascend deploy, HCCL, image, OOM, accuracy faults'
+description: 'Triage vllm-ascend deploy, HCCL/PD/EPD, image, OOM, accuracy'
 ---
 
 # vLLM-Ascend issue, deployment and support triage
 
 ## Problem class this covers
 
-Three entry shapes, one deliverable: which component and line owns the symptom (or
+Four entry shapes, one deliverable: which component and line owns the symptom (or
 which failure lane and phase), what the reported evidence proves and does not
 prove, ranked candidate causes each with the cheapest confirming check, and the
 concrete next step for the reporter.
@@ -30,6 +30,13 @@ concrete next step for the reporter.
   `… has model type '<mt>' but Transformers does not recognize this
   architecture`. This is not a bug hunt; it is a version gate with a one-line
   answer and a registry-level proof.
+- **PD / EPD disaggregation**: the deployment is up but the P and D sides cannot
+  move KV (`HIXL Connect failed | HIXL Error Code: 103900`, HCCL
+  `RanktableCheck` / `'device_ip' is not set correctly`, `wait_for_save failed
+  ... skipping save`, a recipe that only works with `hostNetwork: true`), or the
+  transfer succeeds and the decode node emits wrong or alternating output on a
+  hybrid linear-attention model. Transport identity and rank tables are a
+  topology question, not a connector bug — `references/pd-disaggregation/index.md`.
 
 Recorded uses (issue: version, symptom, track): #8944 v0.19.1rc1
 `aclnnAddRmsNormBias` device fault; #10068 evalscope vs ais-bench MMLU-Pro gap;
@@ -51,70 +58,68 @@ native module, before any vllm-ascend code); #11863 v0.21.0rc1 dense Qwen3.6-27B
 launched from the 27B tutorial's multi-node PD recipe → upstream non-MoE external-DP
 gate (usage error plus a real doc bug); #16022 v0.23.0rc1 4×910B4 Qwen3.6-27B
 long-run HBM growth then crash, with `torchair_graph_config`/`ascend_scheduler_config`
-keys that never engaged.
+keys that never engaged; #6784 v0.14.0rc1-a3-openeuler LongCat-Flash
+`AttributeError: 'ZeroExpertFusedMoE' object has no attribute 'select_experts'`
+(an upstream MoE refactor outside vllm-ascend's name-keyed OOT map, with the
+failing file absent from the pinned upstream tree); #11519 v0.18.0 Step-3.5 on
+A3 `AclNN_Parameter_Error(EZ1001) Get regInfo failed … socVersion
+[ascend910_93] does not support opType [AddRmsNormBias]` (custom-op package
+built/installed for another SoC — same op as #8944, opposite failure class);
+#14506 v0.18.0rc1 single node, 8×910B3 with every RoCE link DOWN, 1P1D in two
+non-hostNetwork Pods → `HIXL Connect failed | 103900` because two Pod IPs became
+two HCCL servers (transport topology, not a connector bug); #12339 v0.22.1rc1
+Qwen3.5-397B-W8A8-MXFP8 on Ascend950, `MooncakeConnectorV1` PD without MTP,
+alternating good/bad answers on a hybrid GDN model (the run spent its whole
+output budget on source walks and delivered no answer).
 
 ## Rules that apply whenever this skill is used
 
-1. **Say the answer in a message, early, and budget for it.** The budget is
-   16384 completion tokens for the whole session — reasoning, answer text and
-   tool-call arguments together — and it is not replenished per turn. The earliest
-   recorded runs all ended with no reply: the final message was reasoning text
-   with no answer and no tool call, the run stopped on `output_truncated`
-   (`stop_reason: output_tokens`), one ended in a refusal, and the diagnoses
-   reached in reasoning were sound. Later runs delivered on the pattern below and
-   still spent 15577 (#17357) and 14542 (#5585) tokens — nothing spare — while #3389
-   and #10503 hit the cap with the answer beginning only in the final turn: 44K
-   and 36K characters of reasoning (78% and 68% of all output, single blocks of
-   6-9K) over 25 and 30 tool calls, so one headline plus
-   classification (1.4K characters) was delivered and one closing action table
-   (4.4K characters) was lost. The mechanism is per-turn reasoning volume. So:
-   - **Reasoning is a scratchpad, not the deliverable.** One short paragraph per
-     turn: what the last result proved, the single next check, go. Keep a block
-     under ~1,200 characters; a 5-9K block costs a third of the session and
-     usually restates hypotheses that belong in the answer.
-   - **"I have enough", "that is the crux", "let me now write the answer" is the
-     trigger to emit answer text in that same turn.** Recorded runs reached that
-     state around call 15-20 and answered only at call 25-30.
-   - Answer the reporter's literal question as soon as one artefact settles it
-     ("does this crash exist on that image?" — their own traceback; "can 0.13.0
-     deploy Qwen3.5?" — the support matrix or model registry at the pinned
-     commit; "is the cause the log states real?" — the emitting code line). Write
-     it as message text; a reasoning-only turn delivers nothing.
-   - Emit in instalments: headline answer + lane/track classification + ranked
-     causes with their confirming checks by ~10 tool calls, then re-emit the
-     corrected version at the end. A one-line "now let me check…" note is not an
-     instalment: #16022 emitted thirteen of them (40-140 characters each) and its
-     first real answer was the truncated final turn. An earlier answer stays
-     valid, a missing one does not, and everything after the first answer is
-     refinement that must not delay it.
-   - Every assistant message should be a tool call or answer text. A "now let
-     me…" plan line spends budget and delivers neither.
-   - Do not carry a running hypothesis list in reasoning — that list belongs in
-     the answer, where it is delivered. Keep confirmed findings in
-     `/workspace/scratch/findings.md` so a late turn composes the answer without
-     re-reading sources; the successful runs wrote it and the answer as their
-     last two calls, so write it at the checkpoint, not at the end — but treat it
-     as the answer draft: composing it cost #16022 a 7.7K-character reasoning
-     block and left no budget for the answer itself.
-   - Version archaeology ("which release dropped attribute X", "when did this
-     model land") is optional depth: state it as an open question plus the one
-     command the reporter can run, instead of resolving it first. Do not open a
-     second line of inquiry once a complete answer exists.
-   - Deployment failure modes are narrow: in the two older deployment cases the
-     decisive evidence was a single omitted flag and one hardware health code,
-     not a source-level defect. Cutting exploration is always cheaper than cutting
-     the answer.
-   - **Count characters, not calls.** Output runs ~3.3 characters per token here,
-     so the whole session is roughly 50K characters of reasoning, answer and
-     tool arguments. #11863 finished at 13095 tokens using 26.6K characters of
-     reasoning plus a 4.2K-character answer; #16022 used 37.4K characters of
-     reasoning (15 blocks, one of 7.7K) and the cap arrived inside the answer. Budget
-     the answer at ~4K characters and total reasoning under ~20K; when either is
-     reached, stop investigating and write.
-   - **Truncation eats the tail, not the head.** #16022 delivered its verdict,
-     evidence table and causes 1-2, then died mid-clause at `动作：`. Put each
-     action directly after its cause and keep the closing scope / open-questions
-     block to 3-5 lines, so a capped answer still ends in something usable.
+1. **Say the answer in a message, early, and obey the delivery gates.** The
+   completion budget is 16384 tokens for the whole session — reasoning, answer
+   text and tool-call arguments together, never replenished — and the mechanism
+   of loss is per-turn reasoning volume (~50K characters per session, ~4K for the
+   answer). The newest runs confirm it: #6784 spent 45.8K characters of reasoning
+   over 10 turns and emitted **no answer at all**; #11519 spent 43.3K and
+   delivered 1.0K characters, cut mid-sentence; #12339 spent 49K over 20 turns on
+   four competing mechanisms and shipped nothing. So these are hard stops:
+   - **G1 — 3rd assistant turn:** message text with the direct answer to the
+     reporter's literal question plus the track/lane classification. A pasted
+     traceback, one config value or one registry listing is enough; do not hold
+     the answer for the mechanism.
+   - **G2 — 8th turn or 20K cumulative output characters:** the full ranked
+     answer (each cause with its one check, cheapest action, version scope,
+     missing artefacts). Afterwards a tool call is allowed only to confirm or
+     correct a named claim: one per turn, ≤1,500 characters of reasoning.
+   - **G3 — 25K characters or the 12th turn:** answer text only; no reasoning,
+     no tool call, no "one more thing".
+   - **Reasoning is a scratchpad, ≤1,200 characters per turn:** what the last
+     result proved, the single next check, go. If a block starts enumerating the
+     answer's sections, or says "I have enough" / "that is the crux" / "let me
+     write the answer", that block is the answer — emit it as message text in
+     that turn. A "now let me…" plan line delivers neither answer nor evidence;
+     every assistant message is a tool call or answer text.
+   - **A new hypothesis that needs a new code area is not this session's job.**
+     The expensive turn is the "one more angle" one, not the first ones: #14506
+     delivered its 6K-character answer only after a final reasoning block of
+     12.3K characters that was half the session. Put the hypothesis in the answer
+     as an open question with the one command that decides it. For an
+     accuracy/corruption or topology report, a ranked list plus an ablation matrix
+     already *is* the full answer — the two newest runs were not missing facts,
+     only the message.
+   - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
+     write it at G2 *in place of* the reasoning block, and skip it entirely when
+     the session is near the cap. Composing it late is what cost #11519 its
+     ranked causes.
+   - **A missing or mismatched artefact is itself the finding** — an empty
+     environment block, a traceback file absent from the pinned tree, a version
+     the snapshot does not carry. State the gap, give the one command that closes
+     it on the reporter's host, stop investigating. Both recorded runs above
+     burned their whole budget resolving such a gap.
+   - **Truncation eats the tail, not the head.** Put each action directly after
+     its cause and keep the closing scope / open-questions block to 3-5 lines, so
+     a capped answer still ends in something usable.
+   - Recorded per-run accounting and the reasoning patterns behind the caps:
+     `references/evidence-workspace/delivery-budget.md`.
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C
    (table below); for a runtime report, decide whether it is a device-op fault,
    an accuracy/score gap, a corruption report or a performance claim. The
@@ -159,17 +164,29 @@ keys that never engaged.
      case returned ~3k filenames (~24 KB) for no information. Search by token
      (`grep -rl`, `rg -l`) or with `scripts/history-titles.sh`, and read
      `SOURCES.json` through `scripts/sources-summary.sh` instead of dumping the
-     whole file.
+     whole file. `cat SOURCES.json` is 20-54 KB and both newest runs paid it
+     (#12339 34 KB, #14506 54 KB) although the script prints the same version
+     contract plus the `unavailable` repos in ~10 lines. It is the right first
+     shell call; `history-titles.sh` prints the matching body line when the regex
+     hit the body rather than the title, so one call separates a real family from
+     a lexical accident.
 8. **The prior-month corpus is not evidence of absence.** `history/*.md` and
    lexical issue search cover only earlier issues; a current issue is never in
    them. Make one grep for the distinctive token (op name, error string, dataset
    name), read 2-3 hits, then stop: precedent supports a hypothesis, it does not
    replace reading the source at the pinned commit.
-9. **Closed components exist.** CANN/HCCL/PTA have closed implementations: the
-   public exports (e.g. `cann/hccl`) do not contain the opbase pipeline sources.
-   If a string from an HCCL/PTA error is not found in one pass over the owning
-   public export, stop searching and use the plog, the version correspondence
-   and the hardware path instead.
+9. **Closed components exist, but the split is not where it used to be.** The
+   HCCL collectives, opbase and pipeline sources are exported under **`cann/hcomm`**
+   (e.g. `src/framework/op_base/src/`, `src/algorithm/impl/operator/`,
+   `src/platform/common/externalinput.cc` holds the env parsing), so grep there
+   before calling a behaviour undocumented; `cann/hccl` itself is mostly headers,
+   examples and the API surface. The genuinely absent pieces are named in
+   `SOURCES.json` under `unavailable` (commonly `cann/hixl`, `cann/opbase`,
+   `cann/ge`, the ops-* repos). Even when a tree is exported, `.cc` files that
+   emit a given error string may be missing (the rank-table checkers under
+   `cann/hcomm/src/framework/common/src/topo/` exist only as headers). One grep
+   pass per tree, then use the plog, the version correspondence and the hardware
+   path.
 10. **Report gaps instead of filling them.** Missing shapes, dtype, batch
     regime, server flags, harness config and filtered log lines are the usual
     reason a report is unanswerable or a lane misclassified; naming them is part
@@ -213,12 +230,16 @@ keys that never engaged.
 | Startup log: generic `WorkerProc initialization failed due to an exception in a background process`, **no** per-rank worker traceback; optional `[ERROR] TBE Subprocess[task_distribute] raise error[], main process disappeared!`; long silence before failure | Lane A: worker died without reporting | `references/startup-failures/silent-worker-exit.md`, then `references/startup-failures/max-model-len-budget.md` |
 | Startup log: per-rank `WorkerProc failed to start.` / `WorkerProc hit an exception.` plus a traceback with rank prefix | Lane B: worker raised a Python error | `references/startup-failures/environment-correspondence.md` (diff against the known-good tutorial/CI config) |
 | The traceback ends in `AttributeError: '<X>Config' object has no attribute '<attr>'` with a frame in `vllm_ascend/distributed/*connector*.py`, reached from `ensure_kv_transfer_initialized` (usually a VL/MoE model under PD disaggregation) | Lane B: connector reads a nested config attribute | `references/startup-failures/connector-config-attributes.md` |
+| P/D will not connect although both engines started: `HIXL Connect failed | HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
+| PD deployment that connects and then corrupts on a **hybrid** model (Qwen3.5/Qwen3.6 GDN, DeepSeek-V4, GLM): alternating good/bad answers, empty or wrong first decoded token, works with MTP but not without | PD hybrid-state transfer: connector choice plus the `mamba_cache_mode='align'` gate only the KV-store connectors satisfy | `references/pd-disaggregation/hybrid-state-transfer.md` |
 | `ValueError: Non-MoE models do not support external data parallel mode`, or any `ValueError`/`AssertionError` raised from `vllm/engine/arg_utils.py` that names a parallel mode or flag (`data_parallel_*`, `nnodes`, `node_rank`), with no `WorkerProc` line in the log | Startup argument validation in upstream vLLM — launch-command fix, not a defect | `references/startup-failures/arg-validation-errors.md` |
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
 | Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, `unexpected keyword argument`, `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
+| The same `AttributeError` raised **inside an upstream vllm file** on a class vllm-ascend is meant to replace — `'ZeroExpertFusedMoE' object has no attribute 'select_experts'` — or the reporter asks "did it ever reach vllm-ascend's ops?" | Downstream registry drift: the Ascend replacement is keyed by class *name* (`CustomOp.register_oot`), so an upstream refactor that adds a class silently keeps upstream code | `references/upstream-downstream-drift/oot-class-registration-drift.md` |
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range" | Custom-op runtime fault | `references/custom-ops-runtime-faults/index.md` |
+| `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` — aclnn cannot resolve the op for the SoC before any launch | Custom-op **build/install** fault: package built for another SoC, stale vendor package, wrong image tag | `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
 | Per-layer `MSE loss` / epoch table printed while converting a checkpoint with msmodelslim (W4A4/W8A8), one layer far above its neighbours, or "the converted checkpoint answers garbage" with no engine-side failure | Quantization-conversion phase: converter-owned, before the engine starts | `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` |
 | A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
@@ -264,6 +285,23 @@ keys that never engaged.
      installer-vs-upstream dependency diff — steps 1-3 of
      `references/image-dependency-faults/native-import-abort.md`. Skip the
      module's C++.
+   - Custom op that aclnn refuses to *resolve* (`EZ1001`, `Get regInfo failed`,
+     `does not support opType`, `binary_info_config.json of socVersion`): registry
+     and install, before launch. Do not open `csrc/<op>/`: check the tree's
+     per-SoC build branch and `def.cpp` `AddConfig` once to rule the source out,
+     then `SOC_VERSION`, `_cann_ops_custom`, `ASCEND_CUSTOM_OPP_PATH` and the
+     image tag (`references/custom-ops-runtime-faults/op-not-registered-for-soc.md`).
+   - Python attribute error whose frame is an **upstream** vllm file (or the
+     reporter asks whether vllm-ascend's ops were ever reached): the Ascend
+     replacement is name-keyed, so compare the class name against
+     `REGISTERED_ASCEND_OPS` / `CustomOp.op_registry_oot` before theorising about
+     upstream (`references/upstream-downstream-drift/oot-class-registration-drift.md`).
+   - PD / EPD transport complaint: read the rank table with
+     `bash <skill_root>/scripts/ranktable-check.sh <table-or-log>` before any
+     connector reading — a declared `server_count > 1` (or more than one distinct
+     `server_id`) decides the whole report (multi-server view, `device_ip` + RoCE
+     required). Then the plog grep set in
+     `references/pd-disaggregation/transport-topology.md`.
    - Runtime memory after a healthy period: take the two-sample split (capacity
      vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
      check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before
@@ -332,13 +370,26 @@ keys that never engaged.
 - `references/evidence-workspace/index.md` — read first in an unfamiliar case:
   case layout, `SOURCES.json` fields and limits, history search, OCR/attachment
   caveat, what the snapshot does and does not contain.
+  `references/evidence-workspace/delivery-budget.md` holds the recorded
+  per-session token accounting and the G1/G2/G3 delivery gates of rule 1.
 - `scripts/history-titles.sh '<regex>' [root] [limit]` — precedent index: one
   `<file> :: <title>` line per matching history issue, so a whole issue family is
   triaged without reading bodies. Run it as
   `bash <skill_root>/scripts/history-titles.sh '<regex>'`, where `skill_root` is
   the path `skill_view` reports.
 - `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one
-  line per repo with coverage and `runtime_verified` flags.
+  line per repo with coverage and `runtime_verified` flags, plus the
+  `unavailable` repos, so "is `cann/hixl` in this snapshot?" is answered without
+  dumping 20-54 KB of JSON.
+- `scripts/ranktable-check.sh <rank_table.json|log.txt> [...] | -` — parses a
+  pasted (or plog-embedded) HCCL rank table and prints the effective
+  `server_count`, per-server `server_id` / `device_id` / `device_ip`, duplicate or
+  non-contiguous ids, and the verdict that follows: a declared `server_count > 1`
+  or more than one distinct `server_id` means a multi-server view where
+  `device_ip` is mandatory and the data path is the NIC; `server_count == 1` with
+  one `server_id` means HCCS between local cards is selectable. Use it before
+  reading any KV-connector code (verified against the #14506 and #2399 rank
+  tables).
 - `scripts/aclgraph-size-budget.sh --layers N [--tp --dp --pcp --dcp --ep --moe
   --aiv --max-num-seqs --sizes]` — reproduces `update_aclgraph_sizes`: the
   maximum captureable batch sizes for a model/parallel configuration and the
@@ -369,9 +420,24 @@ keys that never engaged.
   capture-size set is usually already the computed maximum (#3389, v0.11.0rc0).
 - `references/upstream-downstream-drift/index.md` — Python attribute/signature
   errors raised when a vllm-ascend module subclasses or re-implements an upstream
-  vLLM/transformers class and the installed library moved on. Scope: the frame is
-  in `vllm_ascend/{ops,patch,models}` and the attribute exists upstream; not a
-  device-op or collective fault. Worked case: #11661 `attention_type`.
+  vLLM/transformers class and the installed library moved on, **including when the
+  failing frame is an upstream vllm file** because the Ascend replacement is
+  keyed by class name. Scope: the attribute exists upstream; not a device-op or
+  collective fault. Worked cases: #11661 `attention_type`
+  (`patched-forward-api-drift.md`); #6784 `ZeroExpertFusedMoE` with no
+  `select_experts` (`oot-class-registration-drift.md`, which also carries where
+  the real vllm↔vllm-ascend pairing is recorded).
+- `references/pd-disaggregation/index.md` — PD/EPD with the engine up but KV not
+  moving, or moved and wrong: `transport-topology.md` for `HIXL Connect failed |
+  103900` / `RanktableCheck` / `device_ip` / non-hostNetwork Pods (engine id =
+  HCCL `server_id`, plog grep set, `HCCL_INTRA_ROCE_ENABLE` /
+  `HCCL_INTRA_PCIE_ENABLE` pairing, port bands, ownership: LMCache-Ascend or
+  `cann/hixl`, not the vllm-ascend shim; #14506); `hybrid-state-transfer.md` for
+  alternating corruption on GDN/Mamba models — connector matrix
+  (`MooncakeConnectorV1` vs `MooncakeHybridConnector` vs
+  `MooncakeLayerwiseConnector` vs `AscendStoreConnector`), the
+  `mamba_cache_mode='align'` gate in `patch_mamba_config.py` and the runner paths
+  it skips, and the ablation matrix (#12339).
 - `references/hccl-and-hardware/index.md` — HCCL, ACL/PTA and NPU device faults
   (lane C): collective error chain then per-device health checks. Scope:
   failures whose text names a collective or the runtime stack, not a
@@ -388,6 +454,11 @@ keys that never engaged.
   device faults: reading the device dump, mapping the operator to `csrc/<op>/`,
   tiling-mode tables. The dump names the operator and error class, not the
   shape; custom ops are often behind a runtime switch.
+  `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` is the
+  other half: `EZ1001 Get regInfo failed` / `does not support opType` is a
+  build/install SoC fault raised before any launch, and that page shows where the
+  SOC_VERSION, `_cann_ops_custom` and image-tag decisions are made (#11519,
+  v0.18.0).
 - `references/accuracy-benchmarks/index.md` — score/accuracy disagreements
   between harnesses, images or runs: thinking/reasoning output routing, where
   the project's own baselines live, and the decisive harness-vs-engine

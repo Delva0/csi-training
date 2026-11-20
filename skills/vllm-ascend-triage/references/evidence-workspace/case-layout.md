@@ -41,6 +41,11 @@ bash $S/history-titles.sh 'qwen3\.5|qwen3_5'
 sed -n '1,60p' /workspace/history/<issue>/<id>.md    # flat layout: /workspace/history/<issue>.md
 ```
 
+With a per-case history root the same issue id can appear once per case directory
+(`history/<issue>/<id>.md`); `history-titles.sh` now reports `hits / distinct issue
+ids` and prints one line per id, so a `limit` is not spent on copies. Read one copy
+and cite the id.
+
 `grep -rn` / `rg -n` are safe; `rg -rn` and `rg -rl` are not (`-r` is `--replace`, so the
 matches are rewritten to `n`/`l` and the output looks like corrupted source). `grep -rn`
 over the same tree is the tie-breaker when output looks mangled.

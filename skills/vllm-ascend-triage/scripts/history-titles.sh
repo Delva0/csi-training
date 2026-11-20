@@ -30,14 +30,27 @@ if [ -z "$matches" ]; then
 fi
 
 sortkey() { b=${1##*/}; echo "${b%.md}"; }
+# A case-relative root can hold the same issue id once per case directory
+# (history/<issue>/<id>.md); keep one line per id and say how many copies exist,
+# so `limit` is not spent on duplicates.
 total=$(printf '%s\n' "$matches" | wc -l | tr -d ' ')
+uniq=$(printf '%s\n' "$matches" | while read -r p; do sortkey "$p"; done | sort -u | wc -l | tr -d ' ')
+echo "$total hits / $uniq distinct issue ids for '$pat' under $root (showing up to $limit)"
 shown=0
-echo "$total hits for '$pat' under $root (showing up to $limit)"
 # numeric where possible, then lexical, so issue numbers order naturally
-for f in $(printf '%s\n' "$matches" | while read -r p; do printf '%s\t%s\n' "$(sortkey "$p")" "$p"; done \
-           | sort -t"$(printf '\t')" -k1,1n -k1,1 | cut -f2); do
+for id in $(printf '%s\n' "$matches" | while read -r p; do sortkey "$p"; done | sort -t"$(printf '\t')" -k1,1n -k1,1 | awk '!seen[$0]++'); do
   shown=$((shown + 1))
-  [ "$shown" -gt "$limit" ] && { echo "... ($((total - limit)) more; raise limit or narrow the pattern)"; break; }
+  [ "$shown" -gt "$limit" ] && { echo "... ($((uniq - limit)) more; raise limit or narrow the pattern)"; break; }
+  f=$(printf '%s\n' "$matches" | grep -m1 -E "/($id|$id\.md)$")
+  [ -z "$f" ] && continue
   title=$(grep -m1 -v '^[[:space:]]*$' "$f" 2>/dev/null | cut -c1-160)
-  printf '%s :: %s\n' "${f#"$root"/}" "$title"
+  # A body-only match yields a title that does not contain the pattern and looks
+  # like noise. Show the matching body line so one call separates a real issue
+  # family from a lexical accident.
+  if printf '%s' "$title" | grep -qiE -e "$pat"; then
+    printf '%s :: %s\n' "${f#"$root"/}" "$title"
+  else
+    hit=$(grep -m1 -iE -e "$pat" "$f" 2>/dev/null | cut -c1-160)
+    printf '%s :: %s [body] %s\n' "${f#"$root"/}" "$title" "$hit"
+  fi
 done

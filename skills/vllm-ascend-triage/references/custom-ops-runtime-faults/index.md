@@ -2,13 +2,21 @@
 
 ## Scope
 
-Device-side failures raised while running a vllm-ascend custom AscendC operator:
+Device-side failures raised while running a vllm-ascend custom AscendC operator
+(and the pre-launch counterpart, where aclnn cannot resolve the op for the SoC at
+all — a build/install fault, see the first rule below):
 `call aclnnX failed`, `AclNN_Runtime_Error`, Nnopbase executor asserts, `fftsplus aivector
 error`, MTE/DDR "out of range", retCode `0x7150050` / runtime result `507011`, or a signal
 from a `csrc/<op>/*_torch_adpt.h` frame.
 
 ## Rules
 
+- **Split parameter/registry errors from device faults first.** `AclNN_Runtime_Error`
+  / a dump / tiling text means the kernel ran or was launched: the operator and shape
+  matter. `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`,
+  `binary_info_config.json of socVersion [...] does not support opType [...]` means
+  aclnn could not resolve the op for this SoC **before any launch**: the owner is the
+  build/install chain, and no tiling fact will help — `op-not-registered-for-soc.md`.
 - The dump names the operator and the error class; it does **not** identify the shape. Never
   assert "fails for hidden size N" without a shape-bearing artefact (reporter log line,
   tiling log, or a computed tiling decision).
@@ -45,4 +53,9 @@ from a `csrc/<op>/*_torch_adpt.h` frame.
   each line does/does not pin down.
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend
   v0.19.1rc1: files, tiling key = dtype*10+mode, mode-selection table, buffer sizes, arch
-  macros, python call sites.
+  macros, python call sites. Read it only once the error family is a device fault.
+- `op-not-registered-for-soc.md` — the opposite class for the same op: `EZ1001 Get
+  regInfo failed … does not support opType [AddRmsNormBias]` for `ascend910_93`
+  (#11519, v0.18.0). Where `SOC_VERSION`, the per-SoC `build_aclnn.sh` branches,
+  `vllm_ascend/_cann_ops_custom` + `ASCEND_CUSTOM_OPP_PATH`, and the `-a3` image tags
+  decide which binaries exist, with the checks to send the reporter.

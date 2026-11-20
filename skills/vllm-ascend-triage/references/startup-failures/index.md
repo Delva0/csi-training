@@ -59,6 +59,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   building `ModelConfig`, before weights and before any worker →
   `quantization-method-gate.md`. The NPU platform declares only `ascend` and
   `compressed-tensors`; the fix is a re-quantized checkpoint, not a launch tweak.
+  The **inverse** report lands on the same page and looks nothing like it: an
+  msmodelslim W8A8 checkpoint has no `quantization_config` in `config.json` by
+  design, so nothing is rejected — the engine starts and a rank dies loading int8
+  tensors into a dense model, behind the bare `Engine core initialization
+  failed` (#2015). Ask for the per-rank traceback and the `quantization=` /
+  `--quantization ascend` flag before ranking causes.
 - `AttributeError: '<Model>Config' object has no attribute '<attr>'` raised inside
   `vllm_ascend/distributed/*connector*.py` from `ensure_kv_transfer_initialized`
   (typically a VL/MoE model under PD disaggregation) → `connector-config-attributes.md`.
@@ -109,9 +115,14 @@ Inherit the rules in SKILL.md. Conditional routes:
 - The log reached graph capture — `Starting to capture ACL graphs for cases:
   [...]`, `Capturing ACL graphs (...): 0/N`, `ACLgraph sizes capture fail`,
   `NPUGraph.cpp` "Waiting for pending NCCL work" — then failed or stalled →
-  `acl-graph-capture.md` first. The `ACLgraph has insufficient available streams`
-  sentence there is canned wrapper text printed for every capture exception, and
-  the capture-size set may already be the computed maximum.
+  `acl-graph-capture.md` first. If instead the startup was clean and the
+  capture error arrives on a **request** (`CUDA graph capturing detected at an
+  inappropriate time`, `Worker failed with error …`), that is a descriptor the
+  startup never captured →
+  `../lora-adapters/graph-capture-descriptor-mismatch.md`. The `ACLgraph has
+  insufficient available streams` sentence there is canned wrapper text printed
+  for every capture exception, and the capture-size set may already be the
+  computed maximum.
 
 Common rules for this topic:
 

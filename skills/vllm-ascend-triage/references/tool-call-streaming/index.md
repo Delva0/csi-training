@@ -14,7 +14,13 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   "function call 模型返回时大概率会截断输出，小概率会格式错误，重复输出" (#8122,
   Qwen3-Next-80B-A3B, `stream: true`, `--async-scheduling`);
 - `stream: true` plus a tool parser returns only CoT and no `tool_calls`
-  (#5683, reporter-confirmed A/B: async scheduling off → correct call).
+  (#5683, reporter-confirmed A/B: async scheduling off → correct call);
+- the assembled `arguments` has **balanced braces but an odd quote count**, the
+  damage inside a value (`{"hvd": Pura900"}` — no opening quote, closing quote
+  and `}` present), and `stream: false` does not reproduce it (#12261, GLM-5.1,
+  `anyOf: [string, null]` argument schema). That shape is the parser's
+  per-token delta arithmetic, not a lost tail and not a model fault —
+  `arg-type-gate-unquoted-value.md`.
 
 Not this topic — leave with the linked route:
 
@@ -35,10 +41,19 @@ Not this topic — leave with the linked route:
    the assembled string, not the model.** Concatenate
    `choices[i].delta.tool_calls[j].function.arguments` in arrival order and ask
    what the concatenation is (`bash <skill_root>/scripts/sse-toolcall-audit.sh
-   <raw-sse-or-paste>`). It has three outcomes and they have different owners:
+   <raw-sse-or-paste>`). It has four outcomes and they have different owners:
    parses as JSON → the client's accumulation/framing; missing tail
    (unbalanced `{`/`"` at the end, `finish_reason` still `tool_calls`) → the
-   stream stopped short; unbalanced in the middle → the text itself is wrong.
+   stream stopped short; **braces balanced but quotes odd, with the gap inside a
+   value** → the parser's incremental delta, decided by the argument's declared
+   JSON-Schema type (`arg-type-gate-unquoted-value.md`; run
+   `scripts/tool-schema-type-audit.py` on the request body); anything else
+   unbalanced in the middle (duplicated/reordered fragments, a brace pair inside a
+   string) → the text itself is wrong. The third outcome looks like the fourth
+   until you check, so check it: a parser that emits valid *deltas* never leaves a
+   quote out, while a parser whose final `args_so_far` is valid but whose deltas
+   are a length-prefix of it reproduces exactly this string (the recorded #12261
+   run recovered it from the two functions alone).
    Do this before reading any parser, sampler or kernel. Two recorded
    calibrations: #7580's paste reassembles to `{"filePath":"/…/K8sYamlAgent.java`
    and `json.loads` reproduces the reporter's own `Unterminated string starting
@@ -84,15 +99,32 @@ Not this topic — leave with the linked route:
    `token_ids` fields), vllm-ascend sampler (`sample/rejection_sampler.py`, the
    ops it patches), and the model/tokenizer (did the model emit a stop token
    before closing the JSON). The answer names which layer the evidence puts it in
-   and which one instrument decides the next step.
+   and which one instrument decides the next step. **Downstream does patch this
+   path, so establish that it does not own the symptom before saying "upstream"**:
+   grep `vllm_ascend/patch/` by *model family* (`glm`, `deepseek`, `minimax`), not
+   by the symptom's word — `patch_glm_tool_call_streaming.py` wraps
+   `OpenAIServingChat.chat_completion_stream_generator` and replaces
+   `_create_remaining_args_delta` while `patch_glm47_tool_call_parser.py` rewrites
+   the GLM47 region extractor, and neither filename contains `tool_parser`.
+   `patch/__init__.py` carries one numbered comment block per patch with its
+   `Why`/`How`/`Future Plan` and the upstream PR it backports; quote the branch
+   condition that excludes it (see `arg-type-gate-unquoted-value.md`).
 
 ## Pages
 
 - `streamed-arguments-audit.md` — the audit procedure: how to obtain the raw SSE,
-  how to read the script's three outcomes, the ordered ablations
+  how to read the script's output and the four outcomes (A-D), the ordered
+  ablations
   (`return_token_ids` → `stream: false` → `num_speculative_tokens: 2` →
   `temperature: 0` → `--async-scheduling` off), what to send back, and the worked
   #7580 / #8122 rows.
+- `arg-type-gate-unquoted-value.md` — the other, more common shape: a *string*
+  argument streamed with no opening quote while the closing quote and `}` arrive.
+  The `_is_string_type` gate (`glm4_moe_tool_parser.py:127-148`, only a top-level
+  `type: "string"` counts, so a nullable `anyOf` argument loses), the raw branch
+  at `:408`, the length-prefix delta at `:424`, the arithmetic that reproduces the
+  paste, why `stream: false` never reproduces, the two Ascend GLM patches and the
+  condition that excludes each, the reporter's schema workaround.
 - `mtp-block-verify-acceptance.md` — what the `max_spec_len >= 3` branch does
   (cumulative-product acceptance over the whole draft block, recovered token,
   bonus token), which requests it cannot touch (greedy rows), why a wrongly

@@ -21,8 +21,9 @@ usage() {
 usage: card-budget.sh --params P [--dtype bf16] [--hbm 64] [--gmu 0.9] [--tp 1]
                       [--cards N] [--stage-gmu 0.9,0.6,0.3] [--stage-devices '0,1;2;2']
 
-  --params P         total parameters in billions (30.5 for Qwen3-Omni-30B-A3B)
-                     take it from the checkpoint, not from the model name:
+  --params P         total parameters IN BILLIONS, not a raw count: 30.5 for
+                     Qwen3-Omni-30B-A3B, 671 for DeepSeek-R1 (671e9 params).
+                     Take it from the checkpoint, not from the model name:
                      sum the tensor sizes in the safetensors index, or
                      `du -sb <dir>/*.safetensors | tail -1` / bytes-per-weight
   --dtype D          bf16|fp16|fp32|w8a8|int8|w4a8|w4a4   (default bf16)
@@ -35,6 +36,7 @@ usage: card-budget.sh --params P [--dtype bf16] [--hbm 64] [--gmu 0.9] [--tp 1]
 
 examples:
   bash card-budget.sh --params 30.5 --tp 2 --gmu 0.9 --cards 2
+  bash card-budget.sh --params 671 --dtype w8a8 --tp 16 --gmu 0.8   # DeepSeek-R1
   bash card-budget.sh --params 30.5 --cards 2 --stage-gmu 0.9,0.6,0.3 \
        --stage-devices '0,1;2;2'          # the bundled 3-NPU layout
   bash card-budget.sh --params 30.5 --cards 2 --stage-gmu 0.9,0.6,0.3 \
@@ -71,6 +73,19 @@ awk -v P="$params" -v B="$bytes" -v HBM="$hbm" -v GMU="$gmu" -v TP="$tp" \
     -v CARDS="$cards" -v SG="$stage_gmu" -v SD="$stage_dev" '
 function gb(x) { return sprintf("%.1f", x) }
 BEGIN {
+  # Unit guard. The single most common misuse is passing the parameter COUNT
+  # (671e9) or a byte total instead of billions (671): every number below is then
+  # off by 1e9 and the verdict inverts to a confident, wrong FAIL. Refuse it
+  # instead of printing arithmetic a reader may quote.
+  if (P >= 1e6) {
+    printf("error: --params takes PARAMETERS IN BILLIONS, got %.0f.\n", P)
+    printf("       Divide by 1e9: DeepSeek-R1 is 671, Qwen3-32B is 32.8.\n")
+    exit 2
+  }
+  if (TP <= 0) {
+    printf("error: --tp must be a positive integer, got %s\n", TP)
+    exit 2
+  }
   total = P * B                       # 1e9 params * B bytes = B GB per 1e9 params
   per_card = total / TP
   budget = HBM * GMU

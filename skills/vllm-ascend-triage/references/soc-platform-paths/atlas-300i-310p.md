@@ -43,6 +43,15 @@ gate list and line numbers move, the shape does not.
 | Attention mask NZ | `vllm_ascend/attention/attention_v1.py:253-262` (`nd_to_nz_2d` / `nd_to_nz_spec` + `npu_format_cast`) and further `is_310p()` branches at `:72,347,403,531` | mask-shape/format errors on 310P belong to this branch, not to the model's attention code |
 | Separate 310P patch module | added later than this pin: at v0.18.0 `patch/platform/__init__.py:21-26` imports `patch_mamba_config_310` when `is_310p()` (the file does not exist at v0.11.0rc3) | a 310P-only patch can drift independently of the A2 one, and the gate list itself moves between releases — re-run the grep |
 
+Two of these gates combine into the 310P LoRA answer: there is no graph mode
+to amortise small launches (300I is eager-only) **and** `PunicaWrapperNPU` binds
+the PyTorch `vllm.lora.ops.torch_ops` callables whenever the device type is
+310P — at v0.9.2rc1 unconditionally, at v0.13.0rc2 by that explicit predicate
+even though the AscendC `vllm_ascend/lora/lora_ops.py` exists in the same tree
+(`vllm_ascend/lora/punica_npu.py:27-39`). So "LoRA is 4× slower here" is
+structural on this SoC, and the lever is merging the adapter or moving the
+release, not a flag — `../lora-adapters/decode-overhead-vs-base-model.md`.
+
 ## Ranked actions for a 310P startup report
 
 1. Confirm the SoC and the real versions: `python -c "from vllm_ascend import

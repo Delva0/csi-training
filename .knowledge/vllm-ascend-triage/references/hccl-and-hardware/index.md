@@ -54,6 +54,16 @@ HCCL_INTRA_ROCE_ENABLE=0` → hierarchical-dispatch gate that is the *documented
 A2 setting (do not rank it as the misconfiguration), the tutorial diff that closes
 the flag lane, and the ladder.
 
+**Then separate a *shapeless* hang from a collective error.** A DP>1 MoE run
+whose dummy/`profile_run` batch passes and whose first **real request** stops a
+layer or two in (no error text, peers' logs also stop) is not a device fault: the
+per-rank contribution to the DP all-gather disagreed, and the pad target that must
+match is `forward_context.max_tokens_across_dp` — the arithmetic, the owner-slice
+convention and the rank-parity checks are in
+`../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`. Ask for
+`dp_rank`/pad-target/`num_tokens` printed on **every** rank before touching the
+device lanes.
+
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
 bound`, check the record's date first (rule 13) and the number second: a port above

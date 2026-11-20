@@ -34,6 +34,37 @@ known-good path — before writing a theory about model code.
    - vllm-ascend `v0.17.0rc1` (`e20f0b1a...`) with vllm `0.17.0+empty`,
      `torch`/`torch_npu` 2.9.0, driver 25.2.0, `ascend-toolkit`/`nnal` 8.5.1.
 
+## A `vllm_ascend/**` frame the pin does not contain: vendored file, not a gap
+
+The mirror of the rule above. There the missing file is a **snapshot** limitation
+and the finding is a data gap; here the missing file is **the reporter's own
+code**, and the finding is that the release does not own the failing path.
+
+- Trigger: the paste's `file:line`, or a traceback frame, points inside
+  `vllm_ascend/models/<x>.py`, `vllm_ascend/ops/<x>.py` etc. and
+  `ls vllm_ascend/models/` at the pin has no such file. One call each:
+  `ls <repo>/vllm_ascend/models/`, `rg -ln -i '<model-or-symbol>' vllm_ascend/`,
+  `rg -n '<Class>' vllm_ascend/models/__init__.py`.
+- Discrimination: an in-tree file whose *line numbers* shifted is version drift
+  (re-grep, cite the pin); a file that does not exist at the pin while the same
+  module is mentioned only in a comment or a config docstring is a **site-vendored
+  file**. Recorded #3107 at vllm-ascend v0.9.1rc2 (`b9f715d`): the log names
+  `vllm_ascend/models/pangu_moe.py` at lines 526-877, the pin's
+  `vllm_ascend/models/` has no `pangu_moe.py`, `models/__init__.py` registers no
+  Pangu class, and the only in-tree mention of the family is the torchair comment
+  at `vllm_ascend/ascend_config.py:78`. By v0.11.0rc0 `PanguProMoEForCausalLM`
+  **is** registered (see the section below), so the out-of-tree file is a
+  pre-upstream port, and "drop it and use the release's class" is a real rung.
+- What the answer may still claim: the framework functions that file calls
+  (`set_ascend_forward_context`, `ops/fused_moe.py`, the attention metadata
+  builder) are in-tree, so their behaviour, their fallbacks and their
+  `path:line` are citable — say explicitly that the model arithmetic is not.
+- What to ask for: the file itself with its line numbers, its registration patch
+  (`ModelRegistry.register_model` / `register_oot`), and whether the same failure
+  reproduces with the release's own class. Do not reconstruct their module from
+  the log's debug prints; the printed shapes and values are their instrumentation,
+  not the framework's.
+
 ## Check "is model X supported here" in the source, once
 
 - Registration: `vllm_ascend/models/__init__.py` `register_model()` is the

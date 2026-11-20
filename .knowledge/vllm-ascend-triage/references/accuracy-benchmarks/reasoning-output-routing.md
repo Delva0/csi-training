@@ -171,7 +171,16 @@ before an end token is emitted as `reasoning`, so a client that concatenates onl
 decision from a model-emitted token. Ask for one response that prints both
 `content` and `reasoning` (and `return_token_ids: true` for the emitted ids) — that
 is the whole gate; the probe is also right when the tag appears *after* a complete
-answer, which is the shape a truncated `</think>` strip produces.
+answer, because of the branch order: in `extract_reasoning_streaming` the
+`is_reasoning_end(previous_token_ids)` test returns `DeltaMessage(content=delta_text)`
+*before* the delta's `</think>` is looked at (`:212-214`, ahead of the end-token
+split below it), so once reasoning has ended any `</think>` the model emits later
+reaches `content` verbatim. Two records, both decided by one response printing both
+fields: an answer body that turned out to sit in `reasoning` while `content` held
+only the post-tag tail, and a tag that was a duplicate emitted after the split.
+The arithmetic is the cheap pre-check — when `completion_tokens` is far larger than
+the returned `content` can account for, the bulk is in `reasoning` rather than lost
+(recorded #13002 shape 2: `completion_tokens: 9665` against 831 characters).
 
 ## Documentation gap that produces this signature by itself
 

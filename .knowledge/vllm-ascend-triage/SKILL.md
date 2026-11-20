@@ -51,9 +51,12 @@ reported version, gaps stated.
   transfer succeeds and the decode node emits wrong or alternating output on a
   hybrid linear-attention model, or a KV pool is attached and the *first*
   transfer fails with `503900` / `HcclCommPrepare ret: 0x13` while the pool's
-  `global_segment_size` is the cause. Transport identity and rank tables are a
-  topology question, not a connector bug, and a pool deployment is a config
-  question before either — `references/pd-disaggregation/index.md`.
+  `global_segment_size` is the cause, **or** the pool is attached, the request
+  succeeds, and the put never lands (`Failed to invoke HcclBatchPut,
+  hccl_result = 4`, `Failed to put N keys out of N`, master `PutEnd` 0).
+  Transport identity and rank tables are a topology question, not a connector
+  bug, and a pool deployment is a config question before either —
+  `references/pd-disaggregation/index.md`.
 - **Deployment sizing / stage layout**: the question is a plan — "does this model
   fit on 2×64 GB", "the GPU docs do a 2-device stage deploy and mine does not
   come up on 2 NPUs", a bundled `platforms.<vendor>` yaml with more stages than
@@ -94,7 +97,7 @@ delivery pattern is rule 1.
    truncation: what decides the outcome is not how much evidence was gathered but
    whether the message exists. The runs that shipped **no answer at all** (#6784,
    #12339, #10985, #11739, #11759, #5295, #8724, #17991, #16111, #8788, #10546,
-   #17797, #5525, #5750, #6572, #6275)
+   #17797, #5525, #5750, #6572, #6275, #11454)
    each had a usable lead; #4296 answered completely in ten turns from one pasted
    traceback. Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
@@ -214,12 +217,21 @@ delivery pattern is rule 1.
      unsure how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped
      65 KB into one recorded session (#6240, mid-investigation, buying nothing).
      To list files use `rg -ln '<pat>' <dir>`; never pass an empty pattern.
+   - **Scope a grep to one repo.** A case view holds 20-40 exported trees under
+     `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
+     seconds and returns hits from unrelated products (torchair, metadef,
+     ascend-transformer-boost). #11454 ran three of them looking for one log
+     string, and the finding was that the string is in **no** export — state that
+     as the gap (rule 10) instead of widening the pattern: `rg -n '<pat>'
+     /workspace/repos/<issue>/<owner>/<repo>` per candidate, then stop.
    - Never list a history or attachments directory, never dump `SOURCES.json`, and
      never bundle a listing with the `skill_view` call (it lands before this rule is
      read): a listing cost ~24-28 KB (#13699: 2857 entries), and recent batches
      still paid 13-54 KB per session (#9335, #9183, #11739, #8984, #12487);
      #5750 paid 104 KB in its very first call by bundling `cat SOURCES.json` with
-     `ls /workspace/history`. Load the skill alone, then make the first shell call
+     `ls /workspace/history`, and #11454 repeated the whole bundle (`ls -la` of
+     repos **and** history, `cat SOURCES.json`) in the same block as
+     `skill_view`. Load the skill alone, then make the first shell call
      `ls /workspace`
      plus `bash <skill_root>/scripts/sources-summary.sh`, nothing else — it prints
      the version contract and `unavailable` repos in ~10 lines, not 20-54 KB of
@@ -331,6 +343,7 @@ delivery pattern is rule 1.
 | …or the per-rank/plain traceback is `ImportError: <name>.so: cannot open shared object file` — e.g. `ascend_transport.so` from the connector's own `from mooncake.engine import TransferEngine` (`kv_p2p/mooncake_connector.py:24`) — in a deployment started by a launcher's `args:`/`command:` block, while the pasted `collect_env.py`/`/etc/profile` dump shows the directory on `LD_LIBRARY_PATH` | Lane B, environment-owned: the environment that decides the load is the launched process's, not the shell's — the export belongs in the launch command; image content only if the file is absent from disk | `references/image-dependency-faults/launch-env-and-library-path.md` |
 | The traceback ends in `AttributeError: '<X>Config' object has no attribute '<attr>'` with a frame in `vllm_ascend/distributed/*connector*.py`, reached from `ensure_kv_transfer_initialized` or `register_kv_caches` — a VL/MoE model under PD disaggregation, **or** a flat config whose scalar is derived rather than stored (Qwen2 `head_dim`), where `hf_text_config` was already in use | Lane B: connector reads a config attribute that *nesting* or *absence* leaves undefined — the two are different findings and give different fixes | `references/startup-failures/connector-config-attributes.md` |
 | P/D will not connect and the recipe contains a **KV pool**: `AscendStoreConnector` alone or inside a `MultiConnector`, `MOONCAKE_CONFIG_PATH`, a `pool_worker.py` / `pool_scheduler.py` line; the first transfer fails with `Failed to connect to target … 503900` / `E19999` / `HcclCommPrepare … ret: 0x13`, then the decode node answers with garbage while every other metric looks healthy | KV-pool store segment, not the transport: the pool's `global_segment_size` is `aclrtMallocHost`-ed and registered into the same ADXL engine the p2p connector dials, so an oversized segment fails whichever connector dials first (#13439: 40 GB failed, 2 GB worked, HDK 25.2.3 needs < 20 GB) | `references/pd-disaggregation/kv-pool-store-segments.md` |
+| A KV pool is attached, the request **succeeds**, and nothing is stored: prefill logs `Failed to invoke HcclBatchPut, hccl_result = 4` (or `HcclBatchGet`) then `Failed to put N keys out of N. error_codes=[-1]. Check memory and store capacity.`, while `mooncake_master` shows `PutStart`/`PutRevoke` > 0, `PutEnd` 0 and unused memory | Store **put data plane** in Mooncake's Ascend build, not capacity and not the connector: `4` = `HCCL_E_INTERNAL` (generic, not PARA/MEMORY/TIMEOUT), `-1` = the store's generic `INTERNAL_ERROR` (an out-of-space put returns `-200`), `PutStart`>0/`PutEnd`0 = control plane allocated and the write never landed, and the capacity sentence is canned text (`mooncake_backend.py:194`); the emitting code is in the `mooncake-transfer-engine-npu` wheel, absent from every export | `references/kv-pool-store/hccl-onesided-store-put.md` |
 | P/D will not connect although both engines started and there is **no** KV pool: `HIXL Connect failed \| HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
 | PD deployment that connects and then corrupts on a **hybrid** model (Qwen3.5/Qwen3.6 GDN, DeepSeek-V4, GLM): alternating good/bad answers, empty or wrong first decoded token, works with MTP but not without | PD hybrid-state transfer: connector choice plus the `mamba_cache_mode='align'` gate only the KV-store connectors satisfy | `references/pd-disaggregation/hybrid-state-transfer.md` |
 | `ValueError: Non-MoE models do not support external data parallel mode`, or any `ValueError`/`AssertionError` raised from `vllm/engine/arg_utils.py` that names a parallel mode or flag (`data_parallel_*`, `nnodes`, `node_rank`), with no `WorkerProc` line in the log | Startup argument validation in upstream vLLM — launch-command fix, not a defect | `references/startup-failures/arg-validation-errors.md` |
@@ -358,7 +371,7 @@ delivery pattern is rule 1.
 | An attention op **runs**, returns a correctly shaped tensor, and the numbers are wrong (uniform average, softmax apparently dropped, error only vs an fp32 reference); often a framework-free `torch_npu` repro, never a dump | Silent operator numerics — below the framework | `references/custom-ops-runtime-faults/attention-op-numeric-errors.md` |
 | `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` — aclnn cannot resolve the op for the SoC before any launch | Custom-op **build/install** fault: package built for another SoC, stale vendor package, wrong image tag | `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` |
 | `call aclnnArange failed … EZ9999: Inner Error!` + `Parse dynamic kernel config fail` + `AclOpKernelInit failed opType` + `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed` on a **built-in** op at `Starting to load model`, often asked as "这个镜像支持 910C 吗" (a card the docs exclude) | Image-vs-card CANN **kernel package**: the built-in op has no kernel config for the running SoC, so nothing launched — not the custom-op row above, not a flag, and the container uses the image's CANN, not the host's | `references/soc-platform-paths/kernel-package-vs-card.md` (one standalone `torch.arange(8, device="npu:0")` probe decides it) |
-| Output is fluent but stops after tens of tokens ("输出被截断", "只输出几十个 tokens") and a large `max_tokens` appears to fix it; `usage.prompt_tokens` is small; a `pass_config` / SP / FLASHCOMM / quantization flag changed at the same time | Early EOS: `finish_reason` decides budget vs model-issued EOS, then every reader of the toggled key plus the shipped support matrix (accuracy track, not the length budget) | `references/accuracy-benchmarks/early-eos-short-output.md` |
+| Output is fluent but stops after tens of tokens ("输出被截断", "只输出几十个 tokens") and a large `max_tokens` appears to fix it; `usage.prompt_tokens` is small; a `pass_config` / SP / FLASHCOMM / quantization flag changed at the same time | Early stop: `finish_reason` decides budget vs early stop, an integer `stop_reason` names the declared stop id that ended it (never the cause), then every reader of the toggled key plus the shipped support matrix (accuracy track, not the length budget) | `references/accuracy-benchmarks/early-eos-short-output.md` |
 | Spec-decode metrics collapse: `Accepted: 0` with `Drafted: N > 0`, `Per-position acceptance rate: 0.000` at every position, `Mean acceptance length: 1.00`, generation throughput ~0 while requests stay `Running`; often `--async-scheduling` and/or `--enable-prefix-caching` on a hybrid GDN model (Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) | Speculative-decoding bookkeeping (draft and target no longer see the same context), not capacity: the MTP-off ablation is row 1 | `references/spec-decode-mtp/acceptance-collapse.md` |
 | First request after start answers `content: ""` with `usage.completion_tokens: 1` and `finish_reason: "stop"`, later requests fine; MTP plus a full-graph decode on a hybrid GDN model | Empty first response: one model-issued blank/stop token — neither the length budget nor reasoning routing — so reproduce by restart before naming a one-shot mechanism, and diff the spec/capture config against the family sibling tutorial (`"enforce_eager": true` inside `--speculative-config`, default capture sizes) | `references/spec-decode-mtp/empty-first-response.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
@@ -405,6 +418,7 @@ delivery pattern is rule 1.
 | KV pool / MemCache on **800I/T A3** with a DeepSeek-V4 (`compress_ratios`) model: first request fine, the **second** kills the workers (`HCCL watchdog … ERR02005`), or the `host_shm` variant dies at memcache init with a "device id 转换异常"; reporter says "懒加载" | KV-pool store lane: lazy init is the documented A3+DSV4+`device_sdma` behaviour (#9975) and a rank-local save failure is swallowed before it desyncs collectives (#14106) — diff the resolved `mmc-local.conf` against the tree's tables first | `references/kv-pool-store/memcache-a3-dsv4-init.md` |
 | `triton.compiler.errors.MLIRCompilationError` + `[ConvertLinalgRToBinary] encounters error: … operation's operand is unlinked` + `bishengir-compile … returned non-zero exit status 1`; engine started, the first real request dies; deepest `vllm_ascend` frames in `vllm_ascend/ops/triton/fla/**` under `triton/runtime/autotuner.py`; the recipe has a `pip install triton-ascend` or a standalone BiSheng/AscendNPU-IR `.run` over the image | Triton-Ascend kernel **compile** pair installed into the image — not the AscendC/aclnn custom-op lane and not the kernel's shapes: the wheel and `bishengir-compile` come from different builds | `references/image-dependency-faults/triton-ascend-pair.md` (remove the install, then move the release — maintainer-confirmed on #5750) |
 | Compiler or missing-header error while installing/building — or `pip install` from source in a pod with **no public network** (custom-ops step pulls from `gitcode.com`, `fetch failed`) | Build-time dependency closure, else the general sequence below | `references/image-dependency-faults/offline-source-build.md`, else skip the topical routes |
+| Nothing crashed and the complaint is a **version string**: `pip show vllm-ascend` reports an older release than the reporter installed ("版本号显示不对", "0.9.0rc2 instead of 0.9.1dev"), or they ask whether a `-dev`/branch name is a valid version | Build-metadata question: the number is `setuptools_scm`'s description of the build tree's tags (`setup.py:305-311`), `vllm_ascend/` has no version constant and no runtime reader, and the pairing gates read `vllm.__version__` — decide it with the import path plus `git describe`, not a version survey | `references/image-dependency-faults/installed-version-vs-checkout.md` |
 
 ## Procedure
 
@@ -583,6 +597,11 @@ script's own header carries its full flag list:
   per-rank RSS sum, with the VIRT and first-sample `%CPU` caveats (#3902).
 - `scripts/kvpool-segment-check.sh <mooncake.json|serve-log|-> [...]` — the
   `global_segment_size` / `local_buffer_size` gate and the HDK band (#13439).
+- `scripts/store-put-code-check.sh <paste|-> [...]` — the store **put** lane:
+  maps `hccl_result = N` / `error_codes=[…]` to `hcclResult_t` and Mooncake's
+  `ErrorCode` (`4` = generic INTERNAL, `-1` = generic store error, `-200` = out of
+  space), reads the master's `PutStart`/`PutEnd`/`PutRevoke` as control-plane vs
+  data-plane, and flags the canned `Check memory and store capacity` text (#11454).
 - `scripts/ranktable-check.sh <rank_table.json|log> [...] | -` — `server_count` /
   `server_id` / duplicate `device_ip`, i.e. multi-server vs local HCCS (#14506).
 - `scripts/plog-timeline.sh [--since YYYY-MM-DD] <log|-> [...]` — per-error-family

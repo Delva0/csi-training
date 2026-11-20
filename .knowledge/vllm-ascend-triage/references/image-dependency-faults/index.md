@@ -86,6 +86,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   BiSheng/AscendNPU-IR `.run` over the image → `triton-ascend-pair.md`. The phrase
   "Failed to compile custom operators with Triton Ascend" is usually the reporter's
   paraphrase; it is not the AscendC custom-op lane.
+- Nothing crashes and the question is a **version string**: `pip show
+  vllm-ascend` reports `0.9.0rc2` while the reporter installed "0.9.1dev", or asks
+  whether that version exists at all → `installed-version-vs-checkout.md`. The
+  number is build-time metadata (`setup.py:305-311` `setuptools_scm`, no constant in
+  `vllm_ascend/`), no runtime reader consults it, and the pairing gates read
+  `vllm.__version__` — so the deliverable is the two output paths, not a survey.
 
 ## Pages
 
@@ -116,6 +122,11 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `csrc/CMakeLists.txt`), the five network legs with the existence gate that
   suppresses each, and the report-shape answer (which leg stopped, and where to
   seed).
+- `installed-version-vs-checkout.md` — `pip show` naming a different version than
+  the reporter installed ("版本号显示不对"): what `setuptools_scm` can and cannot
+  produce, why a shallow dev-branch clone yields `0.0.0` rather than a real number,
+  the unsafe `-dev` expectation, and the one `python -c` + `pip show -f` pair that
+  separates stale metadata from the wrong checkout (#1784).
 
 ## Common rules
 

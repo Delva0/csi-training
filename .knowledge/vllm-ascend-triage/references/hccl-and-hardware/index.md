@@ -8,7 +8,17 @@ acl api failed`, `the current working operator name is HcclAllreduce`,
 dumps, collective hangs/timeouts during `profile_run` or
 `determine_available_memory`, and processes killed by a device fault.
 
-Inherit the rules in SKILL.md. Order matters more than depth here:
+Inherit the rules in SKILL.md. **`hcclRet -> N` / `hccl_result = N` is the
+`hcclResult_t` enum**: `0` SUCCESS, `1` PARA, `2` PTR, `3` MEMORY, **`4`
+INTERNAL**, `5` NOT_SUPPORT, `6` NOT_FOUND, `7` UNAVAIL, `8` SYSCALL, `9`
+TIMEOUT, `19` NETWORK, `20` AGAIN, `21` REMOTE
+(`cann/hccl/docs/api/context/HcclResult.md:10-35`), so quote the enum name, not
+the number. A code that is neither `1`, `3` nor `9` is a
+generic rejection: the surrounding message text names the precondition, the code
+does not. The one-sided `HcclBatchPut` / store-put variant of that argument is
+`../kv-pool-store/hccl-onesided-store-put.md` §1.
+
+Order matters more than depth here:
 
 **First separate the watchdog from the collective.** If the only failure text is a
 bare `TimeoutError` whose frames are `multiproc_executor.py` (`collective_rpc` /

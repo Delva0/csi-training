@@ -12,7 +12,7 @@ sane, it just ends too soon.
 | What the response says | Lane |
 |---|---|
 | `finish_reason: length` and `usage.completion_tokens == max_tokens` | Budget: the effective `max_tokens` is smaller than the request thinks (`--default-max-tokens`, `generation_config.json`'s `max_new_tokens`, a harness param, `--max-model-len` headroom). See `harness-vs-engine-attribution.md` — and see the checkpoint lane below, which makes "只在大 `max_tokens` 时正常" literal |
-| `finish_reason: stop` with `completion_tokens` in the tens | The **model** emitted EOS: generation degeneration, and every flag the reporter toggled at the same time is a suspect |
+| `finish_reason: stop` with `completion_tokens` in the tens | The **model** emitted a token the engine treats as an end: generation degeneration, and every flag the reporter toggled at the same time is a suspect. `stop_reason` splits the two sub-cases — read it next |
 | `content: null`, the text inside `reasoning` | Output routing, not the engine — `reasoning-output-routing.md` |
 
 **The checkpoint lane has one grep and one log line.** At vllm v0.22.1
@@ -33,6 +33,53 @@ past the old stop point (content drifting or repeating) ⇒ early EOS. Stops in 
 same place ⇒ sampler/stop-token/engine-side condition. Ask for the two raw
 response bodies with `finish_reason` and `usage`; a screenshot of the text alone
 leaves both lanes open.
+
+### `stop_reason` names the token that stopped generation, not the cause
+
+Under `finish_reason: stop` there are two different stoppers, and the field tells
+them apart at vllm v0.22.1 (`0decac0`, the pin recorded for #12278) — single call
+site `vllm/v1/core/sched/scheduler.py:1661` → `check_stop`:
+
+| Generated token | Result | `stop_reason` |
+|---|---|---|
+| equals the **primary** `eos_token_id` (`vllm/v1/core/sched/utils.py:104-107`) | `FINISHED_STOPPED` | **`None`** |
+| in `stop_token_ids` (`:108-111`) | `FINISHED_STOPPED` | the token id |
+| `max_model_len` / `max_tokens` reached (`:112-116`) | `FINISHED_LENGTH_CAPPED` | `None` |
+
+`vllm/outputs.py:34-36` states the same ("None if the completion finished for
+some other reason including encountering the EOS token"). So an **integer**
+`stop_reason` proves the stopping token was declared in the request's stop set. On
+a request that sets none, where do extra ids come from? The checkpoint:
+`SamplingParams.update_from_generation_config` (`vllm/sampling_params.py:556-587`)
+reads `generation_config["eos_token_id"]` (an int **or a list**), discards the
+renderer's primary id and puts the rest into `stop_token_ids` (`:581-584`);
+`InputProcessor` supplies the checkpoint's file
+(`vllm/v1/engine/input_processor.py:53` → `:315-318`, from
+`ModelConfig.try_get_generation_config`, `vllm/config/model.py:1432-1459`). Two
+cheap corrections follow: `--generation-config vllm` does **not** remove those ids
+(`try_get_generation_config` reads the checkpoint file for `{"auto", "vllm"}`
+alike, `model.py:1444-1451`; only a *directory* path replaces it) — it cancels the
+sampling-param half only (`get_diff_sampling_param`, `:1465-1492`) — and
+`--override-generation-config` never reaches the eos path. The per-request lever is
+`ignore_eos: true`, because `:581` is guarded by `if not self.ignore_eos`; that is
+also why rung 0 of the ablation table in step 4 works as a probe.
+
+**Then do not rank that finding as the cause.** The trap: a `stop_reason`-derived
+"the quantised checkpoint declares a bogus stop token, so the engine truncates"
+story reads as source-verified and gets ranked first, while the reporter's own
+single-variable ablation (delete one launch key, output returns) sits below it as a
+hypothesis. A declared stop id is only *which* token ended generation; the model
+can emit it early because its logits are wrong — a graph rewrite running outside
+its documented matrix, a wrong quant path, spec-decode bookkeeping. In #12278 the
+id never changed and the switch was the trigger. So: `finish_reason: stop` +
+integer `stop_reason` + text that ends mid-sentence is the fingerprint of
+**degeneration**, not evidence about the checkpoint; get the launch command first
+and keep the `generation_config.json` grep as one line of supporting evidence.
+
+A **string** `stop_reason` is a different owner: vllm-ascend's
+`vllm_ascend/core/recompute_scheduler.py:800-808` emits `finish_reason=STOP`,
+`new_token_ids=[]`, `stop_reason="recomputed"` for a request whose KV blocks failed
+to load — an empty completion produced by the scheduler, with no model output.
 
 ## Step 2 — when a switch was toggled, audit the switch's wiring, not the sampler
 
@@ -112,7 +159,7 @@ explicitly.
 
 | Row | Change | What it proves |
 |---|---|---|
-| 0 | capture `finish_reason`, `usage`, and one `ignore_eos: true` run | early EOS vs budget (step 1) |
+| 0 | capture `finish_reason`, `stop_reason`, `usage`, and one `ignore_eos: true` run | early EOS vs budget (step 1); an integer `stop_reason` says the stopper was a declared id, a string one is scheduler text |
 | 1 | delete only the `enable_sp` key, keep the rest of `--compilation-config` | isolates the switch from the rest of the config |
 | 2 | drop `--compilation-config` entirely | isolates the graph-mode change itself |
 | 3 | row 1 + `export VLLM_ASCEND_ENABLE_FLASHCOMM1=1` | the documented non-VL/MoE switch (FC1), not a repair of SP |
@@ -151,9 +198,11 @@ inherit the confidence of the source-verified matrix.
 
 The opening body is the discriminator on its own: `finish_reason: "stop"`,
 `stop_reason: 248044`, `completion_tokens: 97`, `prompt_tokens: 15`, and the
-thinking text inside `content` with `"reasoning": null`. That is the model-issued
-EOS lane **plus** a missing `--reasoning-parser qwen3` (`reasoning-output-routing.md`)
-— two separate findings from one body, and the run said so.
+thinking text inside `content` with `"reasoning": null`. That is the degeneration
+lane — and, because `stop_reason` is an **integer**, specifically *a declared stop
+id rather than the primary EOS* (section in step 1) — **plus** a missing
+`--reasoning-parser qwen3` (`reasoning-output-routing.md`): two separate findings
+from one body.
 
 The reporter's later follow-up is the same outcome as #12253 verbatim: works on
 v0.17.0rc1, fails on v0.18.0-a3, a second 8×910C node with the same image and flags
@@ -176,6 +225,17 @@ the whole reason this page exists):
    everyone else (`platform.py:648-650`), so "屏蔽该参数" is riskier than a loud
    warning.
 
+What the *second* recorded run got wrong is the ranking rule, not the facts: it
+verified the `stop_reason` wiring, concluded "the Eco-Tech w4a8 export declares a
+secondary eos 248044, so the engine stops mid-CoT", ranked that **first**, and put
+the reporter's own single-variable result (delete `enable_sp` ⇒ normal output)
+**third, labelled hypothesis** — while rung 1 of the ladder was never the opening
+action. The follow-up shows the id was unchanged and the switch was the trigger, so
+the ordering to follow is: lane from `finish_reason`/`stop_reason`, then *ask for
+the start script and whether it carries `pass_config.enable_sp`*, then the
+documented-matrix finding; `stop_reason` and `generation_config.json` stay one-line
+supporting evidence.
+
 The tree's own validated command for this model
 (`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:117-137`) contains **no**
 `pass_config.enable_sp`, keeps `--compilation-config '{"cudagraph_mode":
@@ -187,9 +247,10 @@ never exercised by the recipe" is a documentation finding you can state, not a
 theory.
 
 Delivery note for this shape: the opening answer (lane + the
-`enable_sp`/`reasoning-parser` pair + the two greps) fits in one turn; the recording
-run spent ten assistant turns re-deriving the pin's line numbers, then answered the
-follow-up in two. Correct, and one turn cheaper if this page is read first.
+`enable_sp`/`reasoning-parser` pair + the two greps) fits in one turn. Both
+recordings cost ten assistant turns — the first re-deriving the pin's line numbers,
+the second deriving the `stop_reason` mechanism above — which is this page's whole
+content, so read it first and spend the turns on the ablation plan instead.
 
 Delivery note for #12253: this run is the calibration row for the shape — 14 assistant turns,
 16 tool calls, a complete answer delivered on the last turn because

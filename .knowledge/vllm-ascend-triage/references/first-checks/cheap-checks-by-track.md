@@ -155,6 +155,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   established). CQE / SDMA / device-id text is owned by MemCache/MemFabric, so
   name that owner and ask for its log
   (`references/kv-pool-store/memcache-a3-dsv4-init.md`).
+- A pool **put** never lands while the request succeeds (`Failed to invoke
+  HcclBatchPut, hccl_result = 4`, `Failed to put N keys out of N`, master
+  `PutEnd` 0): one call —
+  `bash <skill_root>/scripts/store-put-code-check.sh <paste>`. `4` is
+  `HCCL_E_INTERNAL` and the store's `-1` is its generic code, so it is neither a
+  parameter error nor capacity (`-200` is the out-of-space code), and the emitting
+  string is in the `mooncake-transfer-engine-npu` wheel, not in any export
+  (`references/kv-pool-store/hccl-onesided-store-put.md`).
 - Report is "the flag did nothing" (logging/verbosity, output printing, a
   missing log stage): name the owner first — upstream vLLM OpenAI frontend,
   not vllm-ascend — then walk the gate checklist in

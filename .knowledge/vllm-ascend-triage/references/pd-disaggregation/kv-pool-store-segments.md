@@ -42,6 +42,11 @@ segment* fault (this page). One question separates them before any source work:
   `MooncakeLayerwiseConnector` / LMCache-Ascend `hixl`) → go to
   `transport-topology.md` as written.
 
+A **third** shape is neither: the channel prepared, the request succeeds, and the
+**put** then fails (`Failed to invoke HcclBatchPut, hccl_result = 4`, master
+`PutEnd` 0 with `PutRevoke` > 0). Segment size is then excluded (`-1`, not the
+out-of-space `-200`) and the lane is `../kv-pool-store/hccl-onesided-store-put.md`.
+
 Reporter-confirmed discriminator for #13439, worth asking for verbatim in any
 lookalike: **both `MooncakeConnectorV1` and `MooncakeHybridConnector` fail
 identically once the pool is attached, while PD disaggregation without the KV

@@ -27,6 +27,14 @@ transport topology to inspect.
   a pool configured → the store segment size:
   `../pd-disaggregation/kv-pool-store-segments.md` and
   `scripts/kvpool-segment-check.sh`.
+- The request **succeeds** but nothing is stored: prefill logs
+  `Failed to invoke HcclBatchPut, hccl_result = 4` (or `HcclBatchGet`) and
+  `Failed to put N keys out of N. error_codes=[-1]`, while the master shows
+  `PutStart`/`PutRevoke` > 0 and `PutEnd` 0 with memory unused → the store's
+  **put data plane**, not the segment size and not capacity:
+  `hccl-onesided-store-put.md` (one call: `scripts/store-put-code-check.sh
+  <paste>`). `4` = `HCCL_E_INTERNAL` and `-1` = the store's unclassified
+  `INTERNAL_ERROR`; an out-of-space put returns `-200`.
 - PD on a hybrid linear-attention model and the decode node emits corrupt output →
   `../pd-disaggregation/hybrid-state-transfer.md`.
 - The connector module itself will not import (`ascend_transport.so`, `No module
@@ -47,11 +55,14 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
    export and the vllm-ascend docs for the literal key before explaining what it
    does; an unknown key is either ignored (silent no-op) or a validation error,
    and that difference is the answer.
-3. **Name the owning component: MemCache/MemFabric, not vllm-ascend.** A CQE
-   error, an SDMA/`BatchCopyData` failure, an `mmc_init` return code and a device-id
-   conversion message come from `Ascend/memcache` + `Ascend/memfabric_hybrid`; the
-   vllm-ascend side owns *when* the store is initialised, which device id it
-   passes, and whether a failure is swallowed. Say which side you are naming.
+3. **Name the owning component: MemCache/MemFabric or Mooncake's transport, not
+   vllm-ascend.** A CQE error, an SDMA/`BatchCopyData` failure, an `mmc_init`
+   return code and a device-id conversion message come from `Ascend/memcache` +
+   `Ascend/memfabric_hybrid`; a `Transfer failed for key …`, a `HcclBatchPut` /
+   `HcclBatchGet` / register-mem line and the master's `PutRevoke` come from the
+   Mooncake store client plus its Ascend transport build. The vllm-ascend side owns
+   *when* the store is initialised, which keys/addresses it puts, which device id
+   it passes, and whether a failure is swallowed. Say which side you are naming.
 4. **A pool fault surfaces as a collective fault.** The save path runs on a
    per-rank thread and its result is not propagated, so the first visible error is
    often HCCL (`ERR02005`, `EI0002`, `507001`, `STUCK`) several seconds later. The
@@ -69,3 +80,9 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   lazy init (and why it is not the bug), the two inits a reporter sees, the
   `dram.size` / separated-deployment key gates, the version pins, and the
   put-failure → collective-desync family with its ablation ladder.
+- `hccl-onesided-store-put.md` — the request succeeds but the pool stays empty:
+  `HcclBatchPut` `hccl_result = 4` (generic `HCCL_E_INTERNAL`) with
+  `error_codes=[-1]` (the store's generic code, not `-200` out-of-space), the
+  master `PutStart`/`PutRevoke`/`PutEnd` reading that proves the control plane
+  worked, which build flags pick the `ascend` transport, why the emitter is not in
+  any pinned export, and the two artefacts that decide the rest.

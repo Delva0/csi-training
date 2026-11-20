@@ -484,3 +484,81 @@ forwards `CANN_3RD_LIB_PATH` to CMake. **Shipped no answer**: 30 turns, every
 message a bare tool call, cut inside a block that had already written
 "**Answer**: Yes, real…". Lane: name the fetch legs and the pre-seed directory
 (`../image-dependency-faults/offline-source-build.md`).
+
+**#1895** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm `v0.9.2` (`a5dd03c1`), 4×910B3,
+Qwen2.5-32B, TP=4: v1 graph mode dies at startup with
+`NotImplementedError: _C::rotary_embedding: attempted to run this operator with Meta
+tensors`, after weights load and before capture. **Answered completely** in 29 turns
+with a `path:line` table and correct confidence labels: the Ascend rope monkeypatch
+(`ops/rotary_embedding.py:286`) takes the fp16-gated `torch.ops._C.rotary_embedding`
+branch (`:29-31, 60-70`) whose only exemption is torchair (`:42-48`), and
+vllm-ascend's own binding registers it `PrivateUse1`-only
+(`csrc/torch_binding.cpp:290,299,302`, no `kMeta` anywhere in `csrc/`); the
+`Failed to import from vllm._C` warning is normal on NPU and the crash itself proves
+`vllm_ascend_C` loaded. Ladder given: `--enforce-eager`
+(`platform.py:160-162`), then `--dtype bfloat16` as a labelled hypothesis (discriminator:
+the new error names `npu_rotary_embedding`), then a maintainer-side Meta impl. Cost
+note: the verdict text arrived only at the 7th of 11 substantive turns, after ~12 K
+characters of reasoning; the pasted traceback's missing middle frames were correctly
+listed as the open gap. Later-ref correspondence added from #8590's tree: v0.14.0rc1
+moved the op to `_C_ascend` and registers Python Meta impls
+(`vllm_ascend/meta_registration.py:108-111`, imported at `utils.py:255-258`) plus
+`csrc/torch_binding_meta.cpp` — `../startup-failures/meta-kernel-missing.md`.
+
+**#8590** vllm-ascend `v0.14.0rc1` (`52d4acfa`) + vllm `v0.14.1` (`d7de043d`),
+single 910B-class card, TP=1, Qwen2.5-1.5B: repeated 猞猁 from the first generated
+token whenever `<|im_start|>`/`<|im_end|>` are in the prompt; reporter later confirmed
+"0.14.0rc1 through 0.18.0rc1, same". **Shipped no answer — cut twice** (11 steps at a
+16 K cap, then 3 more at 8 K after the reporter's ping), with ~21 K characters of
+reasoning in one block and every message a one-line status note. The paste already
+carried both discriminators it never used in message text: the printed `Input ids` are
+identical on both input routes (so token ids cannot be the mechanism), and
+`Using max model len 131072` is the checkpoint's own value
+(`vllm/config/model.py:1545`, `_get_and_verify_max_len` at `:1898`), which stock
+Qwen2.5-1.5B does not declare. Real findings, source-read and never delivered:
+no id-keyed branch in `vllm_ascend/` at that ref and no `vllm_ascend/models/` at all;
+`AscendVocabParallelEmbedding._forward_origin` skips the mask at `tp_size == 1`
+(`ops/vocab_parallel_embedding.py:174-184`), so an out-of-range id reaches the
+embedding call instead of being zeroed; and Qwen2.5-1.5B *generation* has no e2e coverage (only the pooling
+checkpoint at `tests/e2e/singlecard/pooling/test_classification.py:10`). Lane:
+`../accuracy-benchmarks/short-prompt-corruption.md` step 0.
+**#17797** vllm-ascend `v0.23.0` (`5cb98ca`) + vllm `v0.23.0` (`0fc695f`), image
+`quay.io/ascend/vllm-ascend:v0.23.0-310p`, Ascend 310P; `Qwen/Qwen3-Embedding-0.6B`
+with `--runner pooling --dtype float16`, single request at a time, prompts
+of ~4-10 K characters (~3-8 K tokens): wrong embedding vectors for long inputs, cosine vs three
+reference services collapsing from `>0.999` to `0.2-0.6`, deterministic per serve
+session and different across restarts, gone with `--no-enable-chunked-prefill`.
+Real findings (source-read at the pin, never delivered): the chunked-prefill
+accumulator is inherited upstream (`PoolingStates.hidden_states_cache`,
+`tokwise/methods.py:35-84`, `gpu_model_runner.py:3330-3343`) so "Ascend never
+populates `pooling_states`" is refuted *at this pin*; the Ascend-specific pooling
+sites are `attention_v1.py:1535-1538` (`and not causal` -> the prefix-blind
+`_forward_encoder_attention`), the fixed-size pooling mask branches
+(`attention_mask.py:75-77`, `_310p/attention/attention_mask.py:139-145`) and the
+310P dispatch `_310p/attention/attention_v1.py:329-342`; and the mask theory is a
+dead end for the chunked step because `forward_chunked_prefill_310` builds its own
+`get_splitfuse_mask`. **Shipped no answer**: 18 assistant turns, all 16 K output
+tokens spent inside reasoning, one short status note on each of the first 17,
+cut mid-sentence while it was still ranking the causes (its own notes had said
+"I must deliver now" three turns earlier). Lane: pooling + chunked prefill (`../pooling-embedding/index.md`).
+
+**#5525** vllm-ascend `v0.11.0` (`2f1aed9`) + vllm `v0.11.0` (`b8b302c`),
+`quay.io/ascend/vllm-ascend:v0.11.0`, Qwen3-Embedding-8B served with `--task embed
+--max-num-seqs 256 --max-num-batched-tokens 8192`; `vllm-bench`
+(`openai-embeddings`, sharegpt) answers ~1800 requests, then the engine dies and
+everything after gets `400 Bad Request`. Evidence is four bench screenshots only;
+the `KeyError` key is unreadable, so the mechanism is source-derived, not
+reporter-confirmed. Real finding (source-read, never delivered): at v0.11.0
+vllm-ascend ships **its own copy** of upstream's `InputBatch`
+(`vllm_ascend/worker/npu_input_batch.py:94`) with a pooling fast path upstream
+lacks (`add_request` -> `num_reqs` at `:316-324`, `remove_request` skipping
+`removed_append` at `:462-465`, trim-only `condense` at `:573-577`, forced by
+`assert request.sampling_params` at `:303`), which leaves a `None` hole plus a
+duplicated slot under concurrency and raises at
+`vllm/v1/attention/backends/utils.py:798`; by v0.23.0 the copy is gone
+(`class NPUInputBatch(InputBatch)`, `__init__` only). **Shipped no answer**: 20
+assistant turns, 11 of them with zero message text (bare tool calls), the 16 K
+output budget entirely in reasoning, cut while it was still verifying
+`add_request`'s index assignment after having named the root cause two turns
+earlier. Lane: pooling batch bookkeeping
+(`../pooling-embedding/batch-index-desync.md`).

@@ -76,6 +76,19 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE`): the *image's* CANN has no kernel
   for this card — check the release's supported-hardware lines, then one
   standalone op probe (`references/soc-platform-paths/kernel-package-vs-card.md`).
+- Startup traceback carrying `torch/_subclasses/fake_tensor.py` + `torch/_ops.py`
+  frames and ending `NotImplementedError: <ns>::<op>: attempted to run this
+  operator with Meta tensors` (`_C::rotary_embedding` at #1895): two greps decide it
+  — `rg -n 'kMeta|TORCH_LIBRARY_IMPL' csrc/` for an existing Meta impl, and the one
+  dtype/shape predicate that selects the branch — then answer `--enforce-eager`
+  before proposing a patch, with the dtype that skips the branch as rung 2
+  (`references/startup-failures/meta-kernel-missing.md`).
+- Degenerate output whose trigger the reporter names as *token content* ("only when
+  these special tokens are in the prompt", identical across several releases, one
+  model only): refute or confirm that claim from the paste before any source read —
+  same ids on both input routes means the ids are not the mechanism, and the
+  checkpoint's own `Using max model len N` is the cheap non-engine check
+  (`references/accuracy-benchmarks/short-prompt-corruption.md` step 0, #8590).
 - Python attribute error whose frame is an **upstream** vllm file (or the
   reporter asks whether vllm-ascend's ops were ever reached): the Ascend
   replacement is name-keyed, so compare the class name against
@@ -289,6 +302,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   server, weights and serve flags before choosing a culprit
   (`references/accuracy-benchmarks/index.md`); for a garbled prompt, get the
   ablation matrix (`references/accuracy-benchmarks/garbled-long-context-output.md`).
+- An **embedding / pooling** serve (`--runner pooling`, `--task embed|score`,
+  `/v1/embeddings`): two questions place it before any source read — single
+  request or only under concurrency, and is a short prompt correct. Crashes under
+  concurrency end in the batch-slot machinery
+  (`references/pooling-embedding/batch-index-desync.md`); wrong vectors for long
+  inputs take the "which span was pooled" test plus a
+  `--max-num-batched-tokens` sweep, not an attention-backend walk
+  (`references/pooling-embedding/chunked-prefill-vector-corruption.md`).
 - A **VL image/video** request that degenerates into one repeated token
   (`!!!!`, 感叹号) while text-only prompts answer: first row of the ablation is
   `USE_OPTIMIZED_MODEL=0` on the same request, then text-only, TP=1 and an

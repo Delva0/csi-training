@@ -79,7 +79,8 @@ delivery pattern is rule 1.
    session can be cut off mid-sentence, so the deliverable has to survive
    truncation: what decides the outcome is not how much evidence was gathered but
    whether the message exists. The runs that shipped **no answer at all** (#6784,
-   #12339, #10985, #11739, #11759, #5295, #8724, #17991, #16111, #8788, #10546)
+   #12339, #10985, #11739, #11759, #5295, #8724, #17991, #16111, #8788, #10546,
+   #17797, #5525)
    each had a usable lead; #4296 answered completely in ten turns from one pasted
    traceback. Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
@@ -102,7 +103,10 @@ delivery pattern is rule 1.
    - **Reasoning is a scratchpad, a few lines per turn:** what the last result
      proved, the single next check, go. It spends the **same output budget** as the
      answer: #15815 and #11759 each spent ~30 K characters of reasoning against
-     ~9 K of answer, and #11759 hit the cap with 69 characters of text. If a block
+     ~9 K of answer, and #11759 hit the cap with 69 characters of text. #8590 put a
+     single 21 K-character block of hypotheses it had already rejected in front of the
+     two-line verdict the paste already supported, was cut, and was cut again after the
+     reporter's ping. If a block
      enumerates the answer's sections, or says "I have enough" / "let me write the
      answer", that block *is* the answer.
    - **A new hypothesis that needs a new code area is not this session's job.**
@@ -144,6 +148,12 @@ delivery pattern is rule 1.
      refuted its last hypothesis. Carry one or two sentences of the
      current answer draft in the same message as every tool call — verdict line
      first, then the evidence being checked — and G1/G2 need no special turn.
+     A *status note* is not a draft: #17797 put one short note on each of its
+     first 17 turns ("the 310P path has its own model runner — let me check X")
+     and never once stated a verdict; #5525 emitted zero message text on 11 of
+     20 turns. Both spent the whole 16 K output budget in reasoning and shipped
+     nothing. The sentence must state the current verdict even when the next call
+     may overturn it.
      #15815 shipped only on turn 15, after 31 K of its 50 K output characters
      spent on reasoning.
    - The reasoning patterns behind the gates:
@@ -319,6 +329,7 @@ delivery pattern is rule 1.
 | A bare `TimeoutError` — `RPC call to execute_model timed out.`, or frames in `multiproc_executor.py` (`collective_rpc` / `get_response`) and `shm_broadcast.py` (`acquire_read` / `acquire_write` / `recv`) — reported as "多进程卡间通讯超时", with no rank prefix and no error code | vLLM's own RPC watchdog (`VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS`, 300 s), not an HCCL/NIC timeout: one worker stopped answering, and the paste does not contain its fault | `references/hccl-and-hardware/rpc-watchdog-timeouts.md` (one call: `scripts/executor-timeout-check.sh`) |
 | `TypeError: 'NoneType' object is not callable` from an upstream module-level name that is `None` on non-CUDA platforms (`fused_experts = None`), with the `forward_oot` frame in `vllm/model_executor/custom_op.py` and `forward_native = forward_cuda` next in the trace; often `--distributed_executor_backend ray` or a `spawn` worker | The downstream op patch was never installed **in that process**: it is imported as a side effect of a driver-only hook (`check_and_update_config`), so fresh-interpreter workers keep upstream code | `references/upstream-downstream-drift/patch-import-side-effect.md` |
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
+| Per-rank traceback whose frames are `torch/_subclasses/fake_tensor.py` and `torch/_ops.py`, ending `NotImplementedError: <ns>::<op>: attempted to run this operator with Meta tensors` (e.g. `_C::rotary_embedding`), after the weights loaded and before capture | Compile-phase fake-tensor trace: a custom op registered for `PrivateUse1` only. The namespace dates the tree (`_C` pre-rename vs `_C_ascend` + `meta_registration.py`), the selecting predicate is a dtype/shape test, and `--enforce-eager` is rung 1 | `references/startup-failures/meta-kernel-missing.md` |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range"; several ranks reporting the same `pc start` in the same second | Custom-op runtime fault, after the timestamp gate — a shared PC across chips is software address computation, not several bad cards | `references/hccl-and-hardware/error-report-timestamps.md`, then `references/custom-ops-runtime-faults/index.md` |
 | `507035` + `ERR00100 PTA call acl api failed` + `EZ9999 … aivec error` + `The DDR address of the MTE instruction is out of range`, one `pc start` repeated on every core, and the deepest frame is `torch_npu.npu_scatter_nd_update_` in `vllm_ascend/attention/sfa_v1.py` with fault kernel `ScatterNdUpdate_…`; the crash follows concurrency (mixed prefill+decode batch) while single requests are fine | DSA indexer-cache write with the wrong index tensor: a host-side slicing bug, not a card — compare the index tensor's row count with the source's before any hardware theory | `references/dsa-sparse-attention/indexer-cache-scatter-fault.md` |
@@ -331,10 +342,13 @@ delivery pattern is rule 1.
 | Spec-decode metrics collapse: `Accepted: 0` with `Drafted: N > 0`, `Per-position acceptance rate: 0.000` at every position, `Mean acceptance length: 1.00`, generation throughput ~0 while requests stay `Running`; often `--async-scheduling` and/or `--enable-prefix-caching` on a hybrid GDN model (Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) | Speculative-decoding bookkeeping (draft and target no longer see the same context), not capacity: the MTP-off ablation is row 1 | `references/spec-decode-mtp/acceptance-collapse.md` |
 | First request after start answers `content: ""` with `usage.completion_tokens: 1` and `finish_reason: "stop"`, later requests fine; MTP plus a full-graph decode on a hybrid GDN model | Empty first response: one model-issued blank/stop token — neither the length budget nor reasoning routing — so reproduce by restart before naming a one-shot mechanism, and diff the spec/capture config against the family sibling tutorial (`"enforce_eager": true` inside `--speculative-config`, default capture sizes) | `references/spec-decode-mtp/empty-first-response.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
+| An **embedding / pooling** service (`--runner pooling`, `--task embed\|score\|classify`, `/v1/embeddings`) dies **under concurrency** (vllm-bench, `--max-num-seqs` in the tens-hundreds) while single-request serving is fine: engine log ends in `KeyError` inside `reorder_batch_to_split_decodes_and_prefills`, then `EngineDeadError` / `400 Bad Request` | Pooling batch bookkeeping: a downstream `InputBatch` copy's `is_pooling_model` slot fast path, not the attention backend | `references/pooling-embedding/batch-index-desync.md` |
+| An **embedding** service returns **wrong vectors** for long inputs (cosine vs a reference service collapses from `>0.999` to `0.2-0.6`) while short inputs are correct, text tasks are fine, and `--no-enable-chunked-prefill` removes it | Pooling + chunked prefill: which token span got pooled, then the Ascend pooling attention/mask branches | `references/pooling-embedding/index.md` |
 | Per-layer `MSE loss` / epoch table printed while converting a checkpoint with msmodelslim (W4A4/W8A8), one layer far above its neighbours, or "the converted checkpoint answers garbage" with no engine-side failure | Quantization-conversion phase: converter-owned, before the engine starts | `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` |
 | A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
 | A **few** responses in a long accuracy run repeat sentences ("5 条响应的句子重复") on a documented model with PD + MTP + prefix caching, prompt short but `max_tokens` in the tens of thousands, no crash and no error text | Decode-time repetition, not prompt-length corruption: the owners are reuse and draft bookkeeping (prefix cache, preemption, MTP), so the answer is the tutorial P/D diff plus the `--max-num-seqs 1` identity row — long-CoT models loop on their own | `references/accuracy-benchmarks/long-output-repetition.md` |
 | 乱码 / token soup on a few-thousand-token prompt, process alive, no traceback, `finish_reason: length`, often MoE + EP across nodes or a quantised weight set | Generation corruption, short-prompt profile | `references/accuracy-benchmarks/short-prompt-corruption.md` |
+| Garbage/repetition that the reporter ties to **token content** — "only when the prompt contains these special tokens (id N)", identical on every release they tried, one model only, "works on GPU" | Refute the id framing first: identical ids on both input routes, no id-keyed branch in `vllm_ascend/`, TP=1 embedding has no mask to zero with. Then `Using max model len N` (the checkpoint's own `config.json`, not the launch command) and one CPU run of the same directory | `references/accuracy-benchmarks/short-prompt-corruption.md` (step 0) |
 | 乱码 on a **short** prompt of a hybrid linear-attention model (Qwen3.5/Qwen3.6 GDN and siblings), where the "正常" command differs from the failing one by a scheduling knob — `--block-size` (e.g. 512 → 2048) and/or `--enforce-eager` — and nothing else | Hybrid KV-cache geometry: the cache block is never clamped to 128 on these models and is only raised by the mamba/attention page-size constraint, so a bigger block re-slices block tables, slot mapping and the mamba state block at once | `references/accuracy-benchmarks/hybrid-block-size-corruption.md` |
 | A **VL image/video** request answered as a long run of one token (`!!!!`, 感叹号, `，，，`), usually with "特别耗时 / very slow"; text-only prompts may answer fine | Vision-tower degeneration (accuracy track), not sampling | `references/accuracy-benchmarks/vl-vision-tower-degeneracy.md` |
 | The server served traffic then died on memory: "运行一段时间后显存不释放最后崩溃", `NPU out of memory` / `NPUWorkspaceAllocator` / `Memory_Allocation_Failure(EL0004)`, `npu-smi` pinned at 100 %, a P node holding KV the D node never takes | Runtime memory after a healthy period: capacity vs growth vs a config key that never engaged (contrast the Lane C row, where the OOM happens during `profile_run` / `determine_available_memory` before the server is ready) | `references/runtime-memory/index.md` |
@@ -609,6 +623,9 @@ delivery pattern is rule 1.
   `connector-config-attributes.md` (`AttributeError` on a PD KV-connector scalar:
   nested multimodal config #5572, flat config missing Qwen2 `head_dim` #7352),
   `arg-validation-errors.md` (`ValueError` naming a flag combination, #11863),
+  `meta-kernel-missing.md` (compile-phase `NotImplementedError: <ns>::<op>:
+  attempted to run this operator with Meta tensors` — a custom op without a
+  Meta/fake impl, namespace `_C` vs `_C_ascend` dating the tree, #1895),
   `acl-graph-capture.md` (capture-phase stall, #3389), `quantization-method-gate.md`
   (`<method> quantization is currently not supported in npu`, #6800).
 - `references/upstream-downstream-drift/index.md` — Python attribute/signature errors
@@ -721,6 +738,19 @@ delivery pattern is rule 1.
   `long-output-repetition.md` (long completions that repeat),
   `quantized-checkpoint-conversion.md`, `harness-vs-engine-attribution.md`. When a
   page's pins equal `SOURCES.json`'s refs, cite its `path:line` as they stand.
+- `references/pooling-embedding/index.md` — the model is a **pooler**
+  (`--runner pooling`, `--task embed|score|classify|reward`, `/v1/embeddings`,
+  `pooler_config`), so every `is_pooling_model` branch is a candidate owner. Two
+  classes: the service **dies under concurrency** in the batch-slot machinery
+  (`batch-index-desync.md`: the v0.11.0 downstream `InputBatch` copy's
+  `add_request` -> `num_reqs` / trim-only `condense` leaves a `None` hole and a
+  duplicated slot, so `num_scheduled_tokens[req_id]` raises at
+  `vllm/v1/attention/backends/utils.py:798`; gone by v0.23.0), and **wrong vectors
+  on long inputs** (`chunked-prefill-vector-corruption.md`: the inherited
+  `PoolingStates` accumulator refuted, the prefix-blind
+  `_forward_encoder_attention` branch, the fixed-size pooling masks, the 310P
+  chunked-prefill dispatch, the "which span was pooled" test and the chunk-budget
+  sweep).
 - `references/mixed-batch-splits/index.md` — a batch holding decodes **and** prefills
   that faults inside an attention backend: the two counting units, the unit of each
   tensor (`query`/`output` tokens; `block_tables`/`seq_lens` requests;

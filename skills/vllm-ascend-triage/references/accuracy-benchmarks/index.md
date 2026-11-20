@@ -13,7 +13,7 @@ se), then by `finish_reason`. A report that pastes only a response body — thin
 `content`, `reasoning`/`reasoning_content` missing, `reasoning_tokens: 0` — is also this
 topic: the answer is the serve flag's presence, not a kernel.
 
-Five entry shapes leave this topic immediately and are not accuracy questions at all:
+Six entry shapes leave this topic immediately and are not accuracy questions at all:
 
 - Wrong or alternating answers in a **PD/EPD** deployment on a hybrid
   linear-attention model (GDN/Mamba: Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) — the
@@ -36,6 +36,12 @@ Five entry shapes leave this topic immediately and are not accuracy questions at
   `，，，`) with "and it is very slow", on a VL model — that is not a score
   question and not the text-corruption profile: the downstream vision tower owns
   it, and one env var decides it. Go to `vl-vision-tower-degeneracy.md`.
+- The comparison is between **embedding vectors** (cosine, `/v1/embeddings`,
+  `--runner pooling`, `--task embed|score|classify`) rather than between answers:
+  no text is generated, so `finish_reason` and extraction play no part and the
+  engine can be wrong per span rather than per token. Go to
+  `../pooling-embedding/index.md`; a crash under concurrency on the same serve is
+  `../pooling-embedding/batch-index-desync.md`.
 
 ## Rules
 
@@ -127,7 +133,10 @@ Five entry shapes leave this topic immediately and are not accuracy questions at
   align-mode state block vs attention-side split, and the stop rule that cost #13853
   its session. Recorded case #13853 (Qwen3.5-0.8B, 2048 vs 512 + eager).
 - `short-prompt-corruption.md` — the same symptom on a few-thousand-token prompt: test the
-  prompt shape first (a repeated body at temperature 0 can collapse on its own), then the
+  trigger claim in the paste first (identical ids on both input routes refute an id-driven
+  mechanism, and `Using max model len N` is the checkpoint's own number, so a mismatch
+  points at the local `config.json` before any kernel — #8590), then the
+  prompt shape (a repeated body at temperature 0 can collapse on its own), then the
   MoE/EP/quantisation ablation rows (EP off, FLASHCOMM1, prefix caching, `--enforce-eager`,
   `max-model-len`, both nodes' weights and image), and the gateway/model-echo caveat.
   `usage.prompt_tokens`, not the size of the pasted request, decides which of the two

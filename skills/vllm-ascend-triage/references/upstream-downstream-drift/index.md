@@ -23,7 +23,21 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
 - the named class subclasses a `transformers`/`vllm` class or is registered as a
   drop-in replacement for one (`PluggableLayer`, `ModelRegistry.register_model`,
   monkey-patched `forward`);
+- a downstream **verbatim copy** of an upstream worker module has grown an extra
+  branch the upstream file does not have, and that branch is what fails — e.g.
+  `vllm_ascend/worker/npu_input_batch.py` at v0.11.0 (a copy of
+  `vllm/v1/worker/gpu_input_batch.py`) with an `is_pooling_model` fast path in
+  `add_request`/`remove_request`/`condense`: pooling/embedding crash under
+  concurrency, `../pooling-embedding/batch-index-desync.md`. Same method as
+  `patch-copy-vs-upstream.md`, different directory, and the diff is what proves
+  ownership;
 - the error is a Python attribute/type error, not a device dump, not a collective.
+
+The one `NotImplementedError` that belongs to startup instead: a **custom op**
+registered by the downstream C++ extension without a Meta/fake implementation
+(`_C::rotary_embedding` at v0.9.2rc1, `_C_ascend::<op>` after the rename) fails the
+compile-phase fake-tensor trace and is answered by the registration and the dtype
+gate, not by a class drift — `../startup-failures/meta-kernel-missing.md`.
 
 It is the wrong entry for an aclnn/AscendC device fault
 (`../custom-ops-runtime-faults/index.md`), for a collective or `ERR00100`

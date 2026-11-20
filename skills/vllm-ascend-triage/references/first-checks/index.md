@@ -32,6 +32,7 @@ gates; this topic keeps the per-track detail that used to sit beside them.
   offline source builds, upstream patch drift, PD transport, single-node
   KV-pool/MemCache faults, observability/flag questions, the spec-decode and
   tool-call rows, first-response, 310P, memory (allocation, growth, host RAM),
-  sizing, EP×DP, feature-enable, community-test, accuracy and corruption,
+  sizing, EP×DP, feature-enable, community-test, pooling/embedding (crash under
+  concurrency, wrong long-input vectors), accuracy and corruption,
   `patch/**` frames, the async-spec `KeyError` set, the drafter-count copy dump,
   mixed-batch attention crashes, and silent operator numerics.

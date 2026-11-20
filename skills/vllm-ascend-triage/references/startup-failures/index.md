@@ -56,6 +56,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   replaces** (e.g. `'ZeroExpertFusedMoE' object has no attribute
   'select_experts'` — the replacement is keyed by class name)
   → `../upstream-downstream-drift/index.md`; this is drift, not a config value.
+- The per-rank traceback has `torch/_subclasses/fake_tensor.py` and
+  `torch/_ops.py` frames and ends `NotImplementedError: <ns>::<op>: attempted to
+  run this operator with Meta tensors` (e.g. `_C::rotary_embedding`), after the
+  weights loaded and before graph capture → `meta-kernel-missing.md` first. A
+  custom op registered for `PrivateUse1` only, reached because PIECEWISE
+  compilation traces with fake tensors; `--enforce-eager` is the first rung, the
+  dtype that skips the gated branch is the second, and the namespace in the message
+  (`_C` vs `_C_ascend`) dates the tree.
 - If the log names a collective (`HcclAllreduce`, `hcclRet`, `ERR00100`) instead
   of a Python-level cause, leave this topic and use
   `../hccl-and-hardware/index.md`.

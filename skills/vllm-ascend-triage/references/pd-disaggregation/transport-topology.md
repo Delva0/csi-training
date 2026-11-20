@@ -1,5 +1,10 @@
 # P/D transport identity, HCCL rank tables and `HIXL Connect failed`
 
+Scope: the transport-identity family — no KV pool in the deployment. When an
+`AscendStoreConnector` / `MOONCAKE_CONFIG_PATH` pool *is* configured, the same
+`503900` block is usually the store segment size, not the rank table: take step 0
+below and `kv-pool-store-segments.md` first.
+
 Worked case: #14506 — single node, 8×910B3, **no RoCE** (all `hccn_tool -i N
 -link -g` → DOWN, `-optical -g` → not present), k8s 1.36, 1P1D in two Pods with
 `hostNetwork: false`, `LMCacheAscendConnector` with `transfer_channel: "hixl"`,
@@ -55,6 +60,19 @@ test while every NIC stayed DOWN. That is the observation that distinguishes
 
 ## 2. Procedure (cheapest first, ~4 checks)
 
+0. **First: is a KV pool in this deployment?** `AscendStoreConnector` (alone or
+   inside a `MultiConnector`), `MOONCAKE_CONFIG_PATH`, a `pool_worker.py` /
+   `pool_scheduler.py` line, or a `mooncake_master`. If yes, the `503900` /
+   `HcclCommPrepare ret: 0x13` block is more likely the store's
+   `global_segment_size` than the rank table: it is allocated with
+   `aclrtMallocHost` and registered into the process's ADXL engine, so every
+   channel that engine later dials fails — including the p2p connector that
+   reports it.
+   Run `bash <skill_root>/scripts/kvpool-segment-check.sh <mooncake.json|log>` and
+   read `kv-pool-store-segments.md` before the three checks below. Reporter-
+   confirmed on #13439 (both p2p connectors fail with the pool, PD without the
+   pool is fine); the recorded answers that skipped this gate ranked
+   `HCCL_INTRA_ROCE_ENABLE` and the timeouts instead and missed the real fix.
 1. **Get the rank table and read it with the script.** It is printed by HIXL and
    visible in the plog or in the reporter's paste:
    `bash <skill_root>/scripts/ranktable-check.sh <table.json|log.txt>`.

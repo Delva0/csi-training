@@ -14,10 +14,12 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   `vllm_ascend/models/` or `vllm_ascend/attention/`
   (collectively `vllm_ascend/{ops,patch,models}` below);
 - **or the failing frame is an upstream vllm file whose class vllm-ascend is
-  supposed to replace** — the Ascend implementation is registered by class
-  *name* (`CustomOp.register_oot` / `REGISTERED_ASCEND_OPS`), so an upstream
-  refactor that adds or renames a class leaves that class running upstream code.
-  The owner is still downstream; do not answer "upstream bug" (recorded #6784);
+  supposed to replace** — either because the Ascend implementation is registered
+  by class *name* (`CustomOp.register_oot` / `REGISTERED_ASCEND_OPS`), so an
+  upstream refactor that adds or renames a class leaves that class running
+  upstream code, or because the patch is installed as an **import side effect**
+  that never ran in that process. The owner is still downstream in both cases; do
+  not answer "upstream bug" (recorded #6784, #253);
 - the named class subclasses a `transformers`/`vllm` class or is registered as a
   drop-in replacement for one (`PluggableLayer`, `ModelRegistry.register_model`,
   monkey-patched `forward`);
@@ -62,7 +64,16 @@ It is the wrong entry for an aclnn/AscendC device fault
    vllm-ascend commit, the dependency pin and the image tag. If the reporter is
    on a different image than the one named in the issue, the claim has to be
    re-derived.
-7. **A traceback file that is absent from the pinned upstream tree is a snapshot
+7. **Decide which layer the live function object belongs to, not which layer the
+   text names.** Two different keying schemes produce the same symptom ("the
+   Ascend op was not used"): a class-*name* registry miss (later vllm) and a
+   monkeypatch installed by an import side effect in a process that never ran the
+   hook (vllm 0.7.x, and any driver-only hook with `spawn`/Ray workers). The
+   traceback's **file name** at the `forward_oot`/`apply` frame settles it — an
+   upstream `custom_op.py` frame means the downstream replacement is absent from
+   that process (`patch-import-side-effect.md`). Check
+   `hasattr(CustomOp, 'op_registry_oot')` before quoting the name-keyed page.
+8. **A traceback file that is absent from the pinned upstream tree is a snapshot
    fact, not an upstream bug.** Say what it proves (the image ships a different
    upstream ref), get the real pairing from the project's compatibility matrix
    (`docs/source/community/versioning_policy.md`) and CI `vllm_version` matrix,
@@ -74,6 +85,15 @@ It is the wrong entry for an aclnn/AscendC device fault
 - `patched-forward-api-drift.md` — worked case vllm-ascend #11661 (v0.22.1rc1,
   DeepSeek-OCR-2): `AscendQwen2DecoderLayer` has no `attention_type`, the
   evidence table, the decisive check, and what the report still leaves open.
+- `patch-import-side-effect.md` — worked case vllm-ascend #253 (v0.7.1rc1,
+  DeepSeek-R1-BF16 under `--distributed_executor_backend ray`):
+  `TypeError: 'NoneType' object is not callable` at upstream
+  `fused_moe/layer.py:156 forward_cuda`, because `vllm_ascend/ops/fused_moe.py`
+  installs its MoE replacement by class monkeypatch and the only importer of that
+  module is `NPUPlatform.check_and_update_config` — which runs once, where
+  `VllmConfig` is built. Ray ranks and `spawn` workers keep upstream's
+  `forward_oot`; the default `fork` inherits the patched class. Includes the
+  frame-file discriminator and the two-line host check.
 - `oot-class-registration-drift.md` — worked case vllm-ascend #6784
   (v0.14.0rc1-a3-openeuler, LongCat-Flash): `'ZeroExpertFusedMoE' object has no
   attribute 'select_experts'`, raised inside an upstream file. The name-keyed

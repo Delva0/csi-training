@@ -2,8 +2,8 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "c651121d4028aeac36d3a0be86c75238916ab87f7f831e46b9dd75dfb7dd7c64",
-    "size": 57706
+    "sha256": "511c1fc678f5ae8aeed1e90b180c3a6caec02cd0d55531500a48df6ba21f0847",
+    "size": 65051
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/garbled-long-context-output.md",
@@ -98,8 +98,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/delivery-budget.md",
     "mode": "100644",
-    "sha256": "f1cb89d06cbf1e3bd7f8dd852aca802d0e60f394fd4538451cced676902bfb2e",
-    "size": 10120
+    "sha256": "eb38368ca1f4a870cd24db3b150e1d23a498178bbf3630a29adab581f89a3b3d",
+    "size": 11552
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
@@ -128,8 +128,14 @@
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/index.md",
     "mode": "100644",
-    "sha256": "5c5511d189023136bd585064cef0d0bf8e4bb56d013e1d1e0ab946f066ff586b",
-    "size": 5287
+    "sha256": "b29c83612eb2e617cc19a2f77ea8083c7ccd1e1ba1f1f0db5422c53aa9630738",
+    "size": 6467
+  },
+  {
+    "path": "vllm-ascend-triage/references/hccl-and-hardware/rpc-watchdog-timeouts.md",
+    "mode": "100644",
+    "sha256": "ac394137638563ea4cfbc6759865a1fced8a1af7e301a4e19707108837e5957f",
+    "size": 7258
   },
   {
     "path": "vllm-ascend-triage/references/image-dependency-faults/index.md",
@@ -158,20 +164,26 @@
   {
     "path": "vllm-ascend-triage/references/pd-disaggregation/hybrid-state-transfer.md",
     "mode": "100644",
-    "sha256": "9839cc5bfc8147869eb221ce9ce9eea06a4e6a577c5c3b1bc2f70639f3f6cb20",
-    "size": 6955
+    "sha256": "97ab228bf0d47873473c067e077cd5a9ebca878d349c7dbc08c0c97bb6c5d24b",
+    "size": 7634
   },
   {
     "path": "vllm-ascend-triage/references/pd-disaggregation/index.md",
     "mode": "100644",
-    "sha256": "f1e5fc5fd61927f688373ee0b0dc8ed255be04d5649722b71afc9ddd9946a350",
-    "size": 3544
+    "sha256": "733d7d3b13196c4d17e6401e903b93ad10a232960b7e0a029ed59f1e31a3aacc",
+    "size": 5748
+  },
+  {
+    "path": "vllm-ascend-triage/references/pd-disaggregation/kv-pool-store-segments.md",
+    "mode": "100644",
+    "sha256": "40784683bfe67dc362ef537949a582906f75e094f26e11ebf5ff46be57846952",
+    "size": 13181
   },
   {
     "path": "vllm-ascend-triage/references/pd-disaggregation/transport-topology.md",
     "mode": "100644",
-    "sha256": "5914c0c0aa7f204192fede3eae6e5a4cd856cd47f8af2928ef268b5a97854c9e",
-    "size": 9965
+    "sha256": "034215b78e61d7b6e2b5ba858d1381bd027771be2fc8f14b874c7646088c7b95",
+    "size": 11170
   },
   {
     "path": "vllm-ascend-triage/references/runtime-memory/hbm-growth-and-oom.md",
@@ -278,14 +290,20 @@
   {
     "path": "vllm-ascend-triage/references/upstream-downstream-drift/index.md",
     "mode": "100644",
-    "sha256": "c69afa8cb251537cdb652c5285029e4bbb16e713c1b19b7a9c5a2c056e72b9bb",
-    "size": 4898
+    "sha256": "c6d41fbb2f3e7f878affa87590fe1560c90b86e6cfdb094d0fa70ba98eb84f38",
+    "size": 6367
   },
   {
     "path": "vllm-ascend-triage/references/upstream-downstream-drift/oot-class-registration-drift.md",
     "mode": "100644",
     "sha256": "fb719258d0d49b94bfa08da9f46eb06f0890ac860187cf34300d9f6257b9f234",
     "size": 6821
+  },
+  {
+    "path": "vllm-ascend-triage/references/upstream-downstream-drift/patch-import-side-effect.md",
+    "mode": "100644",
+    "sha256": "248bcfe2cd28617646902d72ff9edea814fc67ff64f770f577fbd89285c5e2b1",
+    "size": 6580
   },
   {
     "path": "vllm-ascend-triage/references/upstream-downstream-drift/patched-forward-api-drift.md",
@@ -306,10 +324,22 @@
     "size": 5496
   },
   {
+    "path": "vllm-ascend-triage/scripts/executor-timeout-check.sh",
+    "mode": "100644",
+    "sha256": "a3e054f68d0eb2659cc36ee5d5fb8a3984134a5c4c52fb97557da270779ca9db",
+    "size": 4508
+  },
+  {
     "path": "vllm-ascend-triage/scripts/history-titles.sh",
     "mode": "100644",
     "sha256": "239c22d9969742355a9a5be6582b2b898804d87c91793aa3b08a5f5820a79161",
     "size": 2395
+  },
+  {
+    "path": "vllm-ascend-triage/scripts/kvpool-segment-check.sh",
+    "mode": "100644",
+    "sha256": "bf7df9d05263e88b6c2c9e42ef41eeeea5d03314ec15106d63a09fbd1971de0e",
+    "size": 8750
   },
   {
     "path": "vllm-ascend-triage/scripts/plog-timeline.sh",

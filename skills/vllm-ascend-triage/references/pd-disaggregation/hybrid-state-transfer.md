@@ -20,6 +20,17 @@ produced.
 | Qwen3.5-397B-A17B | `MooncakeLayerwiseConnector` (`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:294,336-361`), with `--speculative-config '{"method": "qwen3_5_mtp", "num_speculative_tokens": 3, ...}'` on both sides, `recompute_scheduler_enable`, `enable_cpu_binding`, `enable_fused_mc2` (`:357, 437-442, 550-553`) |
 | DeepSeek-V4-Pro / V4-Flash (also hybrid) | `MooncakeHybridConnector` (`docs/source/tutorials/models/DeepSeek-V4-Pro.md:646,1178`; `DeepSeek-V4-Flash.md:465,853`) |
 
+A `MultiConnector` of `MooncakeHybridConnector` **plus** `AscendStoreConnector`
+(the DeepSeek-V4 pool recipe) adds a second config surface that is easy to
+misattribute: the connector's `kv_buffer_size` / `kv_block_size` live in
+`kv_connector_extra_config` and are registered by `register_buffer`
+(`mooncake_hybrid_connector.py:1686`), while the KV pool's
+`global_segment_size` lives in the separate Mooncake store json behind
+`MOONCAKE_CONFIG_PATH`. Neither value bounds the other, and an oversized segment
+breaks both connectors' channels at once — see `kv-pool-store-segments.md`
+(#13439: 40 GB segment, `503900` on the p2p connector, garbled decode output,
+2 GB fixed it).
+
 Registry at v0.22.1rc1 (`vllm_ascend/distributed/kv_transfer/__init__.py:29-55`):
 `MooncakeConnectorV1` → `kv_p2p/mooncake_connector.MooncakeConnector`;
 `MooncakeHybridConnector` → `kv_p2p/mooncake_hybrid_connector.MooncakeConnector`

@@ -1,6 +1,6 @@
 ---
 name: vllm-ascend-triage
-description: 'Triage vllm-ascend deploy, HCCL/PD, OOM, accuracy, docs'
+description: 'Triage vllm-ascend: deploy, HCCL/PD, hangs, OOM, accuracy'
 ---
 
 # vLLM-Ascend issue, deployment and support triage
@@ -39,8 +39,11 @@ apply — answer first, evidence pinned to the reported version, gaps stated.
   `RanktableCheck` / `'device_ip' is not set correctly`, `wait_for_save failed
   ... skipping save`, a recipe that only works with `hostNetwork: true`), or the
   transfer succeeds and the decode node emits wrong or alternating output on a
-  hybrid linear-attention model. Transport identity and rank tables are a
-  topology question, not a connector bug — `references/pd-disaggregation/index.md`.
+  hybrid linear-attention model, or a KV pool is attached and the *first*
+  transfer fails with `503900` / `HcclCommPrepare ret: 0x13` while the pool's
+  `global_segment_size` is the cause. Transport identity and rank tables are a
+  topology question, not a connector bug, and a pool deployment is a config
+  question before either — `references/pd-disaggregation/index.md`.
 - **Deployment sizing / stage layout**: nothing has crashed yet and the question
   is a plan — "does this model fit on 2×64 GB", "the GPU docs do a 2-device
   stage deploy and mine does not come up on 2 NPUs", a bundled
@@ -106,7 +109,22 @@ the **previous day's** crash, while the reporter's later plog put an `EZ9999`
 fftsplus-aivector / MTE-DDR exception inside the reported window on three chips at
 once; #6800 v0.13.0 MiniMax-M2.5-AWQ rejected by the platform quantization gate
 (`awq` is not in `[ascend, compressed-tensors]`) — a re-quantize answer, not a
-defect.
+defect; #1865 v0.9.2rc1 16-card DP4×TP4+EP DeepSeek-R1-W8A8 titled
+多进程卡间通讯超时, whose pasted `TimeoutError` was the framework's own 300 s
+`execute_model` RPC watchdog around a stalled rank (answer delivered, 31.3K
+reasoning characters); #253 v0.7.1rc1 DeepSeek-R1-BF16 TP=16/PP=2 under
+`--distributed_executor_backend ray`, `TypeError: 'NoneType' object is not
+callable` because the MoE monkeypatch is imported only by
+`check_and_update_config`, so the Ray workers kept upstream `forward_oot`
+(diagnosed correctly, but the run spent 47.6K reasoning characters and shipped
+72 characters of answer inside the 16384-token cap); #13439 v0.23.0rc1
+2×8×910B2 DeepSeek-V4-Flash-w8a8-mtp 1P1D with `MultiConnector` =
+`MooncakeHybridConnector` + `AscendStoreConnector`, HDK 25.2.3: `503900` /
+`HcclCommPrepare 0x13` on every transfer plus 乱码, resolved by the reporter when
+`global_segment_size` went 40 GB → 2 GB (the pool's store segment, not the
+transport; both p2p connectors failed with the pool and PD without it was fine) —
+the two recorded runs before that answer ranked `HCCL_INTRA_ROCE_ENABLE` and the
+RDMA/connect timeouts instead.
 
 ## Rules that apply whenever this skill is used
 
@@ -316,7 +334,8 @@ defect.
 | Startup log: generic `WorkerProc initialization failed due to an exception in a background process`, **no** per-rank worker traceback; optional `[ERROR] TBE Subprocess[task_distribute] raise error[], main process disappeared!`; long silence before failure | Lane A: worker died without reporting | `references/startup-failures/silent-worker-exit.md`, then `references/startup-failures/max-model-len-budget.md` |
 | Startup log: per-rank `WorkerProc failed to start.` / `WorkerProc hit an exception.` plus a traceback with rank prefix | Lane B: worker raised a Python error | `references/startup-failures/environment-correspondence.md` (diff against the known-good tutorial/CI config) |
 | The traceback ends in `AttributeError: '<X>Config' object has no attribute '<attr>'` with a frame in `vllm_ascend/distributed/*connector*.py`, reached from `ensure_kv_transfer_initialized` (usually a VL/MoE model under PD disaggregation) | Lane B: connector reads a nested config attribute | `references/startup-failures/connector-config-attributes.md` |
-| P/D will not connect although both engines started: `HIXL Connect failed \| HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
+| P/D will not connect and the recipe contains a **KV pool**: `AscendStoreConnector` alone or inside a `MultiConnector`, `MOONCAKE_CONFIG_PATH`, a `pool_worker.py` / `pool_scheduler.py` line; the first transfer fails with `Failed to connect to target … 503900` / `E19999` / `HcclCommPrepare … ret: 0x13`, then the decode node answers with garbage while every other metric looks healthy | KV-pool store segment, not the transport: the pool's `global_segment_size` is `aclrtMallocHost`-ed and registered into the same ADXL engine the p2p connector dials, so an oversized segment fails whichever connector dials first (#13439: 40 GB failed, 2 GB worked, HDK 25.2.3 needs < 20 GB) | `references/pd-disaggregation/kv-pool-store-segments.md` |
+| P/D will not connect although both engines started and there is **no** KV pool: `HIXL Connect failed \| HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
 | PD deployment that connects and then corrupts on a **hybrid** model (Qwen3.5/Qwen3.6 GDN, DeepSeek-V4, GLM): alternating good/bad answers, empty or wrong first decoded token, works with MTP but not without | PD hybrid-state transfer: connector choice plus the `mamba_cache_mode='align'` gate only the KV-store connectors satisfy | `references/pd-disaggregation/hybrid-state-transfer.md` |
 | `ValueError: Non-MoE models do not support external data parallel mode`, or any `ValueError`/`AssertionError` raised from `vllm/engine/arg_utils.py` that names a parallel mode or flag (`data_parallel_*`, `nnodes`, `node_rank`), with no `WorkerProc` line in the log | Startup argument validation in upstream vLLM — launch-command fix, not a defect | `references/startup-failures/arg-validation-errors.md` |
 | The report asks whether a plan fits rather than what broke: "can this model run on N cards", a multi-stage orchestrator (`--stage-id`, `--headless`, `platforms.<vendor>` yaml) that works on GPU, stages that must share a card, `CUDA_VISIBLE_DEVICES` in a command aimed at an NPU host | Deployment sizing / stage layout: memory arithmetic plus the device-visibility variable, not a fault | `references/deploy-sizing/index.md` |
@@ -324,6 +343,8 @@ defect.
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
 | Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, `unexpected keyword argument`, `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
 | The same `AttributeError` raised **inside an upstream vllm file** on a class vllm-ascend is meant to replace — `'ZeroExpertFusedMoE' object has no attribute 'select_experts'` — or the reporter asks "did it ever reach vllm-ascend's ops?" | Downstream registry drift: the Ascend replacement is keyed by class *name* (`CustomOp.register_oot`), so an upstream refactor that adds a class silently keeps upstream code | `references/upstream-downstream-drift/oot-class-registration-drift.md` |
+| A bare `TimeoutError` — `RPC call to execute_model timed out.`, or frames in `multiproc_executor.py` (`collective_rpc` / `get_response`) and `shm_broadcast.py` (`acquire_read` / `acquire_write` / `recv`) — reported as "多进程卡间通讯超时", with no rank prefix and no error code | vLLM's own RPC watchdog (`VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS`, 300 s), not an HCCL/NIC timeout: one worker stopped answering, and the paste does not contain its fault | `references/hccl-and-hardware/rpc-watchdog-timeouts.md` (one call: `scripts/executor-timeout-check.sh`) |
+| `TypeError: 'NoneType' object is not callable` from an upstream module-level name that is `None` on non-CUDA platforms (`fused_experts = None`), with the `forward_oot` frame in `vllm/model_executor/custom_op.py` and `forward_native = forward_cuda` next in the trace; often `--distributed_executor_backend ray` or a `spawn` worker | The downstream op patch was never installed **in that process**: it is imported as a side effect of a driver-only hook (`check_and_update_config`), so fresh-interpreter workers keep upstream code | `references/upstream-downstream-drift/patch-import-side-effect.md` |
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range"; several ranks reporting the same `pc start` in the same second | Custom-op runtime fault, after the timestamp gate — a shared PC across chips is software address computation, not several bad cards | `references/hccl-and-hardware/error-report-timestamps.md`, then `references/custom-ops-runtime-faults/index.md` |
@@ -393,11 +414,18 @@ defect.
      replacement is name-keyed, so compare the class name against
      `REGISTERED_ASCEND_OPS` / `CustomOp.op_registry_oot` before theorising about
      upstream (`references/upstream-downstream-drift/oot-class-registration-drift.md`).
-   - PD / EPD transport complaint: read the rank table with
-     `bash <skill_root>/scripts/ranktable-check.sh <table-or-log>` before any
-     connector reading — a declared `server_count > 1` (or more than one distinct
-     `server_id`) decides the whole report (multi-server view, `device_ip` + RoCE
-     required). Then the plog grep set in
+   - PD / EPD transport complaint: **first ask whether a KV pool is configured**
+     (`AscendStoreConnector` in a `MultiConnector`, `MOONCAKE_CONFIG_PATH`). If it
+     is, the pool decides before the transport: run
+     `bash <skill_root>/scripts/kvpool-segment-check.sh <mooncake.json|log>` — the
+     worker log's `register mem … mem type:host, length:N` line carries the
+     per-rank `global_segment_size`, and ≥ 20 GB on HDK 25.2.3 is the recorded
+     cause of `503900` + 乱码 (#13439), fixed at 2 GB
+     (`references/pd-disaggregation/kv-pool-store-segments.md`). Only without a
+     pool, or once the segment is small, read the rank table with
+     `bash <skill_root>/scripts/ranktable-check.sh <table-or-log>` — a declared
+     `server_count > 1` (or more than one distinct `server_id`) decides the rest
+     (multi-server view, `device_ip` + RoCE required). Then the plog grep set in
      `references/pd-disaggregation/transport-topology.md`.
    - Report is "the flag did nothing" (logging/verbosity, output printing, a
      missing log stage): name the owner first — upstream vLLM OpenAI frontend,
@@ -432,6 +460,20 @@ defect.
      naming a cause. Blocks it flags as older are re-printed records (rule 13); the
      in-window first error is the one to classify
      (`references/hccl-and-hardware/error-report-timestamps.md`).
+   - A "communication timeout" whose only text is a bare `TimeoutError` with
+     `multiproc_executor.py` / `shm_broadcast.py` frames: run
+     `bash <skill_root>/scripts/executor-timeout-check.sh <paste|->` before any
+     HCCL reading. It is the framework's own RPC watchdog (300 s) for a worker that
+     stopped answering, so the deliverable is the lane classification plus the list
+     of per-rank artefacts — which rank, which op and OOM-vs-hang are *not* in that
+     paste (`references/hccl-and-hardware/rpc-watchdog-timeouts.md`, #1865).
+   - `TypeError: 'NoneType' object is not callable` where the `None` is an upstream
+     module-level name (`fused_experts = None` on a non-CUDA platform): read the
+     **file** of the `forward_oot` frame. `vllm/model_executor/custom_op.py` there
+     means the Ascend replacement was never imported in that process (Ray/`spawn`
+     workers; the hook runs only where `VllmConfig` is built) — two greps decide it,
+     do not theorise about the model or the checkpoint
+     (`references/upstream-downstream-drift/patch-import-side-effect.md`, #253).
    - Quantization method rejected before any worker (`<method> quantization is
      currently not supported in npu`, `--quantization awq`): answer from
      `references/startup-failures/quantization-method-gate.md` — three calls, and
@@ -506,7 +548,9 @@ defect.
 
 - The direct answer first: yes/no for the reporter's literal question, the
   version that works or the version where it breaks, and whether the reported
-  crash is real. One sentence, before any analysis.
+  crash is real. One sentence, before any analysis. Write it in the language the
+  report was filed in (the recorded Chinese-issue answers were Chinese and still
+  carried the `path:line` table).
 - Then the one-line classification: lane A/B/C and the phase that failed (load,
   memory profiling, graph capture, first collective); or, for a runtime report,
   the primary cause plus its track.
@@ -540,6 +584,15 @@ defect.
   line per repo with coverage and `runtime_verified` flags, plus the
   `unavailable` repos, so "is `cann/hixl` in this snapshot?" is answered without
   dumping 20-54 KB of JSON.
+- `scripts/kvpool-segment-check.sh <mooncake.json|serve-log|-> [...]` — the KV-pool
+  store segment gate: prints `global_segment_size` / `local_buffer_size` per rank
+  from the store config (`MOONCAKE_CONFIG_PATH` json, `MOONCAKE_GLOBAL_SEGMENT_SIZE`
+  env) or, when only a log is available, from the worker's
+  `TransferExecutor register mem addr:…, length:N, mem type:host` lines, plus the
+  `npu-smi` HDK version and the pool/channel markers, and gives the verdict bands
+  (≥ 20 GiB → #13439's fault, fix at `"2GB"`; 1 GiB multiple required). Verified on
+  the #13439 D-node paste: it recovers 40.00 GiB from
+  `length:42949672960` and flags the ceiling.
 - `scripts/ranktable-check.sh <rank_table.json|log.txt> [...] | -` — parses a
   pasted (or plog-embedded) HCCL rank table and prints the effective
   `server_count`, per-server `server_id` / `device_id` / `device_ip`, duplicate or
@@ -561,6 +614,14 @@ defect.
   uses the newest date in the paste; with `--since 2026-05-13` it flags the
   `107030` block as a 2026-05-12 replay and names the `EZ9999` aivector line as the
   first in-window error.
+- `scripts/executor-timeout-check.sh <log|->` — one-call split between vLLM's own
+  RPC/ringbuffer watchdog and a real collective timeout: it reports the `RPC call
+  to <method> timed out.` text, which `shm_broadcast` frame is present (read side
+  = caller waiting for a reply, write side = readers not consuming), any
+  `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` bound in the paste, ringbuffer starvation
+  lines and collective-side `EI…`/`Execute timeout` text, then the verdict and the
+  next artefacts. Tolerates screenshot-OCR garble (`sh]n broadcast`), so it works
+  on the #1865 paste where line numbers are unreadable.
 - `references/deploy-sizing/index.md` — deployment/capacity questions with no
   crash: per-card weight footprint vs `gpu_memory_utilization`, the sum of gmu
   over processes sharing a device, `ASCEND_RT_VISIBLE_DEVICES` vs the inert
@@ -616,7 +677,11 @@ defect.
   collective fault. Worked cases: #11661 `attention_type`
   (`patched-forward-api-drift.md`); #6784 `ZeroExpertFusedMoE` with no
   `select_experts` (`oot-class-registration-drift.md`, which also carries where
-  the real vllm↔vllm-ascend pairing is recorded).
+  the real vllm↔vllm-ascend pairing is recorded);
+  `patch-import-side-effect.md` for the **other** way the Ascend op goes missing —
+  a class monkeypatch installed as an import side effect of a hook that only the
+  arg-parsing process runs, so Ray/`spawn` workers keep upstream's `forward_oot`
+  and hit `fused_experts = None` (#253, v0.7.1rc1).
 - `references/pd-disaggregation/index.md` — PD/EPD with the engine up but KV not
   moving, or moved and wrong: `transport-topology.md` for `HIXL Connect failed |
   103900` / `RanktableCheck` / `device_ip` / non-hostNetwork Pods (engine id =
@@ -627,14 +692,21 @@ defect.
   (`MooncakeConnectorV1` vs `MooncakeHybridConnector` vs
   `MooncakeLayerwiseConnector` vs `AscendStoreConnector`), the
   `mamba_cache_mode='align'` gate in `patch_mamba_config.py` and the runner paths
-  it skips, and the ablation matrix (#12339).
+  it skips, and the ablation matrix (#12339); `kv-pool-store-segments.md` for the
+  pool deployment — `global_segment_size` per rank versus the HDK ceiling
+  (reporter-confirmed < 20 GB on 25.2.3), the shared `global_te` that makes a
+  store fault surface on the p2p connector, the `register mem … mem type:host`
+  fingerprint, and the two ablations (#13439).
 - `references/hccl-and-hardware/index.md` — HCCL, ACL/PTA and NPU device faults
   (lane C): the error-report timestamp gate first (which block in a mixed paste is
   this incident, `error-report-timestamps.md`, #9183), then the collective error
   chain, then per-device health checks. Scope:
   failures whose text names a collective or the runtime stack, not a
   Python-level cause; the recorded answer was a physical HCCS link fault on 6 of
-  8 cards.
+  8 cards. `rpc-watchdog-timeouts.md` takes the paste whose only text is a bare
+  `TimeoutError` from `multiproc_executor.py` / `shm_broadcast.py`: the framework
+  watchdog, not a collective — the direction of the stall, why DP>1 + EP turns one
+  stalled rank into a group stall, and the per-rank artefacts to request (#1865).
 - `references/runtime-memory/index.md` — memory, in both phases: the service was
   healthy and later died on HBM ("显存不释放", `NPU out of memory`), or it never
   became ready because an allocation failed during KV-cache/weight placement.

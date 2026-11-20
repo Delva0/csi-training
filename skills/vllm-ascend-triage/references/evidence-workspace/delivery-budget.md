@@ -27,6 +27,8 @@ a delivered answer is ~4K of them.
 | #11739 | 16384 (cap) | 22 turns / 40 tool calls | 39.9K | 79 | **no report at all** (79 characters are an "I'll start by loading the skill" line); community-test task whose deliverable was a report file, and the file was never written |
 | #9183 | 13219 | 10 turns / 15 tool calls | 31.9K | 5.1K | complete ranked answer, delivered on the last turn — but built on a plog block dated the day before the failure, so the ranked mechanism named the wrong owner (fixed by the timestamp gate, not by budget) |
 | #6800 | 10305 | 10 turns / 17 tool calls | 19.4K | 4.6K | complete answer, correct owner; the whole cost was repo grepping that the quantization-gate route now replaces |
+| #1865 | 14400 | 14 turns / 18 tool calls | 31.3K (largest blocks 6.7K, 6.1K) | 5.6K | complete ranked answer, delivered on the last turn — the last block was a 6.7K pre-write plan |
+| #253 | 16384 (cap) | 12 turns / 20 tool calls | 47.6K (largest blocks 13.5K, 5.8K, 5.5K, 5.4K, 5.2K) | 72 | **no answer at all**; the mechanism was fully verified by turn 9 and the remaining three turns only re-confirmed it |
 
 `#2586` and `#13699` are the calibration rows for this batch: both answered well
 inside the cap because the ranked shape was written at the 8th-13th turn, and
@@ -50,6 +52,20 @@ defaults and reading precedent bodies until the cap, and because the deliverable
 was a file rather than a message it emitted nothing at all. A report-shaped task
 is the worst case for the gates, so it needs the file opened early and appended —
 see `../tutorial-verification/community-test-report.md`.
+
+`#1865` and `#253` are the same case family (2025 vLLM DeepSeek deployments)
+answered and not answered. `#1865` finished at 14.4K of 16.4K with a 5.6K ranked
+answer: its only waste was the 6.7K block that enumerated the answer immediately
+before writing it, i.e. the plan the gates already forbid. `#253` is the sharper
+row: by its 9th assistant turn it had a *verified* mechanism chain (upstream
+`fused_experts = None` gate, the single importer of `vllm_ascend.ops`, the single
+caller of the platform hook, `fork` as the default start method) and it then spent
+three more turns re-reading upstream to confirm line numbers it had already
+matched to the reporter's traceback. The expensive block was not the answering
+turn — it was a **13.5K-character mid-run re-derivation**, and the answer never
+started. Rule for that shape: once the chain closes on `path:line` matches from the
+reporter's own traceback, write the answer in that same turn and let any remaining
+doubt appear in the answer's open-questions block.
 
 `#9183` and `#6800` then constrain the lesson from the other side. Both delivered
 inside the cap (13.2K and 10.3K completion tokens, answer written by the 10th

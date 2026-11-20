@@ -11,6 +11,11 @@ never an op, tensor, collective or model file:
   be 1 or None when data_parallel_rank is set`,
   `world_size=N must be divisible by nnodes=M.`, `node_rank=N must be less than
   nnodes=M.`
+- `KV transfer 'prefill' config has a conflicting data parallel size. Expected 1,
+  but got 2.` — same class (a launch config the process rejects at startup), but
+  raised by **vllm-ascend** against the connector's `kv_connector_extra_config`
+  blocks, never by upstream `arg_utils`; the `tensor parallel size` twin and the
+  `'decode'` role come from the same function (worked case: #8345, below).
 
 Tells that it is this lane and not a defect: there is no `WorkerProc`, no rank
 prefix and no `Starting to load model` in the log, and the raise site is
@@ -20,11 +25,22 @@ deliverable is a launch-command fix plus one self-proof the reporter can run, no
 a code walk. Compare with `connector-config-attributes.md` (a Python error raised
 after workers exist) and `../hccl-and-hardware/index.md` (device text).
 
+There is a **second raise site in the same class**: vllm-ascend's own
+`check_kv_extra_config`, called from `AscendPlatform.check_and_update_config`
+when `VllmConfig.__post_init__` runs a second time at the EngineCore handshake.
+There the log does *not* look like a flag rejection — connector creation and
+per-rank load lines precede the raise and there is no `arg_utils` frame — so
+decide by the sentence (it begins `KV transfer '<role>' config`) rather than by
+the log's shape.
+
 ## Procedure
 
-1. Grep the exact string in the pinned **vllm** tree (`rg -n '<fragment>'
-   vllm/engine/arg_utils.py`), then `sed -n 'A,Bp'` around it and write the raising
-   boolean expression in the answer. Nothing else about the run matters until
+1. Grep the exact string in **both** pinned trees at once
+   (`rg -n '<fragment>' <vllm-root>/vllm <vllm-ascend-root>/vllm_ascend`): half
+   this family is upstream `engine/arg_utils.py`, half is vllm-ascend's own
+   platform validation, and a grep of only one tree returns an empty result that
+   reads like a snapshot gap. Then `sed -n 'A,Bp'` around the hit and write the
+   raising boolean expression in the answer. Nothing else about the run matters until
    that expression is understood.
 2. Expand each term in the expression to the CLI argument that sets it, one grep
    per term. The trap in #11863: `--data-parallel-rank` is not "just a rank",
@@ -78,6 +94,54 @@ Fix ladder for a dense model that wants PD + DP-style scale-out:
   `data_parallel_external_lb` stays false and the gate is never reached. Label
   this a hypothesis unless the reporter confirms it: internal DP + Mooncake PD on
   a dense model has no recorded run.
+
+## Second raise site: `kv_connector_extra_config` parallel sizes (#8345)
+
+Signature: `ValueError: KV transfer 'prefill' config has a conflicting data
+parallel size. Expected 1, but got 2.` on a PD deployment whose
+`--kv-transfer-config` carries
+`kv_connector_extra_config.prefill/decode.{dp_size,tp_size}`. Reported as "PD
+分离 DP2/TP8 起不来", often with DP=2, DP=4 … all failing identically, and no
+worker or device text anywhere.
+
+Worked case #8345: Qwen3-**32B** (dense), vllm-ascend v0.18.0rc1 (`99e1ea0`) +
+vllm v0.18.0 (`bcf2be9`), `vllm serve … --data-parallel-size 2
+--data-parallel-rank 0 --tensor-parallel-size 8 --kv-transfer-config
+'{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"36000",
+…,"kv_connector_extra_config":{"prefill":{"dp_size":2,"tp_size":8},
+"decode":{"dp_size":2,"tp_size":8}}}'`. The only evidence was a screenshot; its
+OCR text is the paste (`ATTACHMENTS.txt` → `*.ocr.txt`, procedure step 2).
+
+| Fact | Evidence (v0.18.0rc1 / vllm v0.18.0) |
+|---|---|
+| The check compares the block against `parallel_config.tensor_parallel_size` / `data_parallel_size` and raises the `KV transfer '<name>' config has a conflicting … size` text | `vllm_ascend/utils.py:1125-1149` |
+| Only the **local** role is checked: `kv_producer` → `prefill`, `kv_consumer` → `decode` | `utils.py:1146-1149` |
+| Call site is platform config validation at engine start, not `arg_utils` | `vllm_ascend/platform.py:249` in `AscendPlatform.check_and_update_config` |
+| That runs a *second* `VllmConfig.__post_init__` inside the EngineCore handshake — why model-load and connector lines already appear before the raise | `vllm/v1/engine/core.py:941` |
+| A **non-MoE** engine rewrites its DP to 1 there: `if data_parallel and model_config.is_moe: DPEngineCoreProc` **else** `data_parallel_size = 1; data_parallel_size_local = 1; data_parallel_rank = 0` | `vllm/v1/engine/core.py:1061-1073` |
+| `is_moe` = `get_num_experts() > 0`; a dense 32B has none, so the `else` branch is taken and no `dp_size > 1` can ever validate | `vllm/config/model.py:1705-1710` |
+| Both blocks must keep both keys (`assert "tp_size" in …`, `assert "dp_size" in …`), so a block cannot be emptied to dodge the check | `vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py:1162-1180` |
+| In this version the two parsed values have **no other reader** (`rg -n '_prefill_dp_size\|_decode_dp_size' vllm_ascend/` = 2 hits, both assignments), so only the number the check sees matters | same file, `:1167-1178` |
+| The recipe that teaches `dp_size: 2` is a **MoE** recipe — it states cards = `dp_size × tp_size` | `examples/disaggregated_prefill_v1/mooncake_connector_deployment_guide.md:73`; DeepSeek-V3.2 tutorial `kv_connector_extra_config` block |
+
+Fix ladder:
+
+- **A (one-line, what the check accepts):** put the *per-engine* DP in the local
+  role's block — `"prefill": {"dp_size": 1, "tp_size": 8}` on a dense model —
+  and keep `--data-parallel-size 2` if two API-server-spawned engines are wanted;
+  each engine now has `data_parallel_size == 1`, which is what the check reads.
+  The `decode` block must keep its own numbers (the D node validates those), and
+  in this version a `decode.dp_size` on the P node is inert — recheck per version,
+  later connectors use the remote sizes for rank arithmetic.
+- **B:** keep `dp_size > 1` only on an **MoE** model (DeepSeek, Qwen3-MoE), where
+  the engine keeps `DPEngineCoreProc` and `data_parallel_size` stays N.
+- **C:** `tp_size` must equal `--tensor-parallel-size` too; the twin error names
+  tensor. Do not delete the keys (the connector asserts), and do not report the
+  trailing `init engine … took N seconds` line as proof the engine came up — on
+  this path the EngineCore raises during construction.
+- Recheck per version with `rg -n 'conflicting data parallel size' vllm_ascend/`;
+  `--data-parallel-rank` sets external LB (`data_parallel_size_local = 1`) and is
+  *not* the compared number, so "drop `--data-parallel-rank`" is not the fix here.
 
 ## Doc drift: `/latest` docs are not the pinned version
 

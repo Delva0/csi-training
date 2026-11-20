@@ -13,6 +13,11 @@ Inherit the rules in SKILL.md. Conditional routes:
   deployment command that omits `--max-model-len` → `max-model-len-budget.md`
   first. This is the reporter-confirmed answer for the recorded Qwen3-VL-30B-A3B
   case.
+- The OOM happens at engine start with `--max-model-len` already explicit, and a
+  smaller `--tensor-parallel-size` on the same node starts (TP4 up / TP8 OOM), or
+  only two serve commands are pasted → this is a budget question, not a startup
+  lane: `../deploy-sizing/tp-scaling-oom-at-startup.md` (one call:
+  `../../scripts/oom-budget-split.sh`).
 - `value error, the checkpoint you are trying to load has model type '<mt>' but
   Transformers does not recognize this architecture`, `Model architectures [...]
   are not supported`, or the bare question "can version V deploy model M?" →
@@ -33,6 +38,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   parallel mode or flag combination (no `WorkerProc` line, no rank prefix) →
   `arg-validation-errors.md`. Upstream argument validation: the fix is a launch
   command, and when the shape came from a tutorial it is also a doc bug.
+- The startup `ValueError` is raised by **vllm-ascend**, not by `arg_utils`:
+  `KV transfer '<role>' config has a conflicting data parallel size. Expected 1,
+  but got 2.` (or `tensor parallel size`) on a PD deployment whose
+  `--kv-transfer-config` sets `kv_connector_extra_config` `dp_size`/`tp_size`,
+  usually with connector and model-load lines *before* the raise →
+  `arg-validation-errors.md` (its second raise site, #8345). The compared number
+  is `parallel_config.data_parallel_size` after upstream rewrote a **dense**
+  engine's DP to 1, so the fix is the block's number, not the launch DP flag.
 - A pydantic `ValidationError` whose text is `Unexpected keyword argument
   [type=unexpected_keyword_argument, input_value=..., input_type=bool]` naming a key
   the reporter put in `--additional-config`, often followed by

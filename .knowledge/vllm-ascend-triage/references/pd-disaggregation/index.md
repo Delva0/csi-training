@@ -34,6 +34,14 @@ wrong output?**
   `docs/source/tutorials/models/<model>.md` first and hand back that diff plus the
   ablation rows (ranked, none an established cause; #13002 never reached a
   diagnosis) → `../accuracy-benchmarks/garbled-long-context-output.md`.
+- The deployment never gets past engine start because the *KV-transfer config
+  block itself* is rejected: `ValueError: KV transfer 'prefill' config has a
+  conflicting data parallel size. Expected 1, but got 2.` (or `tensor parallel
+  size`, or the `'decode'` role) from `vllm_ascend/utils.py check_kv_extra_config`
+  → `../startup-failures/arg-validation-errors.md`. Nothing about transport is
+  wrong yet; the compared numbers are `parallel_config.data_parallel_size` /
+  `tensor_parallel_size` after upstream has rewritten a **dense** engine's DP to
+  1, so the fix is the block's number, not the launch's DP flag.
 - Nothing connects at all because the connector module itself fails to import —
   `ImportError: ascend_transport.so: cannot open shared object file` at
   `kv_p2p/mooncake_connector.py:24`, `No module named mooncake` — or the decode

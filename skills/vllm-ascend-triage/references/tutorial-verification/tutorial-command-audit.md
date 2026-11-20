@@ -1,4 +1,4 @@
-# Auditing a tutorial page: eight checks, in this order
+# Auditing a tutorial page: nine checks, in this order
 
 Every item is one or two shell calls against the pinned tree; the examples are
 what the checks returned for the Qwen3-Omni tutorial
@@ -129,6 +129,40 @@ page documents TP=2 for the Thinking variant. Neither is wrong; say which
 variant, which card count and which context length each number belongs to, and
 flag any CANN/HDK requirement stated in the release notes but missing from the
 tutorial's environment section (that is a 完整性 item with a `path:line`).
+
+## 9. Does the page install a package version the image's own pins forbid?
+
+```bash
+rg -n 'pip install|transformers|torch==' docs/source/tutorials/models/<page>.md
+rg -n 'transformers' requirements.txt              # vllm-ascend
+rg -n 'transformers' requirements/common.txt       # vllm
+```
+
+At v0.18.0 the Qwen3-32B-W4A4 page says `pip install transformers==4.51.0`
+(`:51`, with a comment that the msmodelslim converter needs it), while vllm pins
+`transformers >= 4.56.0, < 5` (`requirements/common.txt:10`) and vllm-ascend
+`transformers>=4.57.4` (`requirements.txt:42`). A user who converts and then
+serves in the same container downgrades the runtime below both pins. Tier
+**breaks the environment**, and say which order triggers it: the converter may
+genuinely need 4.51, so the correction is a separate conversion environment (or
+restoring the pins before `vllm serve`), never "the page is wrong to pin it".
+This check generalises to any `pip install <pkg>==<ver>` or
+`apt`/`yum install` line in a deployment step.
+
+## Second worked page: Qwen3-32B-W4A4 at v0.18.0 (recorded #11759)
+
+The same tree (`e18643f8`, vllm `bcf2be9612`), page
+`docs/source/tutorials/models/Qwen3-32B-W4A4.md` (143 lines). Verified findings,
+ready to reuse, each one `path:line`:
+
+| Tier | Finding | Evidence |
+|---|---|---|
+| breaks intent | the verification curl sends `"max_completion_tokens": 128` to `/v1/completions`, which has only `max_tokens: int \| None = 16`; `OpenAIBaseModel` is `extra="allow"`, so the field is silently dropped and the doc's own request returns 16 tokens | page `:111`; `vllm/entrypoints/openai/completion/protocol.py:57`; `vllm/entrypoints/openai/engine/protocol.py:26-28` |
+| breaks the environment | `pip install transformers==4.51.0` against the image pins (check 9 above) | page `:51`; `requirements/common.txt:10`; `requirements.txt:42` |
+| breaks the command (conversion path only) | the container maps `/dev/davinci0` alone while the conversion step exports `ASCEND_RT_VISIBLE_DEVICES=0,1` — card 1 does not exist inside that container | page `:21` vs `:59`; harmless when the pre-quantised ModelScope weight is used, so tier it accordingly |
+| completeness | no card count, no accuracy section, no performance section, no CANN/HDK requirement, while the sibling `Qwen3-Dense.md:265-311` carries Accuracy and Performance/`vLLM Benchmark` sections for the same model family | page headings (Introduction … Offline Inference) |
+| cosmetic | the image line carries the `m.daocloud.io/` mirror prefix while the task book's 蓝区 image is `quay.io/...`; users behind other networks must strip it | page `:17` |
+| pass | one card is arithmetically right: 32B at 0.5 B/param = 16.4 GB of weights against a 57.6 GB per-card budget at `gpu_memory_utilization 0.9`; bf16 would be 65.6 GB and would **not** fit | `bash <skill_root>/scripts/card-budget.sh --params 32.8 --dtype w4a4 --tp 1 --gmu 0.9 --hbm 64 --cards 1` |
 
 ## What a finding must carry
 

@@ -7,6 +7,19 @@ ls /workspace
 bash <skill_root>/scripts/sources-summary.sh   # version contract, 1 line per repo
 ```
 
+The repo root is not the package root: grep paths start at `vllm/` and
+`vllm_ascend/` inside `repos/<owner>/<repo>/`, so `rg model_executor/...` from the
+repo root returns `No such file or directory` (and one recorded run spent two
+calls on it before prefixing). The workspace root also differs per case:
+`/workspace/repos/<owner>/<repo>` here, `/workspace/repos/<issue>/<owner>/<repo>`
+when several cases share the snapshot — `ls` once, then use the absolute path.
+
+One file in this tree is a documentation registry, not code:
+`vllm_ascend/patch/__init__.py` was 1473 lines at v0.26.0rc1 and lists every patch
+with its rationale. Never `cat` it — `rg -n '<patch_module>'` it, and read the set
+that actually runs from `vllm_ascend/patch/platform/__init__.py` (59 lines) or
+`patch/worker/__init__.py` (75) instead.
+
 Source reading at the pinned commit (when the repo is a one-commit git):
 
 ```bash

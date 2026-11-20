@@ -1,4 +1,4 @@
-# The community-test report: shape, staged emission, and what went wrong once
+# The community-test report: shape, staged emission, and what went wrong twice
 
 ## The task shape (recorded #11739, vllm-ascend v0.18.0 image `v0.18.0`)
 
@@ -41,6 +41,26 @@ That is a report lost to sequencing, not to missing evidence: two
 command-breaking defects and one stale baseline were in hand before the halfway
 point of the session.
 
+## The 任务书 names a section: find it in the tree before grading it missing
+
+A community-test row's 测试方法 step usually reads "参考资料社区文档 <tutorial URL>
+的 <section> 章节". Two different findings hide there, and they grade differently:
+
+- the section is on **another page of the same docs tree** — recorded #11759: the
+  Qwen3-32B-W4A4 row points at the model tutorial for "Run basic benchmark", that
+  page (143 lines) has no performance section, but `## 3. Run basic benchmarks`
+  (`:47`) and `### 3.2 Run basic benchmark` (`:93`) live in
+  `docs/source/developer_guide/performance_and_debug/performance_benchmark.md`,
+  which also carries the `pip install -r benchmarks/requirements-bench.txt`
+  prerequisite (`:43`). Grade the tutorial page **incomplete relative to its
+  siblings** (`Qwen3-Dense.md:265-311` has Accuracy and Performance sections) and
+  hand the tester the real page plus its command — never "the section does not
+  exist".
+- the section is nowhere in the tree: then the task book is unexecutable as
+  written and *that* is the headline defect.
+
+One call decides it: `rg -n '<section title>' docs/` before any grading.
+
 ## Staged emission protocol
 
 The report is a file, so write it as the sections become true, and keep each
@@ -58,10 +78,26 @@ write small. Suggested split (three writes, ~2-4K characters each):
    baseline, the empty result slots with the exact command that fills each, and
    the FAQ from 2-3 precedents whose titles name a mechanism.
 
+Each write is an **append of 2-3 K characters**; a full report body is 5-6 K and
+does not fit in one heredoc once the session has spent its reasoning
+(`delivery-discipline.md`).
+
 Then the final message is the condensed report: verdict on the doc (works /
 works with the listed corrections), the corrected deploy line, the 3-5 defects
 with severity, the report path, and the items that need the reporter's hardware.
 Do not hold that message until the audit "finishes" — it never does.
+
+## #11759, the second run of this exact shape
+
+v0.18.0 image, `yxr2_qwen3-32B` (Qwen3-32B-W4A4, 1×Atlas 800I A2, HDK
+25.5.0.B078). Sixteen assistant turns, **69 characters of message text, no report
+file**: the deploy script was written on turn 15 and the report heredoc on turn 16,
+and the output cap ate the write, so the framework never executed it. Every section of
+the answer existed by turn 14: the absent benchmark section (turn 6), the curl's
+ignored `max_completion_tokens` (turn 8), the one-card sizing pass (turn 11) and
+the `transformers==4.51.0` install against the image pins (turn 14). The page's verified defect set is tabulated in
+`tutorial-command-audit.md` ("Second worked page"), so a future run on this row can
+write section 1 at turn 2 and skip the audit that killed this one.
 
 ## What the report must not do
 

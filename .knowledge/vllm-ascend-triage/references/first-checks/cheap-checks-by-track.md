@@ -56,6 +56,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `nm` commands plus the matching `cxx_abi_0`/`cxx_abi_1` export. Reporter-confirmed
   on #1144 ("the env setting works for me"), so this is a three-command lane, not
   a rebuild (`references/image-dependency-faults/abi-undefined-symbol.md`).
+- The report **is a pip resolution error** (`Could not find a version that satisfies
+  the requirement …`, `No matching distribution found for …`, "unmatched torch
+  version between vllm=X and vllm-ascend=Y"): `bash
+  <skill_root>/scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` prints
+  both sides' `torch`/`torch-npu`/`torchvision` pins, and the `--pre` /
+  `--extra-index-url` lines the wheel metadata drops. Decide mirror-only pin vs
+  unsatisfiable pin set vs unreachable index **before** any version survey
+  (`references/image-dependency-faults/pip-index-visibility.md`, #1796, #4737).
 - `pip install` **from source** in a pod with no public network (the custom-op
   step "pulls dependencies from the public network", `fetch failed`, or a cmake
   `Downloading …` line): name the fetch legs instead of opening `csrc/<op>/` —
@@ -295,7 +303,9 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   read the attention backend the top native frames happen to sit under.
 - Any pasted plog / RUNTIME excerpt that carries more than one error family: run
   `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>` before
-  naming a cause. Blocks it flags as older are re-printed records (rule 13); the
+  naming a cause. Blocks it flags as older are either the previous crash or this
+  process's own `init engine (...)` / graph-capture window recorded at init and
+  reported late — decide by pid and log position, not by the gap (rule 13); the
   in-window first error is the one to classify
   (`references/hccl-and-hardware/error-report-timestamps.md`).
 - A device fault whose deepest frame is a `torch_npu` scatter/index write in

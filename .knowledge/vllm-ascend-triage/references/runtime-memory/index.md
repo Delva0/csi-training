@@ -63,6 +63,21 @@ Inherit the rules in SKILL.md. Rules that decide success here:
 5. Everything here is about the reporter's host: local `npu-smi` output is not
    evidence about their memory behaviour.
 
+## Reading a v0.21+ startup memory block
+
+Since v0.21.0 the workers profile the ACL graph pool, so a startup log carries new
+lines beside `Available KV cache memory` (#10700, 2× A2, DP2 × TP8, `gmu=0.92`):
+
+| Line | Read it as |
+|---|---|
+| `ACL graph memory profiling is enabled (default since v0.21.0). The current --gpu-memory-utilization=0.9200 is equivalent to --gpu-memory-utilization=0.9103 without ACL graph memory profiling. … increase … to 0.9297. To disable, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0.` | `--gpu-memory-utilization` no longer maps 1:1 onto KV: ~1 % of the budget goes to the graph pool. On that log the equivalent ranged `0.9101`-`0.9104` across TP ranks. |
+| `ACL graph pool memory: 0.44 GiB (actual), 0.59 GiB (estimated), difference: 0.15 GiB (33.8%).` | estimate error of the pool (30-40 % of a sub-GiB number is normal here); it is the delta any KV arithmetic has to absorb, not a defect. |
+| `Free memory on device (60.6/60.96 GiB) … Desired GPU memory utilization is (0.92, 56.08 GiB). Actual usage: 30.16 GiB for weights, 2.0 GiB for peak activation, 2.07 GiB for non-torch memory, 0.44 GiB for NPU graph memory. Replace gpu_memory_utilization with --kv-cache-memory=22829425254 (21.26 GiB) to fit into requested memory, or … (25.78 GiB) to fully utilize NPU free memory.` | a complete budget split plus a byte-exact alternative to gmu. Quote it instead of re-deriving weights/activation/KV with `scripts/oom-budget-split.sh`, and prefer `--kv-cache-memory` when the reporter needs a deterministic KV size. |
+
+Caveat for cross-version work: the same `--gpu-memory-utilization` yields a ~1 %
+smaller KV on v0.21+ than on an older release, and the per-rank `21.26` / `25.78`
+GiB numbers differ by ~0.02 GiB between ranks. Neither is growth.
+
 Conditional routes:
 
 - Any memory-growth or "VRAM not released then crash" report →

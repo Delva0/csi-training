@@ -35,7 +35,11 @@ the balance of `{ } [ ] "`, the first/last fragments, the assembled string, and
 `json.loads` on the assembly. It also lists the `stop_reason` chunks, the
 `finish_reason` chunks, the last non-empty argument chunk, and any chunk whose
 `arguments` is the empty string — because "the tail arrived as `""`" is the shape
-that hides a lost tail. It tolerates HTML/Excel clipboard wrappers, console
+that hides a lost tail. Since #12261 it also prints a per-tool-call **verdict** —
+`balanced`, `tail-lost` (an opening brace/bracket left open), `quote-gap` (braces
+and brackets balance, the quote count is odd) or `malformed` — and those map onto
+outcomes A/B/C below: a `quote-gap` verdict is case C, **not** a lost tail, so do
+not overrule it by hand. It tolerates HTML/Excel clipboard wrappers, console
 prefixes (`decoded ok: data: {...}`) and `[REDACTED]` placeholders (those inject
 brackets, so read the braces and quotes, not the bracket pair).
 

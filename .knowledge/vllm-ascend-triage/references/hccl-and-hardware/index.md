@@ -86,7 +86,9 @@ and the precedent families behind that marker (#16079, and #10136 / #10522 /
    once (`EE9999` runtime records, `EZ9999` chip dumps, `507011`, `ERR00100`,
    `ERR02005`), decide *which block happened when the reporter says it failed*:
    Ascend re-prints a recorded error with its original date, so the sentence in the
-   title can be a day older than the incident (#9183). One call:
+   title can be older than the incident — a previous run (#9183, 36 h) or **this
+   process's own init/capture window reported late** (#10700, 27 min); pid plus log
+   position decides, not the gap. One call:
    `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>`.
 2. `collective-error-chain.md` — restore error attribution (the Python frame in
    the traceback is usually a later synchronization point), read the plog, and

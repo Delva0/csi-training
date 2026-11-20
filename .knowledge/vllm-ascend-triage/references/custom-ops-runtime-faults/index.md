@@ -51,10 +51,12 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   (`cann/ops-nn`, often `unavailable`) and the framework that chose the
   combination and ships no fallback.
 - **Timestamp-gate the block before adopting its text.** A device/runtime error block
-  inside a fresh traceback keeps its own original date; if that date precedes the
-  reported failure it is a re-printed record, not this incident (#9183: a `107030`
-  capture-mode block from the previous day). Run
-  `../hccl-and-hardware/error-report-timestamps.md` (script
+  inside a fresh traceback keeps its own original date, so an earlier date can mean
+  a re-printed record rather than this incident (#9183: a `107030` capture-mode
+  block from the previous day) — **or** it can mean this process's own init/capture
+  window, reported tens of minutes late (#10700: record `10:01:23` inside engine
+  init, report `10:28:19`). Distinguish by process and log position, not by the gap.
+  Run `../hccl-and-hardware/error-report-timestamps.md` (script
   `plog-timeline.sh --since <date>`) before naming the operator or the mechanism.
 - **A scatter/index write is judged by its index tensor, not by the op.** When the
   fault names `ScatterNdUpdate`-style kernels and `../hccl-and-hardware/error-report-timestamps.md`

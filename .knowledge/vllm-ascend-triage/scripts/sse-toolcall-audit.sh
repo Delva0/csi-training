@@ -153,8 +153,24 @@ for i in sorted(acc):
         verdicts.append("balanced")
     else:
         print(f"  json.loads(assembled): FAIL -> {err}")
-        tail_bad = (b['{'] - b['}'] > 0) or (b['['] - b[']'] > 0) or b['"'] % 2
-        verdicts.append("tail-lost" if tail_bad else "malformed")
+        # Four outcomes, not two (tool-call-streaming/index.md rule 1). An open
+        # brace/bracket means the tail never arrived. BALANCED braces with an odd
+        # quote count is the other family: the closing `}` and a quote are there,
+        # the gap is the *opening* quote inside a value -- that is the parser's
+        # type-gated delta, not a lost tail, and it must not be routed to the
+        # engine. Anything else is unbalanced text in the middle.
+        open_tail = (b['{'] > b['}']) or (b['['] > b[']'])
+        if open_tail:
+            verdicts.append("tail-lost")
+        elif b['"'] % 2:
+            verdicts.append("quote-gap")
+            print("  -> braces/brackets balance but a quote is missing: the gap is")
+            print("     INSIDE a value (the opening quote), not a lost tail. Run")
+            print("     scripts/tool-schema-type-audit.py <request-body.json>; an")
+            print("     argument declared anyOf:[string,null] has no top-level type")
+            print("     (references/tool-call-streaming/arg-type-gate-unquoted-value.md).")
+        else:
+            verdicts.append("malformed")
 
 stop = [(m[0], m[1]) for m in meta if m[1] not in (None, "None")]
 fin = [(m[0], m[2]) for m in meta if m[2] not in (None, "None")]
@@ -172,6 +188,15 @@ if all(v == "balanced" for v in verdicts):
           "client's own accumulation/framing (or it parsed a single chunk instead of "
           "the concatenation). Ask for the client version and its parser; the server "
           "stream is not the owner.")
+elif "quote-gap" in verdicts and "tail-lost" not in verdicts:
+    print("\nVERDICT: at least one assembled tool call has BALANCED braces/brackets with")
+    print("an odd quote count -> the missing quote sits inside a value, so the tail did")
+    print("arrive and the server did not truncate. That shape is a streaming parser's")
+    print("incremental delta keyed on the argument's declared JSON-Schema type: check the")
+    print("request body with scripts/tool-schema-type-audit.py, read")
+    print("references/tool-call-streaming/arg-type-gate-unquoted-value.md, and confirm the")
+    print("engine text is clean with /v1/completions `stream: true` vs `false`")
+    print("(identical text and token_ids = post-sampling fault).")
 elif "tail-lost" in verdicts:
     print("\nVERDICT: the assembled arguments end with unbalanced braces/quotes while a "
           "finish_reason chunk follows -> the server stream is missing the CLOSING tail "

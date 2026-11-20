@@ -50,12 +50,19 @@ signature of a blocking host→device copy issued while a stream is being captur
 or replayed. Recorded family: #6002 (v0.11.0, DS-V3.1-w8a8, `deepseek_mtp` +
 `FULL_DECODE_ONLY`), #4208 (also `107033 AclmdlRICaptureTaskUpdateEnd`), #8502
 (reporter-confirmed: `multistream_overlap_shared_expert: true` and serving fails,
-"关闭多流后正常"). #6002 attributes it to a framework-side blocking copy and
+"关闭多流后正常"), #10700 (v0.21.0rc1 and v0.22.1rc1, GLM-5.1 on 2×A2, DP2×TP8,
+`deepseek_mtp` + `FULL_DECODE_ONLY` + `npugraph_ex`: the record lands in engine
+init, the report surfaces 27 min (v0.21.0rc1) or 101 min (v0.22.1rc1) later at
+`execute_dummy_batch` ->
+`acl_graph.__call__ -> synchronize()` — `../spec-decode-mtp/draft-graph-capture-device-fault.md`).
+#6002 attributes it to a framework-side blocking copy and
 proposes a capture-mode switch; that is the reporter's reading with no confirmed
 fix in the record, so the cheap test stays `--enforce-eager` on the same traffic.
-Two guards before you use it: it must be the **in-window** first error (`../hccl-and-hardware/error-report-timestamps.md` —
+Two guards before you use it: it must belong to **this process** (`../hccl-and-hardware/error-report-timestamps.md` —
 at #9183 the identical block was the previous day's crash, 36 h older than the
-failure), and the same block prints `threadCaptureMode=0, exchangeCaptureMode=0,
+failure; at #10700 an equally old-looking block was this process's own init
+window, because the report was late, so compare it with the log's startup lines
+rather than discarding it), and the same block prints `threadCaptureMode=0, exchangeCaptureMode=0,
 contextCaptureMode=0`, so its own fields do not prove a capture was in progress.
 
 Timeline reading (recorded #3389, v0.11.0rc0, TP=16): 12 of the 16 ranks print

@@ -573,6 +573,46 @@ message a bare tool call, cut inside a block that had already written
 "**Answer**: Yes, real…". Lane: name the fetch legs and the pre-seed directory
 (`../image-dependency-faults/offline-source-build.md`).
 
+**#1796** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm `v0.9.2` (`a5dd03c`), install
+report: "Unmatched torch version between vllm=0.9.2 and vllm-ascend=0.9.2rc1" —
+`pip install vllm==0.9.2` brings torch 2.7.x, then `pip install vllm-ascend==0.9.2rc1`
+ends in `could not find a version that satisfies the requirement
+torch-npu==2.5.1.post1.dev20250619`; the reporter's later public comments add that a
+manual `pip install torch-npu==2.5.1` uninstalls torch 2.7.1 and leaves
+`vllm 0.9.2 requires torch==2.7.0 … but you have torch 2.5.1` warnings. Real finding
+(source-read at the pin): `requirements.txt:25-27` holds `--pre` +
+`--extra-index-url https://mirrors.huaweicloud.com/ascend/repos/pypi` +
+`torch-npu==2.5.1.post1.dev20250619`, but `setup.py:331-351` skips every `--` line
+(`:341`) when building `install_requires`, so the wheel names a mirror-only dev build
+and pip can never see it; and the set is on the 2.5.x torch line
+(`torchvision<0.21.0`, `:14`) against vllm's `torch==2.7.0` /
+`torchvision==0.22.0` (`requirements/cuda.txt:9,12`), with torch_npu wheels hard-pinning
+the matching torch (`Ascend/pytorch` `setup.py:625,650`). **Shipped no answer**: 39 tool
+calls, every message a bare tool call, ~16 K completion tokens of reasoning cut at the
+cap while speculating which torch that dev wheel was built against. Lane: pip index
+visibility, not compatibility (`../image-dependency-faults/pip-index-visibility.md`,
+`scripts/pip-pairing-check.sh`). Contrast pin: at `v0.11.0rc2` the same file is
+`torch==2.7.1` + `torch-npu==2.7.1` with the mirror lines commented out — the version
+prefixes agree.
+
+**#4737** vllm-ascend image `v0.11.0rc2`/`0.11.0rc3` (tree `a2e4c3f`) + vllm `v0.11.0`
+(`b8b302c`), Qwen3-32B-W8A8: `vllm bench serve --dataset-name custom` dies with
+`ImportError: Please install vllm[bench] for bench support`, so the image "cannot run
+vllm bench offline". Cause (source-read at the pin): the images install vllm with the
+**audio** extra only (`Dockerfile:43`, same line in the a3/310p/openEuler variants) while
+`vllm/setup.py:658` defines `bench = [pandas, datasets]`; the message is upstream's
+`PlaceholderModule` rewrite (`utils/__init__.py:2582-2587`) of the soft imports at
+`benchmarks/datasets.py:44-52`, and the project's own recipe
+(`benchmarks/requirements-bench.txt`, `benchmarks/README.md:38`,
+`docs/.../performance_benchmark.md:37`) already has the user install them.
+**Answered** in 11 tool calls with that table plus `--dataset-name random/sharegpt` as
+the pandas-free path. The gap a later public comment exposes: the ladder opened with a
+wheelhouse download instead of naming the **index** hypothesis, and the reporter's next
+message is `pip install pandas` → `No matching distribution found for pandas` — the
+image carries `global.index-url` pointing at a public mirror (`Dockerfile:20,36`), which
+an air-gapped pod cannot reach (`../image-dependency-faults/pip-index-visibility.md`
+section B).
+
 **#1895** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm `v0.9.2` (`a5dd03c1`), 4×910B3,
 Qwen2.5-32B, TP=4: v1 graph mode dies at startup with
 `NotImplementedError: _C::rotary_embedding: attempted to run this operator with Meta
@@ -851,6 +891,31 @@ an empty final message; much of it spent deciding whether `aclnnInplaceNormal` w
 a random-number defect while the paste's own async caveat and the
 `checkUceErrAndRepair` frame already said it was not.
 
+**#10700** vllm-ascend v0.21.0rc1 (`80610e4`) + vllm v0.21.0 (`ad7125a`), 2× Atlas
+800I-A2, GLM-5.1, DP2 × TP8 + EP, `deepseek_mtp` 3, `FULL_DECODE_ONLY`,
+`enable_npugraph_ex`, `--async-scheduling` + prefix caching: the title says
+"未添加 enforce_eager true 运行一段时间后崩溃", and the device dump arrives in
+`worker.py execute_dummy_batch` → `_dummy_run` → `_model_forward` →
+`acl_graph.__call__ → stream.synchronize()` with `fftsplus aicore/aivector …
+DDR address of the MTE instruction is out of range` / `507011`, plus an inner
+`rtMemcpy … 107030 the current capture mode does not support this operation`
+record stamped `10:01:23` — inside the same log's `init engine (…)` window — while
+the traceback is stamped `10:28:19`. So "ran fine for a while" was the report
+delay, not the trigger: the record belongs to this process, which is the twin of
+the #9183 lesson (`../hccl-and-hardware/error-report-timestamps.md`). Route now:
+`../spec-decode-mtp/draft-graph-capture-device-fault.md`. Later reporter evidence
+(post-dating the recorded session): reproduced unchanged on **v0.22.1rc1**
+(record `01:19:08` → report `03:00:17`), a sibling GLM-5.2-W8A8 DP2×TP8+EP16
+capture named the operator — `aclnnAddRmsNormBias` in the `deepseek_mtp` **draft**
+forward under `npugraph_ex` — and both workarounds are reporter-confirmed:
+`"enforce_eager": true` **inside** `--speculative-config` (only the drafter goes
+eager) or MTP off, with the spec-scoped one still "慢好几倍". The recorded answer
+ranked the drafter-graph leg first on the spec-scoped A/B (correct) but presented
+that rung as the cheap one and kept MC2/AIV and SFA rows above the plog request;
+the page now carries the measured cost and the frame's real meaning (a DP dummy
+pass runs the target **and** the drafter, so the traceback alone does not
+discriminate).
+
 **#12261** vllm v0.20.2 (`bc150f5`) + vllm-ascend v0.20.2rc1 (`367b8e62`), GLM-5.1
 (`GLM_5_1_MEP-1.0.0`) w4a8/w8a8 on 910C 560T, `stream: true` only: the client's
 assembled `tool_calls[0].function.arguments` is `{"hvd": Pura900"}` — balanced
@@ -868,13 +933,19 @@ always `json.dumps`es the whole dict. Ownership: upstream vLLM — both Ascend G
 patches are excluded by their own conditions (`patch_glm47_tool_call_parser.py:39`
 needs a region with no `<arg_key>`; `patch_glm_tool_call_streaming.py` needs
 `finish_reason == "tool_calls"` *and* non-empty `arguments` in the same chunk).
-Delivery: **no answer shipped** — 15 assistant turns / 23 tool calls, ~35 K
-characters of reasoning against 3.5 K of message text, cut on a tool call. It had
-the mechanism at turn 11 and then spent four turns trying to `import vllm`
+Delivery, first run: **no answer shipped** — 15 assistant turns / 23 tool calls,
+~35 K characters of reasoning against 3.5 K of message text, cut on a tool call. It
+had the mechanism at turn 11 and then spent four turns trying to `import vllm`
 (`ModuleNotFoundError: torch`) and `import regex` and porting the two functions into
 a simulation that never ran; the fragment arithmetic needed for the proof is one
 subtraction (the streamed length 14 against the completed string's 18, so the diff
-is the last three characters `0"}`) and can be done on paper.
+is the last three characters `0"}`) and can be done on paper. A later run answered
+the same issue in ~9 turns from the same artefacts; its only real friction was
+`scripts/sse-toolcall-audit.sh` returning the *missing-tail* verdict for
+`{"hvd": Pura900"}`, which the run had to overrule against
+`arg-type-gate-unquoted-value.md` — the script now classifies balanced-braces +
+odd-quote-count separately (`quote-gap`) and routes it to
+`tool-schema-type-audit.py`.
 
 **#2015** vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`), 910B
 (Ascend910B2C) 16 cards, `DeepSeek-R1-bf16-hfd-w8a8`, offline `LLM(...)` with

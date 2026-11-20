@@ -370,3 +370,55 @@ of reasoning against 255 characters of message text — the complete source-veri
 diagnosis was already written in the reasoning at the turn whose message text was
 "Confirmed the fault mechanism. Let me pin two last facts", and the truncation kept
 the plan and dropped the answer.
+
+**#4766** vllm-ascend `v0.11.0rc3` (`b6d63bb`) / vllm `v0.11.0` (`b8b302c`), 2×910B4-64G,
+Qwen3-VL-32B under an ais-bench textvqa loop: "显存一直异常增长，最后 OOM" with no serve
+log, no `npu-smi` sample and no crash tail (runtime-memory growth lane). Delivered at
+turn 12 from the two-sample split plus a flag audit the pages now carry
+(`../runtime-memory/hbm-growth-and-oom.md` 4b/4c): at this ref nothing injects
+`PYTORCH_NPU_ALLOC_CONF`, `--block-size 16` is rewritten to 128 by
+`platform.py:269-285`, `--disable-mm-preprocessor-cache` is already deprecated and sizes
+a host shm buffer rather than HBM, and the effective `max_num_batched_tokens` is 2048
+because `_set_default_args` fills it before `SchedulerConfig`, so the multimodal 5120
+floor never fires. **Delivery cost**: four assistant turns with zero message text before
+the first text, ~16.0 K of the 16 K completion budget.
+
+**#10405** vllm-ascend `v0.20.2rc1` (`367b8e6`) / vllm `v0.20.2` (`bc150f5`), 4×910B2C,
+Qwen3.5-35B-A3B with `qwen3_5_mtp`, `--async-scheduling` and a 1M window set through
+`--hf-overrides` yarn RoPE: "回答中英混杂". The screenshot OCR was decisive —
+`"content": null`, all 500 completion tokens inside `reasoning`, `finish_reason: length`
+— so the answer is routing plus budget first, model/template thinking language second
+(`#6848`), a hand-written rope override third (unproven row), and the variant is absent
+from the support matrix (no validated recipe to diff against). Two corrections the run
+established: a missing `--mamba-cache-mode align` is auto-supplied by upstream
+(`vllm/model_executor/models/config.py:349-377`), and `enable_thinking: false` carries a
+version gate (`#7094`). **Delivery cost**: 24 assistant turns, most of them bare tool
+calls, and 16.3 K completion tokens — the answer landed at the cap.
+
+**#18130** vllm-ascend `v0.27.1rc1` (`3b31886`) / vllm `v0.27.1` (`6e448d0`),
+GLM-5.3-w8a8c8 on 4×Atlas 800I A2 (910B2) multi-node co-located, command copied
+from the v0.27.1rc1 GLM5.3 tutorial: `fuse_muls_add / Unexpected keyword argument
+[type=unexpected_keyword_argument, input_value=True, input_type=bool]` at startup.
+Answered in 17 turns with the whole mechanism: the key is nested-only
+(`AscendCompilationConfig`, default `True`), the tutorial's serve command still
+prints it flat although its own header says the scripts are based on v0.23.0, and
+`AscendConfig` is `extra="forbid"` since the pydantic migration (#15418). The
+reporter's later comment quotes exactly that tutorial page with that JSON, so the
+document as the source is confirmed (whether deleting the key then started the
+service is not reported). Lane worth copying: classify from the pydantic error *type* plus the
+missing `WorkerProc`/`Starting to load model` lines, then one grep for the key's
+owning class (`../startup-failures/additional-config-schema.md`).
+
+**#18315** vllm-ascend `v0.26.0rc1` (`f2f74a1`) pinned, title says v0.27.1RC1, env
+block v0.26.0rc1; GLM-5.3-w8a8c8 on 4×A2 混部, `HCCL_OP_EXPANSION_MODE=AIV` +
+`PYTORCH_NPU_ALLOC_CONF=expandable_segments:True` → `aclnnMoeDistributeDispatchV4`
+`107020` after an `event wait timeout … task_timeout`, starts when both are removed.
+Real finding (built in reasoning, never delivered): the AIV × MC2 dispatch/combine
+defect family #14928/#13688/#15195, plus the CaMem pool's
+`expandable_segments:True` assert. **Shipped no answer**: 18 turns, 16 K output
+tokens (~42 K characters of reasoning against 259 characters of message text), 17 bare
+tool-call turns, no `findings.md`, cut inside a reasoning block whose last step was
+rebuilding the paste into a scratch file to feed
+`plog-timeline.sh` — a gate that needs a long-form timestamped record
+(`[PID: n] <YYYY-MM-DD-HH:MM:SS>`) the paste did not have. The ranked answer
+existed from about turn 8 (`../hccl-and-hardware/aiv-mc2-env-ablation.md`).

@@ -64,10 +64,17 @@ size with Mamba").
 - The mode is not cosmetic: the runner's per-step hybrid state handling is gated
   on it at `vllm_ascend/worker/model_runner_v1.py:2087` (`preprocess_mamba` /
   deferred state corrections) and `:2242` (`mamba_utils.do_mamba_copy_block`).
+- Scope of that docstring: it describes what the *patch* does. Independently of any
+  connector, upstream `MambaModelConfig.verify_and_update_config`
+  (`vllm/model_executor/models/config.py:351-372` plus its `"all"`→`align` fallback at
+  `:373-382`, at vllm v0.20.2) already sets
+  `align` whenever `enable_prefix_caching` is on and the model lacks
+  `supports_mamba_prefix_caching` — check that flag before quoting the next
+  paragraph at another ref.
 
-Consequence to state carefully: on plain Mooncake PD, a hybrid model keeps
-`mamba_cache_mode="none"` with a whole-sequence-sized mamba page, and the
-align-mode copy paths never run. That is a combination the tutorials, the
+Consequence to state carefully: on plain Mooncake PD **with prefix caching off**, a
+hybrid model keeps `mamba_cache_mode="none"` with a whole-sequence-sized mamba page,
+and the align-mode copy paths never run. That is a combination the tutorials, the
 KV-store path and the unit tests (`mamba_cache_mode="align"`/`"all"`) do not
 exercise. It is a **candidate**, not the proven cause of #12339: neither run
 could show the D node receiving a stale state.

@@ -61,6 +61,54 @@ that a pre-validator renames (`:429-446`). Advice to read
 `choices[0].message.reasoning_content` is right for older releases and wrong for
 this one; name the field the pinned version emits.
 
+## The thinking is in the wrong language ("回答中英混杂", "the answer came back in English")
+
+Work them in this order; a run that starts with the model's Chinese ability or the
+GDN/RoPE kernels spends its budget on the wrong layer.
+
+1. **Is the reporter reading `reasoning`, and was it truncated?** `content: null` with
+   the whole completion inside the thinking block and `finish_reason: length` is the
+   parser's documented "output was truncated" branch above, not a language defect. One
+   repeat with `temperature: 0` and a larger `max_tokens` decides it, and it is the
+   first thing to look for when the evidence is a screenshot whose OCR shows
+   `"content": null` next to `completion_tokens: N`.
+2. **Is the language a model/template property?** For the Qwen3.5/Qwen3.6 family it
+   is: with an empty system prompt the thinking runs in English while the answer
+   follows the prompt's language. Precedent `#6848` (Qwen3.5-397B-A17B on the 0day
+   image `vllm-ascend:qwen3_5-v0-a2`: thinking English, answer Chinese, a single
+   `</think>`) is the same symptom reported as a defect. Note its request passed
+   `chat_template_kwargs: {"thinking": true}` — the wrong key, see the trap below.
+   The levers are a system-prompt language instruction or disabling thinking, and
+   **disabling thinking is version-gated**: `#7094` recorded
+   `chat_template_kwargs: {"thinking": false}` returning 乱码 / `completion_tokens: 1`
+   on that 0day image until upstream PR 34779 (the Qwen3/Qwen3.5 reasoning-parser fix)
+   landed, with `#7061` as the same defect seen as `</think>` leaking into `content`.
+   Before recommending it, check the installed parser carries the Qwen3.5 handling —
+   its docstring says "Starting with Qwen3.5, the chat template places `<think>` in
+   the prompt" and treats a missing `</think>` as truncation
+   (`vllm/reasoning/qwen3_reasoning_parser.py:16-46` at vllm v0.20.2) — otherwise send
+   the system-prompt language instruction instead.
+3. **Before calling it model behaviour, scan the launch for a hand-written RoPE
+   override.** A reporter who extended context with
+   `--hf-overrides '{"text_config": {"rope_parameters": {...}}}'` (commonly
+   `rope_type: yarn`, `factor: 4.0`, `partial_rotary_factor`, `mrope_interleaved`,
+   `mrope_section`) has replaced the checkpoint's rope parameters wholesale:
+   `get_rope(..., rope_parameters=config.rope_parameters)` is the single consumer
+   (`vllm/model_executor/models/qwen3_next.py:250-255` at vllm v0.20.2, `bc150f5`),
+   and yarn's low-frequency interpolation plus mscale act at *every* position, not
+   only past `original_max_position_embeddings`. The validated Qwen3.5 recipes use
+   `--max-model-len 133000` and no `--hf-overrides`
+   (`docs/source/tutorials/models/Qwen3.5-27B.md:105-127` at v0.20.2rc1), so
+   "restart without the override, same request" is the row that separates model
+   behaviour from a launch that changed the numerics. Label it a hypothesis until it
+   runs, and ask for the checkpoint's own `text_config.rope_parameters` — without it
+   nobody knows whether the override differs from the shipped value.
+4. If the model variant is absent from
+   `docs/source/user_guide/support_matrix/supported_models.md` (at v0.20.2rc1 the
+   matrix lists only Qwen3.5-397B-A17B and Qwen3.5-27B, not 35B-A3B) there is no
+   validated recipe to diff against: say so as a version/support gap instead of
+   implying the class is broken.
+
 ## The kwarg-name trap
 
 `thinking_enabled` is read from `chat_template_kwargs["enable_thinking"]` (default `True`).
@@ -109,9 +157,9 @@ sibling pages' flag choices move between releases).
   `<think>\n\n</think>` and plain content is expected.
 - The checkpoint's own `chat_template.jinja` (a re-quantised export can ship a
   template without `</think>` / `enable_thinking`, which defeats the parser too).
-- Mixed thinking language is model behaviour, not a serving switch: with an empty
-  system prompt Qwen3.6-family models often reason in English and answer in the
-  prompt's language. The only levers are a system prompt or disabling thinking.
+- Mixed thinking language: work the section above in order (routing and budget, then
+  model/template behaviour, then a hand-written `--hf-overrides` rope block) before
+  treating `--reasoning-parser` or the model as the answer.
 - One `/v1/chat/completions` call with small vs large `max_tokens`: compare `finish_reason`,
   `message.content`, `message.reasoning`.
 - Harness behaviour: does it read `content` only, `reasoning` too, or strip `<think>` tags

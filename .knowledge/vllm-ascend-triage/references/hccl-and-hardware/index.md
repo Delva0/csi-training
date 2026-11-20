@@ -21,6 +21,15 @@ artefacts to request. One call decides it:
 `bash <skill_root>/scripts/executor-timeout-check.sh <paste|->`. Recorded #1865 was
 titled 卡间通讯超时 ("inter-card communication timeout") for exactly this text.
 
+**Then separate a documented env-knob ablation from the mechanism.** If the title
+or narrative is "removing `HCCL_OP_EXPANSION_MODE` / `PYTORCH_NPU_ALLOC_CONF` lets
+it start" and the first in-window error is `aclnnMoeDistributeDispatchV4` /
+`...CombineV4 ... 107020` with `event wait timeout ... task_timeout`, the enabled
+knob changed the selected MoE communication path (AIV × MC2) — a known defect
+family, not a cabling fault: `aiv-mc2-env-ablation.md` has the single-variable
+ablation matrix, the rank arithmetic that says whether MC2 was even selected, and
+the four precedents (#14928, #13688, #9447, #15195).
+
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
 bound`, check the record's date first (rule 13) and the number second: a port above

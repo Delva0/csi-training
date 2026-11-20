@@ -242,46 +242,19 @@ delivery pattern is rule 1.
     Same family as the sync-point trap in procedure step 3: the line where
     an error surfaced is not necessarily the owner of the defect.
 12. **A crash inside a native module the image installed is an environment
-    question, and it is answerable without that module's source.** If the
-    repro is one `python -c "import <pkg>"` line and the process aborts with
-    glibc allocator text (`corrupted size vs. prev_size`, `free(): invalid
-    pointer`, `double free or corruption`, `Aborted (core dumped)`) and no
-    vllm-ascend frame, then: identify which file is actually imported (Ascend
-    images carry a second copy under `<toolkit>/python/site-packages/`),
-    interpose one allocator (`apt install libjemalloc2` +
-    `LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2` on Ubuntu,
-    `yum install jemalloc` + `/usr/lib64/libjemalloc.so.2` on openEuler), and
-    diff the Dockerfile's *copied* installer against the component's own
-    dependency script. The project's `docs/source/tutorials/*.md` startup blocks
-    are the list of ingredients the image is expected to provide. Cap the source
-    work at ~6 calls and emit the answer; #5609's recorded triage spent both
-    session on ABI/RPATH/`glog` archaeology and delivered nothing, having
-    already found the jemalloc omission and ranked it low. Route:
-    `references/image-dependency-faults/index.md`, then
-    `references/image-dependency-faults/native-import-abort.md`.
-    The C++-exception form of an in-image abort follows the same rule:
-    `terminate called after throwing an instance of 'std::logic_error'` with
-    `what(): basic_string::_S_construct null not valid` at engine start is
-    `std::string(nullptr)` inside a native library (libstdc++
-    `basic_string::_S_construct`), so it is answered by the stock-model
-    discriminator, three `python -c` native probes and one `gdb -ex 'break
-    std::__throw_logic_error'` backtrace that names the `.so` — never by the
-    checkpoint's config and never by grepping the exported CANN/torch_npu/triton
-    C++ trees. That is what cost #10943 the whole session (six calls inside
-    `cann/`, one line of answer). Route:
-    `references/image-dependency-faults/native-string-abort.md`.
-    The third form is a **failed symbol resolution**, not an abort:
-    `ImportError: …/<pkg>/_ops.cpython-310-aarch64-linux-gnu.so: undefined symbol:
-    _ZNK6AsdOps3Ops18GetOperationByNameERKSs` from a prebuilt wheel. Demangle it —
-    `Ss` is the pre-C++11 `std::string` (`_GLIBCXX_USE_CXX11_ABI=0`), the cxx11 ABI
-    spells `NSt7__cxx1112basic_string…` — and compare with the env dump's
-    `ATB_HOME_PATH` / `…/atb/cxx_abi_{0,1}/lib` entry: NNAL ships both roots and the
-    wheel needed the other one. Answer with the three `nm` commands and the
-    matching-root export; **reporter-confirmed** on #1144 ("the env setting works
-    for me"), and the two consumers of that wheel degrade differently (a worker
-    `warning_once`, or `NotImplementedError: There is no available ascend quantizer`
-    on the quantised path). Route:
-    `references/image-dependency-faults/abi-undefined-symbol.md`.
+    question, and it is answerable without that module's source.** Three forms,
+    one cap of ~6 calls before you emit: a `python -c "import <pkg>"` abort with
+    glibc allocator text and no vllm-ascend frame (which copy is imported, one
+    `LD_PRELOAD` allocator, the installer-vs-dependency diff →
+    `native-import-abort.md`); `'std::logic_error'` /
+    `basic_string::_S_construct null not valid` at engine start (`std::string(nullptr)`
+    in a `.so` → `native-string-abort.md`); and `ImportError: …/_ops*.so: undefined
+    symbol: …Ss` from a prebuilt wheel (`std::string` ABI split, decided by the env
+    dump's `cxx_abi_{0,1}` root, reporter-confirmed on #1144 →
+    `abi-undefined-symbol.md`). Start at
+    `references/image-dependency-faults/index.md`; #5609 and #10943 each burned the
+    session in ABI/RPATH or `cann/` archaeology after the answer was in hand. The
+    three pages above live under `references/image-dependency-faults/`.
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the sentence in the issue title can be a day older
@@ -293,8 +266,12 @@ delivery pattern is rule 1.
     `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <paste>`;
     families it flags as older are history, and if none is in-window the paste does
     not contain the fault at all — say that and ask for the plog covering the
-    failure minute. Same trap as rule 11 one level up: not just the sentence but
-    the whole block can be the wrong one.
+    failure minute. The script needs a timestamped record — long-form
+    `YYYY-MM-DD-HH:MM:SS` device records (the usual `[PID: n]` headers) or
+    `MM-DD HH:MM:SS` line prefixes; a paste of ordinary `W<MMDD>`/`E<MMDD>` lines
+    yields its "no timestamped error line found" verdict, so do not rebuild it into
+    a file first (#18315). Same trap as rule 11 one level up: not just the
+    sentence but the whole block can be the wrong one.
     `references/hccl-and-hardware/error-report-timestamps.md`.
 14. **A "how do I enable F" question is a capability question, and the verdict comes
     first.** When the report asks how to turn a feature on for a model/hardware pair
@@ -326,10 +303,11 @@ delivery pattern is rule 1.
 | P/D will not connect although both engines started and there is **no** KV pool: `HIXL Connect failed \| HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
 | PD deployment that connects and then corrupts on a **hybrid** model (Qwen3.5/Qwen3.6 GDN, DeepSeek-V4, GLM): alternating good/bad answers, empty or wrong first decoded token, works with MTP but not without | PD hybrid-state transfer: connector choice plus the `mamba_cache_mode='align'` gate only the KV-store connectors satisfy | `references/pd-disaggregation/hybrid-state-transfer.md` |
 | `ValueError: Non-MoE models do not support external data parallel mode`, or any `ValueError`/`AssertionError` raised from `vllm/engine/arg_utils.py` that names a parallel mode or flag (`data_parallel_*`, `nnodes`, `node_rank`), with no `WorkerProc` line in the log | Startup argument validation in upstream vLLM — launch-command fix, not a defect | `references/startup-failures/arg-validation-errors.md` |
+| pydantic `ValidationError`: `Unexpected keyword argument [type=unexpected_keyword_argument, input_value=True, input_type=bool]` + an `errors.pydantic.dev` URL, naming a key from `--additional-config`, often with `ERR99999`, no `WorkerProc` line | `additional_config` **schema** rejection: `AscendConfig` is `extra="forbid"`, so the key is nested-only (e.g. `ascend_compilation_config.fuse_muls_add`) or removed, and a tutorial serve command usually carries the wrong nesting | `references/startup-failures/additional-config-schema.md` |
 | The report asks whether a plan fits rather than what broke: "can this model run on N cards", a multi-stage orchestrator (`--stage-id`, `--headless`, `platforms.<vendor>` yaml) that works on GPU, stages that must share a card, `CUDA_VISIBLE_DEVICES` in a command aimed at an NPU host | Deployment sizing / stage layout: memory arithmetic plus the device-visibility variable, not a fault | `references/deploy-sizing/index.md` |
 | `[Community Test]` / `[Doc]` / 资料验证 / 测试报告, or "the tutorial's command does not work as written" | Tutorial-document verification: grade the page against the pinned tree; the report is the deliverable | `references/tutorial-verification/index.md` |
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
-| Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, `unexpected keyword argument`, `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
+| Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, Python `TypeError: … got an unexpected keyword argument` (the pydantic form is the schema row above), `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
 | The same `AttributeError` raised **inside an upstream vllm file** on a class vllm-ascend is meant to replace — `'ZeroExpertFusedMoE' object has no attribute 'select_experts'` — or the reporter asks "did it ever reach vllm-ascend's ops?" | Downstream registry drift: the Ascend replacement is keyed by class *name* (`CustomOp.register_oot`), so an upstream refactor that adds a class silently keeps upstream code | `references/upstream-downstream-drift/oot-class-registration-drift.md` |
 | An `AttributeError` inside an upstream vllm file whose message contradicts the code — `'<QuantMethod>' object has no attribute '<property>'. Did you mean: '<similarly named method>'?` — reached from an upstream model's `forward` at startup (`profile_run`), where the property exists and calling it directly gives `'NoneType' object has no attribute '<property>'` | Downstream patch **incomplete**, not absent: a factory/property rebound only in its defining modules while the model module cached the old binding at import. Compare the three attributes, do not read more of the model | `references/upstream-downstream-drift/stale-module-binding.md` |
 | A bare `TimeoutError` — `RPC call to execute_model timed out.`, or frames in `multiproc_executor.py` (`collective_rpc` / `get_response`) and `shm_broadcast.py` (`acquire_read` / `acquire_write` / `recv`) — reported as "多进程卡间通讯超时", with no rank prefix and no error code | vLLM's own RPC watchdog (`VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS`, 300 s), not an HCCL/NIC timeout: one worker stopped answering, and the paste does not contain its fault | `references/hccl-and-hardware/rpc-watchdog-timeouts.md` (one call: `scripts/executor-timeout-check.sh`) |
@@ -364,7 +342,7 @@ delivery pattern is rule 1.
 | Report is about log text rather than a crash: `--enable-log-requests` / `--enable-log-outputs` set but no prompt or generation printed, `VLLM_LOGGING_LEVEL=DEBUG` seemingly ignored, `--max-log-len`, a stage of the startup log missing, or a proxy that swallows output | Observability/flag question — **upstream frontend config, not a vllm-ascend defect**; answer with a gate checklist and two greps, cap it at ~4 tool calls | `references/observability-and-logs/index.md`, then `request-output-logging-flags.md` |
 | A **tool call** is the symptom, not the prose: `JSON Parse error: Unterminated string` / `Expecting ',' delimiter` / `Unterminated string starting at: line 1 column N` while the client assembles `tool_calls[0].function.arguments`, arguments reported truncated / 格式错误 / 重复输出, or `stream: true` returns only CoT and no `tool_calls`; often with `--speculative-config '{"num_speculative_tokens": 3, ...}'` where 1 正常, or with `--async-scheduling` | Tool-call output integrity: upstream vLLM's delta assembly vs the vllm-ascend sampler vs the model stopping early — decided by concatenating the argument fragments, then by one `return_token_ids: true` request, not by reading a parser or a kernel | `references/tool-call-streaming/index.md`, then `streamed-arguments-audit.md` (one call: `scripts/sse-toolcall-audit.sh <raw-sse>`) |
 | A constant in the code equals the number in the report — `num_speculative_tokens: 3` fails while `1` (and `2`) work — and the wrong output is exact-form: tool-call JSON, ids, code | Named code branch, not an investigation: `using_block_verify = max_spec_len >= 3` is the only spec-decode branch keyed on that value, **but newer refs also require `rejection_sampler_config.enable_block_verify`, default `False` (v0.23.0rc1) — read the line first**; then state it with its two ablations (`n=2`, `temperature: 0`) before its kernel is read | `references/tool-call-streaming/mtp-block-verify-acceptance.md` |
-| Report pastes only a response body: the CoT/thinking text sits in `content`, `message.reasoning` / `reasoning_content` never appears, `completion_tokens_details.reasoning_tokens` is `0`, thinking language mixed | Output routing — **upstream OpenAI frontend, not a vllm-ascend defect**: `reasoning_parser` defaults to `""`, so `--reasoning-parser <name>` (e.g. `qwen3`) is the whole gate; invariant to image tag and MTP | `references/accuracy-benchmarks/reasoning-output-routing.md` |
+| Report pastes only a response body: the CoT/thinking text sits in `content`, `message.reasoning` / `reasoning_content` never appears, `completion_tokens_details.reasoning_tokens` is `0`, thinking language mixed, or the complaint is only "回答中英混杂 / the answer is in English" while `content` reads `null` | Output routing — **upstream OpenAI frontend, not a vllm-ascend defect**: `reasoning_parser` defaults to `""`, so `--reasoning-parser <name>` (e.g. `qwen3`) is the whole gate; invariant to image tag and MTP | `references/accuracy-benchmarks/reasoning-output-routing.md` |
 | Host is **310P** (Atlas 300I Duo, `Ascend310P3`, image `-310P`), or the traceback sits on an `is_310p()` branch (NZ/`FRACTAL_NZ` format casts, no Ascend custom ops, `patch_mamba_config_310`) | SoC-conditional platform path: experimental per the pinned docs, NZ casts are real conversions, fp16/eager are mandatory | `references/soc-platform-paths/atlas-300i-310p.md` |
 | `EngineCore failed to start` whose deepest frame is `worker.py` → `check_ascend_device_type()` with **no** `Starting to load model` line: `AssertionError: Current device type: AscendDeviceType.A5 does not match the installed version's device type: AscendDeviceType.A2, please check your installation package.` (or `RuntimeError: Can not support soc_version: <n>`), typically on a 950PR/A5 host that installed a mirror wheel | SoC/package correspondence: the device type is **baked into the package at build time** (`_build_info.__device_type__` from `SOC_VERSION`), the release pipeline ships a2/a3/310p variants only while `Dockerfile.a5` exists in-tree, so an A5 host needs a source build on the node — and the guard must not be patched | `references/soc-platform-paths/device-type-build-vs-runtime.md` (two one-liners decide it) |
 | The report asks how to enable a feature rather than what broke: "如何正确开启 PCP/DCP", "F alone and G alone each报错，能否给个能跑通的示例", no log pasted, or two errors described in one sentence | Feature-enable / capability question: the validation verdict (docs statement at the pinned ref, whose hardware the measured table used, `tests/e2e/**` coverage, precedent versions) before any constraint list | `references/feature-enable-recipes/index.md`, then `context-parallel-pcp-dcp.md` |
@@ -373,6 +351,7 @@ delivery pattern is rule 1.
 | "服务崩溃" / 崩溃 under concurrency or high load with **no** error text, no traceback and no plog pasted, while single-request serving is correct (often DeepSeek-V3.2 + MTP + DP/EP) | Report-gap track: nothing in the paste can confirm a mechanism, so the answer is the config diff against the project's own validated command at the pinned commit plus 1-2 single-variable A/Bs | `references/dsa-sparse-attention/concurrency-crash-with-no-log.md`; `references/runtime-memory/index.md` for the OOM row |
 | "多并发时请求排队那么久" / "生成吞吐只有个位数" / `Prefix cache hit rate: 0.0%`, with a `loggers.py` metrics block, a healthy engine and no error text | Throughput/queueing on a healthy engine: TTFT is prefill work ÷ prefill throughput, the interference is `gen tok/s ÷ Running`, and the cache line is a capability switch before it is a tuning knob | `references/performance-throughput/index.md` (both pages in one turn when the paste carries both complaints — the arithmetic page first) |
 | A 19-token to few-hundred-token prompt on a hybrid GDN model (Qwen3-Next) answered as a digit run or a repeated phrase while ordinary chat is fine, `finish_reason: length`, no traceback | Hybrid linear-attention numeric path (accuracy track): the prefill GDN kernel is a downstream fp32 re-implementation while decode keeps a patched Triton kernel | `references/accuracy-benchmarks/qwen3-next-gdn-numeric-path.md` |
+| "去掉 `HCCL_OP_EXPANSION_MODE`(AIV) / `PYTORCH_NPU_ALLOC_CONF` 就能拉起", first in-window error `aclnnMoeDistributeDispatchV4` / `…CombineV4 … 107020`, `event wait timeout … task_timeout` | The env knob changed the **selected MoE path**, not the hardware: AIV × MC2 dispatch/combine is a defect family (#14928, #13688, #15195), rank arithmetic decides whether MC2 was eligible, and `expandable_segments` is innocent apart from the CaMem pool assert | `references/hccl-and-hardware/aiv-mc2-env-ablation.md` |
 | The reporter wants `--enable-expert-parallel` **and** `--data-parallel-size` > 1 together ("同时开启 EP + DP", "去掉 EP 或 DP 设成 1 就不报错"), or engine init dies at `vllm_ascend/ops/fused_moe/prepare_finalize.py` `dist.all_gather` behind `No available shared memory broadcast block found in 60 second(s)` on 910B | MoE communication-method selection, not a flag bug: A2 picks `MC2` only when `num_tokens <= mc2_tokens_capacity` **and** `world_size_across_dp/pp >= 16`, so DP2×TP8 = 16 is the boundary while DP=1 and EP-off fall to `ALLGATHER` by arithmetic; `PrepareAndFinalizeWithMC2` inherits the All2All `finalize`, so that all_gather **is** the MC2 path | `references/feature-enable-recipes/moe-expert-parallel-with-dp.md` |
 | Deepest `vllm_ascend` frame is in `vllm_ascend/patch/**` (`patch_model_runner.py`, `patch_core.py`, …) | Patch **copy**: each `patch/` module assigns a verbatim upstream method under a `vllm_version_is('<ver>')` gate, so the failing statement may be upstream text. Diff the copy against the pinned upstream definition before deriving anything | `references/upstream-downstream-drift/patch-copy-vs-upstream.md` (2-3 calls) |
 | `--async-scheduling` **and** `--speculative-config` with fractional `temperature` (`0` is fine): worker `KeyError: '<id>'` in `_update_states`, EngineCore `'NoneType' … sampled_token_ids`, APIServer `Counters can only be incremented by non-negative amounts`, same second, every DP rank | One provenance, three symptoms: a discarded request's valid count is 0 → `num_accepted = -1`, and `prev_req_id_to_index` omits exactly those requests; the unguarded lookup is upstream vLLM's, carried by the patch | `references/spec-decode-mtp/async-spec-bookkeeping-desync.md`; row 1 is `--async-scheduling` off |

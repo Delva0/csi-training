@@ -39,10 +39,14 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    defect (`kv-init-and-format-cast-alloc.md`).
 3. **Ask for two timestamped samples**, not one `npu-smi` dump: monotonic growth
    and a flat near-full pool look identical in a single sample.
-4. **Check flag liveness before attributing behaviour to a flag.** vllm-ascend
-   silently ignores unknown `--additional-config` keys, and graph/scheduler keys
+4. **Check flag liveness before attributing behaviour to a flag.** On pre-migration
+   refs vllm-ascend silently ignores unknown `--additional-config` keys (since the
+   `@config` migration a pydantic `ValidationError` rejects them before any worker:
+   `../startup-failures/additional-config-schema.md`), and graph/scheduler keys
    were removed or renamed across releases; `rg -n '<key>' vllm_ascend/` at the
-   pinned commit is one call and prevents a whole wrong hypothesis.
+   pinned commit is one call and prevents a whole wrong hypothesis. A multimodal
+   model's `--mm-processor-cache-gb` / `--disable-mm-preprocessor-cache` size a host
+   shm buffer, so their state says nothing about HBM (`hbm-growth-and-oom.md` 4b).
 5. Everything here is about the reporter's host: local `npu-smi` output is not
    evidence about their memory behaviour.
 

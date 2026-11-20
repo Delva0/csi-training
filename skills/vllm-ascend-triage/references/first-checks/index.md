@@ -32,7 +32,10 @@ gates; this topic keeps the per-track detail that used to sit beside them.
   offline source builds, upstream patch drift, PD transport, single-node
   KV-pool/MemCache faults, observability/flag questions, the spec-decode and
   tool-call rows, first-response, 310P, memory (allocation, growth, host RAM),
-  sizing, EP×DP, feature-enable, community-test, pooling/embedding (crash under
-  concurrency, wrong long-input vectors), accuracy and corruption,
-  `patch/**` frames, the async-spec `KeyError` set, the drafter-count copy dump,
-  mixed-batch attention crashes, and silent operator numerics.
+  sizing, EP×DP, feature-enable, code-change / flag-retirement, community-test,
+  pooling/embedding (crash under concurrency, wrong long-input vectors), accuracy
+  and corruption, `patch/**` frames, the async-spec `KeyError` set, the
+  drafter-count copy dump, mixed-batch attention crashes, and silent operator
+  numerics. It also carries the two startup one-liners that resolve without source
+  archaeology: the env-registry `Unknown vLLM environment variable detected`
+  warning and the DSA-CP `aclnn_input_scale` `AttributeError`.

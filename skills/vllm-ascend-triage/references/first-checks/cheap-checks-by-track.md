@@ -136,6 +136,15 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   override, and an endpoint that cannot log outputs at all. Grep the two
   warning strings, then answer; do not read `vllm/entrypoints/**` for an
   Ascend-specific cause.
+- A startup line `Unknown vLLM environment variable detected: VLLM_ASCEND_<NAME>`
+  with the engine otherwise healthy (reporters call it 误报): upstream's
+  `envs.validate_environ`, warn-only because `fail_on_environ_validation` defaults
+  `False`. The name really is in that process's environment, and vllm-ascend never
+  merges its own registry into upstream's, so any `VLLM_ASCEND_*` warns. One
+  `env | grep -i vllm_ascend`, one owner sentence (the merge belongs in
+  `AscendPlatform.pre_register_and_update`), and say that `collect_env.py` never
+  prints `VLLM_ASCEND_*` so its absence proves nothing
+  (`references/observability-and-logs/env-var-validation-warning.md`).
 - An endpoint that is missing rather than wrong (`POST /start_profile` →
   `404`, or a 500 `Profiling is not enabled`): a route-registration question
   in the serving process. Name `attach_router` (`path:line`) and its condition,
@@ -221,6 +230,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   made the attribution exact. The decisive check is an A/B on request concurrency
   (`--max-num-seqs 1` versus the failing value), not a plog
   (`references/dsa-sparse-attention/indexer-cache-scatter-fault.md`).
+- Engine-start `AttributeError: 'AscendRowParallelLinear' object has no attribute
+  'aclnn_input_scale'` (or `_reciprocal` / `_offset`) at `sfa_v1.py:707` ← `:544`,
+  with FLASHCOMM1 / legacy FLASHCOMM / shared-expert-DP on and a DSA model: the
+  DSA-CP o_proj TP/Full switch exists only for a W8A8-static o_proj, so the answer
+  is the quant method the checkpoint forces (FLASHCOMM1 off, or the tutorial's W8A8
+  weights), not an attention or install fault
+  (`references/dsa-sparse-attention/o-proj-quant-attribute-crash.md`).
 - Degenerate output (`</think>` in `content`, repetition collapse, 乱码) at long
   context **and** concurrency on a model the tree documents, with both `vllm serve`
   commands pasted: open `docs/source/tutorials/models/<model>.md` at the pinned
@@ -278,7 +294,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   the reporter's `world_size_across_dp` arithmetic and the two ablations
   (`references/feature-enable-recipes/moe-expert-parallel-with-dp.md`); say that
   MC2 shares the All2All `finalize`, so the pasted line is not proof MC2 was
-  skipped.
+  skipped. If instead the paste dies in `profile_run` with `507014` and the
+  `[AIC_INFO]` kernel is `MoeDistributeDispatchV2`, the batch is
+  `mc2_tokens_capacity` (an extra `_dummy_run` at
+  `model_runner_v1.py:2202-2208`), not `--max-num-batched-tokens` — take
+  `references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md`.
 - Feature-enable / capability question ("how do I correctly enable F on H", no
   log): answer in this order — the validation verdict at the pinned ref (docs
   sentence, the hardware the docs measured, `rg -l
@@ -288,6 +308,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `vllm_ascend/` for hard errors (`AssertionError`, `NotImplementedError`) versus
   silent overrides; do not read the kernel/code path beyond that
   (`references/feature-enable-recipes/index.md`).
+- Code-change / cleanup request (remove a `VLLM_ASCEND_*` switch before a
+  release, deprecate a flag, finish a "TODO before 0.x"): one `rg -n '<IDENT>'`
+  and one grep for the *mechanism* token at the pinned ref decide answerability —
+  absent means the snapshot predates the PR, which is the finding. Then the
+  touch-point sweep (definition dict + generated doc page + readers + tests/CI
+  env sets + release note), the default-flip note and the reachability check
+  (`references/code-change-requests/env-flag-retirement.md`, #1262). Do not open
+  the op's code path.
 - Community-test / doc-verification task: run the nine checks of
   `references/tutorial-verification/tutorial-command-audit.md` in order
   (flag existence at the pinned vllm, bench argument names, image WORKDIR vs

@@ -7,13 +7,13 @@ description: 'Triage vllm-ascend: deploy, HCCL/PD, hangs, OOM, accuracy'
 
 ## Problem class this covers
 
-Seven entry shapes, one deliverable: which component and line owns the symptom (or
+Eight entry shapes, one deliverable: which component and line owns the symptom (or
 which failure lane and phase), what the reported evidence proves and does not
 prove, ranked candidate causes each with the cheapest confirming check, and the
 concrete next step for the reporter. The last shapes deliver a *decision*
-(sizing), a *document review* or a *capability verdict* instead of a root cause,
-but the same rules apply — answer first, evidence pinned to the reported version,
-gaps stated.
+(sizing), a *document review*, a *capability verdict* or a *change plan* instead
+of a root cause, but the same rules apply — answer first, evidence pinned to the
+reported version, gaps stated.
 
 - **Issue report** (usually Chinese or English, template-shaped: environment dump
   + logs + narrative) about something that went wrong on an Ascend NPU host: a
@@ -68,6 +68,17 @@ gaps stated.
   longer parses, which path is absent from the image, which baseline predates the
   image, whether the stated card count matches the weights —
   `references/tutorial-verification/index.md`.
+- **Code-change / cleanup request**: the body asks for an *edit*, not a
+  diagnosis — "remove `VLLM_ASCEND_ENABLE_<X>` before <release> final release",
+  "delete the temporary switch added in PR #N", "deprecate this flag", often with
+  nothing but two links and no log. The first question is whether the named
+  identifier exists at the pinned ref; absence dates the snapshot against the PR
+  and is itself the finding, and the deliverable is the removal sweep with
+  `path:line` anchors plus the behaviour change a default flip implies —
+  `references/code-change-requests/index.md`, then `env-flag-retirement.md`.
+  The delivery gates apply to this shape too: with no crash to report, the
+  absence verdict goes in the first message (the recorded #1262 replay put its
+  first message text on its 15th turn).
 
 Recorded cases, per-issue index and how each session ended:
 `references/evidence-workspace/recorded-cases.md`; the load-bearing
@@ -221,7 +232,11 @@ delivery pattern is rule 1.
    lexical issue search cover only earlier issues; a current issue is never in
    them. Make one grep for the distinctive token (op name, error string, dataset
    name), read 2-3 hits, then stop: precedent supports a hypothesis, it does not
-   replace reading the source at the pinned commit. **Pick the bodies by whether
+   replace reading the source at the pinned commit. Reach for the `github` issue
+   search only when the corpus token has **no** hit: it returns whole issue bodies
+   paginated (one page measured 17 K characters with `display_complete: false` in
+   #9986, and the decisive precedent still came from `history-titles.sh`), so read
+   the first page and stop instead of paging. **Pick the bodies by whether
    the title names a mechanism, not by whether it repeats your symptom.** A title
    like "多卡ViT qkv部分权重为0导致精度异常" carries the file, the check and often the
    version flip ("rollback to 0.7.3rc2 works"); four titles that only say
@@ -323,7 +338,8 @@ delivery pattern is rule 1.
 | The report asks whether a plan fits rather than what broke: "can this model run on N cards", a multi-stage orchestrator (`--stage-id`, `--headless`, `platforms.<vendor>` yaml) that works on GPU, stages that must share a card, `CUDA_VISIBLE_DEVICES` in a command aimed at an NPU host | Deployment sizing / stage layout: memory arithmetic plus the device-visibility variable, not a fault | `references/deploy-sizing/index.md` |
 | `[Community Test]` / `[Doc]` / 资料验证 / 测试报告, or "the tutorial's command does not work as written" | Tutorial-document verification: grade the page against the pinned tree; the report is the deliverable | `references/tutorial-verification/index.md` |
 | `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
-| Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, Python `TypeError: … got an unexpected keyword argument` (the pydantic form is the schema row above), `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
+| Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class (a missing *quantization tensor* such as `aclnn_input_scale` is the DSA row below, not drift) — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, Python `TypeError: … got an unexpected keyword argument` (the pydantic form is the schema row above), `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
+| `AttributeError: 'AscendRowParallelLinear' object has no attribute 'aclnn_input_scale'` (or `aclnn_input_scale_reciprocal` / `aclnn_input_offset`), deepest frame `vllm_ascend/attention/sfa_v1.py:707` in `_init_o_proj_tp_full_params` reached from `:544` in `process_weights_after_loading`, on a DSA model (GLM-5/5.1, DeepSeek-V3.2 — `index_topk` in `hf_text_config`) with `VLLM_ASCEND_ENABLE_FLASHCOMM1` / `VLLM_ASCEND_ENABLE_FLASHCOMM` / shared-expert-DP on, and a **W4A8 or BF16** checkpoint | DSA-CP o_proj TP/Full weight switching exists only for a W8A8-static o_proj: the three tensors are created by the static-w8a8 method alone, so this is an unsupported feature×quant combination, not install or patch drift — FLASHCOMM1 off, or the tutorial's W8A8 weights | `references/dsa-sparse-attention/o-proj-quant-attribute-crash.md` |
 | The same `AttributeError` raised **inside an upstream vllm file** on a class vllm-ascend is meant to replace — `'ZeroExpertFusedMoE' object has no attribute 'select_experts'` — or the reporter asks "did it ever reach vllm-ascend's ops?" | Downstream registry drift: the Ascend replacement is keyed by class *name* (`CustomOp.register_oot`), so an upstream refactor that adds a class silently keeps upstream code | `references/upstream-downstream-drift/oot-class-registration-drift.md` |
 | An `AttributeError` inside an upstream vllm file whose message contradicts the code — `'<QuantMethod>' object has no attribute '<property>'. Did you mean: '<similarly named method>'?` — reached from an upstream model's `forward` at startup (`profile_run`), where the property exists and calling it directly gives `'NoneType' object has no attribute '<property>'` | Downstream patch **incomplete**, not absent: a factory/property rebound only in its defining modules while the model module cached the old binding at import. Compare the three attributes, do not read more of the model | `references/upstream-downstream-drift/stale-module-binding.md` |
 | A bare `TimeoutError` — `RPC call to execute_model timed out.`, or frames in `multiproc_executor.py` (`collective_rpc` / `get_response`) and `shm_broadcast.py` (`acquire_read` / `acquire_write` / `recv`) — reported as "多进程卡间通讯超时", with no rank prefix and no error code | vLLM's own RPC watchdog (`VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS`, 300 s), not an HCCL/NIC timeout: one worker stopped answering, and the paste does not contain its fault | `references/hccl-and-hardware/rpc-watchdog-timeouts.md` (one call: `scripts/executor-timeout-check.sh`) |
@@ -360,6 +376,7 @@ delivery pattern is rule 1.
 | `POST /start_profile` (or `/stop_profile`) returns `404 Not Found` although the server was started with `--profiler-config '{...}'`; or the same route answers 500 naming `Profiling is not enabled` | Observability/route registration: the endpoint is attached by upstream `serve/profile/api_router.py` `attach_router` only when the serving process's `args.profiler_config.profiler` is set — not a model/device question, and a down-stream worker miss is a 500, never a 404 | `references/observability-and-logs/online-profiling-endpoints.md` (one `openapi.json` request) |
 | `RuntimeError: Already borrowed` raised inside a HuggingFace fast tokenizer (`set_truncation_and_padding` → `self._tokenizer.no_truncation()`), typically under `_preprocess_chat` while a tool parser's `__init__` encodes its special tokens, wrapped by `serving.py … Error in preprocessing prompt inputs`; more generally any traceback whose frames are only `vllm/**` + `site-packages/**` with no `vllm_ascend` frame and no device text | Upstream serving-frontend / Python-dependency fault, not the NPU stack: one tokenizer object driven from the event loop and from a worker thread, and vLLM's own retry for this exception covers only the multimodal processor. Mechanism source-verified at vllm v0.16.0; the trigger (client concurrency) is unverified and the serial rerun settles it | `references/serving-frontend-faults/index.md`, then `tokenizer-already-borrowed.md` |
 | Report is about log text rather than a crash: `--enable-log-requests` / `--enable-log-outputs` set but no prompt or generation printed, `VLLM_LOGGING_LEVEL=DEBUG` seemingly ignored, `--max-log-len`, a stage of the startup log missing, or a proxy that swallows output | Observability/flag question — **upstream frontend config, not a vllm-ascend defect**; answer with a gate checklist and two greps, cap it at ~4 tool calls | `references/observability-and-logs/index.md`, then `request-output-logging-flags.md` |
+| Startup `WARNING … [envs.py:1717] Unknown vLLM environment variable detected: VLLM_ASCEND_<NAME>` (one line per variable, engine then starts; reporter calls it 误报 and says the export is commented out) | Upstream env-registry check, **warn-only** and cosmetic: vllm-ascend keeps its own `vllm_ascend/envs.py` registry and never merges it into `vllm.envs.environment_variables`, so any `VLLM_ASCEND_*` in that process's environment warns. Owner is the missing merge in `AscendPlatform.pre_register_and_update`, not FlashComm or the card — one `env \| grep -i vllm_ascend` | `references/observability-and-logs/env-var-validation-warning.md` |
 | A **tool call** is the symptom, not the prose: `JSON Parse error: Unterminated string` / `Expecting ',' delimiter` / `Unterminated string starting at: line 1 column N` while the client assembles `tool_calls[0].function.arguments`, arguments reported truncated / 格式错误 / 重复输出, or `stream: true` returns only CoT and no `tool_calls`; often with `--speculative-config '{"num_speculative_tokens": 3, ...}'` where 1 正常, or with `--async-scheduling` | Tool-call output integrity: upstream vLLM's delta assembly vs the vllm-ascend sampler vs the model stopping early — decided by concatenating the argument fragments, then by one `return_token_ids: true` request, not by reading a parser or a kernel | `references/tool-call-streaming/index.md`, then `streamed-arguments-audit.md` (one call: `scripts/sse-toolcall-audit.sh <raw-sse>`) |
 | A constant in the code equals the number in the report — `num_speculative_tokens: 3` fails while `1` (and `2`) work — and the wrong output is exact-form: tool-call JSON, ids, code | Named code branch, not an investigation: `using_block_verify = max_spec_len >= 3` is the only spec-decode branch keyed on that value, **but newer refs also require `rejection_sampler_config.enable_block_verify`, default `False` (v0.23.0rc1) — read the line first**; then state it with its two ablations (`n=2`, `temperature: 0`) before its kernel is read | `references/tool-call-streaming/mtp-block-verify-acceptance.md` |
 | Report pastes only a response body: the CoT/thinking text sits in `content`, `message.reasoning` / `reasoning_content` never appears, `completion_tokens_details.reasoning_tokens` is `0`, thinking language mixed, or the complaint is only "回答中英混杂 / the answer is in English" while `content` reads `null` | Output routing — **upstream OpenAI frontend, not a vllm-ascend defect**: `reasoning_parser` defaults to `""`, so `--reasoning-parser <name>` (e.g. `qwen3`) is the whole gate; invariant to image tag and MTP | `references/accuracy-benchmarks/reasoning-output-routing.md` |
@@ -373,6 +390,8 @@ delivery pattern is rule 1.
 | A 19-token to few-hundred-token prompt on a hybrid GDN model (Qwen3-Next) answered as a digit run or a repeated phrase while ordinary chat is fine, `finish_reason: length`, no traceback | Hybrid linear-attention numeric path (accuracy track): the prefill GDN kernel is a downstream fp32 re-implementation while decode keeps a patched Triton kernel | `references/accuracy-benchmarks/qwen3-next-gdn-numeric-path.md` |
 | "去掉 `HCCL_OP_EXPANSION_MODE`(AIV) / `PYTORCH_NPU_ALLOC_CONF` 就能拉起", first in-window error `aclnnMoeDistributeDispatchV4` / `…CombineV4 … 107020`, `event wait timeout … task_timeout` | The env knob changed the **selected MoE path**, not the hardware: AIV × MC2 dispatch/combine is a defect family (#14928, #13688, #15195), rank arithmetic decides whether MC2 was eligible, and `expandable_segments` is innocent apart from the CaMem pool assert | `references/hccl-and-hardware/aiv-mc2-env-ablation.md` |
 | The reporter wants `--enable-expert-parallel` **and** `--data-parallel-size` > 1 together ("同时开启 EP + DP", "去掉 EP 或 DP 设成 1 就不报错"), or engine init dies at `vllm_ascend/ops/fused_moe/prepare_finalize.py` `dist.all_gather` behind `No available shared memory broadcast block found in 60 second(s)` on 910B | MoE communication-method selection, not a flag bug: A2 picks `MC2` only when `num_tokens <= mc2_tokens_capacity` **and** `world_size_across_dp/pp >= 16`, so DP2×TP8 = 16 is the boundary while DP=1 and EP-off fall to `ALLGATHER` by arithmetic; `PrepareAndFinalizeWithMC2` inherits the All2All `finalize`, so that all_gather **is** the MC2 path | `references/feature-enable-recipes/moe-expert-parallel-with-dp.md` |
+| Startup dies in `profile_run` / `determine_available_memory` with `507014` "The aicore execution times out", deepest Python frame `aclnnInplaceCopy` or an `ERR02005` HCCL-watchdog abort, repeated `No available shared memory broadcast block found in 60 seconds`, and the `[AIC_INFO]` line names a MoE all-to-all (`fault kernel_name=MoeDistributeDispatchV2_…`) | The profiling batch is `mc2_tokens_capacity`, not `--max-num-batched-tokens`: `profile_run` runs an extra capacity-sized dummy batch when EP is on, `world_size_across_dp/pp >= 16` and capacity < max tokens, so the first collective of the process is an MC2 dispatch. The `HCCL_INTRA_PCIE_ENABLE=1/ROCE=0` pair behind the hierarchical variant is the *documented* A2 setting | `references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md` |
+| The body asks for a source change with no symptom — "Remove `<ENV_VAR>` before the final release", "delete the switch added in PR #N", "deprecate this flag", usually only PR/review-comment links, no env dump and no log | Code-change / flag-retirement request: grep the identifier at the pinned ref first; absence means the snapshot predates the PR and the answer is the removal sweep plus the default-flip note | `references/code-change-requests/index.md`, then `env-flag-retirement.md` |
 | Deepest `vllm_ascend` frame is in `vllm_ascend/patch/**` (`patch_model_runner.py`, `patch_core.py`, …) | Patch **copy**: each `patch/` module assigns a verbatim upstream method under a `vllm_version_is('<ver>')` gate, so the failing statement may be upstream text. Diff the copy against the pinned upstream definition before deriving anything | `references/upstream-downstream-drift/patch-copy-vs-upstream.md` (2-3 calls) |
 | `--async-scheduling` **and** `--speculative-config` with fractional `temperature` (`0` is fine): worker `KeyError: '<id>'` in `_update_states`, EngineCore `'NoneType' … sampled_token_ids`, APIServer `Counters can only be incremented by non-negative amounts`, same second, every DP rank | One provenance, three symptoms: a discarded request's valid count is 0 → `num_accepted = -1`, and `prev_req_id_to_index` omits exactly those requests; the unguarded lookup is upstream vLLM's, carried by the patch | `references/spec-decode-mtp/async-spec-bookkeeping-desync.md`; row 1 is `--async-scheduling` off |
 | Deepest `vllm_ascend` frame is `counts_cpu[: counts.shape[0]].copy_(counts, non_blocking=True)` in `_copy_valid_sampled_token_count` (`model_runner_v1.py:1393`), batched with `Execution_Error_SDMA` / `rtMemcpyAsyncEx … reason=the model stream execute failed`, an `aivec … timeout or trap error` and an HCCL `AllGather`/`AllReduce` line carrying `rankSize` / `numBlocks`; DP or PD deployment, under concurrency | Device fault surfacing at the drafter's valid-count D2H copy (Lane C sync point) — and the frame is also free evidence: it only runs with `--async-scheduling` **and** spec decode **and** the padded drafter batch, so the paste proves the launch shape. Resolve the collective by rank size against the DP×PCP×TP group arithmetic (a 2-rank group is not `fc3_quant_x` on DP2×TP4), then `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` for attribution | `references/spec-decode-mtp/drafter-count-copy-device-fault.md` |
@@ -392,7 +411,11 @@ delivery pattern is rule 1.
    looking, do not assume.
 2. Read the pasted log and place it in a track/lane. Note what is *missing* (no
    worker prefixes, no `Starting to load model`, no version block) — reporters
-   paste filtered logs, and missing lines are a data gap.
+   paste filtered logs, and missing lines are a data gap. When the body carries no
+   log at all but references an image, the OCR text under
+   `/workspace/attachments/<issue>/` **is** the paste: read `ATTACHMENTS.txt` then
+   the `.ocr.txt` (a few hundred bytes) before theorising
+   (`references/evidence-workspace/index.md`).
 3. Take the track's cheap checks before source archaeology:
    - Lane A/B: effective `max_model_len`, then the diff between the reporter's
      command/env and the matching tutorial or CI test
@@ -663,6 +686,11 @@ delivery pattern is rule 1.
   diff against `tests/e2e/**` and the tutorial, the phase-blind
   `MLAPO_MAX_SUPPORTED_TOKENS = 1024` gate, the maintainer-filed #4996 family and the
   `--max-num-seqs 1` + MTP arithmetic (#6240).
+  `o-proj-quant-attribute-crash.md`: engine start dies on `aclnn_input_scale` /
+  `_reciprocal` / `_offset` at `sfa_v1.py:707` with FLASHCOMM1, legacy FLASHCOMM or
+  shared-expert-DP on — DSA-CP's o_proj TP/Full weight switch exists only for a
+  W8A8-static o_proj, so W4A8/BF16 is an unsupported combination, not a card or
+  install fault (#7937, #9984).
 - `references/hccl-and-hardware/index.md` — HCCL, ACL/PTA and NPU device faults
   (lane C): the error-report timestamp gate first (`error-report-timestamps.md`,
   #9183), then `collective-error-chain.md`, then `device-health-checks.md` (the
@@ -672,6 +700,20 @@ delivery pattern is rule 1.
   `control-plane-port-binding.md`: `Communication_Error_Bind_IP_Port (EI0019)` /
   `port <n> have already been bound` above 65535 — HCCL's control-plane band, a
   finding only in-window (#12487).
+  `mc2-dispatch-profile-run-hang.md`: a `507014` aicore timeout inside
+  `profile_run` whose fault kernel is `MoeDistributeDispatchV2` — the extra
+  capacity-sized `_dummy_run`, the `global_bs` arithmetic, the
+  `HCCL_INTRA_*` → hierarchical-dispatch gate that is the *recommended* A2
+  setting, and the ladder (#5509).
+- `references/code-change-requests/index.md` — the issue asks for a source change
+  rather than a diagnosis (remove a `VLLM_ASCEND_*` switch before a release,
+  deprecate a flag, finish a "TODO before 0.9.x"). Decide answerability first:
+  does the identifier exist at the pinned ref? `env-flag-retirement.md` carries
+  the touch-point table verified at v0.9.0rc2 (`envs.py:27/29/138` dict +
+  `__getattr__` at `:141`; the doc page is a `literalinclude` of that block, so
+  deleting the entry deletes the row; tests/CI `@patch.dict` sites; the release
+  note), the default-flip warning, the `forward_oot` reachability check, and the
+  "no test coverage → manual run" statement (#1262).
 - `references/runtime-memory/index.md` — memory, both phases: healthy service that
   later died on HBM ("显存不释放", `NPU out of memory`), or an allocation that failed
   during KV-cache/weight placement. The capacity/growth/dead-key split, the
@@ -705,6 +747,10 @@ delivery pattern is rule 1.
   only when the serving process's `args.profiler_config.profiler` is set
   (`serve/profile/api_router.py` `attach_router`), so the answer is that gate plus
   one `openapi.json` request; a worker-side miss is a 500, never a 404 (#9583).
+  `env-var-validation-warning.md`: the startup `Unknown vLLM environment variable
+  detected: VLLM_ASCEND_*` line — upstream `envs.validate_environ`, warn-only,
+  because vllm-ascend's private registry is never merged into
+  `vllm.envs.environment_variables` (#9986).
 - `references/serving-frontend-faults/index.md` — a Python exception that
   surfaces in the OpenAI server process while the report is filed as an Ascend
   problem, and whose traceback has **no** `vllm_ascend` frame: the owner is

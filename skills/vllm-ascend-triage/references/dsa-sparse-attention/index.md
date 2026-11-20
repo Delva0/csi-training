@@ -7,13 +7,19 @@ Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deeps
 - a device fault whose Python frame is `indexer_select` / `_sfa_preprocess` and whose
   dump names a scatter/gather kernel — `indexer-cache-scatter-fault.md`;
 - "服务崩溃 / 崩溃" under concurrency or high load **with no error text pasted** —
-  `concurrency-crash-with-no-log.md`.
+  `concurrency-crash-with-no-log.md`;
+- an engine-start `AttributeError` on `aclnn_input_scale` / `aclnn_input_scale_reciprocal`
+  / `aclnn_input_offset` at `sfa_v1.py:707` (`_init_o_proj_tp_full_params`) with
+  FLASHCOMM1 or shared-expert-DP on and a W4A8/BF16 checkpoint —
+  `o-proj-quant-attribute-crash.md`.
 
 Not this topic: startup failures before the engine is ready (see
 `../startup-failures/index.md`), generic collective/HCCL faults
 (`../hccl-and-hardware/index.md`), and a silent numerical gap with no fault
 (`../accuracy-benchmarks/index.md`). PCP/DCP enabling for the same model is
-`../feature-enable-recipes/context-parallel-pcp-dcp.md`.
+`../feature-enable-recipes/context-parallel-pcp-dcp.md`; FLASHCOMM1 on a DSA model
+is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
+`o-proj-quant-attribute-crash.md`.
 
 ## Rules
 
@@ -34,6 +40,14 @@ Not this topic: startup failures before the engine is ready (see
 - **`--enforce-eager` plus `ASCEND_LAUNCH_BLOCKING=1` strengthens attribution but
   does not move ownership.** Both were already set in the #4296 deployment and the
   answer was still a host-side slicing bug at the caller.
+- **DSA-CP is gated on the model, not on the flag.** `enable_dsa_cp()` is
+  `index_topk in hf_text_config` × `enable_sp()` (FLASHCOMM1, legacy FLASHCOMM, or
+  shared-expert-DP forcing it), and on this branch `process_weights_after_loading`
+  switches `o_proj` between TP and full weights. That switch assumes a W8A8-static
+  o_proj, so a FLASHCOMM1 report on this family can be a quantization-combination
+  failure at weight load rather than an attention or HCCL problem — read the
+  traceback's `sfa_v1` frame before any attention theory
+  (`o-proj-quant-attribute-crash.md`).
 - **A model-family concurrency crash without a paste is a config-diff answer,** not
   a mechanism hunt: deliver the differences against the project's own validated
   command at the pinned commit, the 1-2 cheapest A/Bs, and the known-family list,

@@ -53,6 +53,23 @@ DEBUG line at `:1431` that names the mode: `num_tokens: N, moe_comm_type: …`,
 logged on the global first rank only. Ask for that line instead of inferring the
 mode.
 
+### Version drift to re-grep first (verified at v0.13.0rc1 `1b5d5ab`)
+
+- The selector moved out of the runner into the module function
+  `select_moe_comm_method` (`vllm_ascend/ascend_forward_context.py:196-265`);
+  `set_mc2_tokens_capacity` now sits beside it (`:160-173`). Grep the name, not the
+  old file.
+- The A2 row lost its `ALLTOALL` branch: at this ref it is `MC2` when
+  `num_tokens <= capacity` **and** `world_size_across_dp / pp >= 16`, otherwise
+  `ALLGATHER` — so "w4a8_dynamic goes ALLTOALL on A2" is a v0.12 statement only.
+- `profile_run` now runs an **extra capacity-sized dummy batch** before the real
+  profile run when `max_num_tokens > capacity` and the capacity-point selection
+  is `MC2`/`FUSED_MC2` (`worker/model_runner_v1.py:2202-2208`). A startup
+  traceback naming `npu_moe_distribute_dispatch_v2` is therefore the profiling
+  batch at `capacity` tokens, not `--max-num-batched-tokens`; see
+  `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` for that fault lane and
+  for the `HCCL_INTRA_*` → hierarchical-dispatch variant.
+
 ## Step 2 — the capacity number is derived, so compute it
 
 `vllm_ascend/ascend_forward_context.py:169-183` (`set_mc2_tokens_capacity`, called

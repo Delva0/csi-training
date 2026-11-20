@@ -3,8 +3,10 @@
 Scope: the report is about what the server prints rather than about a crash — a
 logging/verbosity flag that appears to do nothing (`--enable-log-requests`,
 `--enable-log-outputs`, `VLLM_LOGGING_LEVEL=DEBUG`, `--max-log-len`), a stage of
-the startup log the reporter expected and cannot find, or a proxy/frontend in
-front of the engine that swallows output. Also the inverse question: which log
+the startup log the reporter expected and cannot find, a proxy/frontend in
+front of the engine that swallows output, or a startup `WARNING … [envs.py:1717]
+Unknown vLLM environment variable detected: VLLM_ASCEND_<NAME>` for a variable the
+reporter says they never exported. Also the inverse question: which log
 line proves which phase actually ran, and the same question one level down for a
 *route*: `/start_profile` / `/stop_profile` (or any router-attached endpoint)
 answering 404/500 although the reporter configured it.
@@ -43,6 +45,17 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    `EngineCore`) than the one they piped. Those five are the ranked answer.
 4. **A log line the report quotes can be fixed wrapper text** (SKILL.md rule 11):
    before accepting a sentence as the cause, grep its emitting site.
+5. **A warning that names its own variable is a registry fact, not a mechanism
+   hunt.** `Unknown vLLM environment variable detected: VLLM_ASCEND_…` is upstream
+   `envs.validate_environ` (warn-only: `fail_on_environ_validation` defaults
+   `False`) firing because vllm-ascend keeps a private registry it never merges
+   into `vllm.envs.environment_variables`. Three or four calls: name the emitter
+   and the process prefix, give `env | grep -i vllm_ascend` (or
+   `/proc/<pid>/environ`), and split the answer into "benign for you" plus "the
+   merge belongs in `AscendPlatform.pre_register_and_update`". Do not accept "it is
+   not in my `collect_env.py`" as proof it is unset: `collect_env.py:304-316`
+   prints only upstream-registered names plus the `TORCH`/`PYTORCH`/`ASCEND_`/`ATB_`
+   prefixes.
 
 Conditional routes:
 
@@ -50,6 +63,9 @@ Conditional routes:
   given endpoint logs outputs at all, and how to prove which
   `chat_completion_*_generator` is live in the installed tree →
   `request-output-logging-flags.md`.
+- `Unknown vLLM environment variable detected: VLLM_ASCEND_*` — why it fires, which
+  process printed it, why `collect_env.py` never shows the variable, and where the
+  downstream fix belongs: `env-var-validation-warning.md`.
 - An endpoint that is simply *not there* — `POST /start_profile` /
   `/stop_profile` → `404 Not Found` after `--profiler-config '{…}'`, or a 500
   naming `Profiling is not enabled` — a route-registration question in the

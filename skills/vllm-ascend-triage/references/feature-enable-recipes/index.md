@@ -1,0 +1,77 @@
+# Feature-enable / capability questions
+
+Scope: the report asks *how to turn a feature on* instead of what broke —
+"v<ver> 上如何正确开启 F", "单独 PCP 和 DCP 均有不同的报错，能不能给出示例", "does
+vllm-ascend <ver> support F for model M on this SoC". The reporter often pastes no
+log at all, or describes two different errors in one sentence. Deliver a verdict
+plus a recipe, not a source walk. Not this topic: a model type Transformers does
+not recognise (`../startup-failures/model-type-not-recognized.md`), a capacity plan
+(`../deploy-sizing/index.md`), a document audit
+(`../tutorial-verification/index.md`), or corruption *after* the feature is on
+(`../accuracy-benchmarks/garbled-long-context-output.md`).
+
+Inherit the rules in SKILL.md. Three parts, in this order; part 1 is the answer.
+
+1. **The validation verdict in the first sentence.** Is F×M×H validated at the
+   reported ref — yes / no / partially, with the evidence class: documented as
+   supported, measured on this hardware, covered by an e2e test, or only shown to
+   work in a precedent issue at another version. "Nobody has a validated recipe
+   for this combination" is a complete answer and the one the reporter is really
+   asking for; a launcher script synthesized from the constraints the code
+   enforces is not, and it invites the follow-up "has anyone ever actually run
+   this?" (recorded #8984: the answer ranked config causes, the reporter's next
+   public comment was exactly that question).
+2. **Each enforced constraint with the error text it produces**, so the reporter
+   maps their own two errors onto the list instead of testing the recipe blind.
+   Prefer constraints the code enforces (`rg -n` the flag in `vllm_ascend/`) over
+   doc prose, and say which are hard errors (an `AssertionError`, a
+   `NotImplementedError`) versus a silent override.
+3. **The staged experiment** — one feature axis at a time, cheapest first, each
+   step with what to send back when it fails.
+
+Establishing the verdict takes four reads, all cheap and none of them a source
+walk:
+
+- **The docs' own support statement, at the pinned ref.** Grep the exact sentence
+  (`rg -n "only supported on Atlas|experimental|not supported" docs/`) — a
+  statement in the pinned tree is the project's position *for that version*, so
+  do not overturn it with an older issue; quote it and date it.
+- **Whose hardware the docs measured.** A "Supported Scenarios" table is a claim;
+  the experimental-results table below it names the cards actually measured. "All
+  numbers are A3 64-card" means A2 support is untested, not rejected.
+- **The e2e/test tree, which is the strongest validation signal.** `tests/e2e/**`
+  and `tests/e2e/nightly/**/config/*.yaml` carry the model, the parallel flags and
+  (in the nightly yaml) `npu_per_node`/`num_nodes`, which size the SoC. Grep the
+  flag names, not the feature name: `rg -l
+  "prefill_context_parallel_size|prefill-context-parallel-size" tests/`. A feature
+  with unit tests only, or whose e2e case uses a different model family and a 1K
+  context, is not validated for the reporter's model.
+- **Precedent issues, each with its version and its exact failure point.** A
+  precedent showing a partial run ("works to N tokens, then dies") proves the
+  feature comes up on that hardware at that version — it does not make it
+  supported, and it does not transfer to another weight set (QuaRot/MTP variants
+  included).
+
+Rules for this topic:
+
+1. Name the hardware from the report, never from local state: `A2` = 910B
+   (8-card node), `A3` = 910_93 (16-die node). A nightly yaml's `npu_per_node: 16`
+   is A3, so its pass says nothing about A2.
+2. A code comment is not a launch prohibition. Before repeating "turn X off when
+   F is on", check whether the comment describes a branch the code already takes
+   (that is what `sfa_cp.py`'s "pcp prefill does not support mlapo" is) and
+   whether the pinned feature table claims support for the pair.
+3. Give the reporter the smallest discriminating run, not the full production
+   command: one axis per launch, short input, `--enforce-eager` first, then graph
+   mode, then speculative decoding.
+4. Cap it: verdict + constraints + staged run is the deliverable inside 3 turns;
+   the recorded #8984 run spent 19 turns and 15.6K of a 16.4K completion budget
+   and still left the capability question open.
+
+Pages:
+
+- `context-parallel-pcp-dcp.md` — PCP/DCP (context parallel), worked for #8984
+  (DeepSeek-V3.2 QuaRot on A2, v0.19.1rc1): card arithmetic, the DCP divisibility
+  and `cp_kv_cache_interleave_size` gates, the `VLLM_ASCEND_ENABLE_CONTEXT_PARALLEL`
+  requirement of the MoE path, what the pinned tree actually validates for A2, and
+  the PCP-defect precedent family (#8578/#8579/#8580/#7375).

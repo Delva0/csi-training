@@ -29,6 +29,8 @@ a delivered answer is ~4K of them.
 | #6800 | 10305 | 10 turns / 17 tool calls | 19.4K | 4.6K | complete answer, correct owner; the whole cost was repo grepping that the quantization-gate route now replaces |
 | #1865 | 14400 | 14 turns / 18 tool calls | 31.3K (largest blocks 6.7K, 6.1K) | 5.6K | complete ranked answer, delivered on the last turn — the last block was a 6.7K pre-write plan |
 | #253 | 16384 (cap) | 12 turns / 20 tool calls | 47.6K (largest blocks 13.5K, 5.8K, 5.5K, 5.4K, 5.2K) | 72 | **no answer at all**; the mechanism was fully verified by turn 9 and the remaining three turns only re-confirmed it |
+| #9583 | 16384 (cap) | 20 turns / 30 tool calls | 47.6K (largest blocks 6.2K, 6.0K, 5.5K, 4.7K, 4.6K) | 69 | **no answer at all** (the 69 characters are an "I'll start by loading the relevant skill…" line); the cap hit on a 2.6K plan block, with the route gate and the decisive `openapi.json` request both in hand since turn 5 |
+| #12253 | 15164 | 14 turns / 16 tool calls | 38.0K (largest blocks 6.6K, 6.4K, 5.1K) | 5.3K | complete ranked answer delivered on the last turn; `findings.md` was written one turn earlier, so the answer survived the cap |
 
 `#2586` and `#13699` are the calibration rows for this batch: both answered well
 inside the cap because the ranked shape was written at the 8th-13th turn, and
@@ -66,6 +68,22 @@ turn — it was a **13.5K-character mid-run re-derivation**, and the answer neve
 started. Rule for that shape: once the chain closes on `path:line` matches from the
 reporter's own traceback, write the answer in that same turn and let any remaining
 doubt appear in the answer's open-questions block.
+
+`#9583` and `#12253` are the latest pair, and they split the same way as
+`#10985` / `#4812`. `#9583` is the third member of the "no answer at all" family
+and the second inside the observability topic: a `404` on `/start_profile`, i.e.
+a route that is registered iff one config field is set. Its answer was three lines
+(gate, one `curl`, ranked ways the flag can miss the process) and was available by
+the 5th turn; the run instead spent eleven turns deciding whether the CLI leaves
+`args.profiler_config` as a dict — a question one `sed -n '247,300p'` on
+`vllm/engine/arg_utils.py` settles. Two lessons: for "an endpoint/flag did
+nothing", the ownership sentence plus the gate checklist is the answer, and any
+"how does argparse turn this into an object" question is a single read of
+`_compute_kwargs`, not a chain of hypotheses. `#12253` is the positive row: 14
+turns, findings written at turn 13, 5.3K answer on the last turn — the
+`findings.md`-at-G2 habit working — with the remaining defect in *evidence
+ordering* (it led with a mechanism the pinned code does not establish instead of
+the shipped support matrix).
 
 `#9183` and `#6800` then constrain the lesson from the other side. Both delivered
 inside the cap (13.2K and 10.3K completion tokens, answer written by the 10th

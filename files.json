@@ -2,8 +2,14 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "511c1fc678f5ae8aeed1e90b180c3a6caec02cd0d55531500a48df6ba21f0847",
-    "size": 65051
+    "sha256": "eb460fd696b677e2d1b5a4dc1cbb53b4c245a1def90b9838ff8ba22c1a053e70",
+    "size": 74435
+  },
+  {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/early-eos-short-output.md",
+    "mode": "100644",
+    "sha256": "fd06375da0405c9f6bed3190a16df0858cdf02371f9fe3b527788c707c078ab1",
+    "size": 8688
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/garbled-long-context-output.md",
@@ -20,8 +26,8 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/index.md",
     "mode": "100644",
-    "sha256": "cc462ec148186685ccf786b5b789d6f68cdd16eae22aa60cb54fce39e21d6d4f",
-    "size": 5368
+    "sha256": "eeeaff8fb506bb90e2737bed30c062684585f1e97f268b3430d9d453e324979b",
+    "size": 5994
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/quantized-checkpoint-conversion.md",
@@ -98,8 +104,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/delivery-budget.md",
     "mode": "100644",
-    "sha256": "eb38368ca1f4a870cd24db3b150e1d23a498178bbf3630a29adab581f89a3b3d",
-    "size": 11552
+    "sha256": "ef9b0b185eb94944ce97162fb210c71d301ee4cd294d948919f0c616b9eb62d3",
+    "size": 13233
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
@@ -108,10 +114,28 @@
     "size": 4374
   },
   {
+    "path": "vllm-ascend-triage/references/feature-enable-recipes/context-parallel-pcp-dcp.md",
+    "mode": "100644",
+    "sha256": "c0f0f32fef197bc6cb85e5e950d22dccfdea6c3b09d654755cb6ae3d8caf24dc",
+    "size": 7533
+  },
+  {
+    "path": "vllm-ascend-triage/references/feature-enable-recipes/index.md",
+    "mode": "100644",
+    "sha256": "a975a19bfd66552ebd2a7ce5fc48b2cc55f9be8503764ec2a15e88cab9765e81",
+    "size": 4790
+  },
+  {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/collective-error-chain.md",
     "mode": "100644",
     "sha256": "458e5b7e510863a0bc4f575a9792c94579af60c41e1bf6586e59b7cb7482cd5c",
     "size": 9016
+  },
+  {
+    "path": "vllm-ascend-triage/references/hccl-and-hardware/control-plane-port-binding.md",
+    "mode": "100644",
+    "sha256": "3a7be2f0f0d97561f002c9c9c2b967a874ed0437d418ecaae76ffc1fdfd44453",
+    "size": 3474
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/device-health-checks.md",
@@ -128,8 +152,8 @@
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/index.md",
     "mode": "100644",
-    "sha256": "b29c83612eb2e617cc19a2f77ea8083c7ccd1e1ba1f1f0db5422c53aa9630738",
-    "size": 6467
+    "sha256": "6cc8df3b6323b52826575721e3c60e6f4ca8a6a55041fb24fcba3f211b6b745b",
+    "size": 7372
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/rpc-watchdog-timeouts.md",
@@ -152,8 +176,14 @@
   {
     "path": "vllm-ascend-triage/references/observability-and-logs/index.md",
     "mode": "100644",
-    "sha256": "755b9c7d4be703a8818a6e1812b411f0a556f710df75e8c62767b4bfb2b8da87",
-    "size": 3234
+    "sha256": "714a0c9d6e460e4e4631c0791e4fafa3eaaf7e4cf549f3bd5df5fbaf6259d1f7",
+    "size": 4110
+  },
+  {
+    "path": "vllm-ascend-triage/references/observability-and-logs/online-profiling-endpoints.md",
+    "mode": "100644",
+    "sha256": "cdd7a07dac98f4f795ac46bf282c3bc7aa437f1e64468d2e232c9ca3c002d24c",
+    "size": 8343
   },
   {
     "path": "vllm-ascend-triage/references/observability-and-logs/request-output-logging-flags.md",

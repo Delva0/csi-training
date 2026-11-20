@@ -21,6 +21,19 @@ artefacts to request. One call decides it:
 `bash <skill_root>/scripts/executor-timeout-check.sh <paste|->`. Recorded #1865 was
 titled 卡间通讯超时 ("inter-card communication timeout") for exactly this text.
 
+**Then separate a bind/port line from the incident.** If the title or the paste
+carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
+bound`, check the record's date first (rule 13) and the number second: a port above
+65535 cannot be an OS socket at all, so the "already been bound" reason is HCCL's
+own control-plane arithmetic — base `HOST_CONTROL_BASE_PORT = 60000`,
+`HCCL_IF_BASE_PORT` accepted `[1024, 65520]`
+(`cann/hcomm/src/pub_inc/hccl_common.h:170`,
+`src/platform/common/externalinput.cc:213,828-853`). `control-plane-port-binding.md`
+has the levers (`HCCL_IF_BASE_PORT` + `ip_local_reserved_ports`, stale processes) and
+the rule that it is a finding only when it is in-window — in #12487 the title named
+that line while it was a three-day-old re-print and the in-window error was an AICPU
+`reduce_scatter` param-invalid on a chip the reporting rank did not own.
+
 1. `error-report-timestamps.md` — when the paste carries several error families at
    once (`EE9999` runtime records, `EZ9999` chip dumps, `507011`, `ERR00100`,
    `ERR02005`), decide *which block happened when the reporter says it failed*:

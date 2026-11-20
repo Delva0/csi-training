@@ -7,20 +7,23 @@ description: 'Triage vllm-ascend: deploy, HCCL/PD, hangs, OOM, accuracy'
 
 ## Problem class this covers
 
-Six entry shapes, one deliverable: which component and line owns the symptom (or
+Seven entry shapes, one deliverable: which component and line owns the symptom (or
 which failure lane and phase), what the reported evidence proves and does not
 prove, ranked candidate causes each with the cheapest confirming check, and the
-concrete next step for the reporter. The last two shapes deliver a *decision*
-(sizing) or a *document review* instead of a root cause, but the same rules
-apply — answer first, evidence pinned to the reported version, gaps stated.
+concrete next step for the reporter. The last shapes deliver a *decision*
+(sizing), a *document review* or a *capability verdict* instead of a root cause,
+but the same rules apply — answer first, evidence pinned to the reported version,
+gaps stated.
 
 - **Issue report** (usually Chinese or English, template-shaped: environment dump
   + logs + narrative) about something that went wrong on an Ascend NPU host: a
   device-side operator crash, an accuracy/score disagreement, a garbled long-input
   output, a long-run OOM / "VRAM not released" report, a performance claim, a
-  logging flag that appears to print nothing, an operator that runs and returns
-  the wrong numbers, or a bare `python -c "import <pkg>"` that aborts inside a
-  library the image shipped.
+  logging flag that appears to print nothing, an endpoint that answers `404`
+  although the reporter configured it (`/start_profile`), output that stops after
+  a handful of tokens while the text itself is sane, an operator that runs and
+  returns the wrong numbers, or a bare `python -c "import <pkg>"` that aborts
+  inside a library the image shipped.
   When the task is just "explain/answer this issue", the answer is still expected
   to be evidentiary, not a summary of the report.
 - **Deployment failure**: a vLLM / vLLM-Ascend deployment fails to come up or
@@ -34,6 +37,12 @@ apply — answer first, evidence pinned to the reported version, gaps stated.
   `… has model type '<mt>' but Transformers does not recognize this
   architecture`. This is not a bug hunt; it is a version gate with a one-line
   answer and a registry-level proof.
+- **Feature-enable / capability question**: "v<ver> 上如何正确开启 <feature>",
+  "PCP 和 DCP 单独开均有不同的报错，能不能给出能跑通的示例", "does F work on model M
+  on this SoC", usually with no log pasted and two errors described in prose. The
+  deliverable is the validation verdict at the reported ref plus the constraints the
+  code enforces, not a launcher script assembled from them —
+  `references/feature-enable-recipes/index.md`.
 - **PD / EPD disaggregation**: the deployment is up but the P and D sides cannot
   move KV (`HIXL Connect failed | HIXL Error Code: 103900`, HCCL
   `RanktableCheck` / `'device_ip' is not set correctly`, `wait_for_save failed
@@ -124,7 +133,24 @@ callable` because the MoE monkeypatch is imported only by
 `global_segment_size` went 40 GB → 2 GB (the pool's store segment, not the
 transport; both p2p connectors failed with the pool and PD without it was fine) —
 the two recorded runs before that answer ranked `HCCL_INTRA_ROCE_ENABLE` and the
-RDMA/connect timeouts instead.
+RDMA/connect timeouts instead; #9583 v0.18.0 + vllm-ascend v0.18.0rc1 Qwen3.5 on
+8×910B2, `--profiler-config '{...}'` then `POST /start_profile` → `404`, a
+route-registration question answered by naming `serve/profile/api_router.py`
+`attach_router` and one `openapi.json` request, but the run spent 20 turns / 30
+tool calls / 47.6K reasoning characters on "is `args.profiler_config` still a
+dict" and shipped 69 characters (no answer); #12253 vllm-ascend v0.18.0-a3
+Qwen3.5-397B-A17B-w4a8-mtp, output "被截断" to tens of tokens after `"pass_config":
+{"enable_sp": true}`, answered from the SP reader table plus the doc support
+matrix (SP = VL+Dense, graph, no quantization; FC1 is complementary, not a
+rename) in 14 turns with a 5.3K answer — the lead it chose, a "half-enabled SP"
+mechanism, is labelled there as unverified; #8984 v0.19.1rc1
+DeepSeek-V3.2-w4a8/w8a8-mtp-QuaRot on A2, "如何正确开启 PCP/DCP" with no log pasted (a
+capability question — the run never stated the support verdict, and the
+reporter's later public comment asked whether anyone had actually run PCP on
+A2); #12487 v0.22.1rc1 A3 3P1D DeepSeek-V4-Flash long-run crash whose title
+named `port 65536 have already been bound`, a three-day-old re-printed EI0019
+record, while the in-window error was an AICPU `reduce_scatter`
+parameter-invalid on a chip the reporting rank did not own.
 
 ## Rules that apply whenever this skill is used
 
@@ -165,7 +191,10 @@ RDMA/connect timeouts instead.
      component — usually the upstream vLLM OpenAI frontend, not vllm-ascend — and
      they are answered in 3-4 calls. #10985 spent 49.1K reasoning characters and
      28 tool calls inside `vllm/entrypoints/openai/**` on exactly that question
-     and shipped no text at all.
+     and shipped no text at all; #9583 did the same with a `404` on
+     `/start_profile` (47.6K characters, 30 tool calls, 69 characters of text,
+     no answer) although the registration gate and the decisive request were in
+     hand by its 5th turn.
    - **When the deliverable is a document, the document is the gate.** A
      community-test/verification task asks for a report file, and G1-G3 still
      bound it: open the file on the 2nd-3rd turn with the skeleton plus the first
@@ -238,7 +267,9 @@ RDMA/connect timeouts instead.
      `cat SOURCES.json` (at #9335/#9183 capped at 100 lines) and an
      `ls /workspace/history` beside `skill_view` returned 13.7 KB of stdout
      twice (#9335, #9183), 43.2 KB when the line cap was dropped (#11739), and
-     3.7 KB when the history listing was left out (#6800); the 100-line cap
+     3.7 KB when the history listing was left out (#6800), then 39 KB and 48 KB in
+     the two most recent runs, which both bundled `skill_view` with
+     `cat SOURCES.json` and a directory listing (#8984, #12487); the 100-line cap
      stops mid-repo anyway. That is
      context tax rather than answer budget, but it is paid in the same session.
      Load the skill alone, then make the first shell call `ls /workspace` plus
@@ -326,6 +357,22 @@ RDMA/connect timeouts instead.
     failure minute. Same trap as rule 11 one level up: not just the sentence but
     the whole block can be the wrong one.
     `references/hccl-and-hardware/error-report-timestamps.md`.
+14. **A "how do I enable F" question is a capability question, and the verdict comes
+    first.** When the report asks how to turn a feature on for a model/hardware pair
+    and pastes no log, the reporter is asking whether it is *known to work*: give
+    yes / no / partially in the first sentence, with the evidence class — documented
+    as supported at the pinned ref, measured on that hardware, covered by
+    `tests/e2e/**` (and the nightly yaml's `npu_per_node`), or shown only by an
+    older precedent issue. "No validated recipe for this combination" is an answer;
+    a launcher synthesized from the constraints the code enforces is not, and it
+    provokes the follow-up "但有人在 A2 上成功跑通过吗?" (#8984). Then map each
+    enforced constraint to the error text it raises, so the reporter can place their
+    own two errors, and stage the experiment one axis per launch. Three turns,
+    `references/feature-enable-recipes/index.md`. Two traps in this track: a pinned
+    doc sentence stating a narrower hardware scope is the project's position for that
+    version (quote it, do not overturn it with an older issue), and a code comment
+    saying a sub-feature is unsupported is often a branch the code already takes,
+    not a launch-flag prohibition (`sfa_cp.py` vs the feature table's MLAPO ✅).
 
 ## Classify the evidence
 
@@ -352,6 +399,7 @@ RDMA/connect timeouts instead.
 | `<method> quantization is currently not supported in npu` inside a pydantic `ValidationError` from `ModelConfig` (e.g. `--quantization awq`), or `Unknown quantization method: <x>`; no `WorkerProc` line | Platform quantization gate before any worker: the NPU platform declares only `ascend` and `compressed-tensors` — re-quantize, not a defect | `references/startup-failures/quantization-method-gate.md` |
 | An attention op **runs**, returns a correctly shaped tensor, and the numbers are wrong (uniform average, softmax apparently dropped, error only vs an fp32 reference); often a framework-free `torch_npu` repro, never a dump | Silent operator numerics — below the framework | `references/custom-ops-runtime-faults/attention-op-numeric-errors.md` |
 | `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` — aclnn cannot resolve the op for the SoC before any launch | Custom-op **build/install** fault: package built for another SoC, stale vendor package, wrong image tag | `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` |
+| Output is fluent but stops after tens of tokens ("输出被截断", "只输出几十个 tokens") and a large `max_tokens` appears to fix it; `usage.prompt_tokens` is small; a `pass_config` / SP / FLASHCOMM / quantization flag changed at the same time | Early EOS: `finish_reason` decides budget vs model-issued EOS, then every reader of the toggled key plus the shipped support matrix (accuracy track, not the length budget) | `references/accuracy-benchmarks/early-eos-short-output.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
 | Per-layer `MSE loss` / epoch table printed while converting a checkpoint with msmodelslim (W4A4/W8A8), one layer far above its neighbours, or "the converted checkpoint answers garbage" with no engine-side failure | Quantization-conversion phase: converter-owned, before the engine starts | `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` |
 | A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
@@ -360,8 +408,11 @@ RDMA/connect timeouts instead.
 | The server served traffic then died on memory: "运行一段时间后显存不释放最后崩溃", `NPU out of memory` / `NPUWorkspaceAllocator` / `Memory_Allocation_Failure(EL0004)`, `npu-smi` pinned at 100 %, a P node holding KV the D node never takes | Runtime memory after a healthy period: capacity vs growth vs a config key that never engaged (contrast the Lane C row, where the OOM happens during `profile_run` / `determine_available_memory` before the server is ready) | `references/runtime-memory/index.md` |
 | Startup/KV-init failure whose deepest frame is `_convert_torch_format` / `torch_npu.npu_format_cast` with `Memory_Allocation_Failure(EL0004)`, `alloc device memory failed … 207001`, `507013`, SDMA/SMMU text | Allocation failure at KV-cache init — the cast is the allocation site, not an operator bug | `references/runtime-memory/kv-init-and-format-cast-alloc.md` |
 | `python -c "import <pkg>"` or the first use of an image-installed native module aborts the interpreter: `corrupted size vs. prev_size`, `free(): invalid pointer`, `double free or corruption`, `munmap_chunk(): invalid pointer`, `Aborted (core dumped)`, no Python frame, no NPU text | Image / bundled native module (pre-engine, not vllm-ascend code) | `references/image-dependency-faults/index.md` |
+| `POST /start_profile` (or `/stop_profile`) returns `404 Not Found` although the server was started with `--profiler-config '{...}'`; or the same route answers 500 naming `Profiling is not enabled` | Observability/route registration: the endpoint is attached by upstream `serve/profile/api_router.py` `attach_router` only when the serving process's `args.profiler_config.profiler` is set — not a model/device question, and a down-stream worker miss is a 500, never a 404 | `references/observability-and-logs/online-profiling-endpoints.md` (one `openapi.json` request) |
 | Report is about log text rather than a crash: `--enable-log-requests` / `--enable-log-outputs` set but no prompt or generation printed, `VLLM_LOGGING_LEVEL=DEBUG` seemingly ignored, `--max-log-len`, a stage of the startup log missing, or a proxy that swallows output | Observability/flag question — **upstream frontend config, not a vllm-ascend defect**; answer with a gate checklist and two greps, cap it at ~4 tool calls | `references/observability-and-logs/index.md`, then `request-output-logging-flags.md` |
 | Host is **310P** (Atlas 300I Duo, `Ascend310P3`, image `-310P`), or the traceback sits on an `is_310p()` branch (NZ/`FRACTAL_NZ` format casts, no Ascend custom ops, `patch_mamba_config_310`) | SoC-conditional platform path: experimental per the pinned docs, NZ casts are real conversions, fp16/eager are mandatory | `references/soc-platform-paths/atlas-300i-310p.md` |
+| The report asks how to enable a feature rather than what broke: "如何正确开启 PCP/DCP", "F alone and G alone each报错，能否给个能跑通的示例", no log pasted, or two errors described in one sentence | Feature-enable / capability question: the validation verdict (docs statement at the pinned ref, whose hardware the measured table used, `tests/e2e/**` coverage, precedent versions) before any constraint list | `references/feature-enable-recipes/index.md`, then `context-parallel-pcp-dcp.md` |
+| `Communication_Error_Bind_IP_Port(EI0019)` / `Failed to enable listening for the host network adapter socket` / `port <n> have already been bound` where n is above 65535, often in the issue title | HCCL control-plane port band, not an OS socket conflict — and only if the record's date is inside the window (rule 13) | `references/hccl-and-hardware/control-plane-port-binding.md` |
 | Compiler or missing-header error while installing/building, a performance claim, or any report with no matching track | General sequence below | skip the topical routes |
 
 ## Procedure
@@ -436,6 +487,18 @@ RDMA/connect timeouts instead.
      override, and an endpoint that cannot log outputs at all. Grep the two
      warning strings, then answer; do not read `vllm/entrypoints/**` for an
      Ascend-specific cause.
+   - An endpoint that is missing rather than wrong (`POST /start_profile` →
+     `404`, or a 500 `Profiling is not enabled`): a route-registration question
+     in the serving process. Name `attach_router` (`path:line`) and its condition,
+     then ask the live app: `curl -s <host>:<port>/openapi.json` filtered for
+     `profile`; check the startup log for the gate's `warning_once` line, and only
+     then wonder where the flag went (`references/observability-and-logs/online-profiling-endpoints.md`).
+     Model class, quantization and NPU health are irrelevant to a 404 — say so.
+   - Output that is fluent but stops after tens of tokens ("被截断") with a feature
+     flag toggled nearby: `finish_reason` first (`length` = budget, `stop` = early
+     EOS), then `rg -n "<key>"` every reader of that key and read the shipped
+     support matrix before any mechanism
+     (`references/accuracy-benchmarks/early-eos-short-output.md`).
    - 310P / Atlas 300I report: take the SoC from
      `_build_info.__soc_version__` rather than the image tag, quote the
      documented status (experimental, stable = v0.10.0rc1 at v0.11.0rc3,
@@ -489,6 +552,15 @@ RDMA/connect timeouts instead.
      `references/deploy-sizing/card-budget-and-device-visibility.md`). A sibling
      project's yaml/CLI absent from `SOURCES.json` (vllm-omni) is a stated gap,
      not something to infer.
+   - Feature-enable / capability question ("how do I correctly enable F on H", no
+     log): answer in this order — the validation verdict at the pinned ref (docs
+     sentence, the hardware the docs measured, `rg -l
+     "prefill_context_parallel_size|prefill-context-parallel-size" tests/` for e2e
+     coverage, precedent issues with their versions), then each enforced constraint
+     with the error text it raises, then one-axis-at-a-time staging. Grep the flag in
+     `vllm_ascend/` for hard errors (`AssertionError`, `NotImplementedError`) versus
+     silent overrides; do not read the kernel/code path beyond that
+     (`references/feature-enable-recipes/index.md`).
    - Community-test / doc-verification task: run the eight checks of
      `references/tutorial-verification/tutorial-command-audit.md` in order
      (flag existence at the pinned vllm, bench argument names, image WORKDIR vs
@@ -631,6 +703,18 @@ RDMA/connect timeouts instead.
   squeeze sums gmu to 1.8). Reproduce the numbers with
   `scripts/card-budget.sh --params P [--dtype] [--tp] [--gmu] [--hbm] [--cards]
   [--stage-gmu] [--stage-devices]`.
+- `references/feature-enable-recipes/index.md` — "how do I turn F on" questions:
+  the capability verdict first (docs statement at the pinned ref, whose hardware the
+  measured numbers used, `tests/e2e/**` + nightly `npu_per_node` coverage, precedent
+  issue versions), then each enforced constraint with its error text, then a
+  one-axis-per-launch experiment. `context-parallel-pcp-dcp.md` is the PCP/DCP worked
+  case (#8984, v0.19.1rc1, DeepSeek-V3.2 QuaRot on A2): `world = dp × pp × pcp × tp`
+  (`distributed/parallel_state.py:41-52`, DCP rides inside TP), DCP divisibility,
+  the `cp_kv_cache_interleave_size == block_size` `AssertionError` under PD
+  (`platform.py:513-522`) versus the SFA silent override, the
+  `VLLM_ASCEND_ENABLE_CONTEXT_PARALLEL=1` gate in the MoE path
+  (`prepare_finalize.py:401,473`), the v2-runner `NotImplementedError`, why the
+  pinned tree validates A3 only, and the #8578/#8579/#8580/#7375 family.
 - `references/tutorial-verification/index.md` — the document is the deliverable:
   community-test/众测 reports and `[Doc]` reports that a tutorial step fails.
   `community-test-report.md` gives the task shape, the report skeleton and the
@@ -707,6 +791,11 @@ RDMA/connect timeouts instead.
   `TimeoutError` from `multiproc_executor.py` / `shm_broadcast.py`: the framework
   watchdog, not a collective — the direction of the stall, why DP>1 + EP turns one
   stalled rank into a group stall, and the per-rank artefacts to request (#1865).
+  `control-plane-port-binding.md` takes the `Communication_Error_Bind_IP_Port
+  (EI0019)` / `port <n> have already been bound` line: a port above 65535 cannot be
+  an OS socket at all, so it is HCCL's control-plane band (base 60000,
+  `HCCL_IF_BASE_PORT` accepted `[1024, 65520]`) and a finding only when its record
+  date is in-window (#12487).
 - `references/runtime-memory/index.md` — memory, in both phases: the service was
   healthy and later died on HBM ("显存不释放", `NPU out of memory`), or it never
   became ready because an allocation failed during KV-cache/weight placement.
@@ -728,7 +817,12 @@ RDMA/connect timeouts instead.
   `--enable-log-requests` / `--enable-log-outputs` / `VLLM_LOGGING_LEVEL` /
   `--max-log-len` at vllm v0.18.0 + vllm-ascend v0.18.0 (#10985), including the
   endpoint that can never log outputs and the `inspect.getsourcefile` check for
-  which patched serving generator is live.
+  which patched serving generator is live. `online-profiling-endpoints.md` takes
+  the *missing route*: `POST /start_profile` → `404` after `--profiler-config`,
+  attached only when the serving process's own `args.profiler_config.profiler` is
+  set (`vllm/entrypoints/serve/profile/api_router.py` `attach_router`), so the
+  answer is that gate plus one `openapi.json` request — and a worker-side miss is
+  a 500, never a 404 (worked for #9583 at vllm v0.18.0 + vllm-ascend v0.18.0rc1).
 - `references/custom-ops-runtime-faults/index.md` — aclnn/AscendC custom-op
   device faults: reading the device dump, mapping the operator to `csrc/<op>/`,
   tiling-mode tables. The dump names the operator and error class, not the
@@ -758,6 +852,11 @@ RDMA/connect timeouts instead.
   corruption end: long-input 乱码 reports under sparse c8 attention + DCP + PD
   disaggregation, the feature-ablation matrix that decides ownership, and the
   tested envelope (#16015, #12905, #14320).
+  `references/accuracy-benchmarks/early-eos-short-output.md` covers the shortest
+  symptom — fluent output that stops after tens of tokens ("被截断"): which
+  `finish_reason` lane it is, every reader of the toggled key, the shipped SP
+  support matrix, and the ablation rows (#12253, v0.18.0-a3
+  `pass_config.enable_sp` on a non-VL MoE w4a8 model).
   `references/accuracy-benchmarks/short-prompt-corruption.md` covers corruption
   on a few-thousand-token prompt: test the prompt shape first, then the
   EP/FLASHCOMM1/prefix-cache/graph-mode/weight-identity rows (#10503,

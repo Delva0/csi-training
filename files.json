@@ -2,8 +2,8 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "61d87218a58abed1783268cdb12d1b9099d962f54877f1ca331d1bc42b50bee8",
-    "size": 99287
+    "sha256": "0fcdd17a9d9dccba8dcc52d970b2a27280afaa32ed8fdf33fb35a8ae9c12bdee",
+    "size": 99924
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/early-eos-short-output.md",
@@ -158,8 +158,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/delivery-discipline.md",
     "mode": "100644",
-    "sha256": "02ec8c26fe5e051112a340831d77e068e52965b84f2f980e2bef40892171eb68",
-    "size": 12815
+    "sha256": "a88e66db9151e7aeee547288c1c2d9a5bb1750657a074446b0adc987a65e7174",
+    "size": 15199
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
@@ -170,8 +170,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases.md",
     "mode": "100644",
-    "sha256": "4cf2ae4093d3a6bcc3ef8a4a0918e874dcdc23ad94f353febaf023ef5eb8697f",
-    "size": 50843
+    "sha256": "4a094774851904625083bbb07bf626875fa3b96e11d7203f89023539081b28b8",
+    "size": 52744
   },
   {
     "path": "vllm-ascend-triage/references/feature-enable-recipes/context-parallel-pcp-dcp.md",
@@ -194,8 +194,8 @@
   {
     "path": "vllm-ascend-triage/references/first-checks/cheap-checks-by-track.md",
     "mode": "100644",
-    "sha256": "1758e2b5a42ac2d32461a42190346a4f95e24e44152c64dfb4b5343cce04cfeb",
-    "size": 28254
+    "sha256": "89cc7dc278f47cb0414e5efc88a4895c7f981d04b8dbffd4639890fdf5fc4a45",
+    "size": 28792
   },
   {
     "path": "vllm-ascend-triage/references/first-checks/index.md",
@@ -414,6 +414,12 @@
     "size": 6246
   },
   {
+    "path": "vllm-ascend-triage/references/runtime-memory/container-working-set-growth.md",
+    "mode": "100644",
+    "sha256": "94f4e0d218ee3733ffb28face0850503c287a94438aa4c06566b0682c7a571b3",
+    "size": 10300
+  },
+  {
     "path": "vllm-ascend-triage/references/runtime-memory/hbm-growth-and-oom.md",
     "mode": "100644",
     "sha256": "ca5585e406e979211d2b3999a4abf81d5e2d0e6e70740bae412add3b047795c6",
@@ -428,8 +434,8 @@
   {
     "path": "vllm-ascend-triage/references/runtime-memory/index.md",
     "mode": "100644",
-    "sha256": "fc0337151528a6e716067a0771298d334d8c7faf92ed9dd0ce3f39b827def594",
-    "size": 4749
+    "sha256": "c6547396932a275a8c67788e5a10ae2897ef9d9fe17bae90fa8c2ab063ec4697",
+    "size": 5722
   },
   {
     "path": "vllm-ascend-triage/references/runtime-memory/kv-init-and-format-cast-alloc.md",
@@ -736,5 +742,11 @@
     "mode": "100644",
     "sha256": "264db339f0980d007ba5d1715a3da2c72c2ccf0f83bb4f26804c0151651ba582",
     "size": 8164
+  },
+  {
+    "path": "vllm-ascend-triage/scripts/working-set-arithmetic.sh",
+    "mode": "100644",
+    "sha256": "93b5e9687be5b3e34e80e16ff58c9c06c4e99a6eb7c17de1cce22afe2cb19bc1",
+    "size": 9799
   }
 ]

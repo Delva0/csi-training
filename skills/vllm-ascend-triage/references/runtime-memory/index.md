@@ -18,6 +18,14 @@ holding tens of GiB RES, and the NPU log carries no device or collective error.
 Host RAM is invisible to `npu-smi`, so it is the first thing a "machine crashed"
 report needs a number for (`host-ram-and-per-rank-rss.md`).
 
+Scope, part 4: the host did **not** run out — a container-scoped counter climbed
+for days while the service stayed healthy and `npu-smi` stayed flat:
+`container_memory_working_set_bytes` / `container_memory_rss` /
+`container_memory_cache` "持续增加，7 天增加 80G". That is host memory in a cgroup,
+so the device-side knobs in the report's environment block are irrelevant and the
+deliverable is which process class and which term (anonymous RSS vs page cache vs
+allocator retention) owns the rise — `container-working-set-growth.md`.
+
 Not an accuracy or corruption report, and not a collective error even when the
 crash text names one (`HcclAllGather` in a late OOM is the allocation site); go
 to `../hccl-and-hardware/index.md` first only when a real collective failure
@@ -70,3 +78,9 @@ Conditional routes:
   16 ranks × 88-100 GiB = 1472 of 2014 GiB on a 2 TB host, swap 0).
 - The report is about score/accuracy dropping under memory pressure, or about
   garbled output after long runs → `../accuracy-benchmarks/index.md`.
+- The paste is a **container metric** (`container_memory_working_set_bytes`,
+  k8s/cAdvisor dashboard, "容器内内存持续增加") on a service that never crashed,
+  with or without `npu-smi` in the body → `container-working-set-growth.md` first
+  (`scripts/working-set-arithmetic.sh` splits rss from cache and converts the
+  slope into bytes/request). Contrast part 3: there the box is dead and `top` is
+  the artifact.

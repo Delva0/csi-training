@@ -18,7 +18,8 @@ reported version, gaps stated.
 - **Issue report** (usually Chinese or English, template-shaped: environment dump
   + logs + narrative) about something that went wrong on an Ascend NPU host: a
   device-side operator crash, an accuracy/score disagreement, a garbled long-input
-  output, a long-run OOM / "VRAM not released" report, a performance claim, a
+  output, a long-run OOM / "VRAM not released" report, a container memory metric
+  that climbs for days without a crash, a performance claim, a
   logging flag that appears to print nothing, an endpoint that answers `404`
   although the reporter configured it (`/start_profile`), output that stops after
   a handful of tokens while the text itself is sane, an operator that runs and
@@ -105,26 +106,20 @@ delivery pattern is rule 1.
    - **G3 — 12th assistant turn:** answer text only; no reasoning, no tool call,
      no "one more thing".
    - **The gates cap cumulative output, not only turns.** #4057, #6833, #13853,
-     #16111 and #8788 were each cut after 11-49 K characters of reasoning with the
-     ranked cause in hand and no message text; #6833's replay re-derived its verdict
-     for ten turns and was cut inside its action ladder, and #16111 and #8788
-     composed the whole answer inside the reasoning block the cap landed on. #5750
-     (10 turns, ~40 K characters of reasoning against 3.8 K of message text, no
-     ranked answer ever emitted) and #4357 (14 turns, ~38 K, cut inside the answer
-     it had just begun) are the next form of the same waste, with per-turn verdict
-     lines already in place: a verdict line is a *hypothesis*, and the ranked
-     deliverable is still owed as one message. A block that restates the verdict,
-     numbers the fixes or lays out the evidence table *is* this turn's message:
-     send it, then one tool call. Count characters, not turns.
+     #5750, #4357 and #16563 were each cut after 11-49 K characters of reasoning
+     with the ranked cause in hand, and #16111 and #8788 composed the whole answer
+     inside the reasoning block the cap landed on. A verdict line is a
+     *hypothesis*: the ranked deliverable is still owed as one message. A block
+     that restates the verdict, numbers the fixes or lays out the evidence table
+     *is* this turn's message: send it, then one tool call. Count characters, not
+     turns — the per-run arithmetic is in
+     `references/evidence-workspace/delivery-discipline.md`.
    - **Reasoning is a scratchpad, a few lines per turn:** what the last result
      proved, the single next check, go. It spends the **same output budget** as the
-     answer: #15815 and #11759 each spent ~30 K characters of reasoning against
-     ~9 K of answer, and #11759 hit the cap with 69 characters of text. #8590 put a
-     single 21 K-character block of hypotheses it had already rejected in front of the
-     two-line verdict the paste already supported, was cut, and was cut again after the
-     reporter's ping. If a block
-     enumerates the answer's sections, or says "I have enough" / "let me write the
-     answer", that block *is* the answer.
+     answer: #15815, #11759, #8590 and #16563 each reached the cap with most of
+     the budget inside a reasoning block. If a block enumerates the answer's
+     sections, or says "I have enough" / "let me write the answer", that block *is*
+     the answer.
    - **A new hypothesis that needs a new code area is not this session's job.**
      Put it in the answer as an open question with the one command that decides
      it; #14506 delivered only after a final block that took half the session. For
@@ -139,9 +134,8 @@ delivery pattern is rule 1.
      report file on the 2nd-3rd turn with the skeleton plus the first verified
      section, then append **2-3 K characters per write** and make the final
      message the condensed report (path, defects, open items). Never compose the
-     whole report in one heredoc: #11739 made 40 tool calls and wrote no file;
-     #11759 spent 16 turns, 69 characters of message text and 30 K of reasoning,
-     then was cut composing a 5.7 K report, so no file was ever written.
+     whole report in one heredoc: #11739 made 40 tool calls and wrote no file,
+     and #11759 lost a finished 5.7 K report to the cap.
    - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
      write it at G2 *in place of* the reasoning block, and skip it when the
      session is already long (#11519 composed it late and lost its ranked causes).
@@ -153,27 +147,24 @@ delivery pattern is rule 1.
      environment block, a traceback file absent from the pinned tree, a version
      the snapshot does not carry. State the gap, give the one command that closes
      it, stop investigating.
-   - **Truncation eats the tail, not the head.** Each action directly after its
-     cause; the closing scope/open-questions block 3-5 lines, so a capped answer
-     still ends in something usable.
+   - **Truncation eats the tail, not the head — and the body has a size too.**
+     Each action directly after its cause; the closing scope/open-questions block
+     3-5 lines, so a capped answer still ends in something usable. With no log
+     pasted, the ranked answer is 3-4 causes with one check each, one ladder of ≤6
+     lines, precedents as one line of `#id: fact`, and the same 3-5-line scope —
+     ≈3-4 K characters. #16563's run that did ship kept a verdict, five causes, a
+     precedent list and a six-rung ladder in messages, and still lost its closing
+     version scope; a fifth cause is an open question with its one command.
    - **Every assistant turn carries message text, not only a tool call.** A turn
      whose whole output is a tool call leaves nothing for a truncation to keep.
-     #5295 emitted *zero* message text on all 16 turns: ~46 K characters of
-     reasoning (≈12 K of the 16 K output budget), three "must answer NOW" notes,
-     and a cut inside a reasoning block while opening the file that would have
-     refuted its last hypothesis. Carry one or two sentences of the
+     #5295 emitted *zero* message text on all 16 turns (~46 K characters of
+     reasoning) and #16563's text-free run on all 20 turns; #17797 and #5525
+     emitted only status notes ("the 310P path has its own model runner — let me
+     check X") and never stated a verdict. Carry one or two sentences of the
      current answer draft in the same message as every tool call — verdict line
-     first, then the evidence being checked — and G1/G2 need no special turn.
-     A *status note* is not a draft: #17797 put one short note on each of its
-     first 17 turns ("the 310P path has its own model runner — let me check X")
-     and never once stated a verdict; #5525 emitted zero message text on 11 of
-     20 turns. Both spent the whole 16 K output budget in reasoning and shipped
-     nothing. The sentence must state the current verdict even when the next call
-     may overturn it.
-     #15815 shipped only on turn 15, after 31 K of its 50 K output characters
-     spent on reasoning.
-   - The reasoning patterns behind the gates:
-     `references/evidence-workspace/delivery-discipline.md`.
+     first, then the evidence being checked — so G1/G2 need no special turn. A
+     *status note* is not a draft: the sentence must state the current verdict even
+     when the next call may overturn it.
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C
    (table below); for a runtime report, decide whether it is a device-op fault,
    an accuracy/score gap, a corruption report or a performance claim. The
@@ -378,6 +369,7 @@ delivery pattern is rule 1.
 | A **VL image/video** request answered as a long run of one token (`!!!!`, 感叹号, `，，，`), usually with "特别耗时 / very slow"; text-only prompts may answer fine | Vision-tower degeneration (accuracy track), not sampling | `references/accuracy-benchmarks/vl-vision-tower-degeneracy.md` |
 | The server served traffic then died on memory: "运行一段时间后显存不释放最后崩溃", `NPU out of memory` / `NPUWorkspaceAllocator` / `Memory_Allocation_Failure(EL0004)`, `npu-smi` pinned at 100 %, a P node holding KV the D node never takes | Runtime memory after a healthy period: capacity vs growth vs a config key that never engaged (contrast the Lane C row, where the OOM happens during `profile_run` / `determine_available_memory` before the server is ready) | `references/runtime-memory/index.md` |
 | "The machine crashed" / the host became unusable / the reporter pastes `top` with every python3 rank at tens of GiB RES on one host, while the serve log has no device, collective or Python error | Host RAM (and host CPU), not the card: the ranks' resident footprints share one RAM budget, and `npu-smi` cannot see it | `references/runtime-memory/host-ram-and-per-rank-rss.md` + `scripts/host-ram-check.sh` |
+| A container-scoped counter climbs for days while the service stays healthy — `container_memory_working_set_bytes` "持续增加，7 天增加 80G", `container_memory_rss` / `container_memory_cache` beside it, `npu-smi` flat, no traceback and no OOM | Container **host** memory, not HBM: the counter sums every process in the container plus active page cache, so split rss from cache and convert the slope to bytes/request before any code read — the device-side knobs in the report cannot move it | `references/runtime-memory/container-working-set-growth.md` (one call: `scripts/working-set-arithmetic.sh`) |
 | Startup/KV-init failure whose deepest frame is `_convert_torch_format` / `torch_npu.npu_format_cast` with `Memory_Allocation_Failure(EL0004)`, `alloc device memory failed … 207001`, `507013`, SDMA/SMMU text | Allocation failure at KV-cache init — the cast is the allocation site, not an operator bug | `references/runtime-memory/kv-init-and-format-cast-alloc.md` |
 | `python -c "import <pkg>"` (or a first real use) raises `ImportError:` naming that package's own extension — `<pkg>/_ops.cpython-310-…so: undefined symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` — and the ENV dump selects `atb/cxx_abi_1` (or `cxx_abi_0`) | C++ `std::string`-ABI split between a prebuilt wheel and the selected NNAL/ATB root, pre-engine and not vllm-ascend code: `Ss` in the mangled name = old ABI, `NSt7__cxx11` = new | `references/image-dependency-faults/abi-undefined-symbol.md` (one call: `scripts/abi-symbol-check.sh <paste>`; the fix is reporter-confirmed on #1144, but which ATB file defines the symbol is still the reporter's `nm` step) |
 | `python -c "import <pkg>"` or the first use of an image-installed native module aborts the interpreter: `corrupted size vs. prev_size`, `free(): invalid pointer`, `double free or corruption`, `munmap_chunk(): invalid pointer`, `Aborted (core dumped)`, no Python frame, no NPU text | Image / bundled native module (pre-engine, not vllm-ascend code) | `references/image-dependency-faults/index.md` |
@@ -595,6 +587,14 @@ delivery pattern is rule 1.
   worker RSS sum and mean per rank, percentage held, verdict band, plus the
   reminders that VIRT is torch_npu's reservation and a first-sample `%CPU` is a
   since-boot average. Verified on #3902 (16 ranks, 1472 of 2014 GiB, 73 %).
+- `scripts/working-set-arithmetic.sh --growth 80GiB --days 7 --rps 20-40 [--tokens N]`
+  / `--samples <paste|->` — the container-memory lane in one call: bytes/min,
+  bytes/request and bytes/decode-step from the reported slope (which mechanism
+  class the slope is compatible with), or the per-container first-vs-last split of
+  `container_memory_working_set_bytes` into `container_memory_rss` and
+  `container_memory_cache` from a pasted cAdvisor/prometheus block. Worked case
+  #16563: 80 GiB/7 d at 20-40 req/s = 3.5-7 KB per request, under 16 B per decode
+  step, so per-step host buffers are priced out before any source read.
 - `references/deploy-sizing/index.md` — deployment/capacity questions with no
   crash: per-card weight footprint vs `gpu_memory_utilization`, the gmu sum over
   processes sharing a device, `ASCEND_RT_VISIBLE_DEVICES` vs the inert

@@ -258,6 +258,32 @@ deliverable was the tutorial diff (`GLM5.2.md` 4-node 1M PD example) plus the
 (default `False`, `ascend_config.py:766`), so the n≥3 block-verify story does not
 transfer from #7580 (`../accuracy-benchmarks/long-output-repetition.md`).
 
+**#16563** reported 0.23.0RC1 (snapshot pins vllm-ascend v0.26.0rc1 / vllm v0.26.0,
+`reported_ref_status: no_named_release`) — DeepSeek-V4-Flash on one 800I A2, TP8 +
+`--enable-expert-parallel`, MTP n=1, `--async-scheduling`,
+`--compilation-config FULL_DECODE_ONLY`, prefix caching on, served at 20-40 req/s:
+"容器内 `container_memory_working_set_bytes` 使用量一直在增加，7 天增加了 80G",
+no crash, no log, `npu-smi` flat. Two runs, both cut at the output cap. The run
+that shipped no answer emitted nothing but a 69-character opener on its 20 turns
+(~48 K characters of reasoning) and was cut inside a reasoning block long after it
+had the class right (cgroup host memory, not HBM, turn 2) and the arithmetic in
+hand (turn 7). The other wrote `/workspace/scratch/findings.md` and did put a
+verdict, five causes, four precedents and the ladder in messages, then was cut
+inside its closing version-scope section. Facts across the two runs: 80 GiB/7 d =
+8.1 MiB/min ≈ 3.5-7 KB per request and < 16 B per decode step, so per-step host
+buffers do not explain the slope; the A2 recipe diff found by the run that read
+the tutorial is `--enable-prefix-caching` vs the recipe's
+`--no-enable-prefix-caching` (`DeepSeek-V4-Flash.md:170,321`),
+`additional_config.enable_flashcomm1` vs the reporter's
+`VLLM_ASCEND_ENABLE_FLASHCOMM` (no consumer at the pin; `enable_dsa_cp` without
+SP raises `ValueError`, `utils.py:1386-1405`), and
+`PYTORCH_NPU_ALLOC_CONF` vs their `PYTHON_NPU_ALLOC_CONF`
+(`platform.py:767-785`) — device-side either way. The MTP path's five per-step
+`torch.from_numpy(...).pin_memory()` allocations (`model_runner_v1.py:1411-1416`,
+under its own TODO, against preallocated buffers at `:407,:452,:458,:564`) are a
+real asymmetry, priced out as this metric's owner by the arithmetic but still the
+MTP-off ablation row (`../runtime-memory/container-working-set-growth.md`).
+
 **#13002** v0.23.0 on A2, Kimi-K2.6 W4A8, 1P1D `MooncakeConnectorV1` + eagle3,
 ≥16 concurrent / ≥23K-token prompts: `</think>` leaking into `content`, repetition
 collapse, 乱码 in 6-10 % of requests, both serve commands pasted. **Shipped no

@@ -1,0 +1,115 @@
+# Long-run OOM and "HBM 不释放": capacity, growth, or a dead flag
+
+## Signature family
+
+- The server was healthy (`/health` 200, requests served), then after minutes to
+  hours the process dies or the frontend starts its shutdown sequence; the
+  reporter's own words are "显存不释放 / fails to release VRAM".
+- Crash tail: `NPU out of memory. NPUWorkspaceAllocator tried to allocate
+  216.00 MiB (NPU 0; 61.27 GiB total capacity; 295.32 MiB free)` →
+  `torch.OutOfMemoryError … current working operator name is
+  SelfAttentionOperation` → `Memory_Allocation_Failure(EL0004)` (#12692,
+  reporter-reported). The operator name is the allocation site at failure time,
+  not the owner.
+- Sometimes the failing allocation names a collective (`HcclAllGather`, #13185) or
+  a P/D pair (P node holds KV the D node never consumes, #13240), or HBM simply
+  sits far above the documented budget (#13248).
+
+## Step 1 — split the class with two samples, not with source
+
+Ask for: `npu-smi info` during the run **twice, timestamped**, the serve log's
+startup memory lines, and the crash tail. Then:
+
+| What the samples show | Class | Go to |
+|---|---|---|
+| HBM flat and near-full from the start; one extra allocation fails | capacity / transient peak | Step 2 |
+| HBM rises monotonically while request load is steady | growth (fragmentation or leak) | Step 3 |
+| Reporter believes graph mode / scheduler / offload is enabled | dead keys — verify before any memory theory | Step 4 |
+
+## Step 2 — capacity branch: the launch budget is the cause
+
+- **Documented hardware floor.** The model tutorial states the minimum node: for
+  Qwen3.5/3.6-27B, `1 Atlas 800 A3 (64G × 16)` or `1 Atlas 800 A2 (64G × 8)`
+  (v0.23.0rc1 `docs/source/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.md:23,28`
+  and `:199`). A 4 × 32 GB 910B4 host serving that model at a 64K window is
+  **below the documented floor** — say so first, it is the cheapest answer.
+- **`--max-num-batched-tokens` sets the profile peak, and the KV pool is what is
+  left.** Tutorial explanation of the arithmetic (util × HBM − peak) at `:296`;
+  its value for this model is `8096` (`:236`, `:273`) versus `65536` in #16022 —
+  an 8× transient activation headroom on 32 GB cards.
+- **`--enable-prefix-caching`** is documented off for this model
+  (`--no-enable-prefix-caching`, `:239`, `:492`): its hybrid KV layout can inflate
+  the effective `block_size` (`:297`).
+- **Confirm from the log, not the flags:** `GPU KV cache size: N tokens` and
+  `Maximum concurrency for <max-model-len> tokens per request: Mx`
+  (`vllm/v1/core/kv_cache_utils.py:2146,2148` at vllm v0.24.0 — re-grep in the
+  *installed* vllm, because the snapshot pin may differ from the image, as in
+  #16022 where `SOURCES.json` pins vllm v0.24.0 while the image is vllm-ascend
+  v0.23.0rc1). `M < 1` means one full-length request cannot
+  fit and the server preempts/recomputes forever.
+
+## Step 3 — growth branch: the allocator environment gate comes first
+
+- vllm-ascend fills `PYTORCH_NPU_ALLOC_CONF` with `expandable_segments:True` by
+  default and **skips that injection** when the variable already contains
+  `max_split_size_mb` or `garbage_collection_threshold`, and always in sleep
+  mode (`vllm_ascend/platform.py:761-779` at v0.23.0rc1). The project FAQ points
+  fragmented-OOM reports at this variable (`docs/source/faqs.md:141-149`).
+- Therefore `-e PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` in a launch script
+  silently turns the anti-fragmentation default **off** — it looks like tuning
+  and acts like a regression.
+- The effective value is logged: `Set PYTORCH_NPU_ALLOC_CONF=%s`
+  (`platform.py:779`). One grep of the reporter's serve log
+  (`grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <log>`) settles the branch; no source
+  walk and no request replay needed.
+- If the env is already correct: distinguish reserved growth from requested
+  growth. Reserved-only growth is allocator/planner behaviour (try the env
+  change, `--gpu-memory-utilization` headroom, and dropping graph capture);
+  monotonically rising *requested* memory points at a request-path leak — KV
+  connector/offload, prefix cache, or a captured-graph path that keeps tensors.
+  That distinction is what decides between "config" and "bug", so make the
+  reporter state which number grows.
+
+## Step 4 — `--additional-config` keys are silently ignored
+
+- At v0.23.0rc1 only `xlite_graph_config` is parsed
+  (`vllm_ascend/ascend_config.py:37-38`, fields at `:651-656`).
+  `torchair_graph_config` / `use_cached_graph` were **removed**
+  (`docs/source/user_guide/release_notes.md:1276`: "Torchair graph mode is
+  removed. `--additional-config {"torchair_graph_config": {"enabled": true}}`
+  doesn't work anymore"), and `ascend_scheduler_config` no longer has any
+  consumer in `vllm_ascend/` (only stale references under `tests/`).
+- Nothing validates unknown keys — every reader is `additional_config.get(...)` —
+  so a stale key starts the server with the feature **off and no warning**. A
+  launch script carrying `torchair_graph_config` + `ascend_scheduler_config`
+  therefore never enabled graph mode or the Ascend scheduler: do not blame them
+  for the OOM, and do tell the reporter the features were never active (that
+  also explains a performance expectation gap).
+- Generalise: before attributing any behaviour to a flag in `additional_config`,
+  run `rg -n '<key>' vllm_ascend/` at the pinned commit and check
+  `release_notes.md` for a removal entry.
+
+## Step 5 — deliverable order (truncation-safe)
+
+1. One-line verdict: capacity or growth, plus the single cheapest parameter
+   change (`--max-num-batched-tokens`, drop `max_split_size_mb`, or the hardware
+   floor), with the version scope.
+2. Ranked causes, each carrying **its own action** immediately after its
+   evidence — a closing "action table" is the first thing lost to the token cap.
+3. Then 3-5 lines of scope / open questions / what to send back: two timestamped
+   `npu-smi` samples, the `Set PYTORCH_NPU_ALLOC_CONF` line, the KV-cache and
+   preemption lines, the full crash tail, and both serve commands if P/D.
+
+## Precedent family (class-level only; not a diagnosis of the current host)
+
+| Issue | Version / shape | Takeaway |
+|---|---|---|
+| #12692 | v0.20.2rc1, 397B-A17B w8a8c8, diverse long + multimodal, OOM at ~37 min | `NPUWorkspaceAllocator` + "current working operator name is …" is a late allocation site; reporter's profile-peak / KV / weights numbers are usable arithmetic |
+| #13185 | v0.13.0, Qwen3-VL-32B long run | a collective name in a late OOM (`HcclAllGather` alloc failure) is still the alloc site, not the collective |
+| #13248 | v0.23.0rc1, P/D w8a8c8 + MooncakeLayerwise | HBM abnormally high then P node exhausts; check connector/offload paths per side |
+| #13240 | P/D disaggregation | D node errors and the P node never frees KV → P node HBM exhausted while waiting; a peer-side lifecycle bug, not fragmentation |
+| #3198 | v0.10.2rc1, Qwen2.5-VL-7B, benchmark loops | the literal "显存占满，长期不释放，再压测就崩溃" phrasing that recurs in this family |
+| #2650 | v0.9.1, DeepSeek + torchair | long-run leak under graph mode; graph paths are a legitimate growth owner |
+
+These are title/body-level precedents: quote them as `#<id>: <one fact>`, never as
+confirmation that the current host has the same defect.

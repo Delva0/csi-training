@@ -2,8 +2,8 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "e451336d284faf23d532e3d110235cfde96537a78daff5625d90f3a2869e8a4d",
-    "size": 25204
+    "sha256": "a8835600f0ba6419c3a88e249495310fe7f9fce00340e075c84aa8a32ffcff9f",
+    "size": 31964
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/garbled-long-context-output.md",
@@ -68,8 +68,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/index.md",
     "mode": "100644",
-    "sha256": "9b3ad24c5263244133ba185cc5d30967692a9c664dd1910c1cbce469574bb9e3",
-    "size": 3547
+    "sha256": "a294d9155db70fd0bf8f795ed6d96b9f7e345229c3932c49f31c7a0651b765e8",
+    "size": 3849
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/collective-error-chain.md",
@@ -86,14 +86,44 @@
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/index.md",
     "mode": "100644",
-    "sha256": "8c4954628030bde4b3bd73993366455641bc49693c0f2722e7ba1ca8e22d3d43",
-    "size": 3042
+    "sha256": "d37da43326904ec48cbf65f5858573f34dc8d88111e2605fe5b045f765b1c62a",
+    "size": 3388
+  },
+  {
+    "path": "vllm-ascend-triage/references/image-dependency-faults/index.md",
+    "mode": "100644",
+    "sha256": "25356de77348e49bbcea1cedf18a6366d83b147ce4f3dfcdec6da0803dc148ac",
+    "size": 2940
+  },
+  {
+    "path": "vllm-ascend-triage/references/image-dependency-faults/native-import-abort.md",
+    "mode": "100644",
+    "sha256": "50e3b65692d58ac8f1bffacc97a808100ad4d8b6b501581ad590bd88afca876a",
+    "size": 6619
+  },
+  {
+    "path": "vllm-ascend-triage/references/runtime-memory/hbm-growth-and-oom.md",
+    "mode": "100644",
+    "sha256": "79ee9f150260527b80638d97bf7374c0f4ada6872e090a0d93bb640404ff58b3",
+    "size": 7375
+  },
+  {
+    "path": "vllm-ascend-triage/references/runtime-memory/index.md",
+    "mode": "100644",
+    "sha256": "b766708e8a63ec3e8fc296df0b926e5a9acacbc9436d8f8ff0d9dd3f00873894",
+    "size": 2710
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/acl-graph-capture.md",
     "mode": "100644",
     "sha256": "dab12fcba4b1597b19c6c1f689cf5cfcccf57a4921874fac71c668ca0a3a173e",
     "size": 7604
+  },
+  {
+    "path": "vllm-ascend-triage/references/startup-failures/arg-validation-errors.md",
+    "mode": "100644",
+    "sha256": "828d31197a707e90f75ef44bfc851f50c35910276a3a98797388a9347b9ce9c1",
+    "size": 6648
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/connector-config-attributes.md",
@@ -110,8 +140,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/index.md",
     "mode": "100644",
-    "sha256": "4725c227d0fbc7ca1024380d759fd4c2a3289c9d7b31c4fba60215f242caa475",
-    "size": 3559
+    "sha256": "0055fde31e5130d8c9a1483d7ff1f32e869f69caae74e416f016e6cc1b0c0252",
+    "size": 4788
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/max-model-len-budget.md",

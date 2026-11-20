@@ -20,6 +20,11 @@ Inherit the rules in SKILL.md. Conditional routes:
   answer no/yes + the earliest release that works, then show the gates.
 - Suspicion of "model X is unsupported", wrong image/vllm pairing, or an
   obvious maintainer "works on my machine" reply → `environment-correspondence.md`.
+- `ValueError: Non-MoE models do not support external data parallel mode`, or any
+  `ValueError`/`AssertionError` from `vllm/engine/arg_utils.py` whose text names a
+  parallel mode or flag combination (no `WorkerProc` line, no rank prefix) →
+  `arg-validation-errors.md`. Upstream argument validation: the fix is a launch
+  command, and when the shape came from a tutorial it is also a doc bug.
 - `AttributeError: '<Model>Config' object has no attribute '<attr>'` raised inside
   `vllm_ascend/distributed/*connector*.py` from `ensure_kv_transfer_initialized`
   (typically a VL/MoE model under PD disaggregation) → `connector-config-attributes.md`.
@@ -30,6 +35,14 @@ Inherit the rules in SKILL.md. Conditional routes:
 - If the log names a collective (`HcclAllreduce`, `hcclRet`, `ERR00100`) instead
   of a Python-level cause, leave this topic and use
   `../hccl-and-hardware/index.md`.
+- If instead the server was already serving and died on memory later ("显存不释放"
+  then crash, `NPUWorkspaceAllocator` OOM after minutes/hours), this is not a
+  startup lane — use `../runtime-memory/index.md`.
+- A missing system library or Python module the tutorials install (`cannot open
+  shared object file`, `No module named`), or the interpreter aborting inside a
+  native module the image shipped (glibc allocator text, no Python frame, no
+  `WorkerProc` line) → leave this topic for `../image-dependency-faults/index.md`:
+  the image or its build recipe owns that failure, not vllm-ascend.
 - The log reached graph capture — `Starting to capture ACL graphs for cases:
   [...]`, `Capturing ACL graphs (...): 0/N`, `ACLgraph sizes capture fail`,
   `NPUGraph.cpp` "Waiting for pending NCCL work" — then failed or stalled →
@@ -48,7 +61,10 @@ Common rules for this topic:
 3. A start-up flag difference (explicit `--max-model-len`, `--enforce-eager`,
    `--compilation-config`) is cheaper to test than a source-level theory. Ask for
    the re-run before proposing a bug.
-4. A count or list derived in the log that does not match the upstream default
+4. A configuration flag that the reporter relies on belongs in the pinned
+   version's parser before it belongs in a theory: `rg -n '<key>' vllm_ascend/`
+   (unknown `additional_config` keys are ignored without a warning).
+5. A count or list derived in the log that does not match the upstream default
    is usually a vllm-ascend rewrite, not a reporter mistake; grep
    `vllm_ascend/` for the config field before theorising. For graph-capture
    sizes specifically, `acl-graph-capture.md` step 3 names the rewriting

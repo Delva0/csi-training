@@ -26,6 +26,15 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `docs/source/tutorials/*.md` installs it in its own startup block → same page,
   steps 1 and 3: identify the copy that is loaded, then compare the tutorial's
   and the Dockerfile's ingredient lists.
+- The missing `.so` is raised while a **KV-connector module is imported** in a
+  deployment started by a launcher (K8s/kserve/operator `args:`/`command:`,
+  compose `entrypoint`) — `ImportError: ascend_transport.so: cannot open shared
+  object file` from `from mooncake.engine import TransferEngine`
+  (`vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py:24`) — and
+  the ENV dump or a profile script claims the directory is already on
+  `LD_LIBRARY_PATH` → `launch-env-and-library-path.md` first. Reporter-confirmed
+  on #7352: the effective environment of the launched `vllm serve` is the launch
+  command's, so the fix is the export inside that command, not a rebuild.
 - The missing library is a **separate Ascend component with its own
   `set_env.sh`** — `libatb.so` inside
   `Could not load this library: .../torch_npu/lib/libop_plugin_atb.so`, raised
@@ -49,6 +58,20 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   (`Dockerfile.a3:37` copies `tools/mooncake_installer.sh`) and upstream ships
   its own copy of that script. Diff the two dependency lists before blaming the
   component's code; the image builds against the stale copy.
+
+## Pages
+
+- `native-import-abort.md` — the interpreter aborts inside an image-bundled
+  native module (glibc allocator text, no Python frame): which copy is loaded,
+  allocator interposition, dependency-list correspondence.
+- `native-string-abort.md` — `terminate called after throwing … std::logic_error`
+  / `basic_string::_S_construct null not valid` at engine start.
+- `nnal-atb-missing-library.md` — `libatb.so` / `libop_plugin_atb.so` unsourced
+  NNAL roots, the `CANN: None` collector blind spot.
+- `launch-env-and-library-path.md` — `ImportError: <name>.so: cannot open shared
+  object file` while a connector module is imported in a launcher-managed
+  deployment, when the ENV dump says the path is fine: the launch command's
+  effective environment, the tutorials' exports, and the image-owns-it boundary.
 
 ## Common rules
 
@@ -74,4 +97,6 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
    reports an `ascend-toolkit`/`cann-*` root, or a component version missing
    from a list — suspect the *collector* before the install
    (`collect_env.py` reads hard-coded default paths), and ask for the install
-   root rather than concluding the component is absent.
+   root rather than concluding the component is absent. The same caution applies
+   to a *correct-looking* dump: it is one shell's environment, not the launched
+   process's (see `launch-env-and-library-path.md`).

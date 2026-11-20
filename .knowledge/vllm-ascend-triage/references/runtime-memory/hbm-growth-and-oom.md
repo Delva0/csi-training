@@ -95,7 +95,8 @@ startup memory lines, and the crash tail. Then:
    change (`--max-num-batched-tokens`, drop `max_split_size_mb`, or the hardware
    floor), with the version scope.
 2. Ranked causes, each carrying **its own action** immediately after its
-   evidence — a closing "action table" is the first thing lost to the token cap.
+   evidence — a closing "action table" is the first thing lost if the message is
+   cut.
 3. Then 3-5 lines of scope / open questions / what to send back: two timestamped
    `npu-smi` samples, the `Set PYTORCH_NPU_ALLOC_CONF` line, the KV-cache and
    preemption lines, the full crash tail, and both serve commands if P/D.

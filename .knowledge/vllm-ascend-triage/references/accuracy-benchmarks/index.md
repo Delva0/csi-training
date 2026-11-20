@@ -27,6 +27,11 @@ Four entry shapes leave this topic immediately and are not accuracy questions at
   and `Mean acceptance length: 1.00`, a stall with drafts still being produced, or a
   first response with `content: ""` and `completion_tokens: 1` — go to
   `../spec-decode-mtp/index.md`; the ordered ablation (MTP off first) lives there.
+- A **tool call** the client cannot parse (`JSON Parse error: Unterminated
+  string`, `Expecting ',' delimiter`) or that arrives truncated / 格式错误 /
+  重复输出: that is protocol assembly against the model's own stop, not the text
+  corruption on this page — go to `../tool-call-streaming/index.md` and run its
+  audit on the raw SSE first.
 - A **vision** request answered as a long run of one token (`!!!!!!!!`, 感叹号,
   `，，，`) with "and it is very slow", on a VL model — that is not a score
   question and not the text-corruption profile: the downstream vision tower owns

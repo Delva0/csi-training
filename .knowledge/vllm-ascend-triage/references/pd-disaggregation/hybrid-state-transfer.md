@@ -72,7 +72,45 @@ KV-store path and the unit tests (`mamba_cache_mode="align"`/`"all"`) do not
 exercise. It is a **candidate**, not the proven cause of #12339: neither run
 could show the D node receiving a stale state.
 
-## 3. The ablation to hand back (this is the answer when the symptom alternates)
+## 3. MTP under PD: the method-string trap and the accounting sites
+
+For a "PD 分离 + MTP 精度" report, the cheapest false lead is the *method name*.
+vllm-ascend compares `speculative_config.method` with the literal `"mtp"`
+(`vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py:479`) while the
+tutorials pass a model-specific name (`{"method": "qwen3_5_mtp", ...}`,
+`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:127`; `deepseek_mtp`,
+`qwen3_next_mtp`, `glm4_moe_mtp` elsewhere), which looks like a missed branch. It
+is not: upstream normalises every `MTPModelTypes` variant *before* vllm-ascend
+sees it — `vllm/config/speculative.py:520-524` (vllm v0.21.0) warns "method `<x>`
+is deprecated and replaced with mtp" and sets `self.method = "mtp"` — so the gate
+does fire for the documented command. One grep settles it:
+`grep -n "MTPModelTypes" -A8 vllm/config/speculative.py`. Recorded #10961 ranked
+the opposite conclusion first ("the gate misses `qwen3_5_mtp`"), labelled it
+source-verified and left it open; that ranking was wrong at v0.21.0rc1, and the
+report had no log to support any ranking in the first place.
+
+What actually carries MTP through the connector, cheapest print first:
+
+1. **`num_draft_layers`** — `mooncake_connector.py:476-489`: 1 when the method is
+   `mtp`, otherwise the draft model's `hf_config.num_hidden_layers`, consumed by
+   the PP layer window (`end_layer_index += self.num_draft_layers`, `:654` inside
+   `pp_layer_indices`). Print it on both roles; a mismatch moves the wrong layer
+   set and shows up as wrong tokens, never as an error.
+2. **MambaSpec block indexing** — `:698-703`: P and D block counts must be equal
+   (`RuntimeError("For MambaSpec num block should equal on P node and D node.")`),
+   then `transfer_block_idx = len(remote_group_block_ids) - self.num_speculative_tokens - 1`
+   moves exactly one block. `num_speculative_tokens` (`:449-453`) must match on
+   both roles and interacts with how many blocks the decode step reserves — an
+   ablation row (3 → 1), not a theory.
+3. **Layer-name predicates** — `"mtp" in layer_name` at `:972,1714,1754` routes MTP
+   KV-cache layers to indices above `num_layers`. These key off the *cache dict
+   names*, not the method string, so the check is `print(kv_caches.keys())` on both
+   roles: names without `mtp` drop all three sites into the non-MTP branch at once.
+
+All line numbers are the v0.21.0rc1 tree (`80610e4`); #10961 reported v0.22.1rc1,
+which the snapshot does not carry — say so and have the reporter re-grep.
+
+## 4. The ablation to hand back (this is the answer when the symptom alternates)
 
 Ask for a single fixed prompt/seed, then one row at a time, both P and D:
 
@@ -107,14 +145,13 @@ test by row 1/3; (c) connector mismatch vs the documented recipe — cheapest to
 test; (d) weights/quantisation mismatch — row 6/7. Name what each row's outcome
 would confirm, and say that the reporter's "resolved" carries no mechanism.
 
-## 4. Budget note (why this page exists)
+## 5. Budget note (why this page exists)
 
-The recorded run on this case spent its whole 16384-token output budget on source
-archaeology across four mechanisms (rank mapping, mamba mode, A5 MXFP8 dispatch,
-recompute scheduler) and delivered **no answer at all** — 49K characters of
-reasoning, 20 turns, final message reasoning-only (`stop_reason:
-output_tokens`). The material above was already sufficient for a complete ranked
+The recorded run on this case spent the entire session on source archaeology
+across four mechanisms (rank mapping, mamba mode, A5 MXFP8 dispatch, recompute
+scheduler) and delivered **no answer at all** — 20 turns, the final message
+reasoning-only, `stop_reason: output_tokens`. The material above was already sufficient for a complete ranked
 answer plus the ablation table. For an alternating-accuracy PD report, the
 ranked causes + ablation matrix *is* the deliverable; further source walks are
 refinement and must not delay it. The gates that enforce this are rule 1 of
-SKILL.md and `../evidence-workspace/delivery-budget.md`.
+SKILL.md and `../evidence-workspace/delivery-discipline.md`.

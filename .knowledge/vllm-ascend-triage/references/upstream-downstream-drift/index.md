@@ -78,7 +78,7 @@ It is the wrong entry for an aclnn/AscendC device fault
    upstream ref), get the real pairing from the project's compatibility matrix
    (`docs/source/community/versioning_policy.md`) and CI `vllm_version` matrix,
    and ask for `pip show vllm`. Do not keep grepping the pinned tree for the
-   missing line — that loop cost a recorded run its whole budget.
+   missing line — that loop cost a recorded run its whole session.
 
 ## Pages
 

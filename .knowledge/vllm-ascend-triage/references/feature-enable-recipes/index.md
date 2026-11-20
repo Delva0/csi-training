@@ -65,7 +65,7 @@ Rules for this topic:
    command: one axis per launch, short input, `--enforce-eager` first, then graph
    mode, then speculative decoding.
 4. Cap it: verdict + constraints + staged run is the deliverable inside 3 turns;
-   the recorded #8984 run spent 19 turns and 15.6K of a 16.4K completion budget
+   the recorded #8984 run spent 19 turns
    and still left the capability question open.
 
 Pages:

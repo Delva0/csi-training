@@ -59,6 +59,11 @@ the other.
 3. Installed but absent from `LD_LIBRARY_PATH` → add the `source` line to
    `~/.bashrc` **after** the CANN one, and verify in a fresh shell
    (`echo $ATB_HOME_PATH; echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -i nnal`).
+   If the deployment is started by a launcher (`args:`/`command:` in a Pod or
+   operator CR) rather than by the reporter's shell, the profile line never
+   reaches the engine process — put the `source`/export in the launch command and
+   read `launch-env-and-library-path.md`; the ENV dump will look correct either
+   way.
 4. Confirm with the one-line repro/verification, which is exactly the worker's
    own call:
    `python -c "import torch, torch_npu; from torch_npu.op_plugin.atb._atb_ops import _register_atb_extensions; _register_atb_extensions(); print('ATB OK')"`.

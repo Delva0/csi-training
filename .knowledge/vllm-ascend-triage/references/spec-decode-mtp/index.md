@@ -19,7 +19,14 @@ Not this topic: a launch/startup failure (`../startup-failures/index.md`), a
 collective or device fault (`../hccl-and-hardware/index.md`), wrong or alternating
 answers on a **PD** pair where the decode node received the state
 (`../pd-disaggregation/hybrid-state-transfer.md`), and a "does this plan fit on N
-cards" question (`../deploy-sizing/index.md`).
+cards" question (`../deploy-sizing/index.md`). A **tool call** whose JSON the
+client cannot parse (`Unterminated string`, 格式错误, 参数被截断) while the text
+itself is fine is also not here: the open question is whether the stream or the
+assembly lost the tail, so start at `../tool-call-streaming/index.md`. When its
+failing `num_speculative_tokens` is >= 3 and 1 or 2 works, that topic's
+`mtp-block-verify-acceptance.md` carries the `max_spec_len >= 3` branch — name it
+with the `n=2` and `temperature: 0` ablations rather than re-deriving it from the
+acceptance numbers.
 
 ## Rules
 

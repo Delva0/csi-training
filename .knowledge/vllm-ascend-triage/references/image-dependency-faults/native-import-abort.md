@@ -91,7 +91,7 @@ Reporter-confirmed outcome (later public comments on the same issue):
 - **`PYBIND11_MODULE` bodies.** Class registrations allocate nothing; an abort at
   import comes from static initialisers or from a library the module pulls in.
 
-A recorded triage of this case spent both output budgets on exactly those four
+A recorded triage of this case spent the whole session on exactly those four
 lines of inquiry and delivered no answer, *after* it had already surfaced the
 `libjemalloc-dev` omission and ranked it low. Cap the source work at about six
 tool calls: steps 1-3 are the whole answer.

@@ -72,10 +72,22 @@ Rules for this topic:
    the tree's own selector, not from the flags' prose: quote the predicate that
    picks `MC2`/`ALLTOALL`/`ALLGATHER` for the reported SoC, the arithmetic of the
    reporter's `world_size_across_dp`, and the shipped recipe that comes closest —
-   `moe-expert-parallel-with-dp.md`.
+   `moe-expert-parallel-with-dp.md`. When the symptom is a **hang or garbage on a
+   real request under DP>1** (dummy/profile run fine) rather than engine init,
+   the two numbers to separate are the DP-wide pad target and the per-rank owner
+   slice — `dp-moe-padding-and-owner-slice.md`.
 
 Pages:
 
+- `dp-moe-padding-and-owner-slice.md` — DP>1 MoE arithmetic behind a hang or a
+  garbage tensor after an all-gather: `set_ascend_forward_context`'s pad target
+  (`ascend_forward_context.py:91-98`, DP-wide only while `dp_metadata` is present,
+  phase-dependent because prefill and decode carry different vectors), the three
+  consumers and the `reduce_scatter_tensor` owner-slice convention
+  (`ops/fused_moe.py:1382-1395,1446-1452`), the `get_fused_moe_state` table that
+  decides whether the DP `all_gather` runs at all (EP at `ep_size < 16` is
+  `All2All`, not `AllGather`), and the rank-parity checks. Worked for #3107
+  (v0.9.1rc2, Pangu Pro MoE, DP8×TP1 with EP).
 - `moe-expert-parallel-with-dp.md` — EP **with** DP: `_select_moe_comm_method`'s
   per-batch table for A2 (`MC2` only when `num_tokens <= capacity` **and**
   `world_size_across_dp/pp >= 16`) and A3, `set_mc2_tokens_capacity`'s arithmetic

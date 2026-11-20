@@ -38,6 +38,24 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   container before any image theory. The ENV dump describes a shell, not the
   launched process; the export goes in the launch command (steps 1-2 of
   `references/image-dependency-faults/launch-env-and-library-path.md`).
+- Log stops after `Loading model weights took X GB` with the port still refused
+  and nothing raised: bound the phase before theorising — at v0.8.4rc1 the next
+  code is `worker.py:240-256` `determine_num_available_blocks` → `profile_run()`
+  ending in `torch_npu.npu.synchronize()` (`model_runner.py:1078`), `initialize_cache`
+  is next, and `_warm_up_model` (`worker.py:325-326`) captures nothing at that ref.
+  Then ask for the exact `vllm serve` line, the container exit code, `dmesg` OOM
+  lines and `npu-smi` **during** the stall (`references/startup-failures/silent-stall-after-weight-load.md`).
+  The log's `model_runner.py:<line>` vs `model_runner_v1.py:<line>` fingerprints
+  V0 vs V1; use it as evidence, not proof.
+- A DP>1 MoE deployment whose dummy/`profile_run` batch passes but a **real
+  request** hangs a layer or two in, or whose layer output is garbage of the right
+  shape right after a `(dp_size × max_tokens_across_dp, hidden)` tensor: the pad
+  target must be the DP-wide max on every rank and the owner slice is per-rank —
+  print `dp_rank`/pad target/local `num_tokens`/slice offset on **all** ranks,
+  recompute `dp_size × max_tokens_across_dp` against the gathered row count, and
+  read `get_fused_moe_state` before blaming the gather (EP at `ep_size < 16` is
+  `All2All`, so the DP `all_gather` does not even run)
+  (`references/feature-enable-recipes/dp-moe-padding-and-owner-slice.md`).
 - Report pasting only a response body with thinking in `content` and
   `reasoning_tokens: 0`: the serve command's `--reasoning-parser` is the
   answer before any model/device theory, and the chat field is `reasoning`,
@@ -362,6 +380,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   is the quant method the checkpoint forces (FLASHCOMM1 off, or the tutorial's W8A8
   weights), not an attention or install fault
   (`references/dsa-sparse-attention/o-proj-quant-attribute-crash.md`).
+- A MoE deployment dying at the first real batch with `call aclnn<Op> failed,
+  error code is <6 digits>` (`aclnnMoeInitRoutingV3 … 561103`,
+  `Kernel Run failed … MoeInitRoutingV2`): the number is a **failed tiling check on
+  one input**, identical across unrelated ops, so ask for the EZ9999 body
+  (`CheckTokenCount`, `moe_init_routing_v2_tiling`) before any kernel reading, and
+  settle which parameters reach the op with the selector
+  (`ascend_forward_context.py:246-255`) plus
+  `ops/fused_moe/token_dispatcher.py:324-350`. A "DP2 TP4 有没有限定 / 能否启动时校验
+  拦截" question is answered by that arithmetic and the documented A2 block
+  (`docs/source/tutorials/DeepSeek-V4.md:149-167` = DP1×TP8 + EP), never by a
+  DP×TP matrix (`references/custom-ops-runtime-faults/moe-init-routing-tiling.md`).
 - Degenerate output (`</think>` in `content`, repetition collapse, 乱码) at long
   context **and** concurrency on a model the tree documents, with both `vllm serve`
   commands pasted: open `docs/source/tutorials/models/<model>.md` at the pinned
@@ -371,7 +400,9 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   (`references/accuracy-benchmarks/garbled-long-context-output.md`). Recorded
   #13002 spent 21 turns and its whole output budget inside a 2600-line
   `mooncake_connector.py` and shipped nothing, though the tutorial's validated
-  commands deviated on five flags and were reachable in two calls.
+  commands deviated on five flags and were reachable in two calls — the replay that
+  had `garbled-long-context-output.md` answered the same paste in 11 turns, which is
+  what those two calls buy.
   If instead the *prompt* is short, the *completion* runs long and a few
   responses out of many repeat themselves, that is not the prompt-length lane:
   diff the same tutorial for the decode side and lead with the identity row

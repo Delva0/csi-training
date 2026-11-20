@@ -32,8 +32,9 @@ wrong output?**
   prefix caching, and both serve commands are in the report: do not start in
   `kv_p2p/`. Diff the two commands against
   `docs/source/tutorials/models/<model>.md` first and hand back that diff plus the
-  ablation rows (ranked, none an established cause; #13002 never reached a
-  diagnosis) → `../accuracy-benchmarks/garbled-long-context-output.md`.
+  ablation rows (ranked, none an established cause; #13002's first run never
+  reached a diagnosis, and its replay reached one from that page alone) →
+  `../accuracy-benchmarks/garbled-long-context-output.md`.
 - The deployment never gets past engine start because the *KV-transfer config
   block itself* is rejected: `ValueError: KV transfer 'prefill' config has a
   conflicting data parallel size. Expected 1, but got 2.` (or `tensor parallel

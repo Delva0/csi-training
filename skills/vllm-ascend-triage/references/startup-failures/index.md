@@ -13,6 +13,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   `Failed core proc(s): {'EngineCore': -11}`, finish in the startup section of
   `../hccl-and-hardware/worker-segfault-no-python-frames.md`: a trivial CPU
   `torch.zeros` at the top of the dump is not the cause.
+- Nothing raised and nothing printed past `Loading model weights took X GB`,
+  with the HTTP port still refused → `silent-stall-after-weight-load.md` first:
+  bound the phase from the pinned worker (`determine_num_available_blocks` →
+  `profile_run` → `npu.synchronize`, no capture at that ref), fingerprint V0 vs V1
+  from the log's own `model_runner.py:<line>`, then ask for the full `vllm serve`
+  line and take the liveness checks. Do not lead with `--enforce-eager` where the
+  platform already sets `simple_compile_backend = "eager"`.
+- The paste's `file:line` names a `vllm_ascend/**` module the pin does not
+  contain (e.g. `vllm_ascend/models/<x>.py`) → `environment-correspondence.md`,
+  its vendored-file section: the model code is the reporter's, the framework calls
+  it makes are still citable.
 - Failure at load/profile/graph-capture time on a machine with 64 GB cards, or a
   deployment command that omits `--max-model-len` → `max-model-len-budget.md`
   first. This is the reporter-confirmed answer for the recorded Qwen3-VL-30B-A3B

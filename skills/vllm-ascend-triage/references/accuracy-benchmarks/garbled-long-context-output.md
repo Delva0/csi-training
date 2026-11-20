@@ -57,10 +57,13 @@ Applied to #13002 (Kimi-K2.6 W4A8, 1P1D + `MooncakeConnectorV1`, eagle3,
 `--enable-prefix-caching` on **both** nodes, `--max-model-len 131072`, P
 `HCCL_BUFFSIZE=256`, D `--max-num-batched-tokens 256`, eagle3
 `num_speculative_tokens 3` on P. Those are the rows to hand back; none of them is a
-proven cause, and the recorded run never got as far as saying so — it spent 21
-turns and its whole output budget inside
+proven cause. The first recorded session never got as far as saying so — it spent
+21 turns and its whole output budget inside
 `vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py` (2600+ lines,
-read in eight slices) and shipped no answer at all.
+read in eight slices) and shipped no answer at all. The replay that had this page
+shipped the complete ranked answer in 11 assistant turns / 17 tool calls and opened
+that connector exactly once — for the single `dp_size`/`tp_size` grep the P-vs-D
+asymmetry needed — which is the cost this page is meant to save.
 
 Two report-side traps from the same case, both cheaper than any source read:
 
@@ -76,6 +79,32 @@ Two report-side traps from the same case, both cheaper than any source read:
   `HCCL_BUFFSIZE=256` "overflows and corrupts KV"; a too-small HCCL buffer is a
   collective-side complaint, and the value is worth A/B'ing because the validated
   command uses 800, not because the mechanism is established.
+- **A `completion_tokens` figure far above the returned text is a routing
+  measurement.** #13002's shape 2 reported `completion_tokens: 9665` against 831
+  characters of `content`; with a reasoning parser active and a client that
+  concatenates only `delta.content`, the missing bulk is in `reasoning`, not lost.
+  Compute the tokens the text should have cost before calling it collapse, and ask
+  for one `stream: false` response with both fields.
+- **Re-read the reproduction table before adopting the reporter's own axis.**
+  #13002 filed "long context **+** ≥16 concurrency" and its table agrees only on
+  the length: 16-concurrency on a single instance was 0/32 at 23K, while the
+two-instance runs degraded 8-9 % — i.e. the pressure that moved was the aggregate
+  load on the shared P node, and the reporter separately noted that production
+  degrades at concurrency 3 and that `max_num_seqs=8` changes nothing. An axis the
+  reporter asserts but their own numbers do not support is a ranking input, and the
+  cheapest row is the one that halves the load.
+- **When the decode node carries `recompute_scheduler_enable: true` together with
+  `cudagraph_mode: FULL_DECODE_ONLY`, rank the recompute/pad row high.** #8320
+  (Qwen3.5-397B, mixed deployment, DP8·TP2, KV cache saturated) is the closest
+  recorded mechanism: a recomputed request turns one card into a long prefill while
+  the others are padded to full decode length, the padded tokens were not masked
+  out of MoE routing, they concentrated on a few experts and exceeded the fused
+  dispatch/combine capacity, and the output came back empty or garbled; the
+  reporter's own A/B was batch size down, `skip_all_reduce=True`, `--enforce-eager`
+  and a larger `max_output_size`. That is a reporter-side claim, but it names the
+  rows for this deployment shape (`recompute_scheduler_enable: false`,
+  `--max-model-len` small enough that KV is never saturated, `--enforce-eager`) and
+  it explains a 3-minute streaming gap better than any connector story.
 
 ## The deliverable is an ablation matrix
 

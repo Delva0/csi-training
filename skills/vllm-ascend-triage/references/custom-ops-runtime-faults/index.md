@@ -57,6 +57,17 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   (`../hccl-and-hardware/collective-error-chain.md`). Ask for the error text before
   mapping any caller: with only the op name in the title, the version triple and the
   first error line are the whole next step.
+- **A numeric aclnn code is an argument, not an owner.** `call aclnnX failed, error
+  code is 561103` states that this launch's tiling rejected one input; the same
+  561103 appears on `aclnnFlashAttentionScore` (#115), `aclnnInplaceNormal` (#2892)
+  and `aclnnIndexPutImpl` (#4430), so it must never be graded as hardware, HCCL or
+  "this parallelism is unsupported". Two shapes recur on MoE deployments: a
+  **built-in routing op** fed by the token dispatcher (`aclnnMoeInitRoutingV3` /
+  `MoeInitRoutingV2`, where the EZ9999 line names the offending argument —
+  `moe-init-routing-tiling.md`), and the backport custom op the tree builds itself.
+  The op name in the paste may not exist in the tree at all: the caller's
+  `torch_npu` function, the aclnn entry point and the tiling opType can carry three
+  different names in one block, so grep the *Python* caller before any `csrc/` walk.
 - **`Failed to register custom ops, all custom ops will be disabled` is not a defect
   in every image.** At vllm-ascend v0.7.3 the official image ships without the
   extension by design: `setup.py:296-298` builds `vllm_ascend.vllm_ascend_C` only
@@ -122,6 +133,12 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
 
 ## Pages
 
+- `moe-init-routing-tiling.md` — `aclnnMoeInitRoutingV3 … 561103` (and the
+  `MoeInitRoutingV2` tiling wording): the decoded EZ9999 `CheckTokenCount` check,
+  which caller parameters the tiling compares, the dispatcher arithmetic that
+  decides they are reached at all, the CANN 8.3-vs-8.5 operator-availability axis,
+  and why the "please validate DP/TP at start-up" request resolves to three
+  specific gates rather than a layout matrix.
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
   each line does/does not pin down.
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend

@@ -568,6 +568,28 @@ tokens spent inside reasoning, one short status note on each of the first 17,
 cut mid-sentence while it was still ranking the causes (its own notes had said
 "I must deliver now" three turns earlier). Lane: pooling + chunked prefill (`../pooling-embedding/index.md`).
 
+**#6572** vllm-ascend `v0.14.0rc1` (`52d4acf`) + vllm `v0.14.1` (`d7de043d`), 910B3-64G,
+Qwen3-Coder-Next at `--max-model-len 262144 --gpu-memory-utilization 0.80
+--max-num-batched-tokens 4096 --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'`:
+TP4 serves, TP8 OOMs at engine start; the body was the two serve commands and the
+environment block, no log. Track: TP-scaling budget
+(`../deploy-sizing/tp-scaling-oom-at-startup.md`). What the tree settled and the
+run found: the pinned tutorial runs this family at **TP4 with `--max-model-len
+32768`** and the same four flags (`docs/source/tutorials/Qwen3-Next.md:64`, CI
+`tests/e2e/multicard/4-cards/test_qwen3_next.py`), so the reporter's working
+command was already 8× outside the documented context and TP8 was never validated;
+`get_num_kv_heads = max(1, kv_heads//TP)` with `num_key_value_heads=2` makes the
+attention KV per token identical at TP4 and TP8, so the KV requirement is
+TP-invariant while weights halve. Delivery: **no answer at all** — 20 assistant
+turns, all 8.2 K output tokens, the last 28.4 K characters inside a single
+reasoning block that was still oscillating over the allocator mechanism when the
+cap hit, with the tutorial envelope, the reporter's gmu ceilings and the OOM line
+already in hand. Its first `skill_view` also paid 107 KB for one `SKILL.md` body
+(the whole catalogue is 25 K tokens per call) — the reason the support-entry
+catalogue is now a topic table. Later reporter follow-ups (same issue, not replies
+to these investigators): full graph is not the differentiator (they run it on many
+models), and the model was not retested on a newer release.
+
 **#5525** vllm-ascend `v0.11.0` (`2f1aed9`) + vllm `v0.11.0` (`b8b302c`),
 `quay.io/ascend/vllm-ascend:v0.11.0`, Qwen3-Embedding-8B served with `--task embed
 --max-num-seqs 256 --max-num-batched-tokens 8192`; `vllm-bench`
@@ -732,3 +754,37 @@ graph flip it led with is a hypothesis with a named confirmation line, not a fix
 and the later release's `FULL_DECODE_ONLY` tutorial command is the real lever.
 Also missed in-flight: the paste's `served_model_name` is
 `Qwen3-235B-A22B-Instruct-2507`, not the reported model.
+
+**#8345** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`), Qwen3-32B
+(**dense**) under PD with `MooncakeConnectorV1`, `--data-parallel-size 2
+--data-parallel-rank 0 --tensor-parallel-size 8` and
+`kv_connector_extra_config.prefill/decode.dp_size = 2`: `ValueError: KV transfer
+'prefill' config has a conflicting data parallel size. Expected 1, but got 2.`,
+identical for DP=2 and DP=4, evidence only a screenshot (OCR = the paste). Track:
+startup config validation, downstream raise site
+(`../startup-failures/arg-validation-errors.md`, new second-raise-site section).
+The mechanism the tree supports: upstream rewrites a non-MoE engine's DP to 1 in
+`vllm/v1/engine/core.py:1061-1073`, the check compares against
+`data_parallel_size`, and the extra-config numbers have no other reader — so
+`dp_size: 1` is the one-line fix and the keys cannot be deleted (connector
+asserts). Delivery: answered on turn **15** (G1/G2 missed), after ~41 K characters
+of reasoning against 3.4 K of message text, and cut inside its final section; four
+turns went into `ParallelConfig`/`arg_utils` before the twelve-line
+`run_engine_core` branch resolved it — the cheap route is
+`rg -n 'is_moe\|data_parallel_size = 1' vllm/v1/engine/core.py`.
+
+**#6275** vllm-ascend v0.14.0rc1 (`52d4acf`) + vllm v0.14.1 (`d7de043`), 2×A2
+910B2 64G, `DeepSeek-V3.2-Exp-w8a8`, DP2 × TP8 + EP + MTP `num_speculative_tokens:
+2`: `fftsplus aivector … The DDR address of the MTE instruction is out of range`
+at `_dummy_sampler_run` (`model_runner_v1.py:2158`, `profile_run`), followed by
+the UCE-repair block (`507899` / `rtGetMemUceInfo` / `DSARandomNormal` /
+`aclnnInplaceNormal`) and a `WorkerProc hit an exception`. Track: lane C device
+fault at a profile-run sync point
+(`../hccl-and-hardware/error-report-timestamps.md`). The launch command is
+verbatim the tree's A2 tutorial block, so the config diff is exhausted; the paste
+does carry two environments (`npu-smi 24.1.rc3` / openEuler 5.10 versus
+`25.3.rc1` / Ubuntu 5.15). Delivery: **no message text at all** — 10 assistant
+turns, ~48 K characters of reasoning, 2.7 K characters of status lines, cut with
+an empty final message; much of it spent deciding whether `aclnnInplaceNormal` was
+a random-number defect while the paste's own async caveat and the
+`checkUceErrAndRepair` frame already said it was not.

@@ -2,8 +2,8 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "0fcdd17a9d9dccba8dcc52d970b2a27280afaa32ed8fdf33fb35a8ae9c12bdee",
-    "size": 99924
+    "sha256": "9b238d4ece48751195d463c943d62890ba7edbbc872203b8903c1c113e661865",
+    "size": 81727
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/early-eos-short-output.md",
@@ -122,8 +122,14 @@
   {
     "path": "vllm-ascend-triage/references/deploy-sizing/index.md",
     "mode": "100644",
-    "sha256": "a0932a957e166a0a8285f941ea22c7ae751dfcea4560de5f053a4e70136a1b65",
-    "size": 3486
+    "sha256": "e4853ad35486b71828763c448c444dc2665b0813864e6ae02558636ae7fe6ef4",
+    "size": 3961
+  },
+  {
+    "path": "vllm-ascend-triage/references/deploy-sizing/tp-scaling-oom-at-startup.md",
+    "mode": "100644",
+    "sha256": "09480b94c86a8b20283f841715168bd8398201571f343e7e034d33233dcdb4bc",
+    "size": 9628
   },
   {
     "path": "vllm-ascend-triage/references/dsa-sparse-attention/concurrency-crash-with-no-log.md",
@@ -170,8 +176,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases.md",
     "mode": "100644",
-    "sha256": "4a094774851904625083bbb07bf626875fa3b96e11d7203f89023539081b28b8",
-    "size": 52744
+    "sha256": "51af6a3ebfdaa4f86835b66498af7dac1c38b989c5aeb20c5762a35b94dc9026",
+    "size": 56744
   },
   {
     "path": "vllm-ascend-triage/references/feature-enable-recipes/context-parallel-pcp-dcp.md",
@@ -194,8 +200,8 @@
   {
     "path": "vllm-ascend-triage/references/first-checks/cheap-checks-by-track.md",
     "mode": "100644",
-    "sha256": "89cc7dc278f47cb0414e5efc88a4895c7f981d04b8dbffd4639890fdf5fc4a45",
-    "size": 28792
+    "sha256": "dbc7ff36f68d09b6ae8692bd4058e5c62c7c5599398c62b7c975fcb2a50ca6ad",
+    "size": 29347
   },
   {
     "path": "vllm-ascend-triage/references/first-checks/index.md",
@@ -230,8 +236,8 @@
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/error-report-timestamps.md",
     "mode": "100644",
-    "sha256": "9cdd2eca016bc3435183e5b26df1f7a1b3654cd92a456c2ae3020a07aea53032",
-    "size": 7623
+    "sha256": "3904cb7761d746a8330f8bcc74a91b69ce0403626914d615cca0e2c81ffb25ec",
+    "size": 10554
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/index.md",
@@ -356,8 +362,8 @@
   {
     "path": "vllm-ascend-triage/references/pd-disaggregation/index.md",
     "mode": "100644",
-    "sha256": "7db692a6b826f48a80bd15ba632eb85b03d631a7c8749751d6fd08c8ee93fcc0",
-    "size": 7309
+    "sha256": "32017e1e8aa0c0c920e22582d0601d6c6a986a8a10adce00073629ce370c6feb",
+    "size": 7930
   },
   {
     "path": "vllm-ascend-triage/references/pd-disaggregation/kv-pool-store-segments.md",
@@ -524,8 +530,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/arg-validation-errors.md",
     "mode": "100644",
-    "sha256": "828d31197a707e90f75ef44bfc851f50c35910276a3a98797388a9347b9ce9c1",
-    "size": 6648
+    "sha256": "ff0dcea598dd77c0454f66bfb415baa9a3d11c211ee3d9528a9263a135b45d87",
+    "size": 11809
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/checkpoint-config-cuda-only-path.md",
@@ -548,8 +554,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/index.md",
     "mode": "100644",
-    "sha256": "925ba78630851fa05ffd413c4f42ee9c9d55ecf900f31491fb4bfc765c9697b0",
-    "size": 8520
+    "sha256": "62ac0299ec067d7be8d4c9b3f01066cd43003a900d5aee395a8641b8f3dfa8f9",
+    "size": 9481
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/max-model-len-budget.md",
@@ -718,6 +724,12 @@
     "mode": "100644",
     "sha256": "bf7df9d05263e88b6c2c9e42ef41eeeea5d03314ec15106d63a09fbd1971de0e",
     "size": 8750
+  },
+  {
+    "path": "vllm-ascend-triage/scripts/oom-budget-split.sh",
+    "mode": "100644",
+    "sha256": "018e839d74e6a7ad570760d9009bc51d3512c311f425069423c7e13702a38da3",
+    "size": 7075
   },
   {
     "path": "vllm-ascend-triage/scripts/plog-timeline.sh",

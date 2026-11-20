@@ -66,6 +66,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `CANN_3RD_LIB_PATH` changes that (seed the directory or pass
   `csrc/build.sh --cann_3rd_lib_path=`). Pin v0.13.0rc3; the chain was
   source-read, not run (`references/image-dependency-faults/offline-source-build.md`).
+- Startup `ValueError` whose text names a parallel size inside
+  `kv_connector_extra_config` (`KV transfer 'prefill' config has a conflicting
+  data parallel size. Expected 1, but got 2.`): one grep for the string decides
+  the owner (it is `vllm_ascend/utils.py`, not `arg_utils`), then `is_moe` for the
+  model decides whether the process could ever keep DP>1
+  (`references/startup-failures/arg-validation-errors.md`, #8345). Do not walk
+  `ParallelConfig` or the connector: in that version the extra-config numbers
+  have no reader besides the check.
 - Custom op that aclnn refuses to *resolve* (`EZ1001`, `Get regInfo failed`,
   `does not support opType`, `binary_info_config.json of socVersion`): registry
   and install, before launch. Do not open `csrc/<op>/`: check the tree's

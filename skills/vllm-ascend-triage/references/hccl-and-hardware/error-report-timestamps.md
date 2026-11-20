@@ -53,6 +53,24 @@ failure. Adopting it names the wrong owner *and* the wrong ablation set.
    - `507011` and `rtEventSynchronize ... reason=the model stream execute failed`
      → a synchronization on a stream that already failed. It is the messenger,
      never the owner.
+   - `checkUceErrAndRepair: … NPU error, error code is 507899` with
+     `rtGetMemInfoByType … invalid handle`, `rtGetMemUceInfo execution failed,
+     reason=driver error:internal error`, `dsa task submit failed … 507053`,
+     `launch failed for DSARandomNormal, errno:561000` → torch_npu's UCE
+     (uncorrectable-error) *query/repair* path: the c10 exception names
+     `checkUceErrAndRepair` itself, so these lines date the trap and report a
+     device context the trap left broken; the random-number submit failure is a
+     later submit on that context, **not** an RNG or `aclnnInplaceNormal` defect.
+     Two readings stay open — a real HBM UCE, or the query failing because the
+     trap killed the context — settled by `npu-smi info -t health -i <id>`, the
+     plog's UCE record, and one rerun on another card.
+   - the deepest Python frame sits in `profile_run` /
+     `determine_available_memory` (e.g. `_dummy_sampler_run`'s
+     `hidden_states[logit_indices]`, `vllm_ascend/worker/model_runner_v1.py:2158`
+     at v0.14.0rc1) → a **sync point** of the last dummy forward, not the owner:
+     the paste's own async caveat says the "current working operator" line names
+     the last *submitted* op. Attribute with `--enforce-eager` +
+     `ASCEND_LAUNCH_BLOCKING=1` before opening any kernel's shape code.
    - `ERR02005 DIST internal error`, `HCCL watchdog thread terminated`,
      `terminate called after throwing ...` → teardown after a process/device error.
    - `shm_broadcast.py:... No available shared memory broadcast block found in 60
@@ -113,3 +131,31 @@ custom op), the same failure with `--enforce-eager`, then with
 `ASCEND_LAUNCH_BLOCKING=1` to attribute the op, and whether the three chips repeat
 the same `pc start` on every attempt (software) or one chip does it alone on
 re-runs (hardware).
+
+## A two-node paste carries two environments (#6275)
+
+Worked case #6275: vllm-ascend **v0.14.0rc1** (`52d4acf`) + vllm **v0.14.1**
+(`d7de043`), 2×A2 910B2 64G, `DeepSeek-V3.2-Exp-w8a8`, DP2 × TP8 + EP + MTP
+`num_speculative_tokens: 2`, `FULL_DECODE_ONLY`. The dump is the
+`fftsplus aivector … MTE DDR out of range` trap during `profile_run`
+(`Worker_DP0_TP0_EP0`, `determine_available_memory`), followed by the UCE-repair
+block above.
+
+Two findings that change the answer, both from the paste rather than from source:
+
+- The launch command is **verbatim** the tree's own A2 multi-node block
+  (`docs/source/tutorials/DeepSeek-V3.2.md`: TP=8, DP=2, `cudagraph_capture_sizes:
+  [3,6,…,48]`, `num_speculative_tokens: 2`, `--data-parallel-rpc-port 13389`,
+  `HCCL_INTRA_PCIE_ENABLE=1`). Config-diff route exhausted — "your command
+  deviates from the tutorial" is a wrong answer for this report, and the
+  remaining deviations to ablate are the framework ones (`--enforce-eager`,
+  MTP off, `VLLM_ASCEND_ENABLE_MLAPO=0`).
+- The two nodes' `collect_env` dumps disagree: master `npu-smi 24.1.rc3` on
+  openEuler 5.10 versus worker `npu-smi 25.3.rc1` on Ubuntu 5.15 (both CANN
+  8.5.0). On a 2-node HCCL deployment, diff the two dumps first and align
+  driver/firmware/CANN/OS before any kernel theory — the containers mount the
+  *host* driver (`-v /usr/local/Ascend/driver/lib64`, `npu-smi`,
+  `version.info`), so the two ranks really are running different stacks.
+
+The recorded session reached this list and shipped **no message text at all**
+(rule 1: 14 tool turns, then the output cap).

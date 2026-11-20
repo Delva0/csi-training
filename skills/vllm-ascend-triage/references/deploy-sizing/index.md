@@ -46,6 +46,12 @@ Inherit the rules in SKILL.md, plus these:
 
 Conditional routes:
 
+- Two serve commands that differ by one resource knob (`--tensor-parallel-size`,
+  `--max-model-len`, `--gpu-memory-utilization`) where the smaller one comes up and
+  the larger OOMs at engine start → `tp-scaling-oom-at-startup.md` first: the
+  tutorial's validated serve line, the OOM line split against `gmu × total`
+  (`../../scripts/oom-budget-split.sh`), the per-rank terms that do not shrink with TP,
+  and the stop rule against an allocator-mechanism hunt (#6572).
 - The worked #9335 case: the 30B-A3B Omni model on 2×64 GB 910B, the three-stage
   NPU yaml, why the 2-NPU squeeze is infeasible, the evidence table and the
   answer shape → `card-budget-and-device-visibility.md`.

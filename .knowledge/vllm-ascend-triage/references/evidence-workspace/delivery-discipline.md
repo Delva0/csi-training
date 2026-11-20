@@ -34,6 +34,12 @@ leads were.
   its own last hypothesis. Carry one or two sentences of the current answer draft in
   the same message as every tool call — verdict line first, then what is being
   checked — so any truncation leaves a usable answer.
+  The status-note form is the same waste: #17797 put one short note on each of its
+  first 17 turns ("the 310P path has its own model runner — let me check X") and
+  #5525 emitted zero message text on 11 of 20 turns, neither ever stating a verdict;
+  #8590 put a single 21 K-character block of hypotheses it had already rejected in
+  front of the two-line verdict the paste already supported, was cut, and was cut
+  again after the reporter's ping.
 - **The budget is cumulative output, so the turn numbers above are not the real
   guard.** Three of the recorded sessions show the difference: #4057 was cut on its
   *14th* assistant turn with ~49 K characters of reasoning and zero message text,
@@ -78,6 +84,18 @@ leads were.
 - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:** write
   it at G2 *in place of* the reasoning block, and skip it when the session is
   already long. Composing it late is what costs a run its ranked causes.
+- **The ranked answer has a size, not only a deadline.** #16563's two runs on the
+  same container-memory report are the pair: one emitted no answer text on 20
+  turns (a 69-character opener, then bare tool calls) and was cut inside a
+  reasoning block; the other kept a verdict line on most turns and wrote
+  `/workspace/scratch/findings.md`, and was *still* cut inside its last section,
+  because the answer ran to five causes with a sub-paragraph each, a precedent
+  table and a six-rung ladder. For a report with no log at all, the body is
+  **3-4 causes, one ladder of ≤6 lines, precedents as one line of `#id: fact`,
+  3-5 lines of scope** (~3-4 K characters). The block that gets cut is the
+  closing scope/"what to send back" list, which is exactly what the reporter acts
+  on next — so it stays 2-3 lines and the mechanism detail goes to the cause it
+  belongs to.
 
 **A block that has already started the answer is not closer to delivery.** #16111
 wrote `Verified facts (pinned …)` and #8788 wrote `**Answer**: Yes, real.` inside
@@ -116,6 +134,8 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #11759 | each section as it became true: the absent benchmark section (turn 6), the ignored `max_completion_tokens` (turn 8), the one-card sizing arithmetic (turn 11), the `transformers==4.51.0` pin conflict (turn 14) | **no file, no message text**: 16 turns, 46.5 K characters (29.8 K reasoning, 69 characters of message text), the report heredoc written on the last turn and discarded — a 5.7 K-character composition after a 3.5 K-character script the turn before |
 | #16111 | by turn ~12: the lazy init is documented (#9975), the config-table diff (`dram.size` per die, the non-existent `standalone.dram.size`) and the #14106 swallowed-save → collective-desync family | **no answer at all**: 36 turns, every message a bare tool call, cut inside a reasoning block that was composing the deliverable ("Verified facts (pinned …)") — the answer existed only as reasoning |
 | #8788 | by turn ~18: the invocation chain and the four `csrc/third_party` fetches plus the catlass submodule | **no answer at all**: 30 turns, every message a bare tool call, cut inside a block that had already begun "**Answer**: Yes, real…" |
+| #16563 / A | by turn ~14: the counter is cgroup host memory, the +80 GB/7 d arithmetic (3.5-7 KB per request, <16 B per decode step, so per-step host buffers are priced out), the closest precedents (#2650 host memory 1-2 GB/h, #12345 DeepSeek-V4 leak, #5847 CPU-memory leak) and the A2 recipe diff (`--no-enable-prefix-caching`, `additional_config.enable_flashcomm1`) | **no answer at all**: 20 turns, a 69-character opener then bare tool calls, ~48 K characters of reasoning, cut inside a reasoning block (`../runtime-memory/container-working-set-growth.md`) |
+| #16563 / B | by turn ~9: the same class and arithmetic, the env-flag liveness findings (no consumer at the pin for `VLLM_ASCEND_ENABLE_FLASHCOMM` / `PYTHON_NPU_ALLOC_CONF`), the MTP `pin_memory()` asymmetry and a `findings.md` draft | verdict, five causes, four precedents and the six-rung ladder did reach the message, but the cap landed inside the closing version-scope section: five causes with sub-paragraphs plus a precedent table plus a ladder is more answer than the budget holds |
 
 Two consequences worth restating: an "I'll start by…" line is not an answer and
 does not satisfy G1, and a run whose last turn is a tool call has shipped nothing.

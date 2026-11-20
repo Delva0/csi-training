@@ -234,6 +234,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `bash <skill_root>/scripts/host-ram-check.sh <paste|->` and report the ratio
   before any NPU lane, quoting RES and never the `8326g` VIRT
   (`references/runtime-memory/host-ram-and-per-rank-rss.md`).
+- A **container** counter climbing for days on a healthy service
+  (`container_memory_working_set_bytes` "持续增加"), no crash and `npu-smi` flat:
+  run `bash <skill_root>/scripts/working-set-arithmetic.sh --growth <reported>
+  --days <window> --rps <rate>` for the bytes/request class, ask for the three
+  cAdvisor series at two timestamps plus a per-PID RSS sample, and diff the
+  reporter's serve flags against the model tutorial's own recipe before any
+  source read (`references/runtime-memory/container-working-set-growth.md`).
 - Any pasted plog / RUNTIME excerpt that carries more than one error family: run
   `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>` before
   naming a cause. Blocks it flags as older are re-printed records (rule 13); the

@@ -37,6 +37,14 @@ often a framework-free `torch_npu` repro (`attention-op-numeric-errors.md`).
   capture-mode block from the previous day). Run
   `../hccl-and-hardware/error-report-timestamps.md` (script
   `plog-timeline.sh --since <date>`) before naming the operator or the mechanism.
+- **A scatter/index write is judged by its index tensor, not by the op.** When the
+  fault names `ScatterNdUpdate`-style kernels and `../hccl-and-hardware/error-report-timestamps.md`
+  shows one `pc start` across every core, the owner is the Python caller that passed the
+  index tensor (row count and value range), not the kernel's tiling: in #4296 the DSA
+  indexer wrote its cache with the whole batch's `slot_mapping` while holding one
+  phase's rows, and the crash tracked a mixed prefill+decode batch — the answer is an
+  A/B on request concurrency, no plog needed
+  (`../dsa-sparse-attention/indexer-cache-scatter-fault.md`).
 - Check the error family before the operator. When the same output also carries
   `SUSPECT REMOTE ERROR` / `error code is 507057` / an `EZ9999 … chipId:` dump /
   `error code = 0x8…`, it is a lane C device fault: the `fftsplus aivector error` there

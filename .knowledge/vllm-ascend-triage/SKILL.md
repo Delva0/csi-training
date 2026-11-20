@@ -151,6 +151,15 @@ A2); #12487 v0.22.1rc1 A3 3P1D DeepSeek-V4-Flash long-run crash whose title
 named `port 65536 have already been bound`, a three-day-old re-printed EI0019
 record, while the in-window error was an AICPU `reduce_scatter`
 parameter-invalid on a chip the reporting rank did not own.
+#9355 v0.18.0 Qwen3.6-27B bf16 on 2×910B3, whose first request after start returned
+`content: ""` with `completion_tokens: 1` and `finish_reason: "stop"` while later
+requests answered (run capped at 16384 with 51.2K characters of reasoning and a 2.2K
+half-answer; its lead mechanism was a "server-lifetime first decode" story that the
+reporter's later comment leaves unestablished, since only the prompt and `temperature`
+changed); #10495 v0.20.2rc1 Qwen3.6 MoE + `qwen3_5_mtp` on 2×A2 with ~64K prompts,
+acceptance collapsing to exactly 0.000 with drafts still produced and throughput
+stalling, where the run ranked KV capacity/queue thrash first and the reporter then
+reported MTP as the owner (MTP off → normal).
 
 ## Rules that apply whenever this skill is used
 
@@ -159,7 +168,10 @@ parameter-invalid on a chip the reporting rank did not own.
    text and tool-call arguments together, never replenished — and the mechanism
    of loss is per-turn reasoning volume (~50K characters per session, ~4K for the
    answer). The newest runs confirm it: #6784 spent 45.8K characters of reasoning
-   over 10 turns and emitted **no answer at all**; #11519 spent 43.3K and
+   over 10 turns and emitted **no answer at all**; #6240 spent 37.9K over 18 turns,
+   emitted no message text until the final turn and got its 4.5K answer cut
+   mid-sentence, while #4296 spent 22.1K over 10 turns and delivered a complete
+   3.8K answer because its paste carried a traceback; #11519 spent 43.3K and
    delivered 1.0K characters, cut mid-sentence; #12339 spent 49K over 20 turns on
    four competing mechanisms and shipped nothing. So these are hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
@@ -258,6 +270,10 @@ parameter-invalid on a chip the reporting rank did not own.
      match to `n` and `rg -rl` to `l`, so output looks like corrupted source
      (`self.n`, `decoder_layer.l`) and invites a false theory about the code.
      Recursion is implicit on a directory: use `rg -n "pat" .` or `grep -rn`.
+     An **empty pattern matches every line of every file**: a probe typed while
+     unsure how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped
+     65 KB into one recorded session (#6240, mid-investigation, buying nothing).
+     To list files use `rg -ln '<pat>' <dir>`; never pass an empty pattern.
    - Never list a history or attachments directory: doing so on one recorded
      case returned ~3k filenames (~24 KB) for no information, and on the
      v0.23.0rc1 case (#13699) a first-turn listing of `/workspace/history`
@@ -395,11 +411,14 @@ parameter-invalid on a chip the reporting rank did not own.
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range"; several ranks reporting the same `pc start` in the same second | Custom-op runtime fault, after the timestamp gate — a shared PC across chips is software address computation, not several bad cards | `references/hccl-and-hardware/error-report-timestamps.md`, then `references/custom-ops-runtime-faults/index.md` |
+| `507035` + `ERR00100 PTA call acl api failed` + `EZ9999 … aivec error` + `The DDR address of the MTE instruction is out of range`, one `pc start` repeated on every core, and the deepest frame is `torch_npu.npu_scatter_nd_update_` in `vllm_ascend/attention/sfa_v1.py` with fault kernel `ScatterNdUpdate_…`; the crash follows concurrency (mixed prefill+decode batch) while single requests are fine | DSA indexer-cache write with the wrong index tensor: a host-side slicing bug, not a card — compare the index tensor's row count with the source's before any hardware theory | `references/dsa-sparse-attention/indexer-cache-scatter-fault.md` |
 | `rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this operation]` / `MemCopySync ... kind = 1` on a small `cnt` (72/456 B), often with `deepseek_mtp` + `FULL_DECODE_ONLY` | Capture/replay-time host→device sync copy — a real family (#6002, #4208, #8502) **only** when it is the in-window first error; check its record date first (rule 13) | `references/startup-failures/acl-graph-capture.md` |
 | `<method> quantization is currently not supported in npu` inside a pydantic `ValidationError` from `ModelConfig` (e.g. `--quantization awq`), or `Unknown quantization method: <x>`; no `WorkerProc` line | Platform quantization gate before any worker: the NPU platform declares only `ascend` and `compressed-tensors` — re-quantize, not a defect | `references/startup-failures/quantization-method-gate.md` |
 | An attention op **runs**, returns a correctly shaped tensor, and the numbers are wrong (uniform average, softmax apparently dropped, error only vs an fp32 reference); often a framework-free `torch_npu` repro, never a dump | Silent operator numerics — below the framework | `references/custom-ops-runtime-faults/attention-op-numeric-errors.md` |
 | `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` — aclnn cannot resolve the op for the SoC before any launch | Custom-op **build/install** fault: package built for another SoC, stale vendor package, wrong image tag | `references/custom-ops-runtime-faults/op-not-registered-for-soc.md` |
 | Output is fluent but stops after tens of tokens ("输出被截断", "只输出几十个 tokens") and a large `max_tokens` appears to fix it; `usage.prompt_tokens` is small; a `pass_config` / SP / FLASHCOMM / quantization flag changed at the same time | Early EOS: `finish_reason` decides budget vs model-issued EOS, then every reader of the toggled key plus the shipped support matrix (accuracy track, not the length budget) | `references/accuracy-benchmarks/early-eos-short-output.md` |
+| Spec-decode metrics collapse: `Accepted: 0` with `Drafted: N > 0`, `Per-position acceptance rate: 0.000` at every position, `Mean acceptance length: 1.00`, generation throughput ~0 while requests stay `Running`; often `--async-scheduling` and/or `--enable-prefix-caching` on a hybrid GDN model (Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) | Speculative-decoding bookkeeping (draft and target no longer see the same context), not capacity: the MTP-off ablation is row 1 | `references/spec-decode-mtp/acceptance-collapse.md` |
+| First request after start answers `content: ""` with `usage.completion_tokens: 1` and `finish_reason: "stop"`, later requests fine; MTP plus a full-graph decode on a hybrid GDN model | Empty first response: one model-issued blank/stop token — neither the length budget nor reasoning routing — so reproduce by restart before naming a one-shot mechanism | `references/spec-decode-mtp/empty-first-response.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
 | Per-layer `MSE loss` / epoch table printed while converting a checkpoint with msmodelslim (W4A4/W8A8), one layer far above its neighbours, or "the converted checkpoint answers garbage" with no engine-side failure | Quantization-conversion phase: converter-owned, before the engine starts | `references/accuracy-benchmarks/quantized-checkpoint-conversion.md` |
 | A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
@@ -413,6 +432,7 @@ parameter-invalid on a chip the reporting rank did not own.
 | Host is **310P** (Atlas 300I Duo, `Ascend310P3`, image `-310P`), or the traceback sits on an `is_310p()` branch (NZ/`FRACTAL_NZ` format casts, no Ascend custom ops, `patch_mamba_config_310`) | SoC-conditional platform path: experimental per the pinned docs, NZ casts are real conversions, fp16/eager are mandatory | `references/soc-platform-paths/atlas-300i-310p.md` |
 | The report asks how to enable a feature rather than what broke: "如何正确开启 PCP/DCP", "F alone and G alone each报错，能否给个能跑通的示例", no log pasted, or two errors described in one sentence | Feature-enable / capability question: the validation verdict (docs statement at the pinned ref, whose hardware the measured table used, `tests/e2e/**` coverage, precedent versions) before any constraint list | `references/feature-enable-recipes/index.md`, then `context-parallel-pcp-dcp.md` |
 | `Communication_Error_Bind_IP_Port(EI0019)` / `Failed to enable listening for the host network adapter socket` / `port <n> have already been bound` where n is above 65535, often in the issue title | HCCL control-plane port band, not an OS socket conflict — and only if the record's date is inside the window (rule 13) | `references/hccl-and-hardware/control-plane-port-binding.md` |
+| "服务崩溃" / 崩溃 under concurrency or high load with **no** error text, no traceback and no plog pasted, while single-request serving is correct (often DeepSeek-V3.2 + MTP + DP/EP) | Report-gap track: nothing in the paste can confirm a mechanism, so the answer is the config diff against the project's own validated command at the pinned commit plus 1-2 single-variable A/Bs | `references/dsa-sparse-attention/concurrency-crash-with-no-log.md`; `references/runtime-memory/index.md` for the OOM row |
 | Compiler or missing-header error while installing/building, a performance claim, or any report with no matching track | General sequence below | skip the topical routes |
 
 ## Procedure
@@ -499,6 +519,19 @@ parameter-invalid on a chip the reporting rank did not own.
      EOS), then `rg -n "<key>"` every reader of that key and read the shipped
      support matrix before any mechanism
      (`references/accuracy-benchmarks/early-eos-short-output.md`).
+   - A spec-decode symptom (acceptance collapse, a stall while drafts keep being
+     produced, "works if I remove MTP"): order the ablations MTP off →
+     `--async-scheduling` off → `--no-enable-prefix-caching` → `num_speculative_tokens 1`
+     → concurrency/`--max-model-len`, and do not lead with the KV arithmetic:
+     acceptance dropping to exactly 0.000 everywhere while drafts continue is a
+     draft/target context question, and the recorded reporter confirmed the owner by
+     removing MTP (`references/spec-decode-mtp/acceptance-collapse.md`).
+   - A **first** response with `content: ""`, `completion_tokens: 1` and
+     `finish_reason: "stop"`: that is one model-issued blank/stop token. Ask for the
+     emitted token id (`return_token_ids: true`), a restart with the identical body
+     twice, and a warm-up request row before attributing it to one-shot server state;
+     do not re-derive the padded-rows/null-block theory, it is already refuted
+     (`references/spec-decode-mtp/empty-first-response.md`).
    - 310P / Atlas 300I report: take the SoC from
      `_build_info.__soc_version__` rather than the image tag, quote the
      documented status (experimental, stable = v0.10.0rc1 at v0.11.0rc3,
@@ -523,6 +556,22 @@ parameter-invalid on a chip the reporting rank did not own.
      naming a cause. Blocks it flags as older are re-printed records (rule 13); the
      in-window first error is the one to classify
      (`references/hccl-and-hardware/error-report-timestamps.md`).
+   - A device fault whose deepest frame is a `torch_npu` scatter/index write in
+     `vllm_ascend/attention/sfa_v1.py` (`507035`, `ERR00100`, `EZ9999 … aivec error`,
+     `The DDR address of the MTE instruction is out of range`, fault kernel
+     `ScatterNdUpdate_…`, one `pc start` on every core): compare the index tensor's row
+     count with the source tensor's before anything else. In #4296
+     `attn_metadata.slot_mapping` carried the whole batch while `indexer_select` was
+     called once per decode/prefill half, so a mixed batch read past `k` — and the
+     deployment already ran `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1`, which only
+     made the attribution exact. The decisive check is an A/B on request concurrency
+     (`--max-num-seqs 1` versus the failing value), not a plog
+     (`references/dsa-sparse-attention/indexer-cache-scatter-fault.md`).
+   - A crash under concurrency with **no** error text pasted: do not hunt the mechanism.
+     The answer is the gap, the config diff against the tree's own validated command
+     (`tests/e2e/**`, `docs/source/tutorials/<model>.md`) and ranked candidates with one
+     check each, emitted at the normal gate
+     (`references/dsa-sparse-attention/concurrency-crash-with-no-log.md`).
    - A "communication timeout" whose only text is a bare `TimeoutError` with
      `multiproc_executor.py` / `shm_broadcast.py` frames: run
      `bash <skill_root>/scripts/executor-timeout-check.sh <paste|->` before any
@@ -781,6 +830,15 @@ parameter-invalid on a chip the reporting rank did not own.
   (reporter-confirmed < 20 GB on 25.2.3), the shared `global_te` that makes a
   store fault surface on the p2p connector, the `register mem … mem type:host`
   fingerprint, and the two ablations (#13439).
+- `references/dsa-sparse-attention/index.md` — DeepSeek-V3.2-Exp / DSA (SFA) reports.
+  `indexer-cache-scatter-fault.md`: a device fault raised at the indexer's
+  `npu_scatter_nd_update_` (MTE DDR out of range, one `pc start`, mixed-batch trigger) is
+  a host slicing bug — the verified v0.11.0rc1 `c5fe179` slice mismatch, the concurrency
+  A/B, the fix, and the v0.13.0rc2 re-derivation where the same asymmetry moves to the
+  DSA-CP path (#4296). `concurrency-crash-with-no-log.md`: "多并发时崩溃" with nothing
+  pasted — the config diff against `tests/e2e/**` and the tutorial, the phase-blind
+  `MLAPO_MAX_SUPPORTED_TOKENS = 1024` gate, the maintainer-filed #4996 high-load family,
+  and the `--max-num-seqs 1` + MTP arithmetic (#6240).
 - `references/hccl-and-hardware/index.md` — HCCL, ACL/PTA and NPU device faults
   (lane C): the error-report timestamp gate first (which block in a mixed paste is
   this incident, `error-report-timestamps.md`, #9183), then the collective error
@@ -867,3 +925,19 @@ parameter-invalid on a chip the reporting rank did not own.
   head-dim padding branch and its weight-name-keyed `load_weights`, the six-row
   ablation matrix, and the #976 / #131 / #445 / #562 precedent family (worked for
   #2586 at v0.9.2rc1).
+- `references/spec-decode-mtp/index.md` — symptoms the speculative-decoding path owns
+  while the engine is otherwise healthy: the acceptance metric collapsing to zero, a
+  stall with drafts still being produced, and a first response that is empty.
+  `acceptance-collapse.md` carries the metric reading (`Accepted: 0` + `Drafted: N`
+  + `Mean acceptance length: 1.00` versus mere capacity pressure), the ordered
+  ablation (MTP off first), the async-spec-decode `num_computed_tokens` drift
+  correction (`spec_decode/utils.py:6-30`, caller `worker/model_runner_v1.py:968`),
+  the `mamba_block_size` prefix-caching gate
+  (`patch/platform/patch_mamba_config.py:103-106`) and the e2e coverage facts —
+  worked for #10495 at v0.20.2rc1, where the recorded run led with capacity and the
+  reporter then showed MTP was the owner. `empty-first-response.md` carries the
+  `content: ""` / `completion_tokens: 1` / `finish_reason: "stop"` lane split, the
+  restart reproduction, the emitted-token check, the refuted padding/null-block
+  theory (`worker/model_runner_v1.py:2098-2099, 2171-2174` versus upstream
+  `vllm/v1/core/block_pool.py:173-175`) and the warm-up mitigation — #9355,
+  v0.18.0.

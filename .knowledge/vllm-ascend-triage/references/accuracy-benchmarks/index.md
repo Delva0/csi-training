@@ -11,7 +11,7 @@ symptom, output that is fluent but stops after tens of tokens ("被截断") — 
 decided by the same first question (is anything being compared, or is the engine wrong per
 se), then by `finish_reason`.
 
-Three entry shapes leave this topic immediately and are not accuracy questions at all:
+Four entry shapes leave this topic immediately and are not accuracy questions at all:
 
 - Wrong or alternating answers in a **PD/EPD** deployment on a hybrid
   linear-attention model (GDN/Mamba: Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) — the
@@ -21,6 +21,10 @@ Three entry shapes leave this topic immediately and are not accuracy questions a
 - A number printed while the checkpoint is being *converted* (per-layer
   `MSE loss`, an epoch table, a bad quantized artifact) is converter output and
   precedes any engine comparison — go to `quantized-checkpoint-conversion.md`.
+- Speculative decoding / MTP owns the symptom — `Accepted: 0` with `Drafted: N > 0`
+  and `Mean acceptance length: 1.00`, a stall with drafts still being produced, or a
+  first response with `content: ""` and `completion_tokens: 1` — go to
+  `../spec-decode-mtp/index.md`; the ordered ablation (MTP off first) lives there.
 - A **vision** request answered as a long run of one token (`!!!!!!!!`, 感叹号,
   `，，，`) with "and it is very slow", on a VL model — that is not a score
   question and not the text-corruption profile: the downstream vision tower owns

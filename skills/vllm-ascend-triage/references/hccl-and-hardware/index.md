@@ -104,8 +104,10 @@ Common rules for this topic:
 1. Reproduce with `--enforce-eager` and `ASCEND_LAUNCH_BLOCKING=1` before
    interpreting any Python frame; unset blocking mode afterwards (it degrades
    performance). `--enforce-eager` is not optional: vllm-ascend refuses
-   `ASCEND_LAUNCH_BLOCKING=1` while `cudagraph_mode != NONE`
-   (`vllm_ascend/platform.py:601-613`).
+   `ASCEND_LAUNCH_BLOCKING=1` while `cudagraph_mode != NONE` — the gate raises
+   `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING=1` from
+   `AscendPlatform.check_and_update_config` (`vllm_ascend/platform.py:457-469` at
+   v0.20.2rc1; the line moves between releases, so grep the message).
 2. Treat the plog (`~/ascend/log/debug/plog/plog-<pid>_*.log`) as the primary
    source for HCCL errors, and the vLLM log as the secondary one.
 3. Do not derive the root cause from tensor-size arithmetic: in the recorded

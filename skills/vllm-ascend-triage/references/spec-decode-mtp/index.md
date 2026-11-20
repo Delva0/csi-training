@@ -20,9 +20,17 @@ speculative-decoding path (`--speculative-config` with `method: mtp`,
   negative `Counters can only be incremented by non-negative amounts`, together,
   with `--async-scheduling` and `--speculative-config` in the same launch and a
   fractional `temperature` (`async-spec-bookkeeping-desync.md`).
+- the **process** dies with a *device dump* instead of a Python error: the deepest
+  frame is `counts_cpu[: counts.shape[0]].copy_(counts, non_blocking=True)` in
+  `_copy_valid_sampled_token_count` (`model_runner_v1.py:1393`) and the paste also
+  carries `rtMemcpyAsyncEx … reason=the model stream execute failed`, an `aivec
+  error … timeout or trap error` and an HCCL task line with `rankSize` /
+  `numBlocks` (`drafter-count-copy-device-fault.md`).
 
 Not this topic: a launch/startup failure (`../startup-failures/index.md`), a
-collective or device fault (`../hccl-and-hardware/index.md`), wrong or alternating
+collective or device fault whose sync point is **not** the drafter's count copy
+(`../hccl-and-hardware/index.md`; the copy-shaped variant stays here, because the
+frame proves the launch shape and the ablations are spec-decode rows), wrong or alternating
 answers on a **PD** pair where the decode node received the state
 (`../pd-disaggregation/hybrid-state-transfer.md`), and a "does this plan fit on N
 cards" question (`../deploy-sizing/index.md`). A **tool call** whose JSON the
@@ -90,6 +98,14 @@ from the acceptance numbers.
   drafter batch live and switchable at `eagle_proposer.py:136-142`), the
   draft-side `enforce_eager` / `disable_padded_drafter_batch` ablation rows, the
   `min_tokens` mitigation, and the worked #9355 row (v0.18.0).
+- `drafter-count-copy-device-fault.md` — a device dump surfacing at the drafter's
+  valid-count D2H copy: why the frame is a sync point, how the frame itself
+  proves `--async-scheduling` + spec decode + padded drafter batch (event created
+  only under `num_spec_tokens and use_async_scheduling`), resolving the collective
+  by rank size against the DP×PCP×TP group arithmetic (`fc3_quant_x`/`mc2` are not
+  DP-sized), the ordered ablations, the DeepSeek-V4 `VLLM_ASCEND_APPLY_DSV4_PATCH`
+  and `deepseek_mtp` remap gates with the only in-tree validated config, and the
+  worked #10546 row (v0.20.2rc1, which shipped no answer).
 - `async-spec-bookkeeping-desync.md` — `--async-scheduling` + MTP and the
   three-traceback signature: the discarded-request chain
   (`model_runner_v1.py:838-842` mask → `prev_req_id_to_index` built without those

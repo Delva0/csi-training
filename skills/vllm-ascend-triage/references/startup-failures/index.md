@@ -13,15 +13,29 @@ Inherit the rules in SKILL.md. Conditional routes:
   deployment command that omits `--max-model-len` → `max-model-len-budget.md`
   first. This is the reporter-confirmed answer for the recorded Qwen3-VL-30B-A3B
   case.
+- `value error, the checkpoint you are trying to load has model type '<mt>' but
+  Transformers does not recognize this architecture`, `Model architectures [...]
+  are not supported`, or the bare question "can version V deploy model M?" →
+  `model-type-not-recognized.md` first. This is a version gate, not a defect:
+  answer no/yes + the earliest release that works, then show the gates.
 - Suspicion of "model X is unsupported", wrong image/vllm pairing, or an
   obvious maintainer "works on my machine" reply → `environment-correspondence.md`.
+- `AttributeError: '<Model>Config' object has no attribute '<attr>'` raised inside
+  `vllm_ascend/distributed/*connector*.py` from `ensure_kv_transfer_initialized`
+  (typically a VL/MoE model under PD disaggregation) → `connector-config-attributes.md`.
+- Python `AttributeError`/`TypeError` in a `vllm_ascend/{ops,patch,models}` frame
+  whose class subclasses or re-implements an upstream vLLM/transformers class
+  (e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`)
+  → `../upstream-downstream-drift/index.md`; this is drift, not a config value.
 - If the log names a collective (`HcclAllreduce`, `hcclRet`, `ERR00100`) instead
   of a Python-level cause, leave this topic and use
   `../hccl-and-hardware/index.md`.
 
 Common rules for this topic:
 
-1. Establish which lane the failure is in before reading implementation source.
+1. Establish which lane the failure is in before reading implementation source,
+   and answer the model-support question before the source walk when that is
+   what was asked.
 2. Ask for the complete per-rank log plus `npu-smi info`, the exact `vllm serve`
    command, the image tag, and the `Using max model len N` line. Trimmed logs are
    the norm; name the specific lines you need.

@@ -1,51 +1,84 @@
 ---
 name: vllm-ascend-triage
-description: 'Triage vllm-ascend bugs, accuracy gaps, startup/HCCL faults'
+description: 'Triage vllm-ascend deploy, HCCL, support, accuracy faults'
 ---
 
-# vLLM-Ascend issue and deployment triage
+# vLLM-Ascend issue, deployment and support triage
 
 ## Problem class this covers
 
-Two entry shapes, one deliverable: which component and line owns the symptom (or
+Three entry shapes, one deliverable: which component and line owns the symptom (or
 which failure lane and phase), what the reported evidence proves and does not
 prove, ranked candidate causes each with the cheapest confirming check, and the
 concrete next step for the reporter.
 
 - **Issue report** (usually Chinese or English, template-shaped: environment dump
   + logs + narrative) about something that went wrong on an Ascend NPU host: a
-  device-side operator crash, an accuracy/score disagreement, or a performance
-  claim. When the task is just "explain/answer this issue", the answer is still
-  expected to be evidentiary, not a summary of the report.
+  device-side operator crash, an accuracy/score disagreement, a garbled long-input
+  output, or a performance claim. When the task is just "explain/answer this
+  issue", the answer is still expected to be evidentiary, not a summary of the
+  report.
 - **Deployment failure**: a vLLM / vLLM-Ascend deployment fails to come up or
   fails during engine start — `EngineCore failed to start`, `WorkerProc
   initialization failed`, silent worker death, `HcclAllreduce` / allreduce
-  errors, `ERR01100`/`ERR00100`, OOM, "the model failed to load", or a
-  deployment question filed with only a trimmed log.
+  errors, `ERR01100`/`ERR00100`, OOM, "the model failed to load", a Python
+  `AttributeError`/`TypeError` raised from a vllm-ascend patched forward or a KV
+  connector, or a deployment question filed with only a trimmed log.
+- **Support / version question**: "does vllm-ascend <version> deploy <model>?",
+  `… has model type '<mt>' but Transformers does not recognize this
+  architecture`. This is not a bug hunt; it is a version gate with a one-line
+  answer and a registry-level proof.
 
-Recorded uses: vllm-ascend #8944 (v0.19.1rc1, GLM-5.1, `aclnnAddRmsNormBias`
-device fault), #10068 (evalscope vs ais-bench MMLU-Pro gap), #3543 (v0.11.0rc0 +
-vllm v0.11.0rc3, 910B3, TP=4, Qwen3-VL-30B-A3B, silent worker death), #7477
-(v0.17.0rc1 + vllm v0.17.0, driver 25.2.0, CANN 8.5.1, torch_npu 2.9.0, TP=4,
-Qwen3.5-27B, HCCL allreduce ending in an HCCS link fault).
+Recorded uses (issue: version, symptom, track): #8944 v0.19.1rc1
+`aclnnAddRmsNormBias` device fault; #10068 evalscope vs ais-bench MMLU-Pro gap;
+#3543 v0.11.0rc0 silent worker death; #7477 v0.17.0rc1 HCCL allreduce ending in
+an HCCS link fault; #11661 v0.22.1rc1 missing `attention_type` on a patched
+decoder layer; #8409 v0.13.0 `model_type` not recognised (version gate); #16015
+v0.26.0rc1 GLM-5.3 w8a8c8, PD disaggregation + sparse sfa c8 + DCP=16, 400K+
+prompt → 乱码; #5572 v0.12.0rc1 Qwen3-VL-30B-A3B PD disaggregation, Mooncake
+connector `AttributeError` on a nested config.
 
 ## Rules that apply whenever this skill is used
 
-1. **Say the answer before exhausting the investigation.** Recorded runs of both
-   classes failed by spending their whole output budget on exploration and then
-   producing no answer at all, or by ending in a refusal. Deployment failure
-   modes are narrow: in the two recorded deployment cases the decisive evidence
-   was a single omitted flag and one hardware health code, not a source-level
-   defect. Keep a running scratch note of confirmed findings. Deliver a first ranked answer once you can
-   classify the failure and name the confirming check — for a pure issue report,
-   once you have the owning code path — and keep refining afterwards. List open
-   questions instead of omitting the answer; cutting exploration is always
-   cheaper than cutting the answer.
+1. **Say the answer in a message, early, and budget for it.** Every recorded run
+   of this skill so far ended without delivering an answer: after a long, largely
+   correct investigation the reply was empty — the final assistant message was
+   reasoning text with no answer and no tool call, the run stopped on
+   `output_truncated` (`stop_reason: output_tokens` at the 16384 completion cap),
+   and one earlier run ended in a refusal. The diagnoses already reached in
+   reasoning were sound; none was delivered. The output budget is shared by all
+   reasoning, all answer text and all tool-call arguments for the whole session;
+   it is not replenished per turn. So:
+   - Answer the reporter's literal question as soon as one artefact settles it
+     ("does this crash exist on that image?" — their own traceback; "can 0.13.0
+     deploy Qwen3.5?" — the support matrix or model registry at the pinned
+     commit). Write that answer as message text; a reasoning-only turn delivers
+     nothing.
+   - Write the ranked diagnosis once you can classify the lane/track and name the
+     confirming check or owning code path (usually 6-12 tool calls), with open
+     questions listed as such. Later turns may correct it, add the patch or answer
+     a follow-up; an earlier answer stays valid. If many turns have passed with no
+     answer text, stop exploring and write, even if the diagnosis is incomplete.
+   - Keep per-turn reasoning to a few hundred words. Do not restate file contents,
+     and do not carry a running hypothesis list in reasoning — that list belongs in
+     the answer, where it is delivered. Keep confirmed findings in
+     `/workspace/scratch/findings.md` so the answer can be written from it without
+     re-reading anything.
+   - Treat everything after the first answer as refinement that must not delay it.
+     Version archaeology ("which release dropped attribute X", "when did this
+     model land") is optional depth: state it as an open question plus the one
+     command the reporter can run, instead of resolving it first. Do not open a
+     second line of inquiry once a complete answer exists.
+   - Deployment failure modes are narrow: in the two older deployment cases the
+     decisive evidence was a single omitted flag and one hardware health code,
+     not a source-level defect. Cutting exploration is always cheaper than cutting
+     the answer.
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C
    (table below); for a runtime report, decide whether it is a device-op fault,
-   an accuracy/score gap or a performance claim. The classification decides
-   which code and which evidence even matter. Do not open a deep source walk
-   when a config value, one re-run flag or a health tool can settle the question.
+   an accuracy/score gap, a corruption report or a performance claim. The
+   classification decides which code and which evidence even matter. Do not open
+   a deep source walk when a config value, one re-run flag or a health tool can
+   settle the question.
 3. **The deliverable is a ranked diagnosis the reporter can act on**, not a code
    walk: per hypothesis, the evidence you have, the one command or log line that
    confirms or refutes it, the cheapest fix to try, and what to send back.
@@ -67,10 +100,20 @@ Qwen3.5-27B, HCCL allreduce ending in an HCCS link fault).
    maintainer's clean run on different hardware is a data point, not a
    refutation of a reporter-confirmed fix on theirs; say what was verified on
    which hardware.
-7. **Never dump whole files into context.** Use `rg -n -C2 <symbol>` and
-   `sed -n 'A,Bp' file`. A 20-40 KB full-file read of an AscendC kernel header
-   buys one fact and costs the budget for several conclusions. Reserve
-   whole-file reads for files under ~150 lines.
+7. **Keep reads small and exact.** Use `rg -n -C2 <symbol>` and
+   `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines. A
+   20-40 KB full-file read of an AscendC kernel header buys one fact and costs
+   the budget for several conclusions. Two traps that each cost a recorded run
+   whole steps:
+   - `rg -r` is `--replace`, not "recursive". `rg -rn "pat" .` rewrites every
+     match to `n` and `rg -rl` to `l`, so output looks like corrupted source
+     (`self.n`, `decoder_layer.l`) and invites a false theory about the code.
+     Recursion is implicit on a directory: use `rg -n "pat" .` or `grep -rn`.
+   - Never list a history or attachments directory: doing so on one recorded
+     case returned ~3k filenames (~24 KB) for no information. Search by token
+     (`grep -rl`, `rg -l`) or with `scripts/history-titles.sh`, and read
+     `SOURCES.json` through `scripts/sources-summary.sh` instead of dumping the
+     whole file.
 8. **The prior-month corpus is not evidence of absence.** `history/*.md` and
    lexical issue search cover only earlier issues; a current issue is never in
    them. Make one grep for the distinctive token (op name, error string, dataset
@@ -93,17 +136,23 @@ Qwen3.5-27B, HCCL allreduce ending in an HCCS link fault).
 |---|---|---|
 | Startup log: generic `WorkerProc initialization failed due to an exception in a background process`, **no** per-rank worker traceback; optional `[ERROR] TBE Subprocess[task_distribute] raise error[], main process disappeared!`; long silence before failure | Lane A: worker died without reporting | `references/startup-failures/silent-worker-exit.md`, then `references/startup-failures/max-model-len-budget.md` |
 | Startup log: per-rank `WorkerProc failed to start.` / `WorkerProc hit an exception.` plus a traceback with rank prefix | Lane B: worker raised a Python error | `references/startup-failures/environment-correspondence.md` (diff against the known-good tutorial/CI config) |
+| The traceback ends in `AttributeError: '<X>Config' object has no attribute '<attr>'` with a frame in `vllm_ascend/distributed/*connector*.py`, reached from `ensure_kv_transfer_initialized` (usually a VL/MoE model under PD disaggregation) | Lane B: connector reads a nested config attribute | `references/startup-failures/connector-config-attributes.md` |
+| `value error, the checkpoint you are trying to load has model type '<mt>' but Transformers does not recognize this architecture`; `Model architectures [...] are not supported`; "can version V deploy model M?" | Model-support / version gate | `references/startup-failures/model-type-not-recognized.md` |
+| Python `AttributeError`/`TypeError` in a frame under `vllm_ascend/{ops,patch,models}` where the class subclasses or re-implements an upstream vLLM/transformers class — e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`, `unexpected keyword argument`, `cannot import name` | Downstream patch drift | `references/upstream-downstream-drift/index.md` |
 | `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error | `references/hccl-and-hardware/index.md` |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range" | Custom-op runtime fault | `references/custom-ops-runtime-faults/index.md` |
 | "score with tool A is N points below tool B / another image / the vendor number", accuracy regression after a change | Accuracy/score discrepancy | `references/accuracy-benchmarks/index.md` |
+| A long prompt (100K+) answered as 乱码 / garbage / repeated / empty text while short prompts are fine, with sparse c8 attention, DCP/PCP, PD disaggregation or KV offload enabled | Generation corruption (accuracy track, different evidence) | `references/accuracy-benchmarks/garbled-long-context-output.md` |
 | Install, build, import, performance claim, or any report with no matching track | General sequence below | skip the topical routes |
 
 ## Procedure
 
-1. `ls /workspace` and read `SOURCES.json`; note which repos/refs are present
-   and which are partial exports. The layout differs per case (flat
-   `/workspace/history/<issue>.md` vs `/workspace/history/<issue>/` +
-   `/workspace/repos/<issue>/`); adapt after looking, do not assume.
+1. List `/workspace`, then run `bash <skill_root>/scripts/sources-summary.sh` for
+   the `SOURCES.json` version contract (`skill_root` is the path `skill_view`
+   reports); note which repos/refs are present and which are partial exports. The
+   layout differs per case (flat `/workspace/history/<issue>.md` vs
+   `/workspace/history/<issue>/` + `/workspace/repos/<issue>/`); adapt after
+   looking, do not assume.
 2. Read the pasted log and place it in a track/lane. Note what is *missing* (no
    worker prefixes, no `Starting to load model`, no version block) — reporters
    paste filtered logs, and missing lines are a data gap.
@@ -117,33 +166,51 @@ Qwen3.5-27B, HCCL allreduce ending in an HCCS link fault).
      (`references/hccl-and-hardware/collective-error-chain.md`). If the
      collective failure survives re-runs, check health per device and correlate
      the failing device id (`references/hccl-and-hardware/device-health-checks.md`).
-   - Accuracy: establish whether both numbers came from the same server, weights
-     and serve flags before choosing a culprit
-     (`references/accuracy-benchmarks/index.md`).
-4. Fix the version correspondence: image tag → vllm/vllm-ascend commits →
+   - Accuracy/corruption: establish whether both numbers came from the same
+     server, weights and serve flags before choosing a culprit
+     (`references/accuracy-benchmarks/index.md`); for a garbled prompt, get the
+     ablation matrix (`references/accuracy-benchmarks/garbled-long-context-output.md`).
+4. **Write the answer now, then keep going** (rule 1). With the lane/track
+   classified and the owning path or decisive check named, emit the ranked
+   diagnosis in the message. When the report lacks what the track needs (the two
+   serve commands of a PD deployment, prompt length, per-rank log), that first
+   answer is the ablation plan plus the list of missing artefacts — already a
+   complete deliverable. Continue into source work afterwards as corrections.
+5. Fix the version correspondence: image tag → vllm/vllm-ascend commits →
    torch_npu/CANN/driver
-   (`references/startup-failures/environment-correspondence.md`). Claim "model
-   unsupported" only after checking `vllm_ascend/models/__init__.py`
-   registration and the upstream model file.
-5. One grep of `history/` for the distinctive symptom token, 2-3 hits, then stop
-   (rule 8).
-6. Locate the owning code path at the pinned commit and walk it from the entry
+   (`references/startup-failures/environment-correspondence.md`). Read the
+   release's own `tests/vllm_ascend_v<ref>_test_conclusion.md` when the tree has
+   one: it names the models that release validated and its unresolved known
+   issues with issue ids. Claim "model unsupported" only after checking
+   `vllm_ascend/models/__init__.py` registration and the upstream model file —
+   for the recognition-error form, answer from
+   `references/startup-failures/model-type-not-recognized.md` before any deeper
+   walk.
+6. One grep of `history/` for the distinctive symptom token, 2-3 hits, then stop
+   (rule 8); `bash <skill_root>/scripts/history-titles.sh '<regex>'` gives the
+   titles of all hits in one call without opening the bodies.
+7. Locate the owning code path at the pinned commit and walk it from the entry
    point (kernel launch site, harness config, model/feature flag) to the line
    that produces the symptom. Prefer computing the decision (a tiling branch, an
    aggregate metric) with a small `uv run --no-project python` snippet over
    reading code by eye.
-7. Cross-check upstream vs downstream: vllm-ascend frequently re-implements or
+8. Cross-check upstream vs downstream: vllm-ascend frequently re-implements or
    bypasses upstream vLLM (custom AscendC op vs `torch_npu` fallback, upstream
    reasoning parsers vs downstream template kwargs, docs baselines vs
-   third-party harness). Record which layer owns the behaviour and for which
-   version, plus what would invalidate the claim.
-8. Write the answer in the shape below, then stop.
+   third-party harness, flat `hf_config` reads vs `model_config.hf_text_config`
+   accessors, a copied forward body vs upstream `super().forward()`). Record
+   which layer owns the behaviour and for which version, plus what would
+   invalidate the claim.
+9. Re-emit the answer in the shape below with the corrections, then stop.
 
 ## Answer shape
 
-- One-line classification: lane A/B/C and the phase that failed (load, memory
-  profiling, graph capture, first collective); or, for a runtime report, the
-  primary cause plus its track.
+- The direct answer first: yes/no for the reporter's literal question, the
+  version that works or the version where it breaks, and whether the reported
+  crash is real. One sentence, before any analysis.
+- Then the one-line classification: lane A/B/C and the phase that failed (load,
+  memory profiling, graph capture, first collective); or, for a runtime report,
+  the primary cause plus its track.
 - Ranked causes, each with the evidence you have, the exact check that confirms
   or refutes it, and its confidence label (reporter-confirmed / source-verified
   at commit X / hypothesis).
@@ -154,7 +221,7 @@ Qwen3.5-27B, HCCL allreduce ending in an HCCS link fault).
   correction — before any patch proposal.
 - Version and hardware scope of the conclusion, plus what to send back (full
   per-rank log, plog, tiling I-line, raw request/response dumps, `npu-smi info`,
-  `asys health` output, `dmesg` OOM lines).
+  `asys health` output, `dmesg` OOM lines, both PD serve commands).
 - What you could not verify locally and which questions remain open, stated as
   such.
 
@@ -163,10 +230,28 @@ Qwen3.5-27B, HCCL allreduce ending in an HCCS link fault).
 - `references/evidence-workspace/index.md` — read first in an unfamiliar case:
   case layout, `SOURCES.json` fields and limits, history search, OCR/attachment
   caveat, what the snapshot does and does not contain.
+- `scripts/history-titles.sh '<regex>' [root] [limit]` — precedent index: one
+  `<file> :: <title>` line per matching history issue, so a whole issue family is
+  triaged without reading bodies. Run it as
+  `bash <skill_root>/scripts/history-titles.sh '<regex>'`, where `skill_root` is
+  the path `skill_view` reports.
+- `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one
+  line per repo with coverage and `runtime_verified` flags.
 - `references/startup-failures/index.md` — engine/worker never becomes ready
   (lanes A/B): silent worker exit; `max_model_len` and memory budget
   (reporter-confirmed for #3543, but per-card HBM decides whether the default
-  fits); environment/version correspondence and known-good command diffing.
+  fits); environment/version correspondence and known-good command diffing;
+  `references/startup-failures/model-type-not-recognized.md` for "recognised
+  architecture" / support-matrix questions (three registry gates,
+  first-supporting-release precedent);
+  `references/startup-failures/connector-config-attributes.md` for the
+  `AttributeError` on a nested multimodal config inside a PD KV connector
+  (verified for #5572, v0.12.0rc1).
+- `references/upstream-downstream-drift/index.md` — Python attribute/signature
+  errors raised when a vllm-ascend module subclasses or re-implements an upstream
+  vLLM/transformers class and the installed library moved on. Scope: the frame is
+  in `vllm_ascend/{ops,patch,models}` and the attribute exists upstream; not a
+  device-op or collective fault. Worked case: #11661 `attention_type`.
 - `references/hccl-and-hardware/index.md` — HCCL, ACL/PTA and NPU device faults
   (lane C): collective error chain then per-device health checks. Scope:
   failures whose text names a collective or the runtime stack, not a
@@ -181,3 +266,7 @@ Qwen3.5-27B, HCCL allreduce ending in an HCCS link fault).
   the project's own baselines live, and the decisive harness-vs-engine
   experiments. When the project has no baseline for the reported dataset, the
   reporter's harness configs are the primary evidence.
+  `references/accuracy-benchmarks/garbled-long-context-output.md` covers the
+  corruption end: long-input 乱码 reports under sparse c8 attention + DCP + PD
+  disaggregation, the feature-ablation matrix that decides ownership, and the
+  tested envelope (#16015, #12905, #14320).

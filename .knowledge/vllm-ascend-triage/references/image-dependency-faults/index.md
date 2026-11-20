@@ -15,6 +15,10 @@ The same ownership test covers the **Triton-Ascend compiler pair**: a kernel tha
 fails to *compile* (`MLIRCompilationError`, `bishengir-compile … returned non-zero
 exit status 1`) belongs to the wheel/compiler that was installed into the image,
 not to vllm-ascend Python or the kernel's shapes.
+It also covers **published-artefact availability**: when the tag or wheel the
+reporter needs was never built for their CPU architecture or SoC variant, the
+owner is the image/wheel pipeline, and the answer is the tag suffix plus one
+registry manifest read — not a vllm-ascend code path.
 Inherit the rules in SKILL.md; this topic is the counterpart of
 `../startup-failures/index.md` for failures that never reach a worker.
 
@@ -78,6 +82,19 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `torch` / `torch-npu` / `torchvision` pins of both sides and the contradictions, and
   the page carries the three-way split (mirror-only metadata pin vs unsatisfiable pin
   set vs unreachable index) plus both answer shapes (#1796, #4737).
+- The complaint is that an artefact **does not exist for the reporter's machine**:
+  "找不到支持 linux on arm64 的 310p 镜像", the quay tag page shows an arm64 tag
+  while the pull lands on amd64 (`WARNING: The requested image's platform
+  (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no
+  specific platform was requested`), or "有没有可 pip 装的 <soc> 轮子" →
+  `image-arch-and-tag-availability.md`. Published-artefact availability, not a
+  vllm-ascend defect: the decisive check is
+  `docker buildx imagetools inspect quay.io/ascend/vllm-ascend:<ver>-<soc>` (plus
+  the same on the `FROM` CANN base), and the tree's own intent comes from the tag
+  suffixes, the conditional `platforms:` matrix (the same expression as the step's
+  `push:`, so the single-arch fallbacks — which differ per workflow — only cover
+  check builds) and the wheel-release matrix — one call:
+  `bash scripts/image-arch-matrix.sh <vllm-ascend-root> --soc 310p`.
 - `pip install` **from source** in a pod without public network fails in the
   custom-ops step ("pulls dependencies from the public network", sometimes only
   `fetch failed`): the build chain fetches a `catlass` git submodule plus four
@@ -128,6 +145,16 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   at vllm-ascend v0.11.0), and the maintainer-confirmed answer on #5750 — do not add
   triton-ascend to these images, and move the release (v0.14.0rc1 needs none)
   rather than the compiler.
+- `image-arch-and-tag-availability.md` — the artefact for this CPU architecture or
+  SoC variant does not appear to exist: what the tag suffixes mean (`-310p`,
+  `-310p-openeuler`, `-openeuler`, and the unsuffixed generic A2 tags including
+  `latest`), why `platforms:` is multi-arch only on an upstream `push` (the two
+  310P workflows fall back to *different* single arches, and the openEuler leg runs
+  on `ubuntu-24.04-arm`), the `FROM` CANN base an arm64 leg depends on, and the
+  wheel lane (`release_whl.yml` builds x86_64 + aarch64, but `Dockerfile.buildwheel`
+  is a **910b** base and `SOC_VERSION` is baked in) — verified at v0.9.2rc1 for
+  #2178, with the rewritten v0.23.0rc1 layout (`_schedule_image_build.yaml`
+  arch matrix + `schedule_image_build_and_push.yaml` suffix list) beside it.
 - `pip-index-visibility.md` — the requirement exists but no index pip can see serves
   it: a wheel pin on a mirror-only dev build with the `--extra-index-url`/`--pre` option
   lines dropped from the metadata (`setup.py` skips `--` lines), the torch /

@@ -27,8 +27,12 @@ after that keeps the header, not this text.
 
 ## Entries
 
-- `scripts/history-titles.sh '<regex>' [root] [limit]` — precedent index, one
-  `<file> :: <title>` line per matching history issue (rule 8: titles first).
+- `scripts/history-titles.sh [-i] '<regex>' [root] [limit]` — precedent index,
+  one `<file> :: <title>` line per matching history issue (rule 8: titles first).
+  Arguments are **positional**; `-i` (case-insensitive) is the only flag, and any
+  other leading `-x` exits 2 with the usage instead of being taken for the regex
+  (a `history-titles.sh -i 'reranker'` call once burned a turn on
+  `no such history root: reranker`).
 - `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one line
   per repo with coverage and `runtime_verified`, plus the unavailable repos.
 - `scripts/oom-budget-split.sh --line '<OOM line>' --gmu F [--params P] [--tp N]
@@ -104,6 +108,14 @@ after that keeps the header, not this text.
   the vllm pin) (#1796, #4737).
 - `scripts/abi-symbol-check.sh <paste|->` — the `std::string`-ABI split in a
   bundled wheel (#1144).
+- `scripts/image-arch-matrix.sh <vllm-ascend-root> [--soc 310p|a2|a3|a5]` — which
+  CPU arch and SoC each published tag was built for, from the tree's CI: the
+  `metadata-action` tag suffixes (→ SoC variant, with the bare/generic line
+  separated), the `platforms:` / `arch:` matrix and its `push`-only condition, the
+  runner legs, every `Dockerfile*` `FROM` base (an arm64 leg needs an arm64 base),
+  the wheel-release matrix and the per-SoC `Dockerfile.buildwheel.*` list (#2178).
+  It reads intent, not published manifests: the registry question is still
+  `docker buildx imagetools inspect`.
 - `scripts/checkpoint-key-prefix.py <model-dir|*.safetensors|*.index.json|->` — the
   checkpoint's root tensor-name prefixes from the safetensors header (no device, no
   weight load), plus `lm_head` presence, `config.json` `architectures` and any

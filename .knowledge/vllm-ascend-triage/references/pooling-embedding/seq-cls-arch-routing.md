@@ -2,7 +2,9 @@
 
 Verified at vllm `v0.23.0` (`0fc695f`) + vllm-ascend `v0.23.0` (`5cb98ca`);
 recorded for #14817 (Atlas 800T A2 / 910B2, driver 26.1.1, vllm-ascend 0.23.0,
-Qwen3-Reranker-0.6B served with `--runner pooling`).
+Qwen3-Reranker-0.6B served with `--runner pooling`). Re-checked at vllm-ascend
+**v0.23.0rc1** (`f4a08bd`) + vllm v0.23.0 for #13446 (910B2, driver 26.0.0RC1,
+`vllm-ascend:v0.23.0rc1` image, `--hf_overrides` copied from a *later* doc page).
 
 ## The signature
 
@@ -25,6 +27,17 @@ registry — never the card, the driver, the tokenizer or `config.json` validity
 The camera-ready tell is the process: the raise happens in the **APIServer**,
 before any worker or device exists, and `ERR99999` after it is the generic
 uncaught-exception tag, not an NPU error code.
+
+The **`found type:` half is a fingerprint of the checkpoint that actually
+loaded**, and it is the fastest way to separate the two ways a reporter arrives
+here. `…but found type: Qwen3Config` means the weights on disk were the **text**
+reranker whatever the command's model path says; found `Qwen3VLConfig` with a
+text class would be the mirror case. So put the found class beside the model path
+in one line: if they disagree (`Qwen/Qwen3-VL-Reranker-2B` in the command, text
+class found), the directory does not hold what its name suggests or the paste
+mixes two recipe rows — check `config.json`'s `model_type` at that path before
+believing anything about a document. #13446 is that case: a VL model path beside
+a text `--served-model-name`, and the `found` class that says text weights.
 
 ## Why the name decides the model class
 
@@ -81,6 +94,35 @@ base is text or multimodal.
    the launch command, note that no env var or device setting substitutes for
    the architecture name.
 
+## Telling a doc defect from a user error (two recorded cases)
+
+The same family produced the same report twice, from opposite sides:
+
+- **#14817** — the project's own text page carried the VL string. At v0.23.0
+  (`5cb98ca`) `docs/source/tutorials/models/Qwen3-Reranker.md:141` (A2/A3 serve),
+  `:156` (300I DUO serve) and `:284` (mteb offline `hf_overrides`) all said
+  `Qwen3VLForSequenceClassification` on a text-reranker recipe.
+- **#13446** — one release earlier the tree is consistent: at v0.23.0rc1
+  (`f4a08bd`) the text page is `docs/source/tutorials/models/Qwen3_reranker.md`
+  and carries the text name (`:38`, `:116`), while
+  `docs/source/tutorials/models/Qwen3-VL-Reranker.md:74`, `:154` carries the VL
+  name. The reporter nevertheless quoted
+  `docs.vllm.ai/…/v0.24.0rc/tutorials/models/Qwen3-Reranker.html#42-source-code-installation`
+  — a **hyphen**-named page with numbered sections, i.e. a generation newer than
+  the pinned tree (underscore name, section titles, no `4.2`) and newer than the
+  image they ran.
+
+So the page name dates the quoted document: underscore + unnumbered sections =
+the rc-era page, which is correct (the name is `Qwen3_reranker.md` at v0.22.1rc1
+*and* v0.23.0rc1); hyphen + `4.2` = v0.23.0 or later, the window in which the
+string was wrong. Answer in this order: (1) the corrected override;
+(2) what the pinned tree shows at the reporter's *release*; (3) that the page they
+read is newer than their image, so it is not evidence about their install — and if
+their quoted block indeed pairs the VL name with the text checkpoint, say it is the
+same doc defect recorded in #14817 and ask for the block only to date the page.
+Do not spend calls looking for the newer page in the snapshot; it is not there
+(`SOURCES.json` pins one commit per repo) and saying so is part of the answer.
+
 ## The worked case (#14817)
 
 - The vllm-ascend tutorial used, on the text page, the **VL** string — three
@@ -104,6 +146,9 @@ base is text or multimodal.
 Delivery for this shape is short: corrected `--hf_overrides`, the process-location
 argument, the two `path:line` contradictions, and the score-check reminder that
 the tutorial's own query/document template must be used before judging accuracy.
+#13446 needed six calls to reach it once the page was loaded — the recorded run
+answered in one message with the registry table, both tutorial pages and the
+version gap, so treat this shape as a 5-6 call case, not an investigation.
 
 ## Recheck conditions
 

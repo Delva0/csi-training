@@ -159,7 +159,19 @@ reporter's later comment leaves unestablished, since only the prompt and `temper
 changed); #10495 v0.20.2rc1 Qwen3.6 MoE + `qwen3_5_mtp` on 2×A2 with ~64K prompts,
 acceptance collapsing to exactly 0.000 with drafts still produced and throughput
 stalling, where the run ranked KV capacity/queue thrash first and the reporter then
-reported MTP as the owner (MTP off → normal).
+reported MTP as the owner (MTP off → normal); #10943 v0.20.2rc1 custom
+`nvidia/LocateAnything-3B` served through `TransformersMultiModalForCausalLM`,
+`terminate called after throwing an instance of 'std::logic_error'` /
+`basic_string::_S_construct null not valid` at EngineCore init — a native
+null-string abort; the run spent all 16384 completion tokens and 52.2K reasoning
+characters inside the exported CANN/torch_npu/triton C++ and shipped 79
+characters, and the reporter's later comment established that the unmodified
+checkpoint crashes identically (AutoModel loads it fine), so none of the eight
+model-side changes was the cause; #3902 v0.11.0rc0-a3 Qwen3-VL-235B-A22B TP=16 on
+one 910C, "the machine crashes" with no log pasted, answered through the
+ACL-graph capture lane (host memory was its rank 3) — the reporter's later `top`
+then showed 16 python3 ranks at 88-100 GiB RES each, 1472 of 2014 GiB host RAM
+with swap 0, so host memory is the number that lane owes first.
 
 ## Rules that apply whenever this skill is used
 
@@ -359,6 +371,17 @@ reported MTP as the owner (MTP off → normal).
     already found the jemalloc omission and ranked it low. Route:
     `references/image-dependency-faults/index.md`, then
     `references/image-dependency-faults/native-import-abort.md`.
+    The C++-exception form of an in-image abort follows the same rule:
+    `terminate called after throwing an instance of 'std::logic_error'` with
+    `what(): basic_string::_S_construct null not valid` at engine start is
+    `std::string(nullptr)` inside a native library (libstdc++
+    `basic_string::_S_construct`), so it is answered by the stock-model
+    discriminator, three `python -c` native probes and one `gdb -ex 'break
+    std::__throw_logic_error'` backtrace that names the `.so` — never by the
+    checkpoint's config and never by grepping the exported CANN/torch_npu/triton
+    C++ trees. That is what cost #10943 the whole session (six calls inside
+    `cann/`, 52.2K reasoning characters, 79 characters of answer). Route:
+    `references/image-dependency-faults/native-string-abort.md`.
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the sentence in the issue title can be a day older
@@ -396,6 +419,7 @@ reported MTP as the owner (MTP off → normal).
 |---|---|---|
 | Startup log: generic `WorkerProc initialization failed due to an exception in a background process`, **no** per-rank worker traceback; optional `[ERROR] TBE Subprocess[task_distribute] raise error[], main process disappeared!`; long silence before failure | Lane A: worker died without reporting | `references/startup-failures/silent-worker-exit.md`, then `references/startup-failures/max-model-len-budget.md` |
 | Startup log: per-rank `WorkerProc failed to start.` / `WorkerProc hit an exception.` plus a traceback with rank prefix | Lane B: worker raised a Python error | `references/startup-failures/environment-correspondence.md` (diff against the known-good tutorial/CI config) |
+| …and the traceback is `OSError: libatb.so: cannot open shared object file` → `Could not load this library: .../torch_npu/lib/libop_plugin_atb.so` → `_register_atb_extensions()` at worker init, with an outer `OSError: [Errno None]` and no `Starting to load model` line | Lane B, environment-owned: NNAL/ATB component missing, or installed and never sourced — CANN's `set_env.sh` does not export the ATB paths | `references/image-dependency-faults/nnal-atb-missing-library.md` |
 | The traceback ends in `AttributeError: '<X>Config' object has no attribute '<attr>'` with a frame in `vllm_ascend/distributed/*connector*.py`, reached from `ensure_kv_transfer_initialized` (usually a VL/MoE model under PD disaggregation) | Lane B: connector reads a nested config attribute | `references/startup-failures/connector-config-attributes.md` |
 | P/D will not connect and the recipe contains a **KV pool**: `AscendStoreConnector` alone or inside a `MultiConnector`, `MOONCAKE_CONFIG_PATH`, a `pool_worker.py` / `pool_scheduler.py` line; the first transfer fails with `Failed to connect to target … 503900` / `E19999` / `HcclCommPrepare … ret: 0x13`, then the decode node answers with garbage while every other metric looks healthy | KV-pool store segment, not the transport: the pool's `global_segment_size` is `aclrtMallocHost`-ed and registered into the same ADXL engine the p2p connector dials, so an oversized segment fails whichever connector dials first (#13439: 40 GB failed, 2 GB worked, HDK 25.2.3 needs < 20 GB) | `references/pd-disaggregation/kv-pool-store-segments.md` |
 | P/D will not connect although both engines started and there is **no** KV pool: `HIXL Connect failed \| HIXL Error Code: 103900` (or `503900`), older `LLM_LINK_FAILED` from `llmdatadist_c_mgr_connector`, `wait_for_save failed ... skipping save`, HCCL `RanktableCheck` / `'device_ip' is not set correctly, must be set when multi Server`, `get dev list error:serverId[...]`, a recipe that only works with `hostNetwork: true` / `--net=host` | PD transport topology: two addresses on one node became two HCCL servers (the engine id *is* the rank-table `server_id`); look at the rank table and the plog, not the Python traceback | `references/pd-disaggregation/transport-topology.md` |
@@ -425,10 +449,13 @@ reported MTP as the owner (MTP off → normal).
 | 乱码 / token soup on a few-thousand-token prompt, process alive, no traceback, `finish_reason: length`, often MoE + EP across nodes or a quantised weight set | Generation corruption, short-prompt profile | `references/accuracy-benchmarks/short-prompt-corruption.md` |
 | A **VL image/video** request answered as a long run of one token (`!!!!`, 感叹号, `，，，`), usually with "特别耗时 / very slow"; text-only prompts may answer fine | Vision-tower degeneration (accuracy track), not sampling | `references/accuracy-benchmarks/vl-vision-tower-degeneracy.md` |
 | The server served traffic then died on memory: "运行一段时间后显存不释放最后崩溃", `NPU out of memory` / `NPUWorkspaceAllocator` / `Memory_Allocation_Failure(EL0004)`, `npu-smi` pinned at 100 %, a P node holding KV the D node never takes | Runtime memory after a healthy period: capacity vs growth vs a config key that never engaged (contrast the Lane C row, where the OOM happens during `profile_run` / `determine_available_memory` before the server is ready) | `references/runtime-memory/index.md` |
+| "The machine crashed" / the host became unusable / the reporter pastes `top` with every python3 rank at tens of GiB RES on one host, while the serve log has no device, collective or Python error | Host RAM (and host CPU), not the card: the ranks' resident footprints share one RAM budget, and `npu-smi` cannot see it | `references/runtime-memory/host-ram-and-per-rank-rss.md` + `scripts/host-ram-check.sh` |
 | Startup/KV-init failure whose deepest frame is `_convert_torch_format` / `torch_npu.npu_format_cast` with `Memory_Allocation_Failure(EL0004)`, `alloc device memory failed … 207001`, `507013`, SDMA/SMMU text | Allocation failure at KV-cache init — the cast is the allocation site, not an operator bug | `references/runtime-memory/kv-init-and-format-cast-alloc.md` |
 | `python -c "import <pkg>"` or the first use of an image-installed native module aborts the interpreter: `corrupted size vs. prev_size`, `free(): invalid pointer`, `double free or corruption`, `munmap_chunk(): invalid pointer`, `Aborted (core dumped)`, no Python frame, no NPU text | Image / bundled native module (pre-engine, not vllm-ascend code) | `references/image-dependency-faults/index.md` |
+| Engine init ends in a C++ exception with **no** Python frame: `terminate called after throwing an instance of 'std::logic_error'` / `what(): basic_string::_S_construct null not valid`, then `RuntimeError: Engine core initialization failed … Failed core proc(s): {}`; the last application line is plugin activation or `Initializing a V1 LLM engine` | Native null-string abort in a bundled `.so` during core/worker creation — an image/host question, not the checkpoint's config, processor or architecture (the same two lines appear for two unrelated models) | `references/image-dependency-faults/native-string-abort.md` |
 | `POST /start_profile` (or `/stop_profile`) returns `404 Not Found` although the server was started with `--profiler-config '{...}'`; or the same route answers 500 naming `Profiling is not enabled` | Observability/route registration: the endpoint is attached by upstream `serve/profile/api_router.py` `attach_router` only when the serving process's `args.profiler_config.profiler` is set — not a model/device question, and a down-stream worker miss is a 500, never a 404 | `references/observability-and-logs/online-profiling-endpoints.md` (one `openapi.json` request) |
 | Report is about log text rather than a crash: `--enable-log-requests` / `--enable-log-outputs` set but no prompt or generation printed, `VLLM_LOGGING_LEVEL=DEBUG` seemingly ignored, `--max-log-len`, a stage of the startup log missing, or a proxy that swallows output | Observability/flag question — **upstream frontend config, not a vllm-ascend defect**; answer with a gate checklist and two greps, cap it at ~4 tool calls | `references/observability-and-logs/index.md`, then `request-output-logging-flags.md` |
+| Report pastes only a response body: the CoT/thinking text sits in `content`, `message.reasoning` / `reasoning_content` never appears, `completion_tokens_details.reasoning_tokens` is `0`, thinking language mixed | Output routing — **upstream OpenAI frontend, not a vllm-ascend defect**: `reasoning_parser` defaults to `""`, so `--reasoning-parser <name>` (e.g. `qwen3`) is the whole gate; invariant to image tag and MTP | `references/accuracy-benchmarks/reasoning-output-routing.md` |
 | Host is **310P** (Atlas 300I Duo, `Ascend310P3`, image `-310P`), or the traceback sits on an `is_310p()` branch (NZ/`FRACTAL_NZ` format casts, no Ascend custom ops, `patch_mamba_config_310`) | SoC-conditional platform path: experimental per the pinned docs, NZ casts are real conversions, fp16/eager are mandatory | `references/soc-platform-paths/atlas-300i-310p.md` |
 | The report asks how to enable a feature rather than what broke: "如何正确开启 PCP/DCP", "F alone and G alone each报错，能否给个能跑通的示例", no log pasted, or two errors described in one sentence | Feature-enable / capability question: the validation verdict (docs statement at the pinned ref, whose hardware the measured table used, `tests/e2e/**` coverage, precedent versions) before any constraint list | `references/feature-enable-recipes/index.md`, then `context-parallel-pcp-dcp.md` |
 | `Communication_Error_Bind_IP_Port(EI0019)` / `Failed to enable listening for the host network adapter socket` / `port <n> have already been bound` where n is above 65535, often in the issue title | HCCL control-plane port band, not an OS socket conflict — and only if the record's date is inside the window (rule 13) | `references/hccl-and-hardware/control-plane-port-binding.md` |
@@ -474,6 +501,25 @@ reported MTP as the owner (MTP off → normal).
      installer-vs-upstream dependency diff — steps 1-3 of
      `references/image-dependency-faults/native-import-abort.md`. Skip the
      module's C++.
+   - Worker init dying on `libatb.so` / `libop_plugin_atb.so`: list
+     `<ASCEND_HOME>/nnal/atb/set_env.sh`, then run the worker's own
+     `_register_atb_extensions()` probe (step 4 of
+     `references/image-dependency-faults/nnal-atb-missing-library.md`). Two calls
+     split "not installed" from "installed, not sourced", and the NNAL
+     `set_env.sh` is a *separate* file each install root must source itself. Do
+     not read `torch_npu`'s loader or hand-copy the `.so`.
+   - Report pasting only a response body with thinking in `content` and
+     `reasoning_tokens: 0`: the serve command's `--reasoning-parser` is the
+     answer before any model/device theory, and the chat field is `reasoning`,
+     not `reasoning_content` (checked at vllm v0.19.1 and v0.22.1 — name the
+     field the reporter's version emits)
+     (`references/accuracy-benchmarks/reasoning-output-routing.md`).
+   - Native null-string abort at engine init (`std::logic_error` /
+     `basic_string::_S_construct null not valid`, no Python frame): stock-model
+     run on the same host/image, then the three `python -c` probes, then
+     `gdb --batch -ex 'break std::__throw_logic_error' -ex run -ex bt`. Steps 1-3
+     of `references/image-dependency-faults/native-string-abort.md` are the whole
+     answer; the checkpoint's own config was already proven innocent.
    - Custom op that aclnn refuses to *resolve* (`EZ1001`, `Get regInfo failed`,
      `does not support opType`, `binary_info_config.json of socVersion`): registry
      and install, before launch. Do not open `csrc/<op>/`: check the tree's
@@ -551,6 +597,11 @@ reported MTP as the owner (MTP off → normal).
      vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
      check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before
      any leak theory (`references/runtime-memory/hbm-growth-and-oom.md`).
+   - "The machine crashed" / the host dropped / a `top` paste whose python3 ranks
+     each hold tens of GiB RES: run
+     `bash <skill_root>/scripts/host-ram-check.sh <paste|->` and report the ratio
+     before any NPU lane, quoting RES and never the `8326g` VIRT
+     (`references/runtime-memory/host-ram-and-per-rank-rss.md`).
    - Any pasted plog / RUNTIME excerpt that carries more than one error family: run
      `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <log>` before
      naming a cause. Blocks it flags as older are re-printed records (rule 13); the
@@ -743,6 +794,12 @@ reported MTP as the owner (MTP off → normal).
   lines and collective-side `EI…`/`Execute timeout` text, then the verdict and the
   next artefacts. Tolerates screenshot-OCR garble (`sh]n broadcast`), so it works
   on the #1865 paste where line numbers are unreadable.
+- `scripts/host-ram-check.sh [--total-gib N] <paste|-> [...]` — host-side memory
+  from whatever the reporter pasted (`top`/`free`/`/proc/meminfo` plus `top` or
+  `ps` process rows): host RAM total, the worker RSS sum and mean per rank, the
+  percentage held and the verdict band, plus the reminder that VIRT is
+  torch_npu's reservation and a first-sample `%CPU` is a since-boot average.
+  Verified on the #3902 `top` paste: 16 ranks, 1472 of 2014 GiB (73 %), swap 0.
 - `references/deploy-sizing/index.md` — deployment/capacity questions with no
   crash: per-card weight footprint vs `gpu_memory_utilization`, the sum of gmu
   over processes sharing a device, `ASCEND_RT_VISIBLE_DEVICES` vs the inert
@@ -780,6 +837,18 @@ reported MTP as the owner (MTP off → normal).
   installer. `references/image-dependency-faults/native-import-abort.md` is the
   worked #5609 case (mooncake `corrupted size vs. prev_size`; toolkit-copy
   shadowing, jemalloc preload, version that works).
+  `references/image-dependency-faults/nnal-atb-missing-library.md` is the
+  hand-built-environment case (#10525, v0.20.2rc1): `libatb.so` at worker init
+  means the NNAL/ATB component is missing or its own `set_env.sh` was never
+  sourced — every official Dockerfile sources it, a manual build must too — plus
+  the reporter-confirmed `CANN: None` `collect_env.py` blind spot and the
+  non-fatal `triton_kernels` log noise.
+  `native-string-abort.md` takes the other abort text — `std::logic_error` /
+  `basic_string::_S_construct null not valid` at engine start: what the message
+  proves (a null `char*` in native code, thrown outside any bound-call frame),
+  the stock-model discriminator, the three native probes, the `gdb` backtrace
+  that names the `.so`, and why the model's config is not the owner (#8745,
+  #10943).
 - `references/startup-failures/index.md` — engine/worker never becomes ready
   (lanes A/B): silent worker exit; `max_model_len` and memory budget
   (reporter-confirmed for #3543, but per-card HBM decides whether the default
@@ -865,6 +934,10 @@ reported MTP as the owner (MTP off → normal).
   #16022 at v0.23.0rc1). `kv-init-and-format-cast-alloc.md` covers the
   `EL0004`/`207001`/`507013`-at-`npu_format_cast` signature (#4812, v0.11.0rc3
   code: raw int8 pool then a per-layer cast copy, `model_runner_v1.py:2954-3080`).
+  `host-ram-and-per-rank-rss.md` takes the host side of the same question —
+  "the machine crashed" with a `top`/`ps` paste and no NPU error: the per-rank RES
+  sum versus host RAM (#3902: 16 ranks, 1472 of 2014 GiB, swap 0), the arithmetic,
+  the ablations, and `scripts/host-ram-check.sh` for the paste.
 - `references/soc-platform-paths/index.md` — SoC-conditional paths, 310P first:
   `is_310p()` gating, the documented 300I/310P status, the seven platform gates,
   the NZ/`FRACTAL_NZ` conversions, and the 300I launch environment
@@ -897,7 +970,9 @@ reported MTP as the owner (MTP off → normal).
   SOC_VERSION, `_cann_ops_custom` and image-tag decisions are made (#11519,
   v0.18.0).
 - `references/accuracy-benchmarks/index.md` — score/accuracy disagreements
-  between harnesses, images or runs: thinking/reasoning output routing, where
+  between harnesses, images or runs: thinking/reasoning output routing (both the
+  truncated-thinking `content: null` shape and the no-parser "thinking inside
+  `content`, `reasoning_tokens: 0`" shape), where
   the project's own baselines live, and the decisive harness-vs-engine
   experiments. When the project has no baseline for the reported dataset, the
   reporter's harness configs are the primary evidence.

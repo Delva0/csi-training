@@ -52,6 +52,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   native module the image shipped (glibc allocator text, no Python frame, no
   `WorkerProc` line) → leave this topic for `../image-dependency-faults/index.md`:
   the image or its build recipe owns that failure, not vllm-ascend.
+- The per-rank traceback is `OSError: libatb.so: cannot open shared object file`
+  → `OSError: Could not load this library: .../torch_npu/lib/libop_plugin_atb.so`
+  → `_register_atb_extensions()` at `vllm_ascend/worker/worker.py`, plus an outer
+  `OSError: [Errno None]`, with no `Starting to load model` line anywhere → the
+  NNAL/ATB component is uninstalled or (more often) installed but its own
+  `set_env.sh` was never sourced: `../image-dependency-faults/nnal-atb-missing-library.md`.
 - The log reached graph capture — `Starting to capture ACL graphs for cases:
   [...]`, `Capturing ACL graphs (...): 0/N`, `ACLgraph sizes capture fail`,
   `NPUGraph.cpp` "Waiting for pending NCCL work" — then failed or stalled →

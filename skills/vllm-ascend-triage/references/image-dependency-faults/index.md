@@ -7,6 +7,10 @@ vllm-ascend Python code: the interpreter aborts inside a native module the image
 installed (`mooncake`, `lmcache`, `torch_npu`, a `libascend*` transport), a
 system library or tool the project's own tutorials prescribe is absent, or a
 dependency list drifted because the Dockerfile runs a *copied* helper script.
+Also the **hand-built** environment that follows the documented install steps
+instead of using the image: the image installs and sources components (CANN,
+NNAL/ATB, driver) that a manual build must reproduce itself, and a missing
+`source` line looks exactly like a missing package.
 Inherit the rules in SKILL.md; this topic is the counterpart of
 `../startup-failures/index.md` for failures that never reach a worker.
 
@@ -22,6 +26,25 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `docs/source/tutorials/*.md` installs it in its own startup block → same page,
   steps 1 and 3: identify the copy that is loaded, then compare the tutorial's
   and the Dockerfile's ingredient lists.
+- The missing library is a **separate Ascend component with its own
+  `set_env.sh`** — `libatb.so` inside
+  `Could not load this library: .../torch_npu/lib/libop_plugin_atb.so`, raised
+  from `_register_atb_extensions()` at worker init — → `nnal-atb-missing-library.md`.
+  The owner is NNAL/ATB, not CANN: each install root has its own `set_env.sh`,
+  and sourcing the CANN one does not export the ATB paths (a later comment on
+  #10525 reports that test; the pinned docs list the two `source` commands as
+  separate steps). Same page carries the reporter-confirmed `CANN: None`
+  `collect_env.py` blind spot and the non-fatal `triton_kernels` log noise.
+- Engine start (or plugin activation) aborts with a C++ exception and no Python
+  frame — `terminate called after throwing an instance of 'std::logic_error'`,
+  `what(): basic_string::_S_construct null not valid`, then
+  `RuntimeError: Engine core initialization failed … Failed core proc(s): {}` ->
+  `native-string-abort.md`: the stock-model discriminator, the three `python -c`
+  native probes, and `gdb -ex 'break std::__throw_logic_error'` to name the
+  `.so`. The checkpoint's config, processor and architecture are not the owner
+  (#8745 v0.13.0rc3 DeepSeek-V4-Flash and #10943 v0.20.2rc1 print the same two
+  lines; #10943's reporter confirmed the unmodified checkpoint crashes
+  identically and eight model-side changes moved nothing).
 - You suspect the image at all: the Dockerfile `cp`s a helper from the repo
   (`Dockerfile.a3:37` copies `tools/mooncake_installer.sh`) and upstream ships
   its own copy of that script. Diff the two dependency lists before blaming the
@@ -47,3 +70,8 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
 4. Version-verify the fix claim: name the release the reporter says works, keep
    the workaround for the broken one, and label the mechanism as a hypothesis
    unless a reporter comment states it.
+5. When the environment dump contradicts itself — `CANN: None` while the host
+   reports an `ascend-toolkit`/`cann-*` root, or a component version missing
+   from a list — suspect the *collector* before the install
+   (`collect_env.py` reads hard-coded default paths), and ask for the install
+   root rather than concluding the component is absent.

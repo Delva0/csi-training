@@ -70,6 +70,13 @@ stuck peer still possible. `Transport init error ... rank[L]-... dst_rank[D]`
 names the peers that never answered, so read that list rather than the reporting
 rank.
 
+Host-side counterpart (from #3902): the same ticket shape — "the 910C machine
+crashes", TP=16 of a 235B model on one host — also arrives with a `top` paste and
+no log at all, and then the number that decides it is host RAM: 16 python3 ranks
+at 88-100 GiB RES each on a 2 TB host with swap 0, before any capture work. Rule
+out host memory before reading capture logs and keep the two artefacts separate;
+`../runtime-memory/host-ram-and-per-rank-rss.md` + `scripts/host-ram-check.sh`.
+
 ## Step 3 — check whether the capture-size set is already the computed maximum
 
 Upstream first: vllm v0.11.0rc3 (`8ce5d31`) `vllm/config/scheduler.py:222-227`

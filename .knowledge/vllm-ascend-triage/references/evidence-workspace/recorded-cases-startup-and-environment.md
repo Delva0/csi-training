@@ -366,6 +366,41 @@ no maintainer answer in the corpus; the ranked candidates are the image/CANN/
 torch_npu pairing (#10136 family), the unvalidated model/feature combination, and
 host-memory pressure during init.
 
+**#6261** reported vllm-ascend 0.13.0.rc2 (pins v0.14.0rc1 `52d4acfa` / vllm v0.14.1
+`d7de043`), Atlas 800T A3, Qwen3-Omni-30B-A3B-Instruct with
+`export VLLM_ASCEND_ENABLE_FLASHCOMM=1`, TP2 + `--enable-expert-parallel` +
+`FULL_DECODE_ONLY`: engine start dies in `profile_run`/`_dummy_run` with
+`Dynamo failed to run FX node … add(*(FakeTensor(size=((s59//2), 2048)),
+FakeTensor(size=(s68, 2048))))`. Track: startup Lane B, feature×model combination. The
+run answered it (ranked Chinese answer with a `path:line` table): FlashComm1 is
+sequence parallelism through `enable_sp()` (`utils.py:812-841`, the legacy
+`VLLM_ASCEND_ENABLE_FLASHCOMM` still counts), SP keeps the row-parallel output
+reduce-scattered (`ops/linear_op.py:386-396` skips the all-gather) while the Omni
+thinker adds a **full-length** `deepstack_input_embeds_{i}` per layer
+(`qwen3_omni_moe_thinker.py:644-650`), and `vllm_ascend/` has no `deepstack`/`omni`
+file at all — so no downstream patch shards it. It also found the project's own guard
+(`platform.py:394-403` `ValueError` for VL+FLASHCOMM, with `is_vl_model` counting
+`thinker_config` at `utils.py:905-915`) and correctly warned that this would make the
+same command fail fast on the newer ref, leaving "why 0.13.0.rc2 crashed instead" open
+(a one-commit snapshot cannot diff it). It flagged the report's own contradiction
+(单卡 vs `--tensor-parallel-size 2`). Page
+`../feature-enable-recipes/sequence-parallel-flashcomm.md`.
+
+**#6972** vllm-ascend v0.14.0rc1 + vllm v0.14.1, 8×910, Qwen3-Omni via
+`vllm serve --omni`: `--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY",
+"cudagraph_capture_sizes":[1,2,4,8,16,24,48]}'` and a stage yaml
+`engine_args.compilation_config: {level: 1, …}` both "未生效". Track: config gate
+audit, not a crash. The run shipped **no answer at all** — 54 messages, 1.27 M prompt
+tokens, the whole 16 K output budget inside reasoning and tool calls, G1/G3 both
+broken — although it had the decisive finding at hand: `level: 1` maps to
+`CompilationMode.STOCK_TORCH_COMPILE` (`vllm/config/compilation.py:748-758`,
+`:355-369`), which vllm-ascend refuses by setting `cudagraph_mode = NONE`
+(`platform.py:241-245`, warning only). It also found that vllm-omni is absent from the
+snapshot (`--omni` has no hit in vllm v0.14.1, so the CLI→stage merge is unreadable)
+and that the Qwen2.5-Omni tutorial's `--compilation-config '{"full_cuda_graph": 1}'`
+names a key this ref's `CompilationConfig` (`extra="forbid"`) does not define. Page
+`../startup-failures/graph-mode-not-applied.md`.
+
 **#698** image `vllm-ascend:v0.8.4rc1` (pin `086423d`), vllm v0.8.4 (`dc1b4a6f`),
 910B4, DeepSeek-R1-Distill-Qwen-1.5B, `--max-model-len 10000 --dtype float16
 --tensor-parallel-size 1 --enable-reasoning --reasoning-parse deepseek_r1`: the log

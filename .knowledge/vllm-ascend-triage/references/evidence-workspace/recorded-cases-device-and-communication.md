@@ -193,3 +193,21 @@ Route now: `../pooling-embedding/fp32-head-nz-format-crash.md`; the two `EZ1001`
 text families are split in `../custom-ops-runtime-faults/index.md`, and the
 fp32 policy is stated per ref because v0.23.0 rewrote the gate
 (`_should_trans_nz`, "FP32 cannot use NZ", `utils.py:260-298`).
+
+**#3162** vllm-ascend `v0.10.2rc1` (`048bfd5`), image `v0.10.2rc1`, trl 0.19 + ms-swift 3.7.3
+GRPO with the rollout server on `ASCEND_RT_VISIBLE_DEVICES=7` and seven training ranks on
+0-6: the rollout's weight sync dies first (`RuntimeError: HCCL error: not found specific
+resource` from `pyhccl.py:166` in `broadcast`, reached from
+`swift/llm/infer/rollout.py … patched_update_named_param`), and the training ranks then paste
+`HcclAllgather, error code is 6` / `EI0009 Transport init error … [Create][DestLink] …
+dst_rank[0]`. One failure: the singleton (trainer rank 0) never reached `gather_object`, so the
+other six could not build links to it. Source-verified at the pin: `PyHcclCommunicator`
+(`pyhccl.py:32`) is not aliased over upstream's in this tree (`communicator.py:33` TODO), the
+error text is CANN's own `HcclGetErrorString` (`pyhccl_wrapper.py:115-116`, `:203-209`), and
+init already runs a warmup collective (`pyhccl.py:110-122`), so NOT_FOUND at the first real
+broadcast is not a "peer never joined" story. Reporter-side precedents: #459 (same question at
+0.7.1), #942 (a two-process `StatelessProcessGroup` + `PyHcclCommunicator` broadcast returned
+all zeros). The reporter's later public comment is only a ping ("@wangxiyuan Hi, could you
+please take a look at this?"), so no resolution is recorded. Route:
+`../hccl-and-hardware/weight-sync-hccl-cascade.md`. Delivery: cut at the 16 K cap inside a
+reasoning block with no answer text at all.

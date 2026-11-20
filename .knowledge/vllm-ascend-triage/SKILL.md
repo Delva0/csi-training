@@ -64,7 +64,9 @@ reported version, gaps stated.
   transfer fails with `503900` / `HcclCommPrepare ret: 0x13` while the pool's
   `global_segment_size` is the cause, **or** the pool is attached, the request
   succeeds, and the put never lands (`Failed to invoke HcclBatchPut,
-  hccl_result = 4`, `Failed to put N keys out of N`, master `PutEnd` 0).
+  hccl_result = 4`, `Failed to put N keys out of N`, master `PutEnd` 0), **or** the
+  deployment runs and the decoder never receives the request (`proxy通信超时`) — an
+  endpoint-count question before any connector read.
   Transport identity and rank tables are a topology question, not a connector
   bug, and a pool deployment is a config question before either —
   `references/pd-disaggregation/index.md`. If instead the engines start and the
@@ -300,34 +302,18 @@ delivery pattern is rule 1.
     (`std::string` ABI split, decided by the env dump's `cxx_abi_{0,1}` root,
     reporter-confirmed on #1144) — all route from
     `references/image-dependency-faults/index.md`; do not walk the module's source.
-    Cap ~6 calls: #5609 and #10943 each burned the session in ABI/RPATH or `cann/`
-    archaeology after the answer was in hand.
+    Cap ~6 calls (#5609, #10943 burned the session there).
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
-    block's original date, so the sentence in the issue title can be a day older
-    than the incident. Recorded #9183: the quoted `rtMemcpy ... 107030 the current
-    capture mode does not support this operation` lines were all dated the previous
-    day, and the in-window first error was an `EZ9999` fftsplus-aivector /
-    MTE-DDR exception — the recorded answer built a capture-window mechanism out of
-    the stale block and named the wrong owner. One call decides it:
-    `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <paste>`;
-    a family it flags as older than the `--since` day is history, but before
-    declaring the fault absent check the other hour and the other time base: a
-    **constant whole-hour** lag between a collector's local prefix and the UTC
-    records it wraps (8 h on the recorded hosts) is a timezone, not a replay, and
-    near local midnight it dates the records a day earlier. The script measures and
-    normalises that and lists the dump's record clusters, so anchor a multi-incident
-    dump on `--since`, not on its newest line; if no cluster comes near the reported
-    time, say the paste does not contain the fault.
-    The twin case matters as much: a record older than the failure
-    *minute* but still inside **this process's own** `init engine (...)`, graph
-    capture or warmup window is this incident reported late, not a replay (#10700:
-    record `10:01:23` inside engine init, report `10:28:19` at `execute_dummy_batch`,
-    reproduced unchanged on v0.22.1rc1) — decide by process identity and position in
-    the log, never by the size of the gap. It needs a timestamped record (formats
-    and the `W<MMDD>` blind spot: the page). Same trap as
-    rule 11 one level up: not just the sentence but the whole block can be the
-    wrong one. `references/hccl-and-hardware/error-report-timestamps.md`.
+    block's original date, so the title's sentence can be a day older than the
+    incident (#9183 named the wrong owner that way) — while a record from *this*
+    process's own `init engine (...)`/capture/warmup window is this incident
+    reported late (#10700). One call decides both:
+    `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <paste>`; a
+    **constant whole-hour** lag is a timezone, not a replay, so re-run at the cluster
+    nearest the reported time before declaring the fault absent. Formats, the
+    `W<MMDD>` blind spot and both worked cases:
+    `references/hccl-and-hardware/error-report-timestamps.md`.
 14. **A "how do I enable F" question is a capability question, and the verdict comes
     first.** When the report asks how to turn a feature on for a model/hardware pair
     and pastes no log, the reporter is asking whether it is *known to work*: give
@@ -394,6 +380,8 @@ delivery pattern is rule 1.
 | Per-rank traceback whose frames are `torch/_subclasses/fake_tensor.py` and `torch/_ops.py`, ending `NotImplementedError: <ns>::<op>: attempted to run this operator with Meta tensors` (e.g. `_C::rotary_embedding`), after the weights loaded and before capture | Compile-phase fake-tensor trace: a custom op registered for `PrivateUse1` only. The namespace dates the tree (`_C` pre-rename vs `_C_ascend` + `meta_registration.py`), the selecting predicate is a dtype/shape test, and `--enforce-eager` is rung 1 | `references/startup-failures/meta-kernel-missing.md` |
 | Model construction (after `Starting to load model`, **no** `vllm_ascend` frame below the loader) ends in `AssertionError: Torch not compiled with CUDA enabled`, from an upstream `__init__` such as a `get_rope` branch — a checkpoint `config.json` key (`dual_chunk_attention_config`) selecting an upstream class that hardcodes `torch.cuda`; the env dump's `torch==2.7.1+cpu` is normal on NPU | Checkpoint-config → upstream CUDA-only path: an unimplemented NPU feature, not a torch install, CANN, driver or flag problem. Three checks (device-agnostic class, OOT registry, consumer of the emitted tensor) decide whether a device patch is even credible; the workaround is stripping the key from a copy of `config.json`, with the feature's accuracy caveat | `references/startup-failures/checkpoint-config-cuda-only-path.md` (one call: `scripts/cuda-only-path-audit.sh`) |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
+| A *graph/compilation setting* "未生效" — `--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'` or a stage yaml, nothing crashed, and the `FULL_DECODE_ONLY compilation enabled on NPU` banner never appears | One gate chain mutates `cudagraph_mode` and **each gate prints one line**, so answer with the chain plus that grep; `level: 1` means `STOCK_TORCH_COMPILE` and is refused | `references/startup-failures/graph-mode-not-applied.md` (#6972) |
+| `VLLM_ASCEND_ENABLE_FLASHCOMM(1)` / `pass_config.enable_sp` / `shared_expert_dp` in play: the engine refuses a VL/Omni model up front, or `profile_run` dies with fake-tensor sizes `((sN//tp), H)` vs `(sM, H)` at an add | Sequence parallelism, not install/card: `enable_sp()` has four doors, and SP leaves the row-parallel output reduce-scattered while a per-layer full-length embedding does not shrink | `references/feature-enable-recipes/sequence-parallel-flashcomm.md` (#6261) |
 | Startup was clean and **one request** kills the workers: `RuntimeError: Worker failed with error 'CUDA graph capturing detected at an inappropriate time. This operation is currently disabled.'`, logged from `patch_core.py` as "EngineCore encountered a fatal error"; typically `--enable-lora` with graph mode, where the **base-model** request dies while adapter requests work (or the reverse) | A graph was captured **at request time**: upstream `vllm/compilation/monitor.py` arms that guard `False` only after startup capture, and both capture wrappers (upstream `compilation/cuda_graph.py`, downstream `compilation/acl_graph.py`) capture lazily — so the dispatcher advertised a `BatchDescriptor` key (`num_tokens`, `num_reqs`, `uniform`, `has_lora`) that startup never built. Diff the advertised key set against the captured one; do not read the line as a device refusal | `references/lora-adapters/graph-capture-descriptor-mismatch.md` (one call: `scripts/lora-graph-descriptor-audit.sh`) |
 | Device dump naming an operator: `call aclnnX failed`, `AclNN_Runtime_Error`, fftsplus aivector error, MTE/DDR "out of range"; several ranks reporting the same `pc start` in the same second — or the title alone says `aclnn<Op> operator execution error` with no log at all | Custom-op runtime fault, after the timestamp gate — a shared PC across chips is software address computation, not several bad cards. When `ls csrc` at the reporter's ref has no kernel with that name (a **built-in** CANN op reached through `torch_npu`), the host driver/CANN pairing is the first ranked cause: #5236 was reporter-confirmed solved by updating the NPU driver | `references/hccl-and-hardware/error-report-timestamps.md`, then `references/custom-ops-runtime-faults/index.md` |
 | `507035` + `ERR00100 PTA call acl api failed` + `EZ9999 … aivec error` + `The DDR address of the MTE instruction is out of range`, one `pc start` repeated on every core, and the deepest frame is `torch_npu.npu_scatter_nd_update_` in `vllm_ascend/attention/sfa_v1.py` with fault kernel `ScatterNdUpdate_…`; the crash follows concurrency (mixed prefill+decode batch) while single requests are fine | DSA indexer-cache write with the wrong index tensor: a host-side slicing bug, not a card — compare the index tensor's row count with the source's before any hardware theory | `references/dsa-sparse-attention/indexer-cache-scatter-fault.md` |
@@ -491,10 +479,8 @@ delivery pattern is rule 1.
      (`references/hccl-and-hardware/collective-error-chain.md`). If the
      collective failure survives re-runs, check health per device and correlate
      the failing device id (`references/hccl-and-hardware/device-health-checks.md`).
-     When the deepest frame is an `npu_*` op on a 2×4/2×64 tensor inside
-     `torch.compile`, it is a fusion-pattern sample kernel and therefore a sync
-     point by construction: go to the plog and the per-rank `EZ9999`/`chipId` line,
-     not to the operator's shape code.
+     An `npu_*` op on a 2×4/2×64 tensor inside `torch.compile` is a sync point by
+     construction: go to the plog and the per-rank `EZ9999`/`chipId` line.
    - Any count or list derived in the log (capture sizes, block counts, chunk
      sizes) that does not match the upstream default: vllm-ascend is probably
      rewriting it. `rg -n '<config field>' vllm_ascend/` (platform.py,
@@ -604,17 +590,17 @@ that break them, `recorded-cases.md` the per-issue index).
 | a LoRA-enabled serve is far slower than its base model, or dies when a graph is captured on a request | `references/lora-adapters/index.md` |
 | a device fault or corruption whose deepest frame is an attention backend in a mixed decode+prefill batch | `references/mixed-batch-splits/index.md` |
 | a logging/profiling flag appears to do nothing, `/start_profile` 404, unknown-env warning | `references/observability-and-logs/index.md` |
-| P/D or EPD starts but cannot move KV, or moves it and the output alternates; **or** the transport *plane* is asked about before any run — A3 双机, 参数面 RoCE only, no 灵衢 switch, no log → `plane-selection-a3-parameter-plane.md` | `references/pd-disaggregation/index.md` |
+| P/D or EPD starts but cannot move KV, moves it and the output alternates, or the client times out while D logs no request and only P prints `Force freed expired request … (480 seconds)`; **or** the transport *plane* is asked about before any run — A3 双机, 参数面 RoCE only, no 灵衢 switch, no log → `plane-selection-a3-parameter-plane.md` | `references/pd-disaggregation/index.md` |
 | throughput, queueing, prefix-cache hit rate on a healthy engine | `references/performance-throughput/index.md` |
 | an embedding/pooling service never starts (checkpoint served as generate, score/rerank arch-name routing, fp32 head weight format), dies under concurrency, or returns wrong vectors | `references/pooling-embedding/index.md` |
 | OOM after a healthy period, HBM not released, host RAM, container working set, KV-init allocation failure, or an `expandable_segments` unmap crash at `empty_cache` | `references/runtime-memory/index.md` |
 | traceback frames are only `vllm/**` + `site-packages/**` (tokenizer `Already borrowed`, frontend preprocessing) | `references/serving-frontend-faults/index.md` |
 | a SoC-conditional path: 310P/300I, A5 vs A2 wheel, kernel package for the running SoC | `references/soc-platform-paths/index.md` |
 | spec-decode/MTP symptoms: acceptance collapse, empty first response, async bookkeeping, drafter count copy, a TND `queryT`/`actualSequenceLengthQ` refusal | `references/spec-decode-mtp/index.md` |
-| engine/worker never becomes ready (both lanes), model-type/quantization gates, arg validation, metadata/capture phase, first-weight-group `ValueError` (embedding checkpoint served as generate) | `references/startup-failures/index.md` |
+| engine/worker never becomes ready (both lanes), model-type/quantization gates, arg validation, metadata/capture phase, a graph setting that never took effect, an offloading-spec `KeyError: '<layer>.self_attn.attn'`, first-weight-group `ValueError` (embedding checkpoint served as generate) | `references/startup-failures/index.md` |
 | the symptom is a tool call (`JSON Parse error` in `arguments`, no `tool_calls` while streaming) | `references/tool-call-streaming/index.md` |
 | the deliverable is a report about a document (community test, `[Doc]`, tutorial commands) | `references/tutorial-verification/index.md` |
-| `AttributeError`/`TypeError` in a downstream patch, or an upstream refactor that kept upstream code | `references/upstream-downstream-drift/index.md` |
+| `AttributeError`/`TypeError` in a downstream patch, an upstream refactor that kept upstream code, or a `KeyError` from upstream's `Attention`-only layer filter under an offloading spec | `references/upstream-downstream-drift/index.md` |
 
 Scripts are re-runnable; `<skill_root>` is the path `skill_view` reports and each
 header carries its flags. The 28 scripts — arguments, output and originating issue

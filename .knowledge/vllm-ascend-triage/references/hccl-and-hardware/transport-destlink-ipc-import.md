@@ -25,6 +25,9 @@ Not this lane — same code family, different owner:
 - allocator unmap at `empty_cache` (`unmapHandles … getHcclComm() … 507899`) →
   `../runtime-memory/allocator-expandable-segments-unmap-crash.md`;
 - UCE query/repair (`checkUceErrAndRepair … 507899`) → `error-report-timestamps.md`.
+- a *cascade*: one rank pasted a different, non-collective error (a client RPC, a
+  weight update) and the rest fail to build links **to that rank** →
+  `weight-sync-hccl-cascade.md`; count the ranks before reading the edge set.
 
 ## Read the fields, then the edge set
 

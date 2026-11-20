@@ -20,6 +20,13 @@ Inherit the rules in SKILL.md. Conditional routes:
   from the log's own `model_runner.py:<line>`, then ask for the full `vllm serve`
   line and take the liveness checks. Do not lead with `--enforce-eager` where the
   platform already sets `simple_compile_backend = "eager"`.
+- Startup passes the model load and dies with `KeyError: '<...>.self_attn.attn'`
+  inside upstream `offloading_connector.py register_kv_caches`, right after
+  `Creating offloading spec with name: NPUOffloadingSpec` (CPU offload via
+  `--kv-transfer-config` on an MLA checkpoint such as GLM-5 / Kimi-K2.5) →
+  `../upstream-downstream-drift/kv-offloading-layer-coverage.md`: the connector's
+  `Attention`-only layer filter drops `MLAAttention`, so this is a layer-type
+  coverage gap, not a worker death.
 - The paste's `file:line` names a `vllm_ascend/**` module the pin does not
   contain (e.g. `vllm_ascend/models/<x>.py`) → `environment-correspondence.md`,
   its vendored-file section: the model code is the reporter's, the framework calls
@@ -143,6 +150,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   `OSError: [Errno None]`, with no `Starting to load model` line anywhere → the
   NNAL/ATB component is uninstalled or (more often) installed but its own
   `set_env.sh` was never sourced: `../image-dependency-faults/nnal-atb-missing-library.md`.
+- Nothing crashed and the complaint is that a *graph/compilation setting* did not take
+  effect ("`--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'` 或 yaml 方式
+  均未生效", no capture log, often no log pasted at all) → `graph-mode-not-applied.md`
+  first: one gate chain mutates `cudagraph_mode` between argument parsing and the
+  worker, every gate prints its own line, and a stage yaml with `level: 1` asks for
+  `STOCK_TORCH_COMPILE` — refused at `platform.py:241-245` while the reporter sees
+  only a warning. The success line (`FULL_DECODE_ONLY compilation enabled on NPU`,
+  `platform.py:313`) is the one that declares the mode live.
 - The log reached graph capture — `Starting to capture ACL graphs for cases:
   [...]`, `Capturing ACL graphs (...): 0/N`, `ACLgraph sizes capture fail`,
   `NPUGraph.cpp` "Waiting for pending NCCL work" — then failed or stalled →

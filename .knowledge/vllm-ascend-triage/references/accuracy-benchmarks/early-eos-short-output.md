@@ -91,7 +91,11 @@ Parallelism in vllm-ascend.
 Two refs are recorded and the names moved between them: v0.17.0rc1 (`e20f0b1`,
 used for #12253) and v0.22.1rc1 (`5f6faa0`, used for #12278). The table is the
 v0.22.1rc1 wiring; the last column keeps the v0.17.0rc1 name so an older report is
-still readable.
+still readable. At the older v0.14.0rc1 pin (#6261) the runtime `enable_sp()` still ORed
+`pass_config.enable_sp`, `VLLM_ASCEND_ENABLE_FLASHCOMM1` and the legacy
+`VLLM_ASCEND_ENABLE_FLASHCOMM` into one predicate
+(`../feature-enable-recipes/sequence-parallel-flashcomm.md`); the split below is the
+later wiring, so do not read that door list onto these rows.
 
 | Reader (v0.22.1rc1) | Predicate | Effect | Was (v0.17.0rc1) |
 |---|---|---|---|

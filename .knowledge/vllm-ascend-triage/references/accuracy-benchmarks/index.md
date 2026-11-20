@@ -6,8 +6,10 @@ Reports of the shape "score with tool A is N points below tool B / the vendor nu
 another image", and reports of accuracy regressions after a code change. Covers MMLU-Pro,
 gsm8k, ceval and friends as seen through evalscope, ais-bench, lm_eval and vendor blogs.
 Also covers the corruption end of the same track — a prompt that comes back as 乱码 /
-garbled / repeated / empty text rather than as a wrong answer — because that is decided by
-the same first question (is anything being compared, or is the engine wrong per se).
+garbled / repeated / empty text rather than as a wrong answer — and the shortest sibling
+symptom, output that is fluent but stops after tens of tokens ("被截断") — because both are
+decided by the same first question (is anything being compared, or is the engine wrong per
+se), then by `finish_reason`.
 
 Three entry shapes leave this topic immediately and are not accuracy questions at all:
 
@@ -68,6 +70,12 @@ Three entry shapes leave this topic immediately and are not accuracy questions a
   padding branch (`MIN_PAD_SIZE`/`MAX_PAD_SIZE` 64/128, `enable_pad`, weight-name-keyed
   `load_weights`), the six-row ablation matrix, the #976 / #131 / #445 / #562 precedent
   family, and why "`!` is token id 0" and a recalled `head_dim` must stay labelled.
+- `early-eos-short-output.md` — "only tens of tokens / 输出被截断, worked before I added a
+  flag": `finish_reason` decides the lane (length = budget, stop = early EOS), then audit
+  every reader of the toggled key, then the shipped support matrix. Worked case #12253
+  (`pass_config.enable_sp` on a non-VL MoE w4a8 model): the key is honored, not dropped;
+  the matrix excludes that class; FC1 is a complementary feature, not a rename; plus the
+  ablation rows and the version-flip gap.
 - `short-prompt-corruption.md` — the same symptom on a few-thousand-token prompt: test the
   prompt shape first (a repeated body at temperature 0 can collapse on its own), then the
   MoE/EP/quantisation ablation rows (EP off, FLASHCOMM1, prefix caching, `--enforce-eager`,

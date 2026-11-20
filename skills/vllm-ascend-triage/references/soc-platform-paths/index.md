@@ -55,6 +55,11 @@ Conditional routes:
   `does not support opType [X] … socVersion [ascend910_93]`) — a build/install
   fault, not a platform path →
   `../custom-ops-runtime-faults/op-not-registered-for-soc.md`.
+- A **built-in** aclnn op fails before launch (`EZ9999 … Parse dynamic kernel
+  config fail`, `AclOpKernelInit failed opType`, `<Op>AiCore
+  ADD_TO_LAUNCHER_LIST_AICORE failed`) on a card the release's docs exclude, often
+  asked as "does image `<tag>` support `<card>`?" → `kernel-package-vs-card.md`
+  (image/CANN kernel package vs the live SoC; one standalone op probe).
 - The report is a version gate ("does V support model M on 310P?") →
   `../startup-failures/model-type-not-recognized.md` plus the status lines in
   `atlas-300i-310p.md`.

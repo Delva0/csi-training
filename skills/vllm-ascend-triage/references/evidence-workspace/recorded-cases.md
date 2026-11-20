@@ -228,6 +228,36 @@ path); the weak spot was guessing which ABI torch_npu's own `libop_plugin_atb.so
 needs instead of asking for the one `nm -D` count, which its answer then correctly
 listed as the deciding check (`../image-dependency-faults/abi-undefined-symbol.md`).
 
+**#1696** vllm-ascend `v0.7.3` (`779eebb8`) + vllm v0.7.3, image
+`quay.io/ascend/vllm-ascend:v0.7.3`, host CANN 8.1.RC1, an **Ascend 910C1** card
+(`npu-smi` name), `LLM("Qwen/Qwen2.5-0.5B-Instruct")`: model construction dies in
+upstream `rotary_embedding.py:109 _compute_inv_freq` → `torch.arange` →
+`RuntimeError: call aclnnArange failed … EZ9999 … Parse dynamic kernel config fail /
+AclOpKernelInit failed opType / ArangeAiCore ADD_TO_LAUNCHER_LIST_AICORE failed`, no
+`vllm_ascend` frame; the reporter's question was literally "does this image support
+910C?". Answerable from docs in four calls (`Dockerfile:16` base
+`cann:8.1.rc1-910b`, `docs/source/conf.py:78`, `faqs.md:14-17` "ONLY Atlas A2",
+`installation.md:87-89` the `-910b` kernels run) plus one standalone op probe, and
+the run also disposed of the `Failed to register custom ops` /
+`No module named vllm_ascend.vllm_ascend_C` red herring (`setup.py:296-298`,
+`platform.py:29-38`). Answered in full on its 13th assistant turn, with the verdict already in the
+seventh turn's message text; the
+sibling of #11519's `EZ1001` on the same axis — built-in op here, custom op there
+(`../soc-platform-paths/kernel-package-vs-card.md`).
+
+**#13719** vllm-ascend v0.23.0rc1 (`f4a08bdd`) + vllm v0.23.0 (`0fc695fc`) as the
+snapshot's reference, but the report's build was a daily "0.23.0": GLM-5.2 W8A8C8 on
+910C, 4-node PD disaggregation (`MooncakeConnectorV1`) with `deepseek_mtp`
+(n=1 P / n=5 D), 64 concurrency MMLU-Pro, `max_tokens` 32000, "2 小时后 5 条响应存在
+句子的重复", both serve commands pasted and no logs at all. Delivered in full at its
+10th assistant turn: the class is decode-time repetition (short
+prompt, long completion — not the prompt-length corruption pages), and the
+deliverable was the tutorial diff (`GLM5.2.md` 4-node 1M PD example) plus the
+`--max-num-seqs 1` identity row. The run's useful correction: at this ref
+`using_block_verify` also requires `rejection_sampler_config.enable_block_verify`
+(default `False`, `ascend_config.py:766`), so the n≥3 block-verify story does not
+transfer from #7580 (`../accuracy-benchmarks/long-output-repetition.md`).
+
 **#13002** v0.23.0 on A2, Kimi-K2.6 W4A8, 1P1D `MooncakeConnectorV1` + eagle3,
 ≥16 concurrent / ≥23K-token prompts: `</think>` leaking into `content`, repetition
 collapse, 乱码 in 6-10 % of requests, both serve commands pasted. **Shipped no
@@ -306,3 +336,37 @@ and the `pip install transformers==4.51.0` line against the image's own
 `>=4.56`/`>=4.57.4` pins by turn 14. See
 `../tutorial-verification/community-test-report.md` for the page's verified
 defect set and the write-granularity rule this run cost.
+
+**#8724** vllm-ascend `v0.13.0rc3` (`bbe9bc0d`) / vllm `v0.13.0` (`72506c98`), one
+A3 16-card node, DeepSeek-V4-Flash-w8a8-mtp with
+`--speculative-config '{"num_speculative_tokens": 1, "method": "deepseek_mtp"}'`,
+DP4×TP4 + EP, `--async-scheduling`, `vllm bench serve --temperature 0.6`
+(0 or unset runs clean): three tracebacks at the same second — worker `KeyError:
+'chatcmpl-bench-…'` at `patch/worker/patch_model_runner.py:154`, EngineCore
+`'NoneType' object has no attribute 'sampled_token_ids'`, APIServer `Counters can
+only be incremented by non-negative amounts`. One provenance (a *discarded* request
+gets a `-1`-filled sampled row → count 0 → `num_accepted = -1`, and
+`prev_req_id_to_index` omits exactly those requests), and the failing statement is
+upstream v0.13.0's, carried verbatim by the patch, whose only added hunk
+(`is_kv_consumer`) a non-PD command never runs. **Shipped no answer**: 29 turns,
+every message a bare tool call, ~48.5 K characters of reasoning against 73
+characters of message text, cut inside a reasoning block on the very turn it began
+the patch-vs-upstream diff — the first step that should have been taken
+(`../upstream-downstream-drift/patch-copy-vs-upstream.md`,
+`../spec-decode-mtp/async-spec-bookkeeping-desync.md`).
+
+**#17991** vllm-ascend `v0.23.0rc1` (`f4a08bdd`) / vllm `0.23.0` (`0fc695fc`),
+8×910B3, FA3 NPU `v0.4.2`, Qwen3-0.6B with `attention_config={"backend":
+"FLASH_ATTENTION"}` + `ngram` spec decode and `max_num_batched_tokens=256`:
+`RuntimeError: ACL stream synchronize failed, error code:507015` (`EE9999 … aicore
+exception`) at `vllm_ascend/attention/fa3_v1.py:122`. Real downstream defect one
+line away from correct: the prefill half slices the request-indexed `block_tables`
+by `num_decode_tokens` and passes an absolute `query_start_loc` as `cu_seqlens`, so
+with spec decode the offset triples and the kernel reads outside the page table;
+line 122 is the decode half's blocking `.npu()`, not the faulting kernel
+(`../mixed-batch-splits/fa3-mixed-batch-split.md`, one call:
+`scripts/batch-split-audit.sh`). **Shipped no answer**: 17 turns, ~51 K characters
+of reasoning against 255 characters of message text — the complete source-verified
+diagnosis was already written in the reasoning at the turn whose message text was
+"Confirmed the fault mechanism. Let me pin two last facts", and the truncation kept
+the plan and dropped the answer.

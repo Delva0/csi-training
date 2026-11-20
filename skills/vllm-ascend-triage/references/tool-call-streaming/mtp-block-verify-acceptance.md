@@ -17,7 +17,7 @@ it. It is *not* the audit itself: run
 | `# When num_speculative_tokens>=3, using block verify.` then `using_block_verify = max_spec_len >= 3` | `vllm_ascend/sample/rejection_sampler.py:113-114` |
 | `max_spec_len = max(self.num_draft_tokens)`, i.e. the request's `num_speculative_tokens` | `vllm/v1/spec_decode/metadata.py:27`; passed in as `metadata.max_spec_len` from `vllm/v1/sample/rejection_sampler.py:144` |
 | n = 1, 2 → the strict per-token kernels; n >= 3 → the Triton kernel (`rejection_random_sample_block_verify_kernel`, `vllm_ascend/ops/triton/reject_sample.py:366`, dispatched in the `else` of `if not using_block_verify:` at `sample/rejection_sampler.py:228-246`, comment `# MagicMTP: Improving acceptance rate with Block Verify.` at `:229`) or its pytorch twin `rejection_random_sample_block_verify_pytorch` (`sample/rejection_sampler.py:696-768`); the strict path is the `if` at `:193` | as cited |
-| No config key or env var selects it: `rg -n 'block_verify' vllm_ascend/` returns only the sampler and the kernel/test files, so the only switches are `num_speculative_tokens` and temperature | verified |
+| **Version gate — read the line before quoting the threshold.** At v0.17.0rc1 no config key selects it (`rg -n 'block_verify' vllm_ascend/` returned only the sampler and the kernel/test files), so the switches were `num_speculative_tokens` and temperature. At vllm-ascend **v0.23.0rc1** (`f4a08bdd`) the branch is `using_block_verify = max_spec_len >= 3 and bool(get_ascend_config().rejection_sampler_config.enable_block_verify)` (`vllm_ascend/sample/rejection_sampler.py:399-400`) and that config defaults to **`False`** (`vllm_ascend/ascend_config.py:766`, read via `additional_config`), so n >= 3 alone selects the **strict** path | source-verified at both refs; re-grep per version |
 | Greedy rows are untouched by it: `non_greedy_mask = (~is_greedy)[:, None]` gates accept/reject/bonus, and greedy rows are filled by `rejection_greedy_sample_with_triton` in the `if not sampling_metadata.all_random:` branch | `sample/rejection_sampler.py:130-146` (greedy kernels), `:754-762` (`non_greedy_mask`) |
 
 ## What block verify does (and why it can shorten a JSON)
@@ -68,6 +68,12 @@ Two consequences that matter for a report:
    verify entirely, so the difference between this run and the failing one is the
    acceptance path and nothing else in the decode step.
 
+Before the ablations, one grep settles whether the branch is even reachable on the
+reporter's ref: `rg -n "using_block_verify *=" vllm_ascend/sample/rejection_sampler.py`
+plus `rg -n "enable_block_verify" vllm_ascend/ascend_config.py`. If the config gate is
+present and defaulting `False`, `num_speculative_tokens >= 3` on its own explains
+nothing and the report needs another owner — say so instead of ranking this branch.
+
 Then, only if both ablations agree with the branch, `stream: false` plus
 `return_token_ids: true` to show whether the *tokens* also stop short (they must,
 if the mechanism is acceptance) — see `streamed-arguments-audit.md` step 3B.
@@ -96,6 +102,13 @@ characters — so the branch is the right *lead* but the mechanism that this pas
 supports is "the call ended before the JSON closed", whose decisive instrument is
 `return_token_ids`. Do not upgrade "wrongly accepted token" from hypothesis to
 fact on that paste alone.
+
+#13719 (vllm-ascend v0.23.0rc1, GLM-5.2 w8a8c8, 910C 4-node PD + `deepseek_mtp`
+n=5 on the decode node, 5 repeated-sentence responses out of a 2-hour 64-way run):
+the recorded run checked the gate before ranking the branch and correctly demoted it
+— worth repeating, because the skill's older phrasing ("no config key selects it")
+would have produced a confident wrong lead
+(`../accuracy-benchmarks/long-output-repetition.md`).
 
 #8122 (vllm-ascend v0.14.0rc1, Qwen3-Next-80B-A3B-Instruct, `stream: true`,
 `--async-scheduling`): "大概率截断，小概率格式错误，重复输出", no MTP. The pasted

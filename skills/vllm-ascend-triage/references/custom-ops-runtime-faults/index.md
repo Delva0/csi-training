@@ -19,6 +19,19 @@ often a framework-free `torch_npu` repro (`attention-op-numeric-errors.md`).
   `binary_info_config.json of socVersion [...] does not support opType [...]` means
   aclnn could not resolve the op for this SoC **before any launch**: the owner is the
   build/install chain, and no tiling fact will help — `op-not-registered-for-soc.md`.
+  A **built-in** op dying the same way before launch (`call aclnnArange failed …
+  EZ9999 … Parse dynamic kernel config fail`, `AclOpKernelInit failed opType`,
+  `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed`) is not a custom op at all: the
+  image's CANN kernel package does not cover the running SoC —
+  `../soc-platform-paths/kernel-package-vs-card.md`.
+- **`Failed to register custom ops, all custom ops will be disabled` is not a defect
+  in every image.** At vllm-ascend v0.7.3 the official image ships without the
+  extension by design: `setup.py:296-298` builds `vllm_ascend.vllm_ascend_C` only
+  when `COMPILE_CUSTOM_KERNELS` is set (Dockerfile never sets it) and
+  `vllm_ascend/platform.py:29-38` warns for any `ImportError` whose text is not the
+  `PyInit_vllm_ascend_C` one. Read the build gate before calling it an incomplete
+  install; by v0.23.0rc1 the string is gone and the import is lazy
+  (`vllm_ascend/utils.py:435`).
 - The dump names the operator and the error class; it does **not** identify the shape. Never
   assert "fails for hidden size N" without a shape-bearing artefact (reporter log line,
   tiling log, or a computed tiling decision).

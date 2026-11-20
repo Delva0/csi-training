@@ -7,7 +7,10 @@ being recomputed. Do not route it through `harness-vs-engine-attribution.md`.
 
 Before using this page, read `usage.prompt_tokens`: if the prompt is only a few
 thousand tokens, the length-dependent owners below cannot be the cause — use
-`short-prompt-corruption.md` instead.
+`short-prompt-corruption.md` instead. And if the prompt is short while the
+*completion* runs to tens of thousands of tokens and the symptom is sentences
+repeating rather than token soup, use `long-output-repetition.md`: the owners there
+are reuse and draft bookkeeping, not the sparse-attention / DCP math below.
 
 ## Grade the symptom before theorising
 
@@ -15,7 +18,7 @@ thousand tokens, the length-dependent owners below cannot be the cause — use
 |---|---|---|
 | only the first request after start is garbled, later ones clean | warm-up / init | connector, graph capture, c8 reshape buffers — precedent #12905 |
 | every request at long length, same prompt | length-dependent corruption | sparse-attention indexer / DCP block remap / interleave math |
-| fluent but wrong or looping | decode/reuse defect | prefix cache, KV offload/eviction, MTP draft |
+| fluent but wrong or looping | decode/reuse defect | prefix cache, KV offload/eviction, MTP draft — for long *outputs* see `long-output-repetition.md` |
 | empty, `null` or cut mid-sentence | budget/truncation | `max_model_len`, `max_tokens`, `reasoning-output-routing.md` |
 
 Ask which one it is; the four have different owning code. A one-line repro with

@@ -67,9 +67,23 @@ Rules for this topic:
 4. Cap it: verdict + constraints + staged run is the deliverable inside 3 turns;
    the recorded #8984 run spent 19 turns
    and still left the capability question open.
+5. A **parallel-topology** question ("how do I enable EP together with DP",
+   "why does removing `--enable-expert-parallel` make it work") is answered from
+   the tree's own selector, not from the flags' prose: quote the predicate that
+   picks `MC2`/`ALLTOALL`/`ALLGATHER` for the reported SoC, the arithmetic of the
+   reporter's `world_size_across_dp`, and the shipped recipe that comes closest —
+   `moe-expert-parallel-with-dp.md`.
 
 Pages:
 
+- `moe-expert-parallel-with-dp.md` — EP **with** DP: `_select_moe_comm_method`'s
+  per-batch table for A2 (`MC2` only when `num_tokens <= capacity` **and**
+  `world_size_across_dp/pp >= 16`) and A3, `set_mc2_tokens_capacity`'s arithmetic
+  (why one server runs MC2 in decode and ALLGATHER in prefill), the correction that
+  `PrepareAndFinalizeWithMC2` inherits the All2All `finalize` whose `dist.all_gather`
+  is the pasted crash site, the refuted uneven-`tensor_split` theory, and the only
+  EP+DP recipes the tree ships. Worked for #5295 (v0.12.0rc1, GLM-4.5-W8A8,
+  DP2×TP8 on one 910B node), whose recorded session shipped no answer.
 - `context-parallel-pcp-dcp.md` — PCP/DCP (context parallel), worked for #8984
   (DeepSeek-V3.2 QuaRot on A2, v0.19.1rc1): card arithmetic, the DCP divisibility
   and `cp_kv_cache_interleave_size` gates, the `VLLM_ASCEND_ENABLE_CONTEXT_PARALLEL`

@@ -69,14 +69,20 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
    on a different image than the one named in the issue, the claim has to be
    re-derived.
 7. **Decide which layer the live function object belongs to, not which layer the
-   text names.** Two different keying schemes produce the same symptom ("the
-   Ascend op was not used"): a class-*name* registry miss (later vllm) and a
+   text names.** Three different keying schemes produce the same symptom ("the
+   Ascend op was not used"): a class-*name* registry miss (later vllm), a
    monkeypatch installed by an import side effect in a process that never ran the
-   hook (vllm 0.7.x, and any driver-only hook with `spawn`/Ray workers). The
-   traceback's **file name** at the `forward_oot`/`apply` frame settles it — an
-   upstream `custom_op.py` frame means the downstream replacement is absent from
-   that process (`patch-import-side-effect.md`). Check
-   `hasattr(CustomOp, 'op_registry_oot')` before quoting the name-keyed page.
+   hook (vllm 0.7.x, and any driver-only hook with `spawn`/Ray workers), and a
+   patch that ran in that process but rebound only the *defining* module while the
+   consumer module had already cached the name in its own namespace (vllm 0.26's
+   `FusedMoE` factory). The traceback's **file name** at the
+   `forward_oot`/`apply` frame settles the first two — an upstream `custom_op.py`
+   frame means the downstream replacement is absent from that process
+   (`patch-import-side-effect.md`). For the third, the file name is upstream *and*
+   the patch is installed: compare the defining module's attribute with the
+   consumer module's (`qwen3_moe.FusedMoE is not patch._ascend_FusedMoE`) and see
+   `stale-module-binding.md`. Check `hasattr(CustomOp, 'op_registry_oot')` before
+   quoting the name-keyed page.
 8. **A traceback file that is absent from the pinned upstream tree is a snapshot
    fact, not an upstream bug.** Say what it proves (the image ships a different
    upstream ref), get the real pairing from the project's compatibility matrix
@@ -89,6 +95,15 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
 - `patched-forward-api-drift.md` — worked case vllm-ascend #11661 (v0.22.1rc1,
   DeepSeek-OCR-2): `AscendQwen2DecoderLayer` has no `attention_type`, the
   evidence table, the decisive check, and what the report still leaves open.
+- `stale-module-binding.md` — worked case vllm-ascend #15815 (v0.26.0rc1,
+  Qwen3-Coder-30B-A3B TP4): `AttributeError: 'UnquantizedFusedMoEMethod' object
+  has no attribute 'is_monolithic'. Did you mean: 'apply_monolithic'?` inside
+  upstream `moe_runner.py`, because `patch/platform/patch_fused_moe.py:87-88`
+  rebinds only the layer and package modules while `qwen3_moe.py:45` cached the
+  factory first; why the stale path is a guaranteed crash (`OOT, None` ->
+  `self.experts_cls.is_monolithic()` masked by `nn.Module.__getattr__`), the
+  three-line discriminator against the two pages above, the 15 upstream modules
+  with the same hazard, and the `sys.modules` sweep plus its in-tree precedent.
 - `patch-import-side-effect.md` — worked case vllm-ascend #253 (v0.7.1rc1,
   DeepSeek-R1-BF16 under `--distributed_executor_backend ray`):
   `TypeError: 'NoneType' object is not callable` at upstream

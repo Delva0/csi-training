@@ -103,6 +103,26 @@ padding. The downstream file re-implements the same class with padding and a
 releases silently changes which branch loads. State the pairing (downstream
 `b5b7e0e` ↔ upstream `a5dd03c`) with any claim.
 
+## Second pin: v0.13.0rc1 moved the pad from weights to activations
+
+Verified on #7689 (vllm-ascend v0.13.0rc1 `1b5d5abf` ↔ vllm v0.13.0 `72506c98`), and
+worth quoting because it changes what the older precedent can be used for:
+
+- `vllm_ascend/models/` **does not exist** at this pin, so the `qwen2_5_vl*.py` files
+  and their `load_weights`/`pad_qkv_weight` rewrite are gone; the whole VL model is
+  upstream and the only downstream piece is `AscendMMEncoderAttention`
+  (`vllm_ascend/ops/mm_encoder_attention.py:31`), registered by class name at
+  `vllm_ascend/utils.py:697`.
+- The head-dim pad is applied to **q/k/v activations** (`:105-108`, then
+  `torch_npu._npu_flash_attention_unpad` at `:124`), not to the TP-sharded weights —
+  the `MIN_PAD_SIZE = 64` / `MAX_PAD_SIZE = 128` constants keep their stale
+  `# … to pad weight` comment (`:27-28`). `enable_pad` still keys on
+  `head_size` in the open interval (64, 128) (`:101-103`), so a Qwen2.5-VL-family
+  3B/7B vision tower (1280/16 → 80) is still in the branch.
+- Consequence: **#976's "multi-card ViT qkv weights are zero"** mechanism cannot be
+  quoted at this pin; only its symptom shape (TP-sensitive vision path) transfers.
+  Say that in the answer instead of citing the weight-pad fix.
+
 ## Recheck conditions
 
 `MIN_PAD_SIZE` / `MAX_PAD_SIZE`, the two registrations, the `USE_OPTIMIZED_MODEL`

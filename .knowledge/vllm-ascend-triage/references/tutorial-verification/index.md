@@ -29,11 +29,14 @@ Inherit the rules in SKILL.md, plus these:
    explicit slot plus the one command that fills it on the host. A report that
    presents a doc baseline as this environment's measurement is a fabricated
    result; a report with empty labelled slots is a usable template.
-3. **Audit in a fixed, finite order and stop.** The checklist has eight items
+3. **Audit in a fixed, finite order and stop.** The checklist has nine items
    (`tutorial-command-audit.md`); after 3-5 concrete defects plus the corrected
    deploy command and a three-item FAQ you have the deliverable. #11739's
    recorded run confirmed several real doc bugs and then kept auditing until the
-   session ended, shipping nothing (`community-test-report.md`).
+   session ended, shipping nothing (`community-test-report.md`), and #11759
+   repeated it a batch later with the defects in hand by turn 7. If the 任务书
+   names a section of the page, resolve that section name against the **whole**
+   docs tree before grading it missing — the two cases grade differently.
 4. **Separate severity in the report**: breaks the command (dead flag, missing
    path, wrong device env var), stale baseline (older release, numbers
    predating the image), cosmetic (wording, a flag abbreviation that still
@@ -46,12 +49,13 @@ Conditional routes:
 
 - The task shape, the deliverable skeleton and the staged-emission protocol for
   a community-test report → `community-test-report.md`.
-- The eight-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
+- The nine-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
   v0.18.0 and v0.19.1rc1 examples (dead `--swap-space` / `--disable-log-request`,
   `--random-input` vs `--random-input-len`, image WORKDIR vs doc relative path,
   `limit_mm_per_prompt` and remote-media defaults, boilerplate TP sentence vs
-  sibling docs, stale baseline release, CI config as the known-good command) →
-  `tutorial-command-audit.md`.
+  sibling docs, stale baseline release, CI config as the known-good command,
+  `pip install <pkg>==<ver>` against the image's own requirements pins) plus the
+  ready-made Qwen3-32B-W4A4 defect table → `tutorial-command-audit.md`.
 - The doc's log/flag claims override the doc rather than the code:
   `../observability-and-logs/request-output-logging-flags.md`.
 - The doc's accuracy or performance numbers look anomalous: check the precedent

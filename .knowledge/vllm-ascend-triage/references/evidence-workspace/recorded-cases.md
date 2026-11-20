@@ -229,3 +229,57 @@ exception (`vllm/multimodal/processing/context.py:440-459`, tokenizers#537), the
 serial-concurrency/retry ladder and the transformers-4.57 line-number gap; the
 prior-month history has no `Already borrowed` precedent at all
 (`../serving-frontend-faults/tokenizer-already-borrowed.md`).
+
+**#5295** vllm-ascend v0.12.0rc1 (`42ceaf0`) / vllm v0.12.0 (`4fd9d6a`), GLM-4.5-W8A8
+on one 16-card 910B node: `--data-parallel-size 2 --tensor-parallel-size 8
+--enable-expert-parallel --distributed-executor-backend mp
+--compilation-config '{"cudagraph_capture_sizes": [4], "cudagraph_mode":
+"FULL_DECODE_ONLY"}'` fails engine init with `RuntimeError: Engine core
+initialization failed … Failed core proc(s): {}`, a 16-rank interleaved paste whose
+deepest frames are `fused_moe/layer.py … moe_forward_shared` → `auto_functionalize.py:856`
+→ `prepare_finalize.py:191`, behind `No available shared memory broadcast block found
+in 60 second(s)`; the reporter asks how to run EP **and** DP together. Feature-enable
+/ capability track on a lane-A/B paste. **Shipped no answer**: 16 assistant turns,
+every message a tool call, ~46 K characters of reasoning, cut inside a reasoning
+block. It had the selector predicate (`world_size_across_dp/pp >= 16` on A2), the
+"MC2 inherits `All2All.finalize`" correction and the capacity arithmetic in hand by
+turn 10; the route and the refuted uneven-split theory are in
+`../feature-enable-recipes/moe-expert-parallel-with-dp.md`.
+
+**#7689** vllm-ascend v0.13.0rc1 (`1b5d5abf`) / vllm v0.13.0 (`72506c98`), dots.ocr
+on 2×910B4 (32 G) vs 910B3 (64 G) with an identical serve command: the B4 host answers
+garbled or off-task text where B3 is correct. VL corruption track; the run delivered a
+complete ranked answer (first ablation `USE_OPTIMIZED_MODEL=0`, then TP=1,
+`--async-scheduling` off) and paid for one useful version correction: at this pin
+`vllm_ascend/models/` no longer exists, the vision tower is patched by class name
+(`utils.py:697` → `ops/mm_encoder_attention.py:31`) and the head-dim pad moved from
+weights to **activations** (`:101-108`), so #976's weight-padding mechanism cannot be
+quoted at v0.13.0rc1 — see `../accuracy-benchmarks/vl-vision-tower-degeneracy.md`.
+
+**#15815** vllm-ascend `v0.26.0rc1` (`f2f74a16`) + vllm `0.26.0` (`568afb3a`),
+Qwen3-Coder-30B-A3B BF16 TP4 with EP on and off: startup dies in `profile_run`
+with `AttributeError: 'UnquantizedFusedMoEMethod' object has no attribute
+'is_monolithic'. Did you mean: 'apply_monolithic'?`, raised from upstream
+`moe_runner.py:564`, because `patch/platform/patch_fused_moe.py:87-88` rebinds
+only the layer and package modules and `qwen3_moe.py:45` had already cached the
+pre-patch factory; the inner `'NoneType' object has no attribute 'is_monolithic'`
+is the real message (`oracle/unquantized.py:209` returns `(OOT, None)`, and the
+base property dereferences `experts_cls`). 15 upstream modules share the hazard,
+so the fix is a `sys.modules` sweep, not a qwen3 special case
+(`../upstream-downstream-drift/stale-module-binding.md`). The run delivered a
+complete answer, but only at its 15th turn with 31 K of its 50 K output characters
+spent on reasoning — a delivery case, not an evidence case.
+
+**#11759** vllm-ascend `v0.18.0` image, community-test row for
+yxr2_qwen3-32B (Qwen3-32B-W4A4 on 1×Atlas 800I A2, HDK 25.5.0.B078), i.e. the same
+task shape as #11739 a batch later and the same outcome: **no report file and no
+message text**, cut at the 16,384-token cap on its 16th turn while writing the
+report heredoc. Every section of the answer existed before that: the absent
+"Run basic benchmark" section by turn 6, the curl's ignored
+`max_completion_tokens` (`/v1/completions` has only `max_tokens`, default 16, at
+vllm v0.18.0) by turn 8, the sizing pass by turn 11 (16.4 GB of W4A4 weights
+against a 57.6 GB per-card budget, so one card is right and bf16 would not fit),
+and the `pip install transformers==4.51.0` line against the image's own
+`>=4.56`/`>=4.57.4` pins by turn 14. See
+`../tutorial-verification/community-test-report.md` for the page's verified
+defect set and the write-granularity rule this run cost.

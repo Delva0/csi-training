@@ -87,7 +87,59 @@ startup memory lines, and the crash tail. Then:
   also explains a performance expectation gap).
 - Generalise: before attributing any behaviour to a flag in `additional_config`,
   run `rg -n '<key>' vllm_ascend/` at the pinned commit and check
-  `release_notes.md` for a removal entry.
+  `release_notes.md` for a removal entry. Scope the "silently ignored" reading to
+  pre-migration refs: once `AscendConfig` became a pydantic dataclass with
+  `extra="forbid"` (v0.27.1rc1 era) the same stale key is a fatal
+  `unexpected_keyword_argument` before any worker starts, so it is a startup
+  question, not a silent no-op — `../startup-failures/additional-config-schema.md`.
+
+## Step 4b — a multimodal (VL) memory report: the MM cache is not the HBM
+
+Verified at vllm-ascend v0.11.0rc3 (`b6d63bb`) + vllm v0.11.0 (`b8b302c`); re-grep
+per ref, because the same switches move between releases.
+
+- `--disable-mm-preprocessor-cache` / `--mm-processor-cache-gb 0` size a **host** shm
+  ring buffer, not HBM: `SingleWriterShmRingBuffer(data_buffer_size =
+  mm_processor_cache_gb * GiB)` (`vllm/multimodal/cache.py:402-403`, again at
+  `:620-621`). At vllm v0.11.0 the first switch is already DEPRECATED (removal
+  announced for v0.13, `vllm/engine/arg_utils.py:387,969-975`) while still zeroing the
+  value. So "I disabled the MM cache and HBM still grows" is *expected* — say it and
+  drop the thread, do not investigate the preprocessor.
+- The VL side's HBM cache is the **encoder** cache: `encoder_cache` is keyed by mm
+  hash, filled per image and popped on `free_encoder_mm_hashes`
+  (`vllm/v1/worker/gpu_model_runner.py:273,550,1601,3402`;
+  `vllm_ascend/worker/model_runner_v1.py:283,617,1005,2600`), bounded by
+  `encoder_cache_size` and released at request end.
+- The effective default `--max-num-batched-tokens` on a < 70 GiB card is **2048 even
+  for a VL model**: `_set_default_args` fills the field first
+  (`vllm/engine/arg_utils.py:1595,1617-1626`, called at `:1162`) and `SchedulerConfig` is
+  only constructed afterwards (`:1360`), so its `is_multimodal_model` → 5120 floor
+  (`vllm/config/scheduler.py:187-202`) never fires; `encoder_cache_size =
+  max_num_encoder_input_tokens = max_num_batched_tokens` follows it (`:201-202`).
+  Confirm from the report's own log line
+  (`Chunked prefill is enabled with max_num_batched_tokens=N`), never from the flags.
+- A user `--block-size` on a **non-hybrid** model at this ref is rewritten to 128
+  whenever prefix caching or chunked prefill is on (`vllm_ascend/platform.py:269-285`,
+  warning `If chunked prefill or prefix caching is enabled, block size must be set to
+  128.`, `qwen3_next` exempted) — so `--block-size 16` is inert and is not the cause
+  either way. `refresh_block_size`, the site newer refs use, does not exist yet; see
+  `../accuracy-benchmarks/hybrid-block-size-corruption.md` for the hybrid form of the
+  same rule.
+
+## Step 4c — older refs: the allocator gate may not exist at all
+
+At v0.11.0rc3 nothing in `vllm_ascend/platform.py` touches `PYTORCH_NPU_ALLOC_CONF`:
+`rg -n PYTORCH_NPU_ALLOC_CONF vllm_ascend/` hits only
+`device_allocator/camem.py:147`, and `tests/e2e/*` set `max_split_size_mb:256` for
+itself. The Step 3 injection and its `Set PYTORCH_NPU_ALLOC_CONF=%s` log line are
+**later-release** behaviour, so on an older tree their absence proves nothing about a
+shadowing env var — the anti-fragmentation default is simply missing, and the
+reporter has to export `expandable_segments:True` themselves. State which release the
+injection exists in before asking for that log line. One build-level exception:
+the CaMem memory pool asserts `expandable_segments:True` away
+(`vllm_ascend/device_allocator/camem.py:153` at v0.26.0rc1), so on a pooled/KV-pool
+deployment that value raises instead of helping —
+`../hccl-and-hardware/aiv-mc2-env-ablation.md`.
 
 ## Step 5 — deliverable order (truncation-safe)
 

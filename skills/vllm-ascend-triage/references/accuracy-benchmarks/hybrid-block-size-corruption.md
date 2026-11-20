@@ -61,6 +61,19 @@ Verified at vllm-ascend v0.20.2rc1 (`367b8e6`), upstream vllm v0.20.2 (`bc150f5`
   `mamba_block_size = block_size` only under `enable_prefix_caching` **and**
   `mamba_cache_mode == "align"`, else `max_model_len` (the same gate
   `../spec-decode-mtp/acceptance-collapse.md` records from the spec-decode side).
+- Upstream already supplies `align`: `MambaModelConfig.verify_and_update_config`
+  (`vllm/model_executor/models/config.py:351-372`, with the
+  `"all"`→`align` fallback at `:373-382`, at vllm v0.20.2, `bc150f5`) turns
+  `mamba_cache_mode` from `"none"` into `"all" if supports_mamba_prefix_caching else
+  "align"` whenever `enable_prefix_caching` is set, logging the architecture it did it
+  for, and `vllm_ascend/patch/platform/patch_mamba_config.py:28` calls that before its
+  own page-size arithmetic. Qwen3.5/Qwen3.6 do not declare
+  `SupportsMambaPrefixCaching`, so a launch with `--enable-prefix-caching` and **no**
+  `--mamba-cache-mode align` is already in align mode: the flag the tutorial tells
+  users to add (`docs/source/tutorials/models/Qwen3.5-27B.md:136`, "set
+  `--enable-prefix-caching` and `--mamba-cache-mode align`") is redundant at this ref,
+  and its absence is **not** a cause. The discriminating row is prefix caching itself
+  (row 3), not the flag.
 
 That is why a block-size change is not a tuning change here: it moves the
 attention block table's units, the slot mapping, the mamba state block and the

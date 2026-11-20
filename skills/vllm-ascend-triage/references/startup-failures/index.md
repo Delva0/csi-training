@@ -33,6 +33,13 @@ Inherit the rules in SKILL.md. Conditional routes:
   parallel mode or flag combination (no `WorkerProc` line, no rank prefix) →
   `arg-validation-errors.md`. Upstream argument validation: the fix is a launch
   command, and when the shape came from a tutorial it is also a doc bug.
+- A pydantic `ValidationError` whose text is `Unexpected keyword argument
+  [type=unexpected_keyword_argument, input_value=..., input_type=bool]` naming a key
+  the reporter put in `--additional-config`, often followed by
+  `[ERROR] ... ERR99999 UNKNOWN application exception`, with no `WorkerProc` line →
+  `additional-config-schema.md` first. The key is nested-only (or was removed) and
+  `AscendConfig` is `extra="forbid"`; the fix is one JSON edit, and a tutorial
+  serve command is usually the source.
 - `<method> quantization is currently not supported in npu` (a pydantic
   `ValidationError` around it, e.g. `--quantization awq`), or
   `Unknown quantization method: <x>` — the platform/quantization gate, raised while

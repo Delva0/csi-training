@@ -83,7 +83,11 @@ Five entry shapes leave this topic immediately and are not accuracy questions at
   that "thinking inside `content` + no `reasoning` field + `reasoning_tokens: 0`" is a
   missing `--reasoning-parser` (default `""`), that the chat field is now `reasoning`
   with `reasoning_content` only a deprecated input alias, and that the Qwen3.6 tutorial
-  omits the flag while seven sibling pages pass it.
+  omits the flag while seven sibling pages pass it. (c) A "thinking is in the wrong
+  language / 回答中英混杂 / the answer is in English" report, in this order: routing plus
+  `finish_reason` budget, then model/template thinking language (`#6848`), then a
+  hand-written `--hf-overrides` rope block (`#10405`, hypothesis row), then the version
+  gate before recommending `enable_thinking: false` (`#7094` / `#7061`, upstream PR 34779).
 - `quantized-checkpoint-conversion.md` — per-layer loss tables and bad artifacts from
   msmodelslim conversion: the two gates (engine version plus the msit branch, which
   differs between doc pages), the published-checkpoint split test, layer-localization by

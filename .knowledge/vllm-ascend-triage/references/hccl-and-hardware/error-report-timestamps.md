@@ -36,9 +36,17 @@ failure. Adopting it names the wrong owner *and* the wrong ablation set.
    line, then names the replayed families and the first in-window error.
    Without `--since` it uses the newest log-line date in the paste, which is
    enough when the paste really does cover the failure minute.
-2. If it reports *no* record inside the incident window, the paste does not
-   contain the fault. Say so in one sentence, quote the older block only as
-   history, and ask for the plog covering the failure minute
+   The script needs a timestamped record: long-form `YYYY-MM-DD-HH:MM:SS` device
+   records (the usual `[PID: n]` headers) or `MM-DD HH:MM:SS` line prefixes. A
+   paste of ordinary `W<MMDD>`/`E<MMDD>` lines yields its "no timestamped error
+   line found" verdict, so do not rebuild it into a file first (#18315).
+2. If it reports *no* record inside the incident window, do not conclude yet: read
+   its offset `NOTE` and its record clusters and re-run with `--since` at the
+   cluster nearest the reported time — a multi-hour or multi-incident dump can hold
+   the fault on the other time base, or a day earlier near local midnight, and that
+   is a timezone, not a replay. Only when no cluster comes near the reported time
+   does the paste not contain the fault: say so in one sentence, quote the older
+   block only as history, and ask for the plog covering the failure minute
    (`~/ascend/log/debug/plog/plog-<pid>_<timestamp>.log`, every reporting rank) plus
    the vLLM log's first traceback. Do not build a mechanism from the older block —
    that is the recorded #9183 failure mode.
@@ -71,6 +79,12 @@ failure. Adopting it names the wrong owner *and* the wrong ablation set.
      the paste's own async caveat says the "current working operator" line names
      the last *submitted* op. Attribute with `--enforce-eager` +
      `ASCEND_LAUNCH_BLOCKING=1` before opening any kernel's shape code.
+   - `hccl fftsplus task timeout occurred during task execution ... stuck notify
+     num:1, timeout=<N>s` (`[FUNC:ProcessStarsHcclFftsPlusTimeoutErrorInfo]`) and
+     the `[TaskExecStage][HeartbeatAbnormal] ... Heartbeat Lost Occurred` lines
+     around it → **the timeout is an expiry, not a timestamp**: the stall began
+     about `<N>` seconds earlier. Subtract before ordering anything; see "A
+     long-run hang" below.
    - `ERR02005 DIST internal error`, `HCCL watchdog thread terminated`,
      `terminate called after throwing ...` → teardown after a process/device error.
    - `shm_broadcast.py:... No available shared memory broadcast block found in 60
@@ -86,6 +100,56 @@ failure. Adopting it names the wrong owner *and* the wrong ablation set.
    out-of-range address on every rank is a software/address-computation shape; a
    single card that keeps failing across runs is the hardware shape. Do not ask
    for a card replacement on the first shape.
+
+## A long-run hang: `timeout=` dates the stall, not the fault (#16652)
+
+Recorded #16652: vllm-ascend v0.23.0 (`5cb98ca`), GLM-5.2 W8A8C8, Atlas 800 A2,
+2 nodes × 16×910B **co-located** (混部), three such instances, "4 times crashed
+after running a long time, always `hccl fftsplus task timeout`", with four
+attached dumps of 0.5-5.5 MB. The paste:
+
+```
+The error from device(chipId:0..7, dieId:0) ... hccl fftsplus task timeout occurred
+during task execution, stream_id:9, sq_id:9, task_id:..., stuck notify num:1, timeout=1836s
+[FUNC:ProcessStarsHcclFftsPlusTimeoutErrorInfo][FILE:device_error_proc.cc][LINE:1788]
+```
+
+- `timeout=1836s` is the *elapsed wait* on one notify, whose default is
+  `HCCL_EXEC_TIMEOUT` 1800 s (`cann/hcomm/src/common/error_code/error_code.cc:38`,
+  the EI0002 text: "default 1800s, You can set the interval by using
+  HCCL_EXEC_TIMEOUT"); the extra ~36 s is dispatch/collect overhead. So the
+  printed clock time is the expiry: **stall start = report time − `timeout=`**.
+  In dump 1, `21:43:11 − 1836 s = 21:12:35`, and that instance's last
+  `POST /v1/chat/completions ... 200 OK` is `21:12:11` — a 24 s match, which is
+  what makes the arithmetic worth one call instead of a mechanism hunt.
+- Eight chips reporting the same instant (`chipId:0..7`) is one process-group
+  stall, not eight faults.
+- `[TaskExecStage][HeartbeatAbnormal] Cluster Exception Location[IP/ID]:[...],
+  Arrival Time:[...], ExceptionType:[Heartbeat Lost Occurred], Possible Reason:
+  1. Process has exited, 2. Network Disconnected` arrives at a **single** instant
+  (13:17:49/50 in dump 1, 19:40:37/38 in dump 2) about 5 min *after* the derived
+  stall start, repeated per peer device (`there are 16 abnormal device(s)`).
+  Peers that are stuck in the same collective also stop heartbeating, so this
+  line does not date the fault and does not prove a node died.
+- The rest of the chain is downstream: `[shutdown] MPClient: start timeout=0s` on
+  every `ApiServer_n`, then `Process ApiServer_1 (PID: …) died with exit code
+  None`, then `Process group work ALLGATHER, seq_num …, dispatch timeout. device
+  N: the current working operator name is aclnnAbs` (torch.distributed — the
+  collective never dispatched; the named op is the last submitted one), then the
+  fftsplus expiry and `EngineCore` exit — and then a supervised restart, ~40 s
+  later in dump 2, which is why the earlier "crash" appears only as a gap between
+  `200 OK` lines.
+- `(Worker_DP0_TP5_DCP5_EP5 pid=…)` carries **rank indices**, not sizes — read
+  sizes from the group lines (`group_name_… rankSize[N]`) or the serve command.
+
+What the timestamps settle for that report: the stall starts ~30 min before the
+first error text, while the instance was still answering, so "heartbeat lost" and
+"EngineCore abnormal exit" are not the beginning. What they do not settle: why it
+stalled — the record holds no maintainer diagnosis, and the honest deliverable is
+that gap plus: the plog window around the derived stall start
+(`grep -rn 'error cqe'`), per-card health (`device-health-checks.md`), whether the
+crash follows one card/instance or moves, and whether the same instance's stall
+recurs at a fixed interval (a leak/slow-rank shape) or at random (a fabric shape).
 
 ## Where `107030` belongs
 

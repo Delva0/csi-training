@@ -32,10 +32,12 @@ reported version, gaps stated.
   (`Could not find a version that satisfies the requirement torch-npu==<dev>`,
   `No matching distribution found for <pkg>`, "unmatched torch version between vllm=X
   and vllm-ascend=Y", or an `ImportError: Please install vllm[bench] …` inside a shipped
-  image). The deliverable is *which* artefact pip could not see — a mirror-only wheel
-  pin that the metadata cannot carry, an unsatisfiable torch/torch-npu/torchvision set,
-  or an air-gapped container with no reachable index — plus the command that shows it;
-  never a release survey — `references/image-dependency-faults/pip-index-visibility.md`.
+  image), or the install finished and pip only **warned** (`requires torch==2.10.0`).
+  The deliverable is *which* artefact pip could not see — a mirror-only wheel pin the
+  metadata cannot carry, an unsatisfiable torch/torch-npu/torchvision set, an
+  air-gapped container with no reachable index — or which file supplied each warning
+  line; never a release survey — `references/image-dependency-faults/pip-index-visibility.md`
+  and the warned shape `pip-resolver-warning-block.md`.
 - **Deployment failure**: a vLLM / vLLM-Ascend deployment fails to come up or
   fails during engine start — `EngineCore failed to start`, `WorkerProc
   initialization failed`, silent worker death, `HcclAllreduce` / allreduce
@@ -65,7 +67,14 @@ reported version, gaps stated.
   hccl_result = 4`, `Failed to put N keys out of N`, master `PutEnd` 0).
   Transport identity and rank tables are a topology question, not a connector
   bug, and a pool deployment is a config question before either —
-  `references/pd-disaggregation/index.md`.
+  `references/pd-disaggregation/index.md`. If instead the engines start and the
+  **first request** kills one side's EngineCore behind a bare
+  `EngineDeadError: EngineCore encountered an issue. See stack trace (above)`, on a
+  deployment that sets `--decode-context-parallel-size` > 1: DCP is a *matched*
+  launch parameter between the two sides (a differing dcp — a 1M recipe's `8`
+  reduced on one side — fails the connector's divisibility assertion on the first
+  transfer), so get both serve commands and compare before any source walk —
+  `references/feature-enable-recipes/context-parallel-pcp-dcp.md` §3.
 - **Deployment sizing / stage layout**: the question is a plan — "does this model
   fit on 2×64 GB", "the GPU docs do a 2-device stage deploy and mine does not
   come up on 2 NPUs", a bundled `platforms.<vendor>` yaml with more stages than
@@ -104,11 +113,10 @@ delivery pattern is rule 1.
 1. **Say the answer in a message, early, and obey the delivery gates.** A long
    session can be cut off mid-sentence, so the deliverable has to survive
    truncation: what decides the outcome is not how much evidence was gathered but
-   whether the message exists. The runs that shipped **no answer at all** (#6784,
-   #12339, #10985, #11739, #11759, #5295, #8724, #17991, #16111, #8788, #10546,
-   #17797, #5525, #5750, #6572, #6275, #11454, #12261, #1796, #2015, #2873,
-   #14440, #12015, #3107, #698) each had a usable lead; #4296 answered completely in
-   ten turns from one pasted traceback. Hard stops:
+   whether the message exists. The runs that shipped **no answer at all** each had
+   a usable lead in hand (#6784, #13853, #11454, #17991, #3107 are the clean cases;
+   the per-run table is `delivery-discipline.md`); #4296 answered completely in ten
+   turns from one pasted traceback. Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
      reporter's literal question plus the track/lane classification. A pasted
      traceback, one config value or one registry listing is enough; do not hold
@@ -119,20 +127,18 @@ delivery pattern is rule 1.
      couple of lines of reasoning.
    - **G3 — 12th assistant turn:** answer text only; no reasoning, no tool call,
      no "one more thing".
-   - **The gates cap cumulative output, not only turns.** #4057, #6833, #13853,
-     #5750, #4357, #8345 and #16563 were each cut after 11-49 K characters of
-     reasoning with the ranked cause in hand, and #16111 and #8788 composed the
-     whole answer inside the reasoning block the cap landed on. A verdict line is a
+   - **The gates cap cumulative output, not only turns.** Runs #4057, #6833,
+     #13853, #5750, #4357, #8345, #16563, #16111 and #8788 were cut after 11-49 K
+     characters of reasoning with the ranked cause in hand, two of them inside the
+     block that was composing the answer (arithmetic in
+     `references/evidence-workspace/delivery-discipline.md`). A verdict line is a
      *hypothesis*: the ranked deliverable is still owed as one message. A block
      that restates the verdict, numbers the fixes or lays out the evidence table
-     *is* this turn's message: send it, then one tool call. Count characters, not
-     turns — the per-run arithmetic is in
-     `references/evidence-workspace/delivery-discipline.md`.
+     *is* this turn's message: send it, then one tool call.
    - **Reasoning is a scratchpad, a few lines per turn:** what the last result
      proved, the single next check, go. It spends the **same output budget** as the
-     answer: #15815, #11759, #8590 and #16563 each reached the cap with most of the
-     budget inside a reasoning block; #3107 and #698 did too (~49.6 K and ~47.6 K
-     characters against 661 and 322 of message text). If a block enumerates the answer's
+     answer: #15815, #11759, #8590, #16563, #3107 and #698 all reached the cap with
+     most of it inside a reasoning block. If a block enumerates the answer's
      sections, or says "I have enough" / "let me write the answer", that block *is*
      the answer.
    - **A new hypothesis that needs a new code area is not this session's job.**
@@ -151,27 +157,19 @@ delivery pattern is rule 1.
      message the condensed report (path, defects, open items). Never compose the
      whole report in one heredoc: #11739 made 40 tool calls and wrote no file,
      #11759 lost a finished 5.7 K report to the cap, and #11742 (`[Community
-     Test]`) opened its heredoc on turn 9 of 10 and shipped **no text** on turn
-     10 — 608 K prompt tokens, no answer.
+     Test]`) opened its heredoc on turn 9 of 10 and shipped **no text**.
    - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
-     write it at G2 *in place of* the reasoning block, and skip it when the
-     session is already long (#11519 composed it late and lost its ranked causes).
-     The file is not the message: once it exists, the next turn's text is the
-     answer, not a re-derivation of it (#10546 wrote it on its 12th of 14 turns,
-     then spent the last turn restating the same verdict and was cut with zero
-     text).
+     write it at G2 *in place of* the reasoning block; once it exists the next
+     turn's text is the answer (`delivery-discipline.md` §draft).
    - **A missing or mismatched artefact is itself the finding** — an empty
      environment block, a traceback file absent from the pinned tree, a version
      the snapshot does not carry. State the gap, give the one command that closes
      it, stop investigating.
    - **Truncation eats the tail, not the head — and the body has a size too.**
-     Each action directly after its cause; the closing scope/open-questions block
-     3-5 lines, so a capped answer still ends in something usable. With no log
-     pasted, the ranked answer is 3-4 causes with one check each, one ladder of ≤6
-     lines, precedents as one line of `#id: fact`, and the same 3-5-line scope —
-     ≈3-4 K characters. #16563's run that did ship kept a verdict, five causes, a
-     precedent list and a six-rung ladder in messages, and still lost its closing
-     version scope; a fifth cause is an open question with its one command.
+     Each action directly after its cause, the closing scope block 3-5 lines. With
+     no log pasted: 3-4 causes with one check each, one ladder of ≤6 lines,
+     precedents as one line of `#id: fact`, 3-5 lines of scope (≈3-4 K characters);
+     a fifth cause is an open question with its one command.
    - **Every assistant turn carries message text, not only a tool call.** A turn
      whose whole output is a tool call leaves nothing for a truncation to keep.
      #5295 emitted *zero* message text on all 16 turns (~46 K characters of
@@ -240,11 +238,10 @@ delivery pattern is rule 1.
      never `cat /workspace/history/*.md` (flat whole issue bodies, so even a
      truncated read is a listing — #3107 pulled 7 KB that way), and
      never bundle a listing with the `skill_view` call (it lands before this rule is
-     read): a listing cost ~24-28 KB (#13699: 2857 entries), and recent batches
-     still paid 13-54 KB per session (#9335, #9183, #11739, #8984, #12487);
-     #698 repeated that bundle (14.7 KB for an unparsed `SOURCES.json`), #5750
-     paid 104 KB in its very first call, and #11454 repeated the whole bundle in the
-     same block as `skill_view`. Load the skill alone, then make the first shell call
+     read): a listing cost ~24-28 KB (#13699: 2857 entries) and later batches still
+     paid 13-104 KB per session (#9335, #9183, #11739, #8984, #12487, #698, #5750,
+     #11454, the last inside the same block as `skill_view`). Load the skill alone,
+     then make the first shell call
      `ls /workspace`
      plus `bash <skill_root>/scripts/sources-summary.sh`, nothing else — it prints
      the version contract and `unavailable` repos in ~10 lines, not 20-54 KB of
@@ -286,31 +283,25 @@ delivery pattern is rule 1.
     of the answer, and the task environment asks you to flag stale/incomplete
     knowledge. Missing lines are a data gap, not a fact.
 11. **A log sentence is not a diagnosis: some are fixed wrapper text.** vllm-ascend
-    logs canned advice inside `except` blocks and re-raises, so the sentence names
-    a cause the code never checked — `ACLgraph has insufficient available streams
-    to capture the configured number of sizes ... Recommended solutions: ...` is
-    printed for *any* capture exception (`vllm_ascend/worker/model_runner_v1.py:
-    3553-3565` at v0.11.0rc0; the string is gone by v0.20.2rc1, so re-grep per
-    version). Before adopting a log's own explanation, `rg -n '<a distinctive
-    fragment>' vllm_ascend/` and read the emitting site: if it is an
-    `except Exception` that appends `{str(e)}` and re-raises, the appended inner
-    error is the evidence and the wrapper is not. Say which text you trust and why.
-    Same family as the sync-point trap in procedure step 3: the line where
-    an error surfaced is not necessarily the owner of the defect.
+    logs canned advice inside `except` blocks and re-raises, so the sentence names a
+    cause the code never checked — the `ACLgraph has insufficient available streams
+    … Recommended solutions` block prints for *any* capture exception
+    (`model_runner_v1.py:3553-3565` at v0.11.0rc0, gone by v0.20.2rc1: re-grep per
+    version). Before adopting a log's own explanation, `rg -n '<fragment>'
+    vllm_ascend/` and read the emitting site: an `except Exception` that appends
+    `{str(e)}` and re-raises carries the inner error as evidence, not the wrapper.
+    Same family as procedure step 3's sync-point trap: where an error surfaced is
+    not necessarily its owner.
 12. **A crash inside a native module the image installed is an environment
-    question, and it is answerable without that module's source.** Three forms,
-    one cap of ~6 calls before you emit: a `python -c "import <pkg>"` abort with
-    glibc allocator text and no vllm-ascend frame (which copy is imported, one
-    `LD_PRELOAD` allocator, the installer-vs-dependency diff →
-    `native-import-abort.md`); `'std::logic_error'` /
-    `basic_string::_S_construct null not valid` at engine start (`std::string(nullptr)`
-    in a `.so` → `native-string-abort.md`); and `ImportError: …/_ops*.so: undefined
-    symbol: …Ss` from a prebuilt wheel (`std::string` ABI split, decided by the env
-    dump's `cxx_abi_{0,1}` root, reporter-confirmed on #1144 →
-    `abi-undefined-symbol.md`). Start at
-    `references/image-dependency-faults/index.md`; #5609 and #10943 each burned the
-    session in ABI/RPATH or `cann/` archaeology after the answer was in hand. The
-    three pages above live under `references/image-dependency-faults/`.
+    question, and it is answerable without that module's source.** Three forms — a
+    `python -c "import <pkg>"` glibc allocator abort, `std::logic_error` /
+    `basic_string::_S_construct null not valid` at engine start, and
+    `ImportError: …/_ops*.so: undefined symbol: …Ss` from a prebuilt wheel
+    (`std::string` ABI split, decided by the env dump's `cxx_abi_{0,1}` root,
+    reporter-confirmed on #1144) — all route from
+    `references/image-dependency-faults/index.md`; do not walk the module's source.
+    Cap ~6 calls: #5609 and #10943 each burned the session in ABI/RPATH or `cann/`
+    archaeology after the answer was in hand.
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the sentence in the issue title can be a day older
@@ -320,20 +311,23 @@ delivery pattern is rule 1.
     MTE-DDR exception — the recorded answer built a capture-window mechanism out of
     the stale block and named the wrong owner. One call decides it:
     `bash <skill_root>/scripts/plog-timeline.sh --since <report date> <paste>`;
-    families it flags as older are history, and if none is in-window the paste does
-    not contain the fault at all — say that and ask for the plog covering the
-    failure minute. The twin case matters as much: a record older than the failure
+    a family it flags as older than the `--since` day is history, but before
+    declaring the fault absent check the other hour and the other time base: a
+    **constant whole-hour** lag between a collector's local prefix and the UTC
+    records it wraps (8 h on the recorded hosts) is a timezone, not a replay, and
+    near local midnight it dates the records a day earlier. The script measures and
+    normalises that and lists the dump's record clusters, so anchor a multi-incident
+    dump on `--since`, not on its newest line; if no cluster comes near the reported
+    time, say the paste does not contain the fault.
+    The twin case matters as much: a record older than the failure
     *minute* but still inside **this process's own** `init engine (...)`, graph
     capture or warmup window is this incident reported late, not a replay (#10700:
     record `10:01:23` inside engine init, report `10:28:19` at `execute_dummy_batch`,
     reproduced unchanged on v0.22.1rc1) — decide by process identity and position in
-    the log, never by the size of the gap. The script needs a timestamped record —
-    long-form `YYYY-MM-DD-HH:MM:SS` device records (the usual `[PID: n]` headers) or
-    `MM-DD HH:MM:SS` line prefixes; a paste of ordinary `W<MMDD>`/`E<MMDD>` lines
-    yields its "no timestamped error line found" verdict, so do not rebuild it into
-    a file first (#18315). Same trap as rule 11 one level up: not just the
-    sentence but the whole block can be the wrong one.
-    `references/hccl-and-hardware/error-report-timestamps.md`.
+    the log, never by the size of the gap. It needs a timestamped record (formats
+    and the `W<MMDD>` blind spot: the page). Same trap as
+    rule 11 one level up: not just the sentence but the whole block can be the
+    wrong one. `references/hccl-and-hardware/error-report-timestamps.md`.
 14. **A "how do I enable F" question is a capability question, and the verdict comes
     first.** When the report asks how to turn a feature on for a model/hardware pair
     and pastes no log, the reporter is asking whether it is *known to work*: give
@@ -350,6 +344,20 @@ delivery pattern is rule 1.
     version (quote it, do not overturn it with an older issue), and a code comment
     saying a sub-feature is unsupported is often a branch the code already takes,
     not a launch-flag prohibition (`sfa_cp.py` vs the feature table's MLAPO ✅).
+15. **A working sibling path in the reporter's own evidence constrains the cause.**
+    When the same box fails on one entry point and works on another — offline
+    `LLM()` vs `vllm serve`, one flag, one model, one card — a mechanism that also
+    predicts the working path fails is not yet the answer: name the difference
+    first and rank the mechanism below it, with the log line or ablation that
+    separates them. Recorded #1534: "mindie_turbo replaces RMSNorm and `fullgraph`
+    makes a graph break fatal" was answered while the same install served
+    `Qwen/Qwen2-7B-Instruct` through `vllm serve`, and the reporter's follow-up
+    ("是因为在线推理默认没有开启 acl graph 吗?") got no answer. Two log lines settle
+    which path compiled and which process loaded the plugin — `PIECEWISE
+    compilation enabled on NPU` / `Compilation disabled, using eager mode by
+    default`, plus the wheel's own INFO line
+    (`references/image-dependency-faults/mindie-turbo-graph-break.md`);
+    `enforce_eager=True` on the failing path is the one-line ablation.
 
 ## Classify the evidence
 
@@ -379,10 +387,10 @@ delivery pattern is rule 1.
 | The same `AttributeError` raised **inside an upstream vllm file** on a class vllm-ascend is meant to replace — `'ZeroExpertFusedMoE' object has no attribute 'select_experts'` — or the reporter asks "did it ever reach vllm-ascend's ops?" | Downstream registry drift: the Ascend replacement is keyed by class *name* (`CustomOp.register_oot`), so an upstream refactor that adds a class silently keeps upstream code | `references/upstream-downstream-drift/oot-class-registration-drift.md` |
 | An `AttributeError` inside an upstream vllm file whose message contradicts the code — `'<QuantMethod>' object has no attribute '<property>'. Did you mean: '<similarly named method>'?` — reached from an upstream model's `forward` at startup (`profile_run`), where the property exists and calling it directly gives `'NoneType' object has no attribute '<property>'` | Downstream patch **incomplete**, not absent: a factory/property rebound only in its defining modules while the model module cached the old binding at import. Compare the three attributes, do not read more of the model | `references/upstream-downstream-drift/stale-module-binding.md` |
 | A bare `TimeoutError` — `RPC call to execute_model timed out.`, or frames in `multiproc_executor.py` (`collective_rpc` / `get_response`) and `shm_broadcast.py` (`acquire_read` / `acquire_write` / `recv`) — reported as "多进程卡间通讯超时", with no rank prefix and no error code | vLLM's own RPC watchdog (`VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS`, 300 s), not an HCCL/NIC timeout: one worker stopped answering, and the paste does not contain its fault | `references/hccl-and-hardware/rpc-watchdog-timeouts.md` (one call: `scripts/executor-timeout-check.sh`) |
-| `!!!!!!! Segfault encountered !!!!!!!` in a server log, **either phase**: mid-run (an evalscope/vllm-bench client dies with `ConnectionRefused [Errno 111]`, `Worker proc … died unexpectedly (exit code: None)`, dump top frames `rtEventCreateExWithFlag` / `NPUEvent::record` / `ProcessGroupHCCL::_allgather_base`, no `vllm_ascend/*.py` frames) **or** at engine start (`Failed core proc(s): {'EngineCore': -11}`, no `Starting to load model`, dump top frame a **trivial CPU** `torch.zeros` / `fill_kernel` / `VectorizedLoop2d`, `[ERROR] TBE Subprocess[task_distribute] … main process disappeared` after it) | A process killed by signal, not an OOM and not a Python exception — `-11` **is** SIGSEGV. The client error, the peers' lines and the TBE lines are messengers; the top frame is only the last native call, so a small CPU fill is where damage **surfaced** and carries no size/arithmetic conclusion. Name candidates with one check each and ask for the plog; the runtime shape adds an `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` rerun, the startup shape the doc-validated command at the reported ref | `references/hccl-and-hardware/worker-segfault-no-python-frames.md` (both phases; startup cross-ref `references/startup-failures/silent-worker-exit.md`) |
+| `!!!!!!! Segfault encountered !!!!!!!` in a server log, **either phase**: mid-run (an evalscope/vllm-bench client dies with `ConnectionRefused [Errno 111]`, `Worker proc … died unexpectedly (exit code: None)`, dump top frames `rtEventCreateExWithFlag` / `NPUEvent::record` / `ProcessGroupHCCL::_allgather_base`, no `vllm_ascend/*.py` frames) **or** at engine start (`Failed core proc(s): {'EngineCore': -11}`, no `Starting to load model`, dump top frame a **trivial CPU** `torch.zeros` / `fill_kernel` / `VectorizedLoop2d`, `[ERROR] TBE Subprocess[task_distribute] … main process disappeared` after it) | A signal kill, not an OOM and not a Python exception — `-11` **is** SIGSEGV; client and TBE lines are messengers, and even a trivial CPU top frame is only where damage surfaced. Name candidates with one check each, ask for the plog, add the `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` rerun | `references/hccl-and-hardware/worker-segfault-no-python-frames.md` (both phases; startup cross-ref `references/startup-failures/silent-worker-exit.md`) |
 | `TypeError: 'NoneType' object is not callable` from an upstream module-level name that is `None` on non-CUDA platforms (`fused_experts = None`), with the `forward_oot` frame in `vllm/model_executor/custom_op.py` and `forward_native = forward_cuda` next in the trace; often `--distributed_executor_backend ray` or a `spawn` worker | The downstream op patch was never installed **in that process**: it is imported as a side effect of a driver-only hook (`check_and_update_config`), so fresh-interpreter workers keep upstream code | `references/upstream-downstream-drift/patch-import-side-effect.md` |
 | The first collective after the weights load dies as `Transport_Init_Error(EI0009)` / `[Create][DestLink]Create Dest error!` / `createLink para:rank[i]…dst_rank[j]`, with `halShmemOpenHandle … drvRetCode=17` + `rtsIpcMemImportByKey … 507899` beside it | HCCL transport **link creation**: `507899` is the generic driver internal error and equal `localIpAddr`/`remote_ip_addr` text is not a duplicate `device_ip`; the failing edge set (same-card vs cross-card, from the `npu-smi` Bus-Ids) puts it on the host driver/CANN pairing or the device passthrough, not the model | `references/hccl-and-hardware/transport-destlink-ipc-import.md` (one call: `scripts/hccl-link-pair-audit.sh`) |
-| `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run` | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
+| `HcclAllreduce`, `hcclRet -> 4`, `ERR00100`/`ERR01100`, `acl api failed`, `AllReduceOpbasePipeline`, `RuntimeError: SUSPECT REMOTE ERROR` / `507057`, `EZ9999` device dump, hang in `determine_available_memory` / `profile_run`, a long-run `fftsplus task timeout … timeout=<N>s` hang | Lane C: collective / device error (a `profile_run` frame ending in an `npu_*` op on a 2×4 tensor is a compile-phase sync point, not an op bug) | `references/hccl-and-hardware/index.md` |
 | Per-rank traceback whose frames are `torch/_subclasses/fake_tensor.py` and `torch/_ops.py`, ending `NotImplementedError: <ns>::<op>: attempted to run this operator with Meta tensors` (e.g. `_C::rotary_embedding`), after the weights loaded and before capture | Compile-phase fake-tensor trace: a custom op registered for `PrivateUse1` only. The namespace dates the tree (`_C` pre-rename vs `_C_ascend` + `meta_registration.py`), the selecting predicate is a dtype/shape test, and `--enforce-eager` is rung 1 | `references/startup-failures/meta-kernel-missing.md` |
 | Model construction (after `Starting to load model`, **no** `vllm_ascend` frame below the loader) ends in `AssertionError: Torch not compiled with CUDA enabled`, from an upstream `__init__` such as a `get_rope` branch — a checkpoint `config.json` key (`dual_chunk_attention_config`) selecting an upstream class that hardcodes `torch.cuda`; the env dump's `torch==2.7.1+cpu` is normal on NPU | Checkpoint-config → upstream CUDA-only path: an unimplemented NPU feature, not a torch install, CANN, driver or flag problem. Three checks (device-agnostic class, OOT registry, consumer of the emitted tensor) decide whether a device patch is even credible; the workaround is stripping the key from a copy of `config.json`, with the feature's accuracy caveat | `references/startup-failures/checkpoint-config-cuda-only-path.md` (one call: `scripts/cuda-only-path-audit.sh`) |
 | Startup log reached graph capture: `Starting to capture ACL graphs for cases: [...]`, `Capturing ACL graphs (...): 0/N` frozen, `ACLgraph sizes capture fail`, `NPUGraph.cpp` "Waiting for pending NCCL work" | Lane C during capture — or whatever the appended inner error says; the `insufficient available streams` advice is canned text | `references/startup-failures/acl-graph-capture.md` |
@@ -417,7 +425,7 @@ delivery pattern is rule 1.
 | …or the box died **during engine start** and there is no `top` to sample: ssh lost, the log's last lines are the per-rank `rank N in world size M is assigned ...` set with **no** `Starting to load model`, and `--max-model-len` is 128K+ (256K = `Using max model len 262144`) | One eager host allocation, not a workload footprint: every worker builds the `max_model_len²` attention mask in `NPUModelRunner.__init__` — 9·N² bytes **peak** per rank (576 GiB at 262144, ×TP on one host) — before a weight is loaded, so `npu-smi` shows cards nearly empty and the reporter's "313T"/HCCL framing is a red herring (#2873 reporter-confirmed, 0.10.1rc1 mask refactor #2442; 0.10.0rc1 works; #3002) | `references/runtime-memory/attention-mask-host-allocation.md` + `scripts/attn-mask-budget.sh` |
 | A container-scoped counter climbs for days while the service stays healthy — `container_memory_working_set_bytes` "持续增加，7 天增加 80G", `container_memory_rss` / `container_memory_cache` beside it, `npu-smi` flat, no traceback and no OOM | Container **host** memory, not HBM: the counter sums every process in the container plus active page cache, so split rss from cache and convert the slope to bytes/request before any code read — the device-side knobs in the report cannot move it | `references/runtime-memory/container-working-set-growth.md` (one call: `scripts/working-set-arithmetic.sh`) |
 | Startup/KV-init failure whose deepest frame is `_convert_torch_format` / `torch_npu.npu_format_cast` with `Memory_Allocation_Failure(EL0004)`, `alloc device memory failed … 207001`, `507013`, SDMA/SMMU text | Allocation failure at KV-cache init — the cast is the allocation site, not an operator bug | `references/runtime-memory/kv-init-and-format-cast-alloc.md` |
-| Engine start dies on **every** rank in `torch.npu.empty_cache()`: `RuntimeError: unmapHandles:…NPUCachingAllocator.cpp:595 … AclrtUnmapMem((char *)ptr_ + segment_size_ * i, getHcclComm()), error code is 507899` with `ERR00100` / `EL0003`, deepest frame `patch_torch_accelerator.py` inside the `memory_profiling` window right after graph compile; the issue title is often a different line (`unable to save AOT compiled function`), and the reporter's own launch script exports `expandable_segments:True` (`unset` does not help — see the other column) | The allocator **unmap** under `expandable_segments:True`, not an OOM and not a collective: 507899 is the driver's own internal error, and vllm-ascend injects the flag itself (`platform.py:761-779` at v0.23.0rc1) unless the value already carries `expandable_segments` / `max_split_size_mb` / `garbage_collection_threshold` — so `unset` is not off. Reporter-confirmed on 310P: `expandable_segments:False` starts it | `references/runtime-memory/allocator-expandable-segments-unmap-crash.md` (one grep: `Set PYTORCH_NPU_ALLOC_CONF`) |
+| Engine start dies on **every** rank in `torch.npu.empty_cache()`: `RuntimeError: unmapHandles:…NPUCachingAllocator.cpp:595 … AclrtUnmapMem((char *)ptr_ + segment_size_ * i, getHcclComm()), error code is 507899` with `ERR00100` / `EL0003`, deepest frame `patch_torch_accelerator.py` inside the `memory_profiling` window right after graph compile; the issue title is often a different line (`unable to save AOT compiled function`), and the reporter's own launch script exports `expandable_segments:True` (`unset` does not help — see the other column) | The allocator **unmap** under `expandable_segments:True`, not an OOM and not a collective: vllm-ascend injects that flag itself, so `unset` is not off. Reporter-confirmed on 310P: `expandable_segments:False` starts it | `references/runtime-memory/allocator-expandable-segments-unmap-crash.md` (one grep: `Set PYTORCH_NPU_ALLOC_CONF`) |
 | `python -c "import <pkg>"` (or a first real use) raises `ImportError:` naming that package's own extension — `<pkg>/_ops.cpython-310-…so: undefined symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` — and the ENV dump selects `atb/cxx_abi_1` (or `cxx_abi_0`) | C++ `std::string`-ABI split between a prebuilt wheel and the selected NNAL/ATB root, pre-engine and not vllm-ascend code: `Ss` in the mangled name = old ABI, `NSt7__cxx11` = new | `references/image-dependency-faults/abi-undefined-symbol.md` (one call: `scripts/abi-symbol-check.sh <paste>`; fix reporter-confirmed on #1144, the defining ATB file still the reporter's `nm` step) |
 | `python -c "import <pkg>"` or the first use of an image-installed native module aborts the interpreter: `corrupted size vs. prev_size`, `free(): invalid pointer`, `double free or corruption`, `munmap_chunk(): invalid pointer`, `Aborted (core dumped)`, no Python frame, no NPU text | Image / bundled native module (pre-engine, not vllm-ascend code) | `references/image-dependency-faults/index.md` |
 | Engine init ends in a C++ exception with **no** Python frame: `terminate called after throwing an instance of 'std::logic_error'` / `what(): basic_string::_S_construct null not valid`, then `RuntimeError: Engine core initialization failed … Failed core proc(s): {}`; the last application line is plugin activation or `Initializing a V1 LLM engine` | Native null-string abort in a bundled `.so` during core/worker creation — an image/host question, not the checkpoint's config, processor or architecture (the same two lines appear for two unrelated models) | `references/image-dependency-faults/native-string-abort.md` |
@@ -451,9 +459,10 @@ delivery pattern is rule 1.
 | KV pool / MemCache on **800I/T A3** with a DeepSeek-V4 (`compress_ratios`) model: first request fine, the **second** kills the workers (`HCCL watchdog … ERR02005`), or the `host_shm` variant dies at memcache init with a "device id 转换异常"; reporter says "懒加载" | KV-pool store lane: lazy init is the documented A3+DSV4+`device_sdma` behaviour (#9975) and a rank-local save failure is swallowed before it desyncs collectives (#14106) — diff the resolved `mmc-local.conf` against the tree's tables first | `references/kv-pool-store/memcache-a3-dsv4-init.md` |
 | `ERR00100 PTA call acl api failed` + `EZ9999 … When layout is TND, queryT(16) must be equal to the last element of actualSequenceLengthQ(4)` (`CheckFASeqlenDataInTND`, `fused_infer_attention_score.cpp`), no Python frame, real requests after a healthy start, on `FULL_DECODE_ONLY` + MTP (`num_speculative_tokens` recorded as 3), often `--data-parallel-size` > 1 with EP, on an MLA model (GLM-4.x, DeepSeek-V3.x) | The operator's own TND invariant refused two padding bookkeepings that disagree: `queryT` is the graph bucket (local `pad_for_cudagraph`, then the DP-wide max) while `last(actualSequenceLengthQ)` is the real per-request cumsum, padded only on the FULL + `uniform_decode` gate (drafter: only when `graph_pad_size > num_reqs`) — one call, `scripts/fia-tnd-seqlen-check.sh`, splits bucket-vs-real; `PIECEWISE` is rung 1, and the tree's GLM-4.x tutorial pins `num_speculative_tokens: 1` + explicit capture sizes + single node | `references/spec-decode-mtp/fia-tnd-seqlen-mismatch.md` |
 | `triton.compiler.errors.MLIRCompilationError` + `[ConvertLinalgRToBinary] encounters error: … operation's operand is unlinked` + `bishengir-compile … returned non-zero exit status 1`; engine started, the first real request dies; deepest `vllm_ascend` frames in `vllm_ascend/ops/triton/fla/**` under `triton/runtime/autotuner.py`; the recipe has a `pip install triton-ascend` or a standalone BiSheng/AscendNPU-IR `.run` over the image | Triton-Ascend kernel **compile** pair installed into the image — not the AscendC/aclnn custom-op lane and not the kernel's shapes: the wheel and `bishengir-compile` come from different builds | `references/image-dependency-faults/triton-ascend-pair.md` (remove the install, then move the release — maintainer-confirmed on #5750) |
-| The report **is a pip resolution error** and nothing has crashed: `ERROR: Could not find a version that satisfies the requirement torch-npu==2.5.1.post1.dev20250619`, `No matching distribution found for <pkg>`, or a title like "unmatched torch version between vllm=X and vllm-ascend=Y"; also `pip install pandas` inside the shipped image ending in `No matching distribution found` after an `ImportError: Please install vllm[bench] …` | Index visibility, not compatibility: the tree's `--extra-index-url`/`--pre` option lines never reach the wheel's metadata (`setup.py` skips `--` lines), the same requirement set can straddle two torch lines, and an air-gapped image's `global.index-url` makes every lookup unreachable — one call (`scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]`) prints both sides' `torch`/`torch-npu`/`torchvision` pins | `references/image-dependency-faults/pip-index-visibility.md` (#1796, #4737) |
+| The report **is a pip resolution report** and nothing has crashed: `ERROR: Could not find a version that satisfies the requirement torch-npu==2.5.1.post1.dev20250619`, `No matching distribution found for <pkg>`, or a title like "unmatched torch version between vllm=X and vllm-ascend=Y"; also `pip install pandas` inside the shipped image ending in `No matching distribution found` after an `ImportError: Please install vllm[bench] …`; or the install **finished** and pip only warned (`vllm 0.18.0 requires torch==2.10.0, but you have torch 2.9.0`) | Index visibility, not compatibility: the tree's `--extra-index-url`/`--pre` option lines never reach the wheel's metadata (`setup.py` skips `--` lines), the same requirement set can straddle two torch lines, and an air-gapped image's `global.index-url` makes every lookup unreachable — one call (`scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]`) prints both sides' `torch`/`torch-npu`/`torchvision` pins | `references/image-dependency-faults/pip-index-visibility.md` (#1796, #4737); warned-not-failed shape: `pip-resolver-warning-block.md` (#8286) |
 | "找不到支持 linux on arm64 的 <soc> 镜像" / the quay tag page lists an arm64 tag but the pull lands on amd64 (`WARNING: The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) …`) / "有没有可 pip 装的 <soc> 轮子" | Published-artefact availability, not a vllm-ascend defect: tag suffix → SoC variant (unsuffixed tags and `latest` are the generic A2 line) and multi-arch only where a build may publish (the same `push:` expression), so the single-arch fallbacks cover check builds and a published tag resolving to one arch means the arm64 leg failed on the `FROM` CANN base or a mirror flattened the list — then one `docker buildx imagetools inspect`; a mirror tag page and the client warning are not evidence | `references/image-dependency-faults/image-arch-and-tag-availability.md` (one call: `scripts/image-arch-matrix.sh <vllm-ascend-root> --soc 310p`) |
 | Compiler or missing-header error while installing/building — or `pip install` from source in a pod with **no public network** (custom-ops step pulls from `gitcode.com`, `fetch failed`) | Build-time dependency closure, else the general sequence below | `references/image-dependency-faults/offline-source-build.md`, else skip the topical routes |
+| `Unsupported: Graph break due to unsupported builtin mindie_turbo._ops.PyCapsule.rms_norm` (or any accelerator wheel's symbol) while the model forward is traced, frames `vllm/compilation/decorators.py` `patched_inline_call` → `torch/_dynamo/**`; often "mindie_turbo 算子不支持图模式?" beside "但是 vllm serve 正常运行" | An **op-substituting plugin × `fullgraph` compile**: both worker classes import such a wheel unconditionally with no flag, the pybind capsule is untraceable, and `VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE` defaults to 1, so a graph break is fatal instead of a fallback; the wheel's INFO line names which process had it, its compat matrix answers the pairing | `references/image-dependency-faults/mindie-turbo-graph-break.md` |
 | Nothing crashed and the complaint is a **version string**: `pip show vllm-ascend` reports an older release than the reporter installed ("版本号显示不对", "0.9.0rc2 instead of 0.9.1dev"), or they ask whether a `-dev`/branch name is a valid version | Build-metadata question: the number is `setuptools_scm`'s description of the build tree's tags (`setup.py:305-311`), `vllm_ascend/` has no version constant and no runtime reader, and the pairing gates read `vllm.__version__` — decide it with the import path plus `git describe`, not a version survey | `references/image-dependency-faults/installed-version-vs-checkout.md` |
 
 ## Procedure
@@ -461,8 +470,7 @@ delivery pattern is rule 1.
 1. One level of `/workspace` (`search_files (target='files')`) — that level only,
    never the history or attachments directory (rule 7) — then run
    `bash <skill_root>/scripts/sources-summary.sh` for the `SOURCES.json` version
-   contract (`skill_root` is the path `skill_view` reports); note which
-   repos/refs are present and which are partial exports. The
+   contract; note which repos/refs are present and which are partial exports. The
    layout differs per case (flat `/workspace/history/<issue>.md` vs
    `/workspace/history/<issue>/` + `/workspace/repos/<issue>/`); adapt after
    looking, do not assume.
@@ -570,7 +578,7 @@ delivery pattern is rule 1.
 
 ## Support entry points
 
-Open **one** topic entry, not this list: every `references/<topic>/index.md` states
+Open **one** topic entry: every `references/<topic>/index.md` states
 its scope, inherits these rules and routes to its own pages, so page-level triggers
 live where they are used. Two procedure helpers come first:
 `references/first-checks/index.md` (the per-track cheap checks of step 3,
@@ -584,19 +592,19 @@ that break them, `recorded-cases.md` the per-issue index).
 | score/accuracy disagreement, 乱码/重复 on short or long prompts, truncated output, reasoning routing, VL degeneration, quantized-checkpoint conversion | `references/accuracy-benchmarks/index.md` |
 | the asking is for an edit: remove/deprecate an env flag or a temporary switch | `references/code-change-requests/index.md` |
 | a custom op crashes the device, or an aclnn SoC **registration**/`EZ1001` error (the NZ weight-layout one is the pooling lane), or a MoE init-routing tiling code | `references/custom-ops-runtime-faults/index.md` |
-| A `call aclnn<Op> failed, error code is <6 digits>` on a MoE deployment — recorded as `call aclnnMoeInitRoutingV3 failed, error code is 561103` — often with "DP2 TP4 有没有限定 / 能否启动时校验拦截" attached | The numeric code is a failed **tiling check on one input** — same 561103 on FlashAttentionScore, InplaceNormal, IndexPutImpl — never a card, HCCL or "layout unsupported" claim; the named `MoeInitRoutingV3` exists nowhere in the tree while the caller is `torch_npu.npu_moe_init_routing_v2`, and the dispatcher arithmetic (EP off, A2 `world_size_across_dp/pp >= 16`) decides which parameters reach it | `references/custom-ops-runtime-faults/moe-init-routing-tiling.md` |
+| a `call aclnn<Op> failed, error code is <6 digits>` on a MoE deployment (`aclnnMoeInitRoutingV3 … 561103`), often with "DP2 TP4 有没有限定 / 能否启动时校验拦截" attached | `references/custom-ops-runtime-faults/moe-init-routing-tiling.md` — the code is a failed **tiling check on one input**, never a card/HCCL/"layout unsupported" claim, and the named op is not a grep key |
 | capacity or stage-layout questions, and two serve commands that differ by one resource knob where the larger OOMs at start | `references/deploy-sizing/index.md` — the TP4-up/TP8-OOM shape is its `tp-scaling-oom-at-startup.md` page |
 | DSA / DeepSeek-V3.2 sparse attention (indexer scatter, MLAPO token gate, concurrency crash with no log) | `references/dsa-sparse-attention/index.md` |
 | version contract, snapshot coverage, precedent search, delivery gates | `references/evidence-workspace/index.md` |
 | "how do I turn feature F on" / capability verdict (PCP, DCP, EP+DP) | `references/feature-enable-recipes/index.md` |
 | the first cheap checks after classification | `references/first-checks/index.md` |
 | a collective/device error (`HcclAllreduce`, `ERR00100`, `507035`, `EZ9999`), device health, port band, MC2 profile-run hang, RPC watchdog | `references/hccl-and-hardware/index.md` |
-| the interpreter/image owns it: native aborts, missing `libatb.so`/`ascend_transport.so`, ABI split, triton-ascend pair, offline source build, pip index visibility, no image/wheel for that arch or SoC variant | `references/image-dependency-faults/index.md` |
+| the interpreter/image owns it: native aborts, missing `libatb.so`/`ascend_transport.so`, ABI split, triton-ascend pair, offline source build, pip index visibility or a warned-not-failed install, an accelerator wheel's symbol breaking `torch.compile`, no image/wheel for that arch or SoC variant | `references/image-dependency-faults/index.md` |
 | a KV pool (AscendStore + MemCache/Mooncake) is attached and the request path breaks | `references/kv-pool-store/index.md` |
 | a LoRA-enabled serve is far slower than its base model, or dies when a graph is captured on a request | `references/lora-adapters/index.md` |
 | a device fault or corruption whose deepest frame is an attention backend in a mixed decode+prefill batch | `references/mixed-batch-splits/index.md` |
 | a logging/profiling flag appears to do nothing, `/start_profile` 404, unknown-env warning | `references/observability-and-logs/index.md` |
-| P/D or EPD starts but cannot move KV, or moves it and the output alternates | `references/pd-disaggregation/index.md` |
+| P/D or EPD starts but cannot move KV, or moves it and the output alternates; **or** the transport *plane* is asked about before any run — A3 双机, 参数面 RoCE only, no 灵衢 switch, no log → `plane-selection-a3-parameter-plane.md` | `references/pd-disaggregation/index.md` |
 | throughput, queueing, prefix-cache hit rate on a healthy engine | `references/performance-throughput/index.md` |
 | an embedding/pooling service never starts (checkpoint served as generate, score/rerank arch-name routing, fp32 head weight format), dies under concurrency, or returns wrong vectors | `references/pooling-embedding/index.md` |
 | OOM after a healthy period, HBM not released, host RAM, container working set, KV-init allocation failure, or an `expandable_segments` unmap crash at `empty_cache` | `references/runtime-memory/index.md` |
@@ -609,7 +617,9 @@ that break them, `recorded-cases.md` the per-issue index).
 | `AttributeError`/`TypeError` in a downstream patch, or an upstream refactor that kept upstream code | `references/upstream-downstream-drift/index.md` |
 
 Scripts are re-runnable; `<skill_root>` is the path `skill_view` reports and each
-header carries its flags. Every script — arguments, output, originating issue — is
-in `references/first-checks/scripts-catalogue.md`:
-`history-titles.sh`, `sources-summary.sh`, `oom-budget-split.sh`, `card-budget.sh`, `aclgraph-size-budget.sh`, `seq-cliff-capture-budget.sh`, `fia-tnd-seqlen-check.sh`, `working-set-arithmetic.sh`, `host-ram-check.sh`, `attn-mask-budget.sh`, `kvpool-segment-check.sh`, `store-put-code-check.sh`, `ranktable-check.sh`, `hccl-link-pair-audit.sh`, `plog-timeline.sh`, `executor-timeout-check.sh`, `device-type-check.sh`, `cuda-only-path-audit.sh`, `batch-split-audit.sh`, `lora-graph-descriptor-audit.sh`, `pip-pairing-check.sh`, `image-arch-matrix.sh`, `abi-symbol-check.sh`, `checkpoint-key-prefix.py`, `sse-toolcall-audit.sh`, `seq-cls-arch-check.sh`, `nz-format-gate-check.sh`, `tool-schema-type-audit.py`.
+header carries its flags. The 28 scripts — arguments, output and originating issue
+— are listed in `references/first-checks/scripts-catalogue.md` (history/timeline,
+budget arithmetic, rank table and HCCL link audits, batch-split, KV-pool, pip and
+image pairing, checkpoint/tool-schema audits); open it rather than guessing a
+name, and the topical pages name the ones they use.
 

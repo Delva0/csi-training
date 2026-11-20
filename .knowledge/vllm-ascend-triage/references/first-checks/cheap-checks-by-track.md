@@ -420,6 +420,26 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   stopped answering, so the deliverable is the lane classification plus the list
   of per-rank artefacts — which rank, which op and OOM-vs-hang are *not* in that
   paste (`references/hccl-and-hardware/rpc-watchdog-timeouts.md`, #1865).
+- A **PD deployment with `--decode-context-parallel-size` > 1** whose engines
+  started and whose **first request** killed one side's EngineCore, the APIServer
+  showing only `EngineDeadError: EngineCore encountered an issue. See stack trace
+  (above)`: before any source walk, put the two serve commands side by side and
+  compare `--tensor-parallel-size`, `--decode-context-parallel-size`,
+  `--prefill-context-parallel-size`, `--cp-kv-cache-interleave-size` and
+  `--block-size`. DCP is a *matched* launch parameter — the prefill side
+  advertises its `dcp_size` and the peer asserts divisibility on the first
+  transfer — so a dcp that differs between the sides (or a 1M recipe's `8`
+  reduced on one side) is the answer, and the MemCache pool is not the suspect
+  (`references/feature-enable-recipes/context-parallel-pcp-dcp.md` §3,
+  reporter-confirmed #12677).
+- A **long-run hang** in a multi-node or co-located deployment: `hccl fftsplus
+  task timeout ... stuck notify num:1, timeout=<N>s` plus
+  `[TaskExecStage][HeartbeatAbnormal] ... Heartbeat Lost Occurred`. Subtract
+  before ordering: stall start = report time − `<N>` (the default
+  `HCCL_EXEC_TIMEOUT` is 1800 s), and check the last `200 OK` of that instance
+  against it; the heartbeat lines arrive ~5 min later and the `[shutdown] MPClient`
+  / `ApiServer ... died` lines are teardown, not the cause
+  (`references/hccl-and-hardware/error-report-timestamps.md`, #16652).
 - `TypeError: 'NoneType' object is not callable` where the `None` is an upstream
   module-level name (`fused_experts = None` on a non-CUDA platform): read the
   **file** of the `forward_oot` frame. `vllm/model_executor/custom_op.py` there

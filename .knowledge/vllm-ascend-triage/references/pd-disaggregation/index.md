@@ -43,6 +43,23 @@ wrong output?**
   wrong yet; the compared numbers are `parallel_config.data_parallel_size` /
   `tensor_parallel_size` after upstream has rewritten a **dense** engine's DP to
   1, so the fix is the block's number, not the launch's DP flag.
+- **No deployment yet**: the question is a capability verdict about the *transport
+  plane* before any run — "Atlas 800T A3 双机 PD 分离，两台机器只能走参数面 RoCE，
+  超平面不通、没有灵衢交换机，是否支持", usually with no log and no serve command →
+  `plane-selection-a3-parameter-plane.md`. This is not the failure lane above: the
+  deciding reads are the A3 `device_ip` branch of the rank-table generator and the
+  `server_count` / `super_pod_list` the connector hands HCCL.
+- The engine started and the **first request** kills one side's EngineCore while
+  the APIServer reports only `EngineDeadError: EngineCore encountered an issue.
+  See stack trace (above)`, on a deployment that sets
+  `--decode-context-parallel-size` > 1 (a KV pool may or may not be attached):
+  DCP is a **matched** launch parameter — the prefill side advertises its
+  `dcp_size` in the handshake and the peer asserts divisibility against its own,
+  so a dcp that differs between the sides (or was reduced on one side only)
+  raises on the first transfer. Compare the two serve commands before any source
+  walk → `../feature-enable-recipes/context-parallel-pcp-dcp.md` §3
+  (reporter-confirmed #12677: "PD 需要同并行 dcp", the 1M recipe is `dcp=8` on
+  both sides, and the MemCache pool is not the blocker).
 - Nothing connects at all because the connector module itself fails to import —
   `ImportError: ascend_transport.so: cannot open shared object file` at
   `kv_p2p/mooncake_connector.py:24`, `No module named mooncake` — or the decode
@@ -94,6 +111,15 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
 
 ## Pages
 
+- `plane-selection-a3-parameter-plane.md` — a *pre-deployment* plane question with
+  no log (A3 双机, parameter-plane RoCE only, no UB/灵衢 switch): what the tree
+  validates (an A2-only PD tutorial, no SoC-qualified feature row), the A3 branch of
+  `examples/disaggregated_prefill_v1/gen_ranktable.py` (`device_ip` from
+  `hccn_tool -vnic -g` where A2 uses `-ip -g`), the `server_count` /
+  `super_device_id` / `super_pod_list` the connector declares to HCCL and the
+  `None == None` trap of a hand-edited A3 table, the `hccn_tool` ping block plus the
+  minimal 1P1D ladder, and why `cann/hccl`, `cann/hcomm` and the Mooncake export
+  cannot answer the rest. Worked for #3959 (v0.11.0rc0).
 - `transport-topology.md` — P/D has two Pod IPs on one node and the transport
   will not connect: how the engine id becomes HCCL's `server_id`, the plog grep
   set and rank-table decision, `HCCL_INTRA_ROCE_ENABLE` / `HCCL_INTRA_PCIE_ENABLE`

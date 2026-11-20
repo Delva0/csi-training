@@ -6,7 +6,10 @@ runtime stack rather than a Python-level cause — `HcclAllreduce`, `hcclRet -> 
 acl api failed`, `the current working operator name is HcclAllreduce`,
 `RuntimeError: SUSPECT REMOTE ERROR` / `error code is 507057`, `EZ9999` device
 dumps, collective hangs/timeouts during `profile_run` or
-`determine_available_memory`, and processes killed by a device fault.
+`determine_available_memory`, a **long-run** hang reported as
+`hccl fftsplus task timeout ... stuck notify num:1, timeout=<N>s` with
+`[TaskExecStage][HeartbeatAbnormal] ... Heartbeat Lost Occurred`, and processes
+killed by a device fault.
 
 Inherit the rules in SKILL.md. **`hcclRet -> N` / `hccl_result = N` is the
 `hcclResult_t` enum**: `0` SUCCESS, `1` PARA, `2` PTR, `3` MEMORY, **`4`
@@ -114,7 +117,8 @@ answer is the image/CANN pairing plus the release's own validated command.
 
 1. `error-report-timestamps.md` — when the paste carries several error families at
    once (`EE9999` runtime records, `EZ9999` chip dumps, `507011`, `ERR00100`,
-   `ERR02005`), decide *which block happened when the reporter says it failed*:
+   `ERR02005`, or a `timeout=<N>s` fftsplus expiry), decide *which block happened
+   when the reporter says it failed*:
    Ascend re-prints a recorded error with its original date, so the sentence in the
    title can be older than the incident — a previous run (#9183, 36 h) or **this
    process's own init/capture window reported late** (#10700, 27 min); pid plus log

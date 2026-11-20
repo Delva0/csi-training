@@ -93,6 +93,13 @@ the reporter (verified on the #1144 paste).
      quantised run fails with *that* text and never shows the ABI line (precedent
      #633; #780 has the same package failing deeper, in
      `mindie_turbo/adaptor/vllm/weight_utils.py`).
+   The **other** failure mode of the same wheel needs no ABI at all: when the
+   import succeeds and the plugin replaces ops, the first compiled forward dies
+   with `Unsupported: Graph break due to unsupported builtin
+   mindie_turbo._ops.PyCapsule.<op>` — that shape is
+   `mindie-turbo-graph-break.md` (v0.9.x: `extras_require={}`, the worker import
+   logs an INFO line instead of the `warning_once` above, and the compatibility
+   matrix has no MindIE Turbo entry).
 7. Ownership answer for the report: `mindie_turbo` is an optional extra of
    vllm-ascend (`setup.py:371`, `extras_require={"mindie_turbo": ["mindie-turbo==2.0rc1"]}`)
    loaded with `importlib.import_module` — the C++ ABI pairing belongs to that wheel

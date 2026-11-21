@@ -20,13 +20,21 @@ Inherit the rules in SKILL.md. Conditional routes:
   from the log's own `model_runner.py:<line>`, then ask for the full `vllm serve`
   line and take the liveness checks. Do not lead with `--enforce-eager` where the
   platform already sets `simple_compile_backend = "eager"`.
-- Startup passes the model load and dies with `KeyError: '<...>.self_attn.attn'`
-  inside upstream `offloading_connector.py register_kv_caches`, right after
+- Startup passes the model load and dies with `KeyError: '<...>.self_attn.attn'`.
+  **Split it by the frame, not by the key.** Inside upstream
+  `offloading_connector.py register_kv_caches`, right after
   `Creating offloading spec with name: NPUOffloadingSpec` (CPU offload via
   `--kv-transfer-config` on an MLA checkpoint such as GLM-5 / Kimi-K2.5) →
   `../upstream-downstream-drift/kv-offloading-layer-coverage.md`: the connector's
   `Attention`-only layer filter drops `MLAAttention`, so this is a layer-type
-  coverage gap, not a worker death.
+  coverage gap, not a worker death. Inside `initialize_kv_cache →
+  initialize_attn_backend → get_attn_backends_for_group` with
+  `--pipeline-parallel-size` > 1 (typically `ray`, one node per stage) →
+  `../pipeline-parallel/kv-config-rank-mismatch.md`: the registry map
+  (`get_layers_from_vllm_config`) is fine and the *handed-in layer list* is the
+  foreign one (per-worker `KVCacheConfig` index vs Ray's worker re-rank); fingerprint
+  the printed layer index with `scripts/pp-layer-partition.sh` before reading any
+  executor code.
 - The paste's `file:line` names a `vllm_ascend/**` module the pin does not
   contain (e.g. `vllm_ascend/models/<x>.py`) → `environment-correspondence.md`,
   its vendored-file section: the model code is the reporter's, the framework calls
@@ -93,6 +101,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   `../../scripts/checkpoint-key-prefix.py <model dir>`). The message's prefix and
   class name are computed, not part of the checkpoint's text — read them before
   the loader.
+- The loader dies on a **file**, not on a config: `safetensors_rust.SafetensorError:
+  Error while deserializing header: HeaderTooLarge` (or `HeaderTooSmall` / `invalid
+  JSON`) in the same second as `Loading safetensors checkpoint shards: 0% ... 0/N`, on
+  every rank, with `_pickle.PicklingError: Can't pickle <class
+  'safetensors_rust.SafetensorError'>` on the non-driver ranks →
+  `checkpoint-file-not-safetensors.md`. The header length in the first 8 bytes is
+  parsed before any tensor, so the shard is an unresolved Git-LFS pointer, a partial
+  copy or the wrong file: no `vllm_ascend` frame below the loader, no device work, and
+  the TP size in the title is innocent (one call:
+  `../../scripts/checkpoint-header-scan.py <model dir>`). Unlike the row above, the
+  message is not about tensor names — do not open the loader.
 - A pydantic `ValidationError` whose text is `Unexpected keyword argument
   [type=unexpected_keyword_argument, input_value=..., input_type=bool]` naming a key
   the reporter put in `--additional-config`, often followed by

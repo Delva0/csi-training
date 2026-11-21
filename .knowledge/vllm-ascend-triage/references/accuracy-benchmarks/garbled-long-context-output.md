@@ -20,6 +20,7 @@ are reuse and draft bookkeeping, not the sparse-attention / DCP math below.
 | every request at long length, same prompt | length-dependent corruption | sparse-attention indexer / DCP block remap / interleave math |
 | fluent but wrong or looping | decode/reuse defect | prefix cache, KV offload/eviction, MTP draft — for long *outputs* see `long-output-repetition.md` |
 | empty, `null` or cut mid-sentence | budget/truncation | `max_model_len`, `max_tokens`, `reasoning-output-routing.md` |
+| present **only** with `stream: true` (the same body with `stream: false` is clean), clustered where the script changes (ascii ↔ 中文 ↔ 箭头), sometimes losing leading characters and repeating a fragment | streamed **text delta**, not generation math | the incremental detokenizer — `../tool-call-streaming/detokenizer-text-delta.md`; one grep for `resetting decode stream` in the server log decides it |
 
 Ask which one it is; the four have different owning code. A one-line repro with
 `temperature=0` and `max_tokens` well inside `max_model_len` removes the sampling

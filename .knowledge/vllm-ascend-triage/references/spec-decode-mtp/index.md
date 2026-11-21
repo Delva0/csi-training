@@ -38,6 +38,20 @@ at request time. The shapes:
   the last element of actualSequenceLengthQ(4)` (`CheckFASeqlenDataInTND`,
   `fused_infer_attention_score.cpp`), on MTP + `FULL_DECODE_ONLY`, often with
   `--data-parallel-size > 1` and EP (`fia-tnd-seqlen-mismatch.md`).
+- or it dies at **request time** on every rank in the same second with an ATB
+  operator message and a *proposer* frame: `SelfAttentionOperation setup failed!`
+  + `Exception raised from OperationSetup … op_plugin_atb … compiler_depend.ts`
+  (dump frames `atb::OperationSetup(…)` in `torch_npu/lib/libop_plugin_atb.so`),
+  then `… the current working operator name is SelfAttentionOperation` /
+  `ERR00100 PTA call acl api failed`, deepest `vllm_ascend` frame
+  `spec_decode/eagle_proposer.py:476 sample_hidden_states = last_hidden_states[…]
+  [last_token_indices]`, one `Replaying aclgraph` line just before, on an
+  eagle/eagle3 launch: an ATB **setup** failure surfacing at a join point, with
+  `ASCEND_LAUNCH_BLOCKING=1` refused while graph mode is on, so the attribution
+  order is `--enforce-eager` **then** blocking
+  (`atb-op-setup-failure-at-proposer.md`). Two knobs it is *not*:
+  `draft_tensor_parallel_size` (no consumer under `vllm/v1/**` at v0.11.0) and the
+  target-family gate (`qwen3` is accepted).
 - or it dies at **request time** on every rank in the same second with a bare
   `AssertionError` whose last frame is `attention_v1.py … assert
   attn_metadata.attn_mask is not None`, on a dense model with `method: ngram` (any
@@ -172,6 +186,15 @@ from the acceptance numbers.
   `tests/e2e/singlecard/spec_decode_v1/test_v1_spec_decode.py:72` as the tree's own
   statement, the ladder that excludes `--enforce-eager`, and the worked #2071 row
   (v0.9.2rc1).
+- `atb-op-setup-failure-at-proposer.md` — the ATB op-plugin setup failure at a
+  proposer frame: the recorded `#4323` paste line by line (all ranks in the same
+  second, the `atb::OperationSetup` dump, the `eagle_proposer.py:476` join point),
+  the three-layer read (frame is not the owner — history `#447`; the ATB block is
+  this process's, not a replay; which op reaches ATB is not in any export, bounded by
+  one `rg`), the `--enforce-eager`-then-`ASCEND_LAUNCH_BLOCKING=1` order with the
+  reporter-confirmed `ValidationError`, the two candidates a grep eliminates
+  (`draft_tensor_parallel_size` no-op at v0.11.0, the eagle3 target-family gate), the
+  single-card-only e2e coverage, the ladder, and the delivery arithmetic.
 - `async-spec-bookkeeping-desync.md` — `--async-scheduling` + MTP and the
   three-traceback signature: the discarded-request chain
   (`model_runner_v1.py:838-842` mask → `prev_req_id_to_index` built without those

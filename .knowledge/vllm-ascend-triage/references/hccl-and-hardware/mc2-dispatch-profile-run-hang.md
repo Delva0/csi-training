@@ -119,6 +119,15 @@ on device 0) and #2858 (0.10.1rc1 two-node Qwen3-235B-A22B,
 `aclnnMoeDistributeDispatchV2 failed 561002`). Both are family support, not
 resolutions.
 
+A `561002` is **not** always this page's hang. If the paste carries
+`moeExpertNum is N, in case of unlayered, it must no more than 24`
+(`MoeDistributeDispatchA2CheckAttrAndSetTiling`) the op refused its arguments and
+returned immediately: that is the A2 MC2 per-card **expert cap** — `N` =
+`global_experts // ep_size` plus EPLB redundant experts — decided at
+`../feature-enable-recipes/moe-expert-parallel-with-dp.md` § Step 2b
+(reporter-confirmed on #7635, fallback merged as PR #7364), not a transport
+question and not worth a plog.
+
 Pins: vllm-ascend v0.13.0rc1 `1b5d5ab`, vllm v0.13.0 `72506c9`. The
 `profile_run` dummy run, the selector location, the capacity formula and the
 hierarchical predicate are the parts to re-grep at another ref (`profile_run`,

@@ -34,6 +34,10 @@ amd64, an aarch64 wheel) the owner is the image pipeline, not this page:
   v0.11.0rc3) — state both effects
   (`../runtime-memory/hbm-growth-and-oom.md`, step 3).
 
+A VL or OCR checkpoint that **serves and answers garbage** on this SoC is the
+other shape of the same platform question — support is a per-model doc statement
+and document parsing is a pipeline: `310p-vl-ocr-garbage-output.md`.
+
 ## The 310P gates that change behaviour
 
 | Gate | Code (v0.11.0rc3) | Consequence to check |
@@ -107,10 +111,14 @@ for that release even though the image is not byte-verified.
   `AttentionMaskBuilder310(self.device, max_model_len)` and
   `_310p/attention/attention_mask.py:68` allocates
   `torch.zeros((max_seq_len, max_seq_len), dtype=torch.float16, device=device)`
-  (class default `max_seqlen = 16384`, `:38`). That is what the doc's `:86-87`
-  warning is about, and it is an argument for an explicit `--max-model-len` — never
-  a licence to read a **CPU** `torch.zeros` top frame in a segfault dump as this
-  allocation (`../hccl-and-hardware/worker-segfault-no-python-frames.md`,
+  (class default `max_seqlen = 16384`, `:38`), and `gen_causal_additive_mask`
+  (`:66-70`) holds a `bool` `tril`, its `~tril` complement and the fp16 mask at
+  once — **≈4·N² bytes per rank**, so `--max-model-len 100000` is ~40 GB peak on a
+  43 GiB die before any weight (60 K → ~14 GB, 32768 → ~4.3 GB). That is what the
+  doc's `:86-87` warning is about, and it is an argument for an explicit
+  `--max-model-len` — never a licence to read a **CPU** `torch.zeros` top frame in
+  a segfault dump as this allocation
+  (`../hccl-and-hardware/worker-segfault-no-python-frames.md`,
   `## The startup variant`).
 
 ## At v0.22+/v0.23: a quantized model that loads and then dies in an op
@@ -144,7 +152,19 @@ the 27B tutorial's 300I tab points at the generic `-w8a8` repo).
    capture and replay 2 graphs", with no limit at TP=1
    (`docs/source/tutorials/hardwares/310p.md:20-30` at v0.23.0rc1) — so a
    "2 cards fine, 4 cards stall" report takes `--enforce-eager` and
-   `cudagraph_capture_sizes: [1]` before any HCCL theory.
+   `cudagraph_capture_sizes: [1]` before any HCCL theory. The same stall across a
+   **different checkpoint** retires every model lane (`#12985`: Qwen3.5-35B-A3B,
+   then Qwen3-VL-32B, reporter asking "是硬件的问题么" — the answer is these
+   documented platform limits, not a broken card). The cheapest discriminator is
+   already in the report: the reporter's own *working* command, usually a
+   screenshot whose OCR carries it (`../evidence-workspace/index.md`). The recorded
+   pair differed on exactly three axes — `--enforce-eager` + 60 K
+   `--max-model-len` + `gpu_memory_utilization 0.4` (worked) vs
+   `FULL_DECODE_ONLY` + `enable_npugraph_ex` + 100 K + 0.6 at TP 8 (stalled behind
+   the 60 s `shm_broadcast` warning) — so diff that pair instead of theorising from
+   the pasted traceback. Co-tenancy (`mindie_llm_backend … --npu_device_id 2`
+   beside `Worker_TP0..3` in that screenshot's `ps`, while `npu-smi` util% reads
+   idle) is visible only there, never in `npu-smi`.
 3. Shrink the budget (`--max-model-len`, `--gpu-memory-utilization`) before
    blaming the platform: 310P cards are small and the documented KV/profile
    arithmetic in `../startup-failures/max-model-len-budget.md` applies unchanged.

@@ -47,6 +47,24 @@ card can hold together with weights for a given `--gpu-memory-utilization`.
 3. Keep the same explicitness in any suggested command you publish, and say why
    (the tutorials already do it).
 
+## The same default can kill the **host**, not the card (recorded #3314)
+
+On a long-context checkpoint the omitted flag has a second failure signature that
+is not an HBM OOM and not a card problem: every worker builds an eager
+`max_model_len²` attention mask on the **host** in `NPUModelRunner.__init__`, so
+the box thrashes or the kernel OOM-kills the ranks before `Starting to load model`
+(structured prompt, then 1.5 TiB of RAM at 100 %, `WorkerProc initialization
+failed` with no worker traceback). #3314: Qwen3-30B-A3B-2507 (ceiling 262144),
+no `--max-model-len`, TP=4/8 → worked at 65536, and the reporter's follow-up
+confirmed the derived 256K and that lowering it is the circumvention.
+
+So when the reporter asks *"how large a `max_model_len` can I use?"*, the answer is
+never a number seen in another report: it is `sqrt(headroom · host_RAM / (9 ·
+ranks))` per `scripts/attn-mask-budget.sh`, minus what the weights and KV setup
+need. `../runtime-memory/attention-mask-host-allocation.md` carries the arithmetic,
+the version/CANN gate that changes it, and the two rungs that do not help
+(`--enforce-eager`, `--max-num-batched-tokens`).
+
 ## Limits of this check
 
 - It is a configuration/budget effect, not a proven defect in vllm-ascend: the

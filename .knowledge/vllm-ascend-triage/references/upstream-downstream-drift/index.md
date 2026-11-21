@@ -33,6 +33,14 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   wrapper registers the same class at the same prefix, the `isinstance` filter is
   upstream's; when only the downstream replacement creates the failing object, the
   bullet above stands;
+- or the report blames an upstream **kernel/backend selector flag** for an NPU
+  failure and the pasted line is not a traceback: `--<x>-backend auto` "chose
+  flashinfer", a quoted layout error that greps to nothing in either tree, a
+  `UserWarning` from `vllm_ascend/ops/triton/fla/chunk.py` on the path the reporter
+  thought was the fix, and "prefill fixed, decode still on flashinfer" → grep the
+  quoted fragment in **both** trees first, then check whether `patch/**` rebinds the
+  method that reads the flag: upstream decides the flag, downstream decides the
+  kernel → `dead-selector-flag.md` (recorded #15206, GDN prefill backend on 910B);
 - a downstream **fork of a whole upstream file** lags the upstream *state machine*
   rather than its signatures — `vllm_ascend/core/scheduler.py` (the `AscendScheduler`
   fork of `vllm/v1/core/sched/scheduler.py`) rejects a request status upstream added

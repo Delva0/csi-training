@@ -58,6 +58,17 @@ bash <skill_root>/scripts/attn-mask-budget.sh --max-model-len 262144 --ranks 8 -
 | `vllm_ascend/attention/attention_mask.py:88-94` | `_update_attn_cache` *still* grows the mask on demand, so the eager full-length build buys nothing |
 | `vllm_ascend/worker/model_runner_v1.py:829-842` | the only consumers (`get_splitfuse_attn_mask`, `get_attn_mask`), each called with the batch's own seq length |
 
+Same sites at **v0.11.0rc0 (`00ba071`)**, the pin of recorded #3314, with one new
+gate: `worker/worker_v1.py:192-195` (`init_device` → `NPUModelRunner`),
+`worker/model_runner_v1.py:328-334`, `attention/attention_mask.py:19-33`, and the
+`Starting to load model` line the absence argument uses is
+`worker/model_runner_v1.py:2626-2627`.
+
+| Where (v0.11.0rc0) | What it does |
+|---|---|
+| `worker/model_runner_v1.py:328-334` | `if torch.version.cann.startswith("8.3")`: `AttentionMaskBuilder(self.scheduler_config.max_num_batched_tokens, dtype, device)` **else** `AttentionMaskBuilder(self.model_config.max_model_len, dtype)` |
+| `attention/attention_mask.py:48,52-57` | `_generate_attn_mask` is called unconditionally (so the host mask exists on both branches); on the CANN 8.3+ gate the builder additionally allocates a fixed 2048×2048 int8 chunked-prefill mask *on the device* (`:53-57`) |
+
 Arithmetic per rank (N = `max_model_len`): retained `2·N²` bytes for bf16/fp16,
 peak `9·N²` bytes (two bool copies + two float32 buffers live together). At
 N = 262144 that is **128 GiB retained and 576 GiB peak per rank**; eight TP
@@ -85,6 +96,15 @@ table and the largest fitting length for a given host.
   were **not** diffed. Mechanism = source-verified at the pin; the regression
   boundary = release-note PR ids + the reporter's version ablation
   (reporter-confirmed for 0.10.0rc1, inferred for the rest).
+- **The term is CANN-conditional, not only release-conditional.** At v0.11.0rc0
+  the builder is sized `max_model_len` *only* when
+  `torch.version.cann` does not start with `8.3`; with CANN 8.3+ the eager host
+  mask is `9·max_num_batched_tokens²` instead (a few GiB at the resolved
+  `--max-num-batched-tokens`, not hundreds), so a 256K `max_model_len` stops
+  deciding the budget there. Read the CANN version out of the report's
+  `collect_env` before pricing anything, and label an upgrade rung as
+  version-gated/untested unless the reporter runs it: the shipped images pair a
+  specific CANN with their own torch_npu, so it is not a free flip.
 
 ## A works/fails model pair is only a control after both configs are read
 
@@ -119,6 +139,40 @@ never got to weight load** (a 30B bf16 checkpoint at TP=8 would hold ~7 GiB of
 weights per card, KV aside) — not as "the cards were fine, so it was the
 model". Host allocations are invisible to `npu-smi` at any point, before or
 after the crash.
+
+## Recorded instance where the flag was simply omitted: #3314
+
+Qwen3-30B-A3B (the 2507 refresh, ceiling **262144**), image
+`quay.io/ascend/vllm-ascend:v0.11.0rc0` (vllm v0.11.0rc3), 8 × 910B2, host
+`free -h` = **1.5 TiB**, `--tensor-parallel-size 8` then `4`, both with
+`--enable-expert-parallel`, **no `--max-model-len`**. The paste has the four
+per-rank assignment lines at 14:53:34, then nine minutes of silence, then
+`Parent process exited, terminating worker` ×3, `WorkerProc initialization
+failed …` (parent only, no worker traceback) and the `TBE Subprocess …
+main_process disappeared` block; `npu-smi` shows ~63 GB HBM per card (the previous
+run) and no worker traceback exists. The reporter's own note: "Checking the system
+status, the system memory is at 100% when the error occurs. When I set
+`max_model_len=65536`, everything works properly." The later public follow-up
+confirms the reading and the ceiling: "reduce max-model-len can circumvent this
+problem, qwen3-30b model length is 256k".
+
+Classification: reporter-confirmed = the derived length, the 100 % host memory and
+the workaround; source-verified + arithmetic = the mask as the term that dies
+(262144 → 576 GiB peak/rank × 4 ranks = 2.3 TB > 1.5 TiB, while 65536 is 36 GiB ×
+4). Not confirmed: that any particular larger value fits, and that the death is
+this term rather than another host allocation at the same scale — the two log
+facts (rank lines present, `Starting to load model` absent) are the evidence and
+the reporter's paste does not carry the line, so ask for it.
+
+**Do not answer "the engine caps you at 65536".** There is no such cap: the ceiling
+is `N ≤ sqrt(headroom · host_RAM / (9 · ranks))`, so a 1.5 TiB host at TP=4 is a
+different number from the same host at TP=8
+(`scripts/attn-mask-budget.sh --max-model-len N --ranks R --host-gib H` prints the
+largest fitting length). Give the formula and the one value the reporter already
+confirmed, and say explicitly that a bigger value is a budget experiment, not a
+promise. Two rungs that do **not** move it on a pre-8.3 CANN: `--enforce-eager`
+(the mask is built in `__init__`, graph or not) and `--max-num-batched-tokens`
+(only the 8.3+ branch reads it).
 
 ## Ranked causes and their checks (#2873)
 

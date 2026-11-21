@@ -2,14 +2,15 @@
 
 Moved out of `SKILL.md` procedure step 3, because that list is read per report
 and the always-on rules are not. Read `SKILL.md` steps 1-2 and the Lane A/B/C
-bullets first, place the report in a lane/track with the classification table,
-then find that track here and take its checks **before** source archaeology.
+bullets first, place the report in a lane/track with the signature index
+(`signature-routes.md`), then find that track here and take its checks **before**
+source archaeology.
 Every entry ends at a topic page; open that page rather than re-deriving its
 rule. Entries are added here, not back into `SKILL.md`, so the always-on file
 stays under its length cap.
 
-Links below are skill-root relative (`references/<topic>/…`), as they appear in
-`SKILL.md`; prepend `<skill_root>` when running one of the scripts.
+Links below are relative to this directory (`../<topic>/<page>.md`); prepend
+`<skill_root>` when running one of the scripts.
 
 Rules that carry over from `SKILL.md`: answer text on every turn (rule 1),
 pin every code claim to the reported version (rule 5), label the strength of
@@ -21,12 +22,12 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
 - Image / bundled-native-module abort (no vllm-ascend frame, glibc allocator
   text): which copy is imported, then allocator interposition, then the
   installer-vs-upstream dependency diff — steps 1-3 of
-  `references/image-dependency-faults/native-import-abort.md`. Skip the
+  `../image-dependency-faults/native-import-abort.md`. Skip the
   module's C++.
 - Worker init dying on `libatb.so` / `libop_plugin_atb.so`: list
   `<ASCEND_HOME>/nnal/atb/set_env.sh`, then run the worker's own
   `_register_atb_extensions()` probe (step 4 of
-  `references/image-dependency-faults/nnal-atb-missing-library.md`). Two calls
+  `../image-dependency-faults/nnal-atb-missing-library.md`). Two calls
   split "not installed" from "installed, not sourced", and the NNAL
   `set_env.sh` is a *separate* file each install root must source itself. Do
   not read `torch_npu`'s loader or hand-copy the `.so`.
@@ -37,14 +38,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   the pod spec of **both** roles and `cat /proc/1/environ` inside the running
   container before any image theory. The ENV dump describes a shell, not the
   launched process; the export goes in the launch command (steps 1-2 of
-  `references/image-dependency-faults/launch-env-and-library-path.md`).
+  `../image-dependency-faults/launch-env-and-library-path.md`).
 - Log stops after `Loading model weights took X GB` with the port still refused
   and nothing raised: bound the phase before theorising — at v0.8.4rc1 the next
   code is `worker.py:240-256` `determine_num_available_blocks` → `profile_run()`
   ending in `torch_npu.npu.synchronize()` (`model_runner.py:1078`), `initialize_cache`
   is next, and `_warm_up_model` (`worker.py:325-326`) captures nothing at that ref.
   Then ask for the exact `vllm serve` line, the container exit code, `dmesg` OOM
-  lines and `npu-smi` **during** the stall (`references/startup-failures/silent-stall-after-weight-load.md`).
+  lines and `npu-smi` **during** the stall (`../startup-failures/silent-stall-after-weight-load.md`).
   The log's `model_runner.py:<line>` vs `model_runner_v1.py:<line>` fingerprints
   V0 vs V1; use it as evidence, not proof.
 - A DP>1 MoE deployment whose dummy/`profile_run` batch passes but a **real
@@ -55,25 +56,25 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   recompute `dp_size × max_tokens_across_dp` against the gathered row count, and
   read `get_fused_moe_state` before blaming the gather (EP at `ep_size < 16` is
   `All2All`, so the DP `all_gather` does not even run)
-  (`references/feature-enable-recipes/dp-moe-padding-and-owner-slice.md`).
+  (`../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`).
 - Report pasting only a response body with thinking in `content` and
   `reasoning_tokens: 0`: the serve command's `--reasoning-parser` is the
   answer before any model/device theory, and the chat field is `reasoning`,
   not `reasoning_content` (checked at vllm v0.19.1 and v0.22.1 — name the
   field the reporter's version emits)
-  (`references/accuracy-benchmarks/reasoning-output-routing.md`).
+  (`../accuracy-benchmarks/reasoning-output-routing.md`).
 - Native null-string abort at engine init (`std::logic_error` /
   `basic_string::_S_construct null not valid`, no Python frame): stock-model
   run on the same host/image, then the three `python -c` probes, then
   `gdb --batch -ex 'break std::__throw_logic_error' -ex run -ex bt`. Steps 1-3
-  of `references/image-dependency-faults/native-string-abort.md` are the whole
+  of `../image-dependency-faults/native-string-abort.md` are the whole
   answer; the checkpoint's own config was already proven innocent.
 - `ImportError: …/_ops*.so: undefined symbol: <mangled>` from a prebuilt wheel:
   run `bash <skill_root>/scripts/abi-symbol-check.sh <paste>` first — it demangles,
   says old (`Ss`) or new (`NSt7__cxx11`) `std::string` ABI, and prints the three
   `nm` commands plus the matching `cxx_abi_0`/`cxx_abi_1` export. Reporter-confirmed
   on #1144 ("the env setting works for me"), so this is a three-command lane, not
-  a rebuild (`references/image-dependency-faults/abi-undefined-symbol.md`).
+  a rebuild (`../image-dependency-faults/abi-undefined-symbol.md`).
 - The report **is a pip resolution error** (`Could not find a version that satisfies
   the requirement …`, `No matching distribution found for …`, "unmatched torch
   version between vllm=X and vllm-ascend=Y"): `bash
@@ -81,7 +82,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   both sides' `torch`/`torch-npu`/`torchvision` pins, and the `--pre` /
   `--extra-index-url` lines the wheel metadata drops. Decide mirror-only pin vs
   unsatisfiable pin set vs unreachable index **before** any version survey
-  (`references/image-dependency-faults/pip-index-visibility.md`, #1796, #4737).
+  (`../image-dependency-faults/pip-index-visibility.md`, #1796, #4737).
 - `pip install` **from source** in a pod with no public network (the custom-op
   step "pulls dependencies from the public network", `fetch failed`, or a cmake
   `Downloading …` line): name the fetch legs instead of opening `csrc/<op>/` —
@@ -91,13 +92,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `CANN_3RD_LIB_PATH`, and neither `CANN_PKG_SERVER` nor an exported
   `CANN_3RD_LIB_PATH` changes that (seed the directory or pass
   `csrc/build.sh --cann_3rd_lib_path=`). Pin v0.13.0rc3; the chain was
-  source-read, not run (`references/image-dependency-faults/offline-source-build.md`).
+  source-read, not run (`../image-dependency-faults/offline-source-build.md`).
 - Startup `ValueError` whose text names a parallel size inside
   `kv_connector_extra_config` (`KV transfer 'prefill' config has a conflicting
   data parallel size. Expected 1, but got 2.`): one grep for the string decides
   the owner (it is `vllm_ascend/utils.py`, not `arg_utils`), then `is_moe` for the
   model decides whether the process could ever keep DP>1
-  (`references/startup-failures/arg-validation-errors.md`, #8345). Do not walk
+  (`../startup-failures/arg-validation-errors.md`, #8345). Do not walk
   `ParallelConfig` or the connector: in that version the extra-config numbers
   have no reader besides the check.
 - Custom op that aclnn refuses to *resolve* (`EZ1001`, `Get regInfo failed`,
@@ -105,18 +106,18 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   and install, before launch. Do not open `csrc/<op>/`: check the tree's
   per-SoC build branch and `def.cpp` `AddConfig` once to rule the source out,
   then `SOC_VERSION`, `_cann_ops_custom`, `ASCEND_CUSTOM_OPP_PATH` and the
-  image tag (`references/custom-ops-runtime-faults/op-not-registered-for-soc.md`).
+  image tag (`../custom-ops-runtime-faults/op-not-registered-for-soc.md`).
   A **built-in** op instead (`EZ9999` / `Parse dynamic kernel config fail` /
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE`): the *image's* CANN has no kernel
   for this card — check the release's supported-hardware lines, then one
-  standalone op probe (`references/soc-platform-paths/kernel-package-vs-card.md`).
+  standalone op probe (`../soc-platform-paths/kernel-package-vs-card.md`).
 - Startup traceback carrying `torch/_subclasses/fake_tensor.py` + `torch/_ops.py`
   frames and ending `NotImplementedError: <ns>::<op>: attempted to run this
   operator with Meta tensors` (`_C::rotary_embedding` at #1895): two greps decide it
   — `rg -n 'kMeta|TORCH_LIBRARY_IMPL' csrc/` for an existing Meta impl, and the one
   dtype/shape predicate that selects the branch — then answer `--enforce-eager`
   before proposing a patch, with the dtype that skips the branch as rung 2
-  (`references/startup-failures/meta-kernel-missing.md`).
+  (`../startup-failures/meta-kernel-missing.md`).
 - Startup traceback whose deepest frame is **upstream** and ends
   `AssertionError: Torch not compiled with CUDA enabled`, e.g. a `get_rope`
   branch constructing a device in `__init__` (`dual_chunk_rope.py:37` at vllm
@@ -126,22 +127,22 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `current_platform` guard, the `forward_*` implementations, and whether the
   downstream tree replaces the class at all. The `torch==2.7.1+cpu` line in the
   env dump is normal on NPU and is **not** the cause
-  (`references/startup-failures/checkpoint-config-cuda-only-path.md`, #4309).
+  (`../startup-failures/checkpoint-config-cuda-only-path.md`, #4309).
 - Degenerate output whose trigger the reporter names as *token content* ("only when
   these special tokens are in the prompt", identical across several releases, one
   model only): refute or confirm that claim from the paste before any source read —
   same ids on both input routes means the ids are not the mechanism, and the
   checkpoint's own `Using max model len N` is the cheap non-engine check
-  (`references/accuracy-benchmarks/short-prompt-corruption.md` step 0, #8590).
+  (`../accuracy-benchmarks/short-prompt-corruption.md` step 0, #8590).
 - Python attribute error whose frame is an **upstream** vllm file (or the
   reporter asks whether vllm-ascend's ops were ever reached): the Ascend
   replacement is name-keyed, so compare the class name against
   `REGISTERED_ASCEND_OPS` / `CustomOp.op_registry_oot` before theorising about
-  upstream (`references/upstream-downstream-drift/oot-class-registration-drift.md`).
+  upstream (`../upstream-downstream-drift/oot-class-registration-drift.md`).
   If the class *is* registered, or the missing name is a factory/property the
   patch rebinds, check for a pre-patch alias in the consumer module —
   `consumer.<name> is defining_mod.<name>` settles it in one line
-  (`references/upstream-downstream-drift/stale-module-binding.md`, #15815).
+  (`../upstream-downstream-drift/stale-module-binding.md`, #15815).
 - `RuntimeError: Invalid request status: <STATUS>` (e.g. `WAITING_FOR_FSM`)
   raised from `vllm_ascend/core/scheduler.py` while the server was serving: the
   `AscendScheduler` fork lags an upstream request status. One call —
@@ -151,22 +152,22 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   the fork was force-enabled for a default serve (rc0) or is opt-in — that decides
   between a gate-input flag and dropping the key, and whether the three-site patch
   is even needed
-  (`references/upstream-downstream-drift/scheduler-fork-missing-status.md`, #3979).
+  (`../upstream-downstream-drift/scheduler-fork-missing-status.md`, #3979).
 - PD / EPD transport complaint: **first ask whether a KV pool is configured**
   (`AscendStoreConnector` in a `MultiConnector`, `MOONCAKE_CONFIG_PATH`). A pool
   with **no** PD, or one that initialises and then fails while saving, is not
-  this row — take the `references/kv-pool-store/index.md` entry below. With a
+  this row — take the `../kv-pool-store/index.md` entry below. With a
   P/D pair, the pool decides before the transport: run
   `bash <skill_root>/scripts/kvpool-segment-check.sh <mooncake.json|log>` — the
   worker log's `register mem … mem type:host, length:N` line carries the
   per-rank `global_segment_size`, and ≥ 20 GB on HDK 25.2.3 is the recorded
   cause of `503900` + 乱码 (#13439), fixed at 2 GB
-  (`references/pd-disaggregation/kv-pool-store-segments.md`). Only without a
+  (`../pd-disaggregation/kv-pool-store-segments.md`). Only without a
   pool, or once the segment is small, read the rank table with
   `bash <skill_root>/scripts/ranktable-check.sh <table-or-log>` — a declared
   `server_count > 1` (or more than one distinct `server_id`) decides the rest
   (multi-server view, `device_ip` + RoCE required). Then the plog grep set in
-  `references/pd-disaggregation/transport-topology.md`.
+  `../pd-disaggregation/transport-topology.md`.
 - KV pool / MemCache fault in storing or fetching KV rather than in the P/D
   handshake — the recorded shape is a **single node with no PD**, 800I/T A3 +
   DeepSeek-V4 `compress_ratios` + `ock.mmc.local_service.protocol: device_sdma`:
@@ -180,7 +181,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   of a swallowed rank-local save (#14106, family only — the identity is not
   established). CQE / SDMA / device-id text is owned by MemCache/MemFabric, so
   name that owner and ask for its log
-  (`references/kv-pool-store/memcache-a3-dsv4-init.md`).
+  (`../kv-pool-store/memcache-a3-dsv4-init.md`).
 - A pool **put** never lands while the request succeeds (`Failed to invoke
   HcclBatchPut, hccl_result = 4`, `Failed to put N keys out of N`, master
   `PutEnd` 0): one call —
@@ -188,11 +189,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `HCCL_E_INTERNAL` and the store's `-1` is its generic code, so it is neither a
   parameter error nor capacity (`-200` is the out-of-space code), and the emitting
   string is in the `mooncake-transfer-engine-npu` wheel, not in any export
-  (`references/kv-pool-store/hccl-onesided-store-put.md`).
+  (`../kv-pool-store/hccl-onesided-store-put.md`).
 - Report is "the flag did nothing" (logging/verbosity, output printing, a
   missing log stage): name the owner first — upstream vLLM OpenAI frontend,
   not vllm-ascend — then walk the gate checklist in
-  `references/observability-and-logs/index.md`: both flags on the serving
+  `../observability-and-logs/index.md`: both flags on the serving
   command, `--enable-log-outputs` requires `--enable-log-requests`,
   INFO-vs-DEBUG split, `--max-log-len`, a log-config/`VLLM_CONFIGURE_LOGGING`
   override, and an endpoint that cannot log outputs at all. Grep the two
@@ -206,26 +207,26 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `env | grep -i vllm_ascend`, one owner sentence (the merge belongs in
   `AscendPlatform.pre_register_and_update`), and say that `collect_env.py` never
   prints `VLLM_ASCEND_*` so its absence proves nothing
-  (`references/observability-and-logs/env-var-validation-warning.md`).
+  (`../observability-and-logs/env-var-validation-warning.md`).
 - An endpoint that is missing rather than wrong (`POST /start_profile` →
   `404`, or a 500 `Profiling is not enabled`): a route-registration question
   in the serving process. Name `attach_router` (`path:line`) and its condition,
   then ask the live app: `curl -s <host>:<port>/openapi.json` filtered for
   `profile`; check the startup log for the gate's `warning_once` line, and only
-  then wonder where the flag went (`references/observability-and-logs/online-profiling-endpoints.md`).
+  then wonder where the flag went (`../observability-and-logs/online-profiling-endpoints.md`).
   Model class, quantization and NPU health are irrelevant to a 404 — say so.
 - Output that is fluent but stops after tens of tokens ("被截断") with a feature
   flag toggled nearby: `finish_reason` first (`length` = budget, `stop` = early
   EOS), then `rg -n "<key>"` every reader of that key and read the shipped
   support matrix before any mechanism
-  (`references/accuracy-benchmarks/early-eos-short-output.md`).
+  (`../accuracy-benchmarks/early-eos-short-output.md`).
 - A spec-decode symptom (acceptance collapse, a stall while drafts keep being
   produced, "works if I remove MTP"): order the ablations MTP off →
   `--async-scheduling` off → `--no-enable-prefix-caching` → `num_speculative_tokens 1`
   → concurrency/`--max-model-len`, and do not lead with the KV arithmetic:
   acceptance dropping to exactly 0.000 everywhere while drafts continue is a
   draft/target context question, and the recorded reporter confirmed the owner by
-  removing MTP (`references/spec-decode-mtp/acceptance-collapse.md`).
+  removing MTP (`../spec-decode-mtp/acceptance-collapse.md`).
 - A **tool-call** report (client JSON error, "参数被截断", 格式错误, 重复输出, or
   only CoT with `stream: true`): locate the pasted `data:` chunks or ask for one
   `curl -N` capture, then run
@@ -238,14 +239,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   <request-body.json>`; a nullable `anyOf: [string, null]` argument loses its
   opening quote, #12261), other mid-string damage = generation. Say which, with
   the assembled tail, in the first answer
-  (`references/tool-call-streaming/streamed-arguments-audit.md`,
+  (`../tool-call-streaming/streamed-arguments-audit.md`,
   `arg-type-gate-unquoted-value.md`).
 - If that report's failing `num_speculative_tokens` is >= 3 while 1 or 2 works,
   name `vllm_ascend/sample/rejection_sampler.py:114 using_block_verify =
   max_spec_len >= 3` (the line is pin-dependent: `:116` at v0.18.0) in the same
   answer with the `n=2` and `temperature: 0`
   ablations; walk the kernel afterwards, never instead
-  (`references/tool-call-streaming/mtp-block-verify-acceptance.md`).
+  (`../tool-call-streaming/mtp-block-verify-acceptance.md`).
 - A **first** response with `content: ""`, `completion_tokens: 1` and
   `finish_reason: "stop"`: that is one model-issued blank/stop token. Ask for the
   emitted token id (`return_token_ids: true`), a restart with the identical body
@@ -257,7 +258,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   live: `disable_padded_drafter_batch: false` (the default) is what keeps the draft
   model replaying aclgraph, so `"enforce_eager": true` inside `--speculative-config`
   and `"disable_padded_drafter_batch": true` are the two draft-side-only rows
-  (`references/spec-decode-mtp/empty-first-response.md`).
+  (`../spec-decode-mtp/empty-first-response.md`).
 - 310P / Atlas 300I report: take the SoC from
   `_build_info.__soc_version__` rather than the image tag, quote the
   documented status (experimental, stable = v0.10.0rc1 at v0.11.0rc3,
@@ -265,10 +266,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   apply the 300I environment (`--enforce-eager`, `--dtype float16`,
   `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256`) and a smaller
   `--max-model-len` before blaming the platform
-  (`references/soc-platform-paths/atlas-300i-310p.md`). Write the allocator value
+  (`../soc-platform-paths/atlas-300i-310p.md`). Write the allocator value
   explicitly — on 310P `expandable_segments:True` crashed every rank at
   `empty_cache` (`unmapHandles … 507899`) while `:False` deployed
-  (`references/runtime-memory/allocator-expandable-segments-unmap-crash.md`) — and
+  (`../runtime-memory/allocator-expandable-segments-unmap-crash.md`) — and
   with TP > 1 quote the graph budget before any HCCL theory
   (`docs/source/tutorials/hardwares/310p.md:20-30`). Then diff the command against
   the release's own validated table (`310p.md:95-176` at v0.22.1rc1: only the
@@ -287,16 +288,16 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   timestamps, treat the cast frame as the allocation site, and shrink the pool
   (`--max-model-len`, then `--gpu-memory-utilization`) before any
   driver/hardware theory
-  (`references/runtime-memory/kv-init-and-format-cast-alloc.md`).
+  (`../runtime-memory/kv-init-and-format-cast-alloc.md`).
   If instead the frame is `torch.npu.empty_cache()` and the text is
   `unmapHandles … 507899`, nothing failed to allocate: `grep -m1
   'Set PYTORCH_NPU_ALLOC_CONF' <serve log>`, then relaunch with an explicit
   `expandable_segments:False`
-  (`references/runtime-memory/allocator-expandable-segments-unmap-crash.md`).
+  (`../runtime-memory/allocator-expandable-segments-unmap-crash.md`).
 - Runtime memory after a healthy period: take the two-sample split (capacity
   vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
   check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before
-  any leak theory (`references/runtime-memory/hbm-growth-and-oom.md`).
+  any leak theory (`../runtime-memory/hbm-growth-and-oom.md`).
 - Throughput that falls in **one step** at a concurrency number (256 running
   requests fine, 258 collapsed; `Waiting` 0, KV under 90 %, no error text, NPUs
   idle and host cores busy): run
@@ -309,33 +310,33 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   (`--enforce-eager`) or leave the ceiling unchanged (FlashComm1, DSA-CP,
   `npugraph_ex`, `--async-scheduling`) cannot refute it, so quote them only
   against their own below-cliff N
-  (`references/performance-throughput/sequence-count-cliff-capture-size.md`,
+  (`../performance-throughput/sequence-count-cliff-capture-size.md`,
   #14440).
 - "The machine crashed" / the host dropped / a `top` paste whose python3 ranks
   each hold tens of GiB RES: run
   `bash <skill_root>/scripts/host-ram-check.sh <paste|->` and report the ratio
   before any NPU lane, quoting RES and never the `8326g` VIRT
-  (`references/runtime-memory/host-ram-and-per-rank-rss.md`).
+  (`../runtime-memory/host-ram-and-per-rank-rss.md`).
 - Same crash but **no** `top` to sample and the log stops mid-startup: last lines
   are the per-rank `rank N in world size M is assigned ...` set, no
   `Starting to load model` after them, `--max-model-len` 128K+. Run
   `bash <skill_root>/scripts/attn-mask-budget.sh --log <serve.log> --host-gib N`:
   the eager `max_model_len²` host mask is 9·N² bytes **peak per rank** before any
   weight load, so at 262144 nothing survives
-  (`references/runtime-memory/attention-mask-host-allocation.md`).
+  (`../runtime-memory/attention-mask-host-allocation.md`).
 - A **container** counter climbing for days on a healthy service
   (`container_memory_working_set_bytes` "持续增加"), no crash and `npu-smi` flat:
   run `bash <skill_root>/scripts/working-set-arithmetic.sh --growth <reported>
   --days <window> --rps <rate>` for the bytes/request class, ask for the three
   cAdvisor series at two timestamps plus a per-PID RSS sample, and diff the
   reporter's serve flags against the model tutorial's own recipe before any
-  source read (`references/runtime-memory/container-working-set-growth.md`).
+  source read (`../runtime-memory/container-working-set-growth.md`).
 - The benchmark/eval client's own traceback is the report ("推理正常、性能测试崩溃",
   `ConnectionRefused [Errno 111]`): treat the client as secondary and locate the
   first in-window server fault — the API process does not listen because it died.
   If the server log shows `!!!!!!! Segfault encountered !!!!!!!` plus
   `died unexpectedly (exit code: None)`, take
-  `references/hccl-and-hardware/worker-segfault-no-python-frames.md`: count the
+  `../hccl-and-hardware/worker-segfault-no-python-frames.md`: count the
   `vllm_ascend/*.py` frames in the dump (zero = call site unknown, ask for the
   plog and an `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` rerun), and do not
   read the attention backend the top native frames happen to sit under. The same
@@ -351,7 +352,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   process's own `init engine (...)` / graph-capture window recorded at init and
   reported late — decide by pid and log position, not by the gap (rule 13); the
   in-window first error is the one to classify
-  (`references/hccl-and-hardware/error-report-timestamps.md`).
+  (`../hccl-and-hardware/error-report-timestamps.md`).
 - First collective after the weights load dies on `Transport_Init_Error(EI0009)` /
   `[Create][DestLink]Create Dest error!`, with `halShmemOpenHandle … drvRetCode=17` and
   `rtsIpcMemImportByKey … 507899`: run
@@ -361,7 +362,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   transport/driver pairing question (driver vs the image's CANN, container
   passthrough), and the identical `localIpAddr`/`remote_ip_addr` text is **not** a
   duplicate `device_ip` — the rank table is `scripts/ranktable-check.sh`'s job
-  (`references/hccl-and-hardware/transport-destlink-ipc-import.md`, #4148).
+  (`../hccl-and-hardware/transport-destlink-ipc-import.md`, #4148).
 - A device fault whose deepest frame is a `torch_npu` scatter/index write in
   `vllm_ascend/attention/sfa_v1.py` (`507035`, `ERR00100`, `EZ9999 … aivec error`,
   `The DDR address of the MTE instruction is out of range`, fault kernel
@@ -372,14 +373,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   deployment already ran `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1`, which only
   made the attribution exact. The decisive check is an A/B on request concurrency
   (`--max-num-seqs 1` versus the failing value), not a plog
-  (`references/dsa-sparse-attention/indexer-cache-scatter-fault.md`).
+  (`../dsa-sparse-attention/indexer-cache-scatter-fault.md`).
 - Engine-start `AttributeError: 'AscendRowParallelLinear' object has no attribute
   'aclnn_input_scale'` (or `_reciprocal` / `_offset`) at `sfa_v1.py:707` ← `:544`,
   with FLASHCOMM1 / legacy FLASHCOMM / shared-expert-DP on and a DSA model: the
   DSA-CP o_proj TP/Full switch exists only for a W8A8-static o_proj, so the answer
   is the quant method the checkpoint forces (FLASHCOMM1 off, or the tutorial's W8A8
   weights), not an attention or install fault
-  (`references/dsa-sparse-attention/o-proj-quant-attribute-crash.md`).
+  (`../dsa-sparse-attention/o-proj-quant-attribute-crash.md`).
 - A MoE deployment dying at the first real batch with `call aclnn<Op> failed,
   error code is <6 digits>` (`aclnnMoeInitRoutingV3 … 561103`,
   `Kernel Run failed … MoeInitRoutingV2`): the number is a **failed tiling check on
@@ -390,14 +391,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `ops/fused_moe/token_dispatcher.py:324-350`. A "DP2 TP4 有没有限定 / 能否启动时校验
   拦截" question is answered by that arithmetic and the documented A2 block
   (`docs/source/tutorials/DeepSeek-V4.md:149-167` = DP1×TP8 + EP), never by a
-  DP×TP matrix (`references/custom-ops-runtime-faults/moe-init-routing-tiling.md`).
+  DP×TP matrix (`../custom-ops-runtime-faults/moe-init-routing-tiling.md`).
 - Degenerate output (`</think>` in `content`, repetition collapse, 乱码) at long
   context **and** concurrency on a model the tree documents, with both `vllm serve`
   commands pasted: open `docs/source/tutorials/models/<model>.md` at the pinned
   commit and diff the reporter's P and D commands against the validated ones plus
   the `Recommended Configurations` tables **before** reading any connector — that
   diff, with the ablation matrix, is the first answer
-  (`references/accuracy-benchmarks/garbled-long-context-output.md`). Recorded
+  (`../accuracy-benchmarks/garbled-long-context-output.md`). Recorded
   #13002 spent 21 turns and its whole output budget inside a 2600-line
   `mooncake_connector.py` and shipped nothing, though the tutorial's validated
   commands deviated on five flags and were reachable in two calls — the replay that
@@ -407,19 +408,19 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   responses out of many repeat themselves, that is not the prompt-length lane:
   diff the same tutorial for the decode side and lead with the identity row
   (`--max-num-seqs 1`, `temperature: 0`, same request 3×)
-  (`references/accuracy-benchmarks/long-output-repetition.md`).
+  (`../accuracy-benchmarks/long-output-repetition.md`).
 - A crash under concurrency with **no** error text pasted: do not hunt the mechanism.
   The answer is the gap, the config diff against the tree's own validated command
   (`tests/e2e/**`, `docs/source/tutorials/<model>.md`) and ranked candidates with one
   check each, emitted at the normal gate
-  (`references/dsa-sparse-attention/concurrency-crash-with-no-log.md`).
+  (`../dsa-sparse-attention/concurrency-crash-with-no-log.md`).
 - A "communication timeout" whose only text is a bare `TimeoutError` with
   `multiproc_executor.py` / `shm_broadcast.py` frames: run
   `bash <skill_root>/scripts/executor-timeout-check.sh <paste|->` before any
   HCCL reading. It is the framework's own RPC watchdog (300 s) for a worker that
   stopped answering, so the deliverable is the lane classification plus the list
   of per-rank artefacts — which rank, which op and OOM-vs-hang are *not* in that
-  paste (`references/hccl-and-hardware/rpc-watchdog-timeouts.md`, #1865).
+  paste (`../hccl-and-hardware/rpc-watchdog-timeouts.md`, #1865).
 - A **PD deployment with `--decode-context-parallel-size` > 1** whose engines
   started and whose **first request** killed one side's EngineCore, the APIServer
   showing only `EngineDeadError: EngineCore encountered an issue. See stack trace
@@ -430,7 +431,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   advertises its `dcp_size` and the peer asserts divisibility on the first
   transfer — so a dcp that differs between the sides (or a 1M recipe's `8`
   reduced on one side) is the answer, and the MemCache pool is not the suspect
-  (`references/feature-enable-recipes/context-parallel-pcp-dcp.md` §3,
+  (`../feature-enable-recipes/context-parallel-pcp-dcp.md` §3,
   reporter-confirmed #12677).
 - A **long-run hang** in a multi-node or co-located deployment: `hccl fftsplus
   task timeout ... stuck notify num:1, timeout=<N>s` plus
@@ -439,17 +440,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `HCCL_EXEC_TIMEOUT` is 1800 s), and check the last `200 OK` of that instance
   against it; the heartbeat lines arrive ~5 min later and the `[shutdown] MPClient`
   / `ApiServer ... died` lines are teardown, not the cause
-  (`references/hccl-and-hardware/error-report-timestamps.md`, #16652).
+  (`../hccl-and-hardware/error-report-timestamps.md`, #16652).
 - `TypeError: 'NoneType' object is not callable` where the `None` is an upstream
   module-level name (`fused_experts = None` on a non-CUDA platform): read the
   **file** of the `forward_oot` frame. `vllm/model_executor/custom_op.py` there
   means the Ascend replacement was never imported in that process (Ray/`spawn`
   workers; the hook runs only where `VllmConfig` is built) — two greps decide it,
   do not theorise about the model or the checkpoint
-  (`references/upstream-downstream-drift/patch-import-side-effect.md`, #253).
+  (`../upstream-downstream-drift/patch-import-side-effect.md`, #253).
 - Quantization method rejected before any worker (`<method> quantization is
   currently not supported in npu`, `--quantization awq`): answer from
-  `references/startup-failures/quantization-method-gate.md` — three calls, and
+  `../startup-failures/quantization-method-gate.md` — three calls, and
   the flag is not the only trigger, since the checkpoint's own `quant_method`
   reaches the same gate. The same page's section B is the inverse report: an
   msmodelslim W8A8 checkpoint whose `config.json` deliberately has **no**
@@ -463,7 +464,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   (weights per card vs card budget; per-device gmu sum). Check the device
   variable first: `ASCEND_RT_VISIBLE_DEVICES`, not `CUDA_VISIBLE_DEVICES`
   (`vllm_ascend/platform.py:101` at v0.19.1rc1;
-  `references/deploy-sizing/card-budget-and-device-visibility.md`). A sibling
+  `../deploy-sizing/card-budget-and-device-visibility.md`). A sibling
   project's yaml/CLI absent from `SOURCES.json` (vllm-omni) is a stated gap,
   not something to infer.
 - A parallel-topology question about EP **with** DP, or an engine-init crash whose
@@ -472,13 +473,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   (`worker/model_runner_v1.py:1373-1432`) and `set_mc2_tokens_capacity`
   (`ascend_forward_context.py:169-183`) first, then answer with that SoC's row,
   the reporter's `world_size_across_dp` arithmetic and the two ablations
-  (`references/feature-enable-recipes/moe-expert-parallel-with-dp.md`); say that
+  (`../feature-enable-recipes/moe-expert-parallel-with-dp.md`); say that
   MC2 shares the All2All `finalize`, so the pasted line is not proof MC2 was
   skipped. If instead the paste dies in `profile_run` with `507014` and the
   `[AIC_INFO]` kernel is `MoeDistributeDispatchV2`, the batch is
   `mc2_tokens_capacity` (an extra `_dummy_run` at
   `model_runner_v1.py:2202-2208`), not `--max-num-batched-tokens` — take
-  `references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md`.
+  `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`.
 - Feature-enable / capability question ("how do I correctly enable F on H", no
   log): answer in this order — the validation verdict at the pinned ref (docs
   sentence, the hardware the docs measured, `rg -l
@@ -487,71 +488,71 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   with the error text it raises, then one-axis-at-a-time staging. Grep the flag in
   `vllm_ascend/` for hard errors (`AssertionError`, `NotImplementedError`) versus
   silent overrides; do not read the kernel/code path beyond that
-  (`references/feature-enable-recipes/index.md`).
+  (`../feature-enable-recipes/index.md`).
 - Code-change / cleanup request (remove a `VLLM_ASCEND_*` switch before a
   release, deprecate a flag, finish a "TODO before 0.x"): one `rg -n '<IDENT>'`
   and one grep for the *mechanism* token at the pinned ref decide answerability —
   absent means the snapshot predates the PR, which is the finding. Then the
   touch-point sweep (definition dict + generated doc page + readers + tests/CI
   env sets + release note), the default-flip note and the reachability check
-  (`references/code-change-requests/env-flag-retirement.md`, #1262). Do not open
+  (`../code-change-requests/env-flag-retirement.md`, #1262). Do not open
   the op's code path.
 - Community-test / doc-verification task: run the ten checks of
-  `references/tutorial-verification/tutorial-command-audit.md` in order
+  `../tutorial-verification/tutorial-command-audit.md` in order
   (flag existence at the pinned vllm, bench argument names, image WORKDIR vs
   the doc's relative paths, relied-on defaults, card-count arithmetic vs
   sibling docs and the CI config, baseline release, one precedent pass,
   package version the doc installs vs the image's own pins, support matrix and
   release notes, `--hf_overrides` architecture string vs the checkpoint family)
   and write the report file as sections become
-  true (`references/tutorial-verification/community-test-report.md`). Stop
+  true (`../tutorial-verification/community-test-report.md`). Stop
   auditing after 3-5 tiered defects; never present a doc baseline as a
   measurement.
 - Accuracy/corruption: establish whether both numbers came from the same
   server, weights and serve flags before choosing a culprit
-  (`references/accuracy-benchmarks/index.md`); for a garbled prompt, get the
-  ablation matrix (`references/accuracy-benchmarks/garbled-long-context-output.md`).
+  (`../accuracy-benchmarks/index.md`); for a garbled prompt, get the
+  ablation matrix (`../accuracy-benchmarks/garbled-long-context-output.md`).
 - An **embedding / pooling** checkpoint that never starts: read the launch line for
   `--task embed` (`--runner pooling`) and the init line for `pooler_config=None`
   before any source; `ValueError: There is no module or parameter named
   'embed_tokens' in …ForCausalLM` is the missing flag, not the model. One call:
   `../../scripts/checkpoint-key-prefix.py <model dir>`
-  (`references/pooling-embedding/embedding-checkpoint-as-generate.md`).
+  (`../pooling-embedding/embedding-checkpoint-as-generate.md`).
 - An **embedding / pooling** serve (`--runner pooling`, `--task embed|score`,
   `/v1/embeddings`): two questions place it before any source read — single
   request or only under concurrency, and is a short prompt correct. Crashes under
   concurrency end in the batch-slot machinery
-  (`references/pooling-embedding/batch-index-desync.md`); wrong vectors for long
+  (`../pooling-embedding/batch-index-desync.md`); wrong vectors for long
   inputs take the "which span was pooled" test plus a
   `--max-num-batched-tokens` sweep, not an attention-backend walk
-  (`references/pooling-embedding/chunked-prefill-vector-corruption.md`).
+  (`../pooling-embedding/chunked-prefill-vector-corruption.md`).
 - The same serve **never reaches ready**, and the paste carries either a model
   class/HF-config `TypeError` in the APIServer or an `EZ1001` weight-layout line
   at `profile_run`: two greps decide both before any source walk — the
   `architectures` string against the checkpoint's `model_type` family
-  (`references/pooling-embedding/seq-cls-arch-routing.md`) and the NZ gate at the
+  (`../pooling-embedding/seq-cls-arch-routing.md`) and the NZ gate at the
   reporter's ref, `rg -n "def is_enable_nz|_should_trans_nz|maybe_trans_nz"
   vllm_ascend/utils.py`, whose fp32 policy decides whether the fp32 score head is
-  converted (`references/pooling-embedding/fp32-head-nz-format-crash.md`). One
+  converted (`../pooling-embedding/fp32-head-nz-format-crash.md`). One
   call each: `scripts/nz-format-gate-check.sh <paste> <vllm-ascend-root>` and
   `scripts/seq-cls-arch-check.sh <vllm-root> '<Arch>'`. The `EZ1001` code alone
   does not mean the custom-op package.
 - A **VL image/video** request that degenerates into one repeated token
   (`!!!!`, 感叹号) while text-only prompts answer: first row of the ablation is
   `USE_OPTIMIZED_MODEL=0` on the same request, then text-only, TP=1 and an
-  official checkpoint (`references/accuracy-benchmarks/vl-vision-tower-degeneracy.md`).
+  official checkpoint (`../accuracy-benchmarks/vl-vision-tower-degeneracy.md`).
 - `patch/**` frame: extract-and-diff first — `sed -n 'A,Bp'` the pinned upstream
   method, dedent with `sed 's/^    //'`, diff the module-level copy, read only the
   non-formatting hunks, then check whether the one added hunk is live for the
   reporter's command (PD `is_kv_consumer`, `use_async_scheduling`). Formatting-only
   means the owner is upstream at that pin: say so with both `path:line`. #8724
   spent 29 proxy turns here and shipped nothing
-  (`references/upstream-downstream-drift/patch-copy-vs-upstream.md`).
+  (`../upstream-downstream-drift/patch-copy-vs-upstream.md`).
 - Worker `KeyError` in `_update_states` + `NoneType … sampled_token_ids` + a
   negative `Counters …` value on an `--async-scheduling` + MTP launch: one
   provenance (discarded row → count 0 → `num_accepted = -1` → missing
   `prev_req_id_to_index` key). Say that, then async off
-  (`references/spec-decode-mtp/async-spec-bookkeeping-desync.md`).
+  (`../spec-decode-mtp/async-spec-bookkeeping-desync.md`).
 - Device dump whose deepest `vllm_ascend` frame is the drafter's valid-count
   copy (`counts_cpu[: counts.shape[0]].copy_(counts, non_blocking=True)`,
   `model_runner_v1.py:1393`) with `rtMemcpyAsyncEx … model stream execute
@@ -560,21 +561,21 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   ask. Resolve the collective by `rankSize` against the DP×PCP×TP group
   arithmetic (a 2-rank group is not `fc3_quant_x` on DP2×TP4), then attribute
   with `--enforce-eager` and `ASCEND_LAUNCH_BLOCKING=1`
-  (`references/spec-decode-mtp/drafter-count-copy-device-fault.md`).
+  (`../spec-decode-mtp/drafter-count-copy-device-fault.md`).
 - Device fault inside an attention backend on a batch holding decodes **and**
   prefills: run `bash <skill_root>/scripts/batch-split-audit.sh <vllm-ascend-root>`
   before the kernel; its hits are the request tensors sliced by a token count and
   the unrebased `cu_seqlens`, and spec decode is the multiplier that turns a
-  silent overshoot into `507015` (`references/mixed-batch-splits/index.md`).
+  silent overshoot into `507015` (`../mixed-batch-splits/index.md`).
 - A **LoRA** serve, either shape: run
   `bash <skill_root>/scripts/lora-graph-descriptor-audit.sh <vllm-ascend-root>
   [<vllm-root>]` first. It names the punica backend the ref binds (that decides
   the slow shape) and labels each `has_lora` producer live-batch vs
   config-constant (that decides the request-time capture crash); the SoC and
   graph-mode facts come from the paste, not from more source
-  (`references/lora-adapters/index.md`).
+  (`../lora-adapters/index.md`).
 - An operator that **runs** and returns wrong numbers with a framework-free
   `torch_npu` repro (no dump): find the one caller holding that kwargs
   combination before reading the kernel; `cann/ops-nn` is usually absent, so
   the ownership split is the answer
-  (`references/custom-ops-runtime-faults/attention-op-numeric-errors.md`).
+  (`../custom-ops-runtime-faults/attention-op-numeric-errors.md`).

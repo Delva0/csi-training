@@ -8,7 +8,11 @@ report the same symptom on different owners, and the prompt-token count decides
 which one you are in. If the prompt is *tens* of tokens on a hybrid
 linear-attention model (Qwen3-Next / GDN) and the content is digit arithmetic, the
 owner is that model's numeric path, not this page —
-`qwen3-next-gdn-numeric-path.md`.
+`qwen3-next-gdn-numeric-path.md`. If the prompt is a handful of tokens on a
+**DeepSeek-V2-Lite** serve and the answer is *one token repeated* to
+`finish_reason: length` (`"....."`), that is the MLA/`q_lora_rank: null` model shape
+and #894 already refuted the stack-pairing answer — go to
+`deepseek-v2-lite-mla-degeneracy.md` before this page's matrix.
 
 ## Grade the symptom first
 

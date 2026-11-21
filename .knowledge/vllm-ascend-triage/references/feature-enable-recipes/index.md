@@ -90,9 +90,26 @@ Rules for this topic:
    async-TP pass — plus the platform's VL/Omni guard, before any shape walk:
    `sequence-parallel-flashcomm.md`.
 
+8. An **other-SoC** question — the model runs, and the report is "速度很慢" plus "能否提供
+   量化版本 / 社区只看到 310P 的" where the model's tutorial, support-matrix row and
+   published quantized exports all belong to a different SoC than the reporter's — is a
+   capability verdict read off the support matrix's **tabs** (a row present only in
+   `Atlas 300I DUO` and absent from `A2/A3` is the statement for that version), not a
+   tuning ladder: quote the same-SoC e2e config instead of the other SoC's tutorial, and
+   prune the `--additional-config` keys no code reads before ranking a lever →
+   `per-soc-recipe-and-quantized-weights.md` (recorded #16600).
+
 Pages:
 
-- `sequence-parallel-flashcomm.md` — FlashComm1/SP: the `enable_sp()` predicate and its
+- `per-soc-recipe-and-quantized-weights.md` — the model's only validated recipe and
+  published weights are on another SoC (#16600: 910B2 + Qwen3.5-9B, "能否提供量化版本"):
+  reading `support_matrix/supported_models.md` by tab (`A2/A3` at `:142` vs `Atlas 300I
+  DUO` at `:156`, the `Qwen3.5-Dense` row at `:161`), the tutorial's own hardware sentence,
+  the same-SoC e2e launch config (`test_qwen3_5_0_8b.py:45,55-60` bf16 + `method: mtp`)
+  against the 310P one (`float16` + `mamba_ssm_cache_dtype` + `qwen3_5_mtp`), the
+  test-path→SoC routing, the stale `enable_weight_nz_layout` key (code reads
+  `weight_nz_mode`), and why a `-310P` W8A8 export is not portable.
+ — FlashComm1/SP: the `enable_sp()` predicate and its
   `tp_size > 1` / EP asserts, the `ValueError` guard for VL and Omni-thinker models
   (`platform.py:394-403`, `is_vl_model` counting `thinker_config`), and why the
   shape mismatch `(sN//tp)` vs `sM` inside `profile_run` is arithmetic: SP keeps the

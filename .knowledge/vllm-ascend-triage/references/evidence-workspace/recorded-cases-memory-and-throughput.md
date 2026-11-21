@@ -41,6 +41,24 @@ was cut at the 16 K output cap with the mechanism in the tail and no answer —
 the delivery lesson again, on a report where the first line of the log tail was
 already enough to state the host-RAM verdict.
 
+**#3314** vllm-ascend v0.11.0rc0 (`00ba071`) + vllm v0.11.0rc3 (`8ce5d319`), image
+`quay.io/ascend/vllm-ascend:v0.11.0rc0`, 8 × 910B2, `free -h` 1.5 TiB, Qwen3-30B-A3B
+(2507 refresh, ceiling 262144), `--tensor-parallel-size 8` then `4`, both with
+`--enable-expert-parallel`, **no `--max-model-len`**: rank assignment lines, nine
+minutes of silence, then `Parent process exited` and `WorkerProc initialization
+failed …` with no worker traceback; the reporter's own note is "the system memory is
+at 100% when the error occurs" and `--max-model-len 65536` works. Same eager host
+mask as #2873 (576 GiB peak/rank at 262144 × 4 ranks > 1.5 TiB; 36 GiB at 65536).
+The recorded run answered correctly and in budget: it read the mask page first,
+verified at the pin that the builder is sized `max_model_len` **only when CANN is
+not 8.3+** (`model_runner_v1.py:328-334`), gave the `9·N²` arithmetic plus
+`scripts/attn-mask-budget.sh`, and answered the literal "how can I use
+max_model_len > 65536" as a host-RAM budget (TP4 ≈ 148K) rather than an engine cap.
+The later reporter follow-up confirms the reading and the ceiling ("reduce
+max-model-len can circumvent this problem, qwen3-30b model length is 256k"); the
+148K figure itself was never reporter-confirmed, so keep it as a budget estimate.
+Route: `../runtime-memory/attention-mask-host-allocation.md`.
+
 **#6279** vllm-ascend v0.13.0rc2 (`a17059a`) + vllm v0.13.0 (`72506c9`), 910B,
 Qwen3-32B with multi-LoRA in graph mode: a request that selects the **base**
 model kills the workers with `Worker failed with error 'CUDA graph capturing
@@ -190,3 +208,30 @@ recorded run loaded `../runtime-memory/kv-init-and-format-cast-alloc.md` plus th
 K+V; `7.56 + 2 × 26.95 GB` vs a 46.43 GB card) and a `--gpu-memory-utilization`
 ladder — the page worked as written, and its peak-arithmetic block now carries
 that table so the next session does not re-derive it with an ad-hoc snippet.
+
+**#16600** vllm-ascend v0.23.0 tree (`5cb98ca`), 910B2 single card, Qwen3.5-9B
+(`/workspace/models/Qwen3.5-9B`), `--max-model-len 16000 --max-num-batched-tokens
+32000 --max-num-seqs 20 --gpu-memory-utilization 0.95 --async-scheduling
+--skip-mm-profiling --mm-processor-cache-gb 0 --mm_processor_cache_type shm`,
+`--compilation-config {"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":
+[1..20]}`, `--additional-config {"enable_cpu_binding":true,
+"multistream_overlap_shared_expert":true,"enable_weight_nz_layout":true}`:
+"[Misc] 910B2 + Vllm ascend 0.23.0 + Qwen3.5 9B 速度很慢", asking for a quantized
+build for 910B since only 310P ones are published. Track: cross-SoC capability, not
+a defect and not measurable from the paste (no metric block). Evidence reached:
+`Qwen3.5-Dense` exists only in the `Atlas 300I DUO` tab of
+`support_matrix/supported_models.md:161` and is absent from `A2/A3` (`:142-152`);
+`tutorials/models/Qwen3.5-Dense.md:9` names Atlas 300I DUO/200I Pro;
+`tests/e2e/pull_request/one_card/test_qwen3_5_0_8b.py:45,55-60` is the non-310P
+launch shape (bf16, capture sizes [2,4,6,8], `method: mtp`) against the 310P
+`float16` + `mamba_ssm_cache_dtype` + `qwen3_5_mtp`
+(`_310p/test_spec_decode_mtp_310p.py:27,29,31`), with the test-path→SoC routing in
+`.github/workflows/scripts/test_config.yaml:22-24`; `enable_weight_nz_layout` is
+read by no code at this ref (`ascend_config.py:249-253` uses `weight_nz_mode`;
+rename table `configuration/additional_config.md:25`) and
+`multistream_overlap_shared_expert` is MoE-only (`:78`). The run put a provisional
+verdict in a message at turn 9 and then spent ~15 turns inside `platform.py`
+capture-mode gates and hybrid-KV gates before the output cap landed inside the
+ranked list — no final answer. Page
+`../feature-enable-recipes/per-soc-recipe-and-quantized-weights.md`. Open: the
+reporter's token/s, TTFT and `Running`.

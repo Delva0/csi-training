@@ -10,6 +10,24 @@ and embedding outputs. Routes: `../accuracy-benchmarks/index.md`,
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#11936** vllm-ascend `v0.21.0rc1-310p` image (`80610e4`) + vllm v0.21.0 (`ad7125a4`), one
+310P3 box, CANN 9.1.0-beta.1: GLM-OCR and MinerU2.5-2509-1.2B both "可以正常拉起，但是精度有问题 /
+随便跑个图片识别就能复现", while PaddleOCR-VL was "好像没问题" (MinerU2.5 appears in **both** lists of the
+same paragraph). Track: unvalidated model/SoC pair, returning as an accuracy report. The paste is a full
+environment dump plus the PaddleOCR-VL serve command only — no response body, no log. Reporter-confirmed
+later on the same issue: both models *do* launch and infer on the official image with no extra
+operations, the symptom is garbage text from simple image recognition, neither is officially supported
+yet, and GLM-OCR is meant to run with PP-DocLayout-V3. So the ranked answer is pipeline stage >
+unvalidated pair > engine numerics, and the support half is a two-grep doc lookup: at this ref
+`docs/source/tutorials/models/` has the PaddleOCR-VL page with an Atlas-300 tab (`:51, :60, :93-115`)
+and **no** GLM-OCR or MinerU page, while `hardwares/310p.md:96-172` validates text-only Qwen3-W8A8SC.
+The recorded run spent 28 assistant turns and its whole 16 K output budget inside the 310P rope and
+attention internals, emitting **zero** message text, after guessing the split was "the models on the
+M-RoPE / partial-rotary branches" — partly refuted, since `uses_mrope` comes from the checkpoint config
+(`mrope_section`), not the family (`paddleocr_vl.py:1097` defines `get_mrope_input_positions` anyway).
+The page now carrying it, with the branch map and the verified dead ends (`scale_value`, the head-dim pad
+path, `ApplyRotaryEmb`), is `../soc-platform-paths/310p-vl-ocr-garbage-output.md`.
+
 **#8022** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`),
 Qwen3.5-27B, streaming chat: with `--reasoning-parser qwen3` (or `deepseek_r1`)
 `reasoning_content` stayed null, the thinking vanished from `content`, and the first
@@ -66,6 +84,42 @@ precedent (async scheduling on → only CoT, no `tool_calls`) plus the CI gap th
 `async_scheduling` never appears in `tests/e2e/multicard/4-cards/test_qwen3_next.py`;
 the same audit on its 97-chunk paste returns valid JSON, so the posted sample was
 not the failing request and the answer had to say so.
+
+**#12658** vllm-ascend v0.21.0rc1 (`80610e44`) + vllm v0.21.0 (`ad7125a4`), Atlas
+800I A2, DeepSeek-V4-Flash-w8a8-mtp TP8+EP with `--tool-call-parser deepseek_v4
+--reasoning-parser deepseek_v4`, MTP n=1, `FULL_DECODE_ONLY`,
+`--async-scheduling`: "Non-think, tool call empty". The report shipped the four
+dumps (`bad_case.json`, `rendered.json`, `rendered_prompt.json`,
+`raw_completion.json`) and they decide it in one call: `chat_template_kwargs
+{"enable_thinking": false}`, `stream: false`, one tool `get_weather`;
+`rendered_prompt.json` carries `## Tools` + `<｜DSML｜tool_calls>` + `get_weather`
+and ends `<｜Assistant｜></think>`; `rendered.json` holds 5944 prompt ids at
+`temperature 1.0`; `raw_completion.json` is 132 tokens of Chinese prose with
+`finish_reason: "stop"` and **no `｜DSML｜` anywhere**, `prompt_tokens: 5944`.
+Prompt rendering is fine and the sampled sequence contains no call, so no parser
+can create one — the model-choice lane, and the deliverable is a rate plus the
+mode/vendor-API ablations (`../tool-call-streaming/no-tool-call-in-raw-output.md`).
+A later public comment from the reporter is the confirmation: 1000 requests in
+non-thinking mode missed the call with "a certain probability", thinking mode
+always called, and the official `dsv4-flash` API reproduced the non-thinking miss,
+so w8a8 quantisation and the engine are excluded. The recorded run never opened
+those files — it grepped the attachments **manifest** for the model name and the
+GitHub file-id digits, read the empty result as "no attachments", and spent all
+27 assistant turns and the 16 K-token budget inside `vllm/parser/abstract_parser.py`,
+`patch_deepseek_v4_thinking.py` and `tokenizers/deepseek_v4_encoding.py`, shipping
+no answer at all.
+
+**#12398** vllm-ascend v0.18.0 (`e18643f8`) + vllm v0.18.0 (`bcf2be96`), GLM-5.1
+W4A8, 1P1D on 800T A3: GLM's own in-band protocol text (`<tool_call>`/`<arg_key>`/
+`<arg_value>`, a leading `</think>`) leaking into streamed `content`. Delivered in
+full at its 16th turn: the strings are the GLM-4.x XML grammar
+(`vllm/tool_parsers/glm47_moe_tool_parser.py`) and nothing consumes them because
+the serve line lacks `--tool-call-parser glm47 --reasoning-parser glm45`; the
+tree's own `docs/source/tutorials/models/GLM5.md` single-node w4a8 blocks
+(:152-247 at that ref) omit both flags while its multi-node PD examples carry
+them, so the tutorial diff is the first artefact for this class. Also verified
+there: `[tool_call:Name]{…}` appears in no source file of either tree, i.e. that
+notation is the reporter's client rendering, not engine output.
 
 **#4057** v0.11.0rc0 Qwen3-Next-80B-A3B, "问到数字相关问题时精度较差" on a 19-token
 prompt with no serve command in the report: the run found the downstream fp32
@@ -331,6 +385,31 @@ the same issue in ~9 turns from the same artefacts; its only real friction was
 odd-quote-count separately (`quote-gap`) and routes it to
 `tool-schema-type-audit.py`.
 
+**#14656** vllm-ascend v0.23.0 (`5cb98ca`) / v0.23.0rc1 images (`v0.23.0-a3`,
+`v0.23.0rc1-a3`) + vllm v0.23.0 (`0fc695f`), GLM-5.2-w4a8c8 on 910C 560T, PD 4P/8D
+with `MooncakeConnectorV1` + `AscendStoreConnector` (memcache), `--tool-call-parser
+glm47`, `--reasoning-parser glm45`, MTP `deepseek_mtp` n=1 (P) / 3 (D), `--max-model-len
+524400`, no `--async-scheduling` on either side: in `stream: true` the tool-call
+`arguments` lose their leading `[`/`"`, a fragment repeats, the escapes are wrong —
+"多出现于 ascii ⬅➡ 中文字符交界处", `stream: false` clean, both 1M and shorter
+configs, w4a8c8 and w8a8. Track: tool-call output integrity, **streamed text
+delta** (`../tool-call-streaming/detokenizer-text-delta.md`, new). What the run
+verified at the pin: the #12261 gate is **fixed** here (`_is_string_type` uses
+`extract_types_from_schema`, `glm4_moe_tool_parser.py:130-136`; complete string
+values render via `json.dumps` `:348`, partial via `:396`), the length-prefix diff
+survives (`_compute_args_diff` `:409-417`), the frontend `remaining_args`
+reconciliation is gone from vllm v0.23.0 so `patch_glm_tool_call_streaming.py:140`
+is inert, block/entropy verify default `False` (`ascend_config.py:797-798`), and
+`vllm_ascend/` contains no detokenizer. It never grepped the server log for
+`resetting decode stream` — the one line that decides the fast `DecodeStream`
+path — and shipped **no answer** (see `delivery-discipline.md`). The reporter's
+later statements supply the missing evidence: both serve commands (above; the
+tutorial's `--async-scheduling` is absent, and `--speculative-config` carries
+`"enforce_eager": true`), the client-side workaround ("手动添加 jsonl 格式校验与
+补充，可以缓解"), and that a **later parser refactor** showed no recurrence. Treat the
+client-side validate-and-repair as the actionable answer for these versions and
+keep both parser and text-delta owners open.
+
 **#5549** vllm-ascend v0.10.0rc1 (`4604882`) + vllm v0.10.0 (`6d8d0a2`), image
 `v0.10.0rc1-310p`, Ascend 310P3: `vllm serve /model/Qwen3-Embedding-0.6B --dtype
 float16 --enforce-eager --gpu-memory-utilization 0.08` dies at `Starting to load
@@ -439,3 +518,20 @@ calls over 13 turns / 871 K prompt tokens: the decisive facts arrived by re-read
 consumer table. Page `../spec-decode-mtp/dense-attn-state-gap.md`. Open: whether
 `deepseek_mtp` on a dense model fails identically (same branch, no run), and whether
 a later ref implements the state (no later ref in this snapshot).
+
+**#1592** vllm-ascend v0.7.3.post1 (`c69ceac`) + vllm v0.7.3 (`ed6e907`), Kylin aarch64
++ 910B, Qwen2.5-32B: a chat request carrying `response_format: {"type":
+"json_object"}` answers `500 Internal Server Error` while plain chat works. The log
+prints three guided-decoding fallback warnings and dies at
+`xgrammar_decoding.py:89  vocab_type = xgr.VocabType.RAW`. Track: upstream
+guided-decoding **backend-selection loop** on a host where xgrammar cannot exist
+(`requirements-common.txt:24` marks it `platform_machine == "x86_64"`). This one
+delivered: the answer landed on the 8th assistant turn after ~5 checks — the
+warning-by-warning chain with `path:line`, `--guided-decoding-backend
+lm-format-enforcer` as the escape (including the verification that the per-request
+`xgrammar` default is stamped only for `json_schema`, so the server flag does apply),
+and why `--guided-decoding-backend outlines` cannot escape (the `json_object` rewrite
+preempts `outlines_decoding.py:127`) — with `findings.md` written before the final
+message. The one waste was a whole-file `cat SOURCES.json` on turn 1 (rule 7); its
+replacement, `scripts/sources-summary.sh`, was used by the same run two turns later.
+Page: `../serving-frontend-faults/guided-decoding-backend-aarch64.md`.

@@ -9,6 +9,23 @@ mixed decode+prefill batch faults. Routes: `../custom-ops-runtime-faults/index.m
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#3128** vllm-ascend v0.10.2rc1 (`048bfd5`) + vllm v0.10.2rc1 (`e017120`), one node,
+Qwen3-235B-A22B at `-dp 8 -tp 2 --max-num-seqs 8 --no-enable-expert-parallel
+--max-model-len 66560 --compilation-config '{"cudagraph_capture_sizes": [8,1]}'` with
+`HCCL_OP_EXPANSION_MODE=AIV`: the body is two lines of narrative (「单条推理请求在途重放时
+卡住，之后报RPC超时；多并发请求可以正常处理」) plus the env block — no log, no per-rank
+artefact. Track: RPC watchdog with a traffic-shape trigger. The recorded run loaded
+the skill, then spent every one of its turns deriving a DP collective-shape mismatch
+from source (`_sync_metadata_across_dp`, `execute_dummy_batch`, the MoE
+`get_dp_group().all_gather`, `_get_fused_moe_state`), was cut at the 16 K output cap
+and shipped **no answer**. That derivation was largely wasted: the pad target is
+closed by construction (the idle ranks join the same all_reduce), and the two facts
+that decide the next step — the idle ranks run `_dummy_run(1)` **eager** while the
+busy rank replays the bucket `pad_for_cudagraph` picks, and `[8,1]` maps a 1-token step
+to bucket 1 — are three file reads. Route now:
+`../hccl-and-hardware/dp-aclgraph-single-request-hang.md` +
+`scripts/dp-single-request-bucket.sh`; the mechanism remains unconfirmed.
+
 **#5236** vllm-ascend v0.12.0rc1 (`42ceaf08`) + vllm v0.12.0 (`4fd9d6a8`),
 Qwen3-235B-A22B on the `v0.12.0rc1` image: the body was the **empty template** (no env
 dump, no command, no traceback, no error code) and the whole symptom was the title,
@@ -233,3 +250,63 @@ multiprocess_mode推理只在V1版本支持"; the follow-up log's `parallel_stat
 2`, i.e. an instrumented tree, so the working V0 run does not make V0 supported. Route:
 `../hccl-and-hardware/dp-group-peer-close.md`; the classification row now lets the
 verdict land on the first turn.
+
+**#2754** vllm-ascend v0.10.1rc1 (`7e16b4a7`) + vllm v0.10.1.1 (`1da94e67`), `deepseek-v3.1-w8a8`, two
+Atlas 800 A2 (64G×8) nodes, launched per `docs/source/tutorials/multi_node.md` (DP4, DP-local 2, TP4,
+`--enable-expert-parallel`, `--max-num-seqs 16`, `--max-model-len 32768`, `HCCL_BUFFSIZE=1024`,
+`torchair_graph_config` + `ascend_scheduler_config` on). Graph capture dies on every rank at
+`compile_or_warm_up_model` → `capture_model` → `_compile_torchair_graph`: `EI0007 … Failed to allocate
+resource[qp] … [aicpu rank:7, … deviceLogicId:3, send_cq_depth:32768]. Reason: Memory resources are
+exhausted`, then `[Create][DestLink]Create Dest error!` for **all 15** peers, `GetHcomHiddenInputs …
+== ge::SUCCESS` failed, `Failed to init task index 207`, `Load graph failed, error code:1343225857`,
+`ERR03005 GRAPH internal error`. The pasted frame line numbers match this pin exactly
+(`torchair_model_runner.py:159,185,224`, `worker_v1.py:256`, `model_runner_v1.py:2583,2133`).
+Maintainer record: "the root cause is OOM", plus the question whether the card is 64 GB
+(docs:60 assumes 64G×8); the reporter answered 64×8, so capacity was not the mismatch and the budget
+config was the remaining axis. The recorded run got the phase, the all-peer DestLink refutation and
+the KV-before-capture ordering right, then spent its whole output budget on an unexported-source
+mechanism hunt (`cann/hccl`, `cann/hcomm`, `cann/ge` are `unavailable` here) and was **cut inside the
+first sentence of the answer** — the delivery failure, not the diagnosis, is the lesson. Route:
+`../hccl-and-hardware/qp-resource-exhausted-at-graph-load.md`.
+**#4323** vllm-ascend v0.11.0rc1 (`c5fe179c`) + vllm v0.11.0 (`b8b302cd`), Qwen3-32B at
+`-tp 4` with an `AngelSlim/Qwen3-32B_eagle3` draft (`num_speculative_tokens: 4`,
+`draft_tensor_parallel_size: 1`, `--max-model-len 4096`): v0.11.0rc0 answered 乱码 and
+0.11.0rc1 died on the first request — all four ranks in the same second with
+`SelfAttentionOperation setup failed!` + `atb::OperationSetup` inside
+`torch_npu/lib/libop_plugin_atb.so`, then `… the current working operator name is
+SelfAttentionOperation` / `ERR00100 PTA call acl api failed` at
+`spec_decode/eagle_proposer.py:476`. Track: ATB op-plugin **setup** failure surfacing at
+a proposer join point. The recorded run read the two layers correctly (the frame is not
+the owner — history `#447` carries the same wording over `_npu_reshape_and_cache` — and
+the ATB dump is this process's, not a replay) and eliminated two candidates by grep
+(`draft_tensor_parallel_size` has no consumer under `vllm/v1/**`, so the drafter runs at
+target TP; the pin's eagle3 e2e is single-card Llama-3.1 drafts only) — then shipped
+**no message text on any of its 26 turns**, the worst delivery arithmetic on record,
+with the ranked answer already written in the final reasoning block. The reporter's
+later comment supplies the counter-check the run had recommended and never got: with
+ACL graph on, `ASCEND_LAUNCH_BLOCKING=1` is refused (`ValidationError: ACL graph is
+incompatible with ASCEND_LAUNCH_BLOCKING=1`), and plog only repeats the same line — so
+the attribution order is `--enforce-eager` **then** blocking. Lessons in
+`../spec-decode-mtp/atb-op-setup-failure-at-proposer.md`; delivery in
+`delivery-discipline.md`.
+**#7635** vllm-ascend v0.17.0rc1 (`e20f0b1`) + vllm v0.17.0 (`b31e9326`), two A2
+nodes / 16 cards, Qwen3.5-397B-A17B-w8a8, `--tensor-parallel-size 8
+--data-parallel-size 2 --enable-expert-parallel`: engine start dies in `profile_run`
+with `call aclnnMoeDistributeDispatchV4 failed, error code is 561002` and the
+self-explaining line `moeExpertNum is 32, in case of unlayered, it must no more than
+24` (`MoeDistributeDispatchA2CheckAttrAndSetTiling`); the same command without EP
+starts. Track: MC2 MoE communication at startup. The recorded run read the number as
+experts **per card** (not the model's expert count), walked
+`select_moe_comm_method`'s A2 row and the `moe_expert_num = len(expert_map)`
+construction, and shipped the arithmetic (`512 // 16 = 32`) with the "no flag
+escapes it" proof — no `comm_alg` in the kwargs so A2 always dispatches unlayered,
+`HCCL_INTRA_*` only sets `need_expert_scale`, and `profile_run` always runs *at*
+`mc2_tokens_capacity` so capture sizes cannot dodge the MC2 point. The verdict landed
+on the first answer; the two ablations it offered (EP off, EP group ≥ 22 ranks) were
+right but it did not predict the project's own fallback. Caution from that session:
+`rg -rn '<pattern>'` is `--replace n`, so it silently rewrote its own matches and cost
+a turn — use `-n` alone. Reporter-confirmed afterwards (2026-04-02): **PR #7364**
+switches this case to ALL GATHER — service up, load test normal, expected comm cost —
+with per-card experts > 24 as the CANN memory-safety cap. Now
+`../feature-enable-recipes/moe-expert-parallel-with-dp.md` § Step 2b instead of a
+plog/HCCL hunt.

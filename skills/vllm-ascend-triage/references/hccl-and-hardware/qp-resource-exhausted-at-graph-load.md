@@ -31,6 +31,14 @@ Not this lane:
   failed … 207001`, `NPU out of memory`) → `../runtime-memory/index.md`. Same
   budget question, different reporting layer; the ladder below is still the
   budget one.
+- the same `EI0007 … Failed to allocate resource[qp]` / `Memory resources are
+  exhausted` arriving from an **MC2 MoE dispatch** — `call aclnnMoeDistributeDispatchV3
+  failed, error code is 561000` followed by `Nnopbase fails to invoke the
+  HcclAllocComResourceByTiling … ret = 4` and `NnopbaseExecutorGetMc2Num` — with **no**
+  `LoadGraph failed … ERR03005 GRAPH internal error` block and no torchair key in the
+  config → `mc2-dispatch-profile-run-hang.md` §Step 1: same refusal, different phase
+  (the process's first MC2 collective, which on v0.13.0rc1 precedes the KV pool), so the
+  KV budget is *not* the lever. Recorded #5947.
 
 ## Read it in this order
 
@@ -39,11 +47,15 @@ Not this lane:
    a **refused allocation of communication resources (QP / send-CQ / notify
    register) for the local device** — nothing launched and no edge was attempted
    far enough to fail on its own.
-2. **A DestLink line for *every* peer is the signature of that refusal.** In
-   #2754 rank 7 printed all 15 `dst_rank` lines (same- and cross-node) within the
-   same millisecond, and no `halShmemOpenHandle` / `507899` line appeared. That is
-   a wholesale abort of the local transport init, not an edge-set finding:
-   `scripts/hccl-link-pair-audit.sh` on this paste prints "all edges", which
+2. **A DestLink line for every peer in the transport plan is the signature of that
+   refusal.** In #2754 rank 7 printed all 15 `dst_rank` lines (same- and cross-node)
+   within the same millisecond, and no `halShmemOpenHandle` / `507899` line appeared.
+   Count the peers against the plan, not against `world_size − 1`: under the documented
+   A2 pair `HCCL_INTRA_PCIE_ENABLE=1` / `HCCL_INTRA_ROCE_ENABLE=0` the intra-node leg is
+   PCIe/SIO and only the RoCE peers can print `DestLink` at all — #5947's `rank[4]`
+   listed exactly its 8 remote `dst_rank`s (all `10.…22`) and none of its same-node
+   peers — still a wholesale abort of the local transport init, not an edge-set
+   finding, so `scripts/hccl-link-pair-audit.sh` on this paste prints "all edges", which
    refutes "one bad pair" by construction. A subset of edges is the *other* page.
 3. **Fields.** `aicpu rank:N` / `localUserrank:N` name the process that asked,
    `deviceLogicId:n` its local NPU (with DP4×TP4 that is a per-engine 0-3 slice,
@@ -74,6 +86,23 @@ weights + a KV cache sized by `--gpu-memory-utilization` + one `HCCL_BUFFSIZE`
 reservation per comm. A weight load that "succeeded" and a capture that fails is
 therefore the expected order when the budget is tight, and it is why the levers
 are gmu / `HCCL_BUFFSIZE` / graph mode rather than the checkpoint.
+
+## The phase depends on the ref — check it before choosing a lever
+
+The ordering above (`initialize_kv_cache` before `compile_or_warm_up_model`) is the
+v0.10.1.1 order behind #2754. At v0.13.0rc1 (`1b5d5ab`) an EP/DP MoE start whose
+`select_moe_comm_method` picks `MC2`/`FUSED_MC2` asks for its first QP/CQ set inside
+`profile_run`, in the extra `_dummy_run(mc2_tokens_capacity, with_prefill=True)` that runs
+*before* `super().profile_run()` and therefore before any KV allocation
+(`worker/model_runner_v1.py:2202-2208`; the arithmetic is
+`mc2-dispatch-profile-run-hang.md` §Step 1). Consequences for the answer: the KV pool and
+`--gpu-memory-utilization` are not the lever there, the batch that asked is
+capacity-sized (not `--max-num-batched-tokens`), and the levers are the MoE comm method,
+the derived capacity/`global_bs`, the per-card weight footprint (TP shape) and
+`HCCL_BUFFSIZE`. The paste usually carries no Python frame, so say which phase you
+inferred it from — the `LoadGraph failed` / `ERR03005` block (capture) or an
+`aclnn…Dispatch` + `HcclAllocComResourceByTiling` block (MC2 collective) — and ask for
+the one line that settles it if neither is present.
 
 ## Checks, cheapest first
 

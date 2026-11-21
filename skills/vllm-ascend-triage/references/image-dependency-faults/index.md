@@ -14,7 +14,10 @@ NNAL/ATB, driver) that a manual build must reproduce itself, and a missing
 The same ownership test covers the **Triton-Ascend compiler pair**: a kernel that
 fails to *compile* (`MLIRCompilationError`, `bishengir-compile … returned non-zero
 exit status 1`) belongs to the wheel/compiler that was installed into the image,
-not to vllm-ascend Python or the kernel's shapes.
+not to vllm-ascend Python or the kernel's shapes. The same wheel's **runtime**
+behaviour is here too: a Triton-Ascend extension op (`extract_slice`) that runs and
+returns wrong values is owned by the wheel and its test coverage, with the tree's own
+kernels audited separately (`triton-extension-op-silent-miscompute.md`).
 It also covers the **host C++ compile of a generated translation unit** that fails
 inside a *torch_npu* or *CANN* header (`use of undeclared identifier
 'aclOpExecutor'` at `AclOpCompileInterface.h`, `fatal error: 'cstdint' file not
@@ -105,12 +108,17 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   frame — `terminate called after throwing an instance of 'std::logic_error'`,
   `what(): basic_string::_S_construct null not valid`, then
   `RuntimeError: Engine core initialization failed … Failed core proc(s): {}` ->
-  `native-string-abort.md`: the stock-model discriminator, the three `python -c`
-  native probes, and `gdb -ex 'break std::__throw_logic_error'` to name the
-  `.so`. The checkpoint's config, processor and architecture are not the owner
-  (#8745 v0.13.0rc3 DeepSeek-V4-Flash and #10943 v0.20.2rc1 print the same two
-  lines; #10943's reporter confirmed the unmodified checkpoint crashes
-  identically and eight model-side changes moved nothing).
+  `native-string-abort.md`: **step 0 is the tutorial tab / image-tag match** — was
+  the pasted block the A2 or the A3 section of that model page, and does the log's
+  `EngineCore_DP<N>` prefix agree with the pasted `--data-parallel-size` (#11300
+  v0.22.1rc1 was closed by its reporter as "A3机器跑了A2的命令"; the same paste
+  carried `EngineCore_DP1`/`DP2` against a dp1 command) — then the stock-model
+  discriminator, the three `python -c` native probes, and
+  `gdb -ex 'break std::__throw_logic_error'` to name the `.so`. The checkpoint's
+  config, processor and architecture are not the owner (#8745 v0.13.0rc3
+  DeepSeek-V4-Flash and #10943 v0.20.2rc1 print the same two lines; #10943's
+  reporter confirmed the unmodified checkpoint crashes identically and eight
+  model-side changes moved nothing).
 - The report **is a pip resolution error about a requirement**, with no engine and no
   crash: `ERROR: Could not find a version that satisfies the requirement
   torch-npu==2.5.1.post1.dev20250619`, `No matching distribution found for <pkg>`, or
@@ -159,6 +167,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   BiSheng/AscendNPU-IR `.run` over the image → `triton-ascend-pair.md`. The phrase
   "Failed to compile custom operators with Triton Ascend" is usually the reporter's
   paraphrase; it is not the AscendC custom-op lane.
+- A Triton-Ascend **extension op returns wrong values** although the engine is
+  healthy — bf16 `extract_slice` at a non-32-byte-aligned start yielding foreign
+  values and zeros, `insert_slice`/`extract_slice` pairs in a hand-written kernel,
+  fp16 "works" but bf16 does not → `triton-extension-op-silent-miscompute.md`. Owner
+  is the pinned wheel (`triton-ascend==3.2.1` at v0.23.0rc1), not vllm-ascend Python;
+  the page carries the doc-versus-UT coverage gap, the print-path-versus-data-path
+  check, the dtype-versus-offset discriminator and the in-tree exposure grep.
 - A **host C++ compile of a generated TU** fails inside torch_npu's or CANN's own
   headers: `RuntimeError: Worker failed with error 'Failed to compile
   /tmp/tmpXXXX/launcher_cxx11abi1.cxx …'`, an include chain
@@ -203,7 +218,8 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   native module (glibc allocator text, no Python frame): which copy is loaded,
   allocator interposition, dependency-list correspondence.
 - `native-string-abort.md` — `terminate called after throwing … std::logic_error`
-  / `basic_string::_S_construct null not valid` at engine start.
+  / `basic_string::_S_construct null not valid` at engine start; the tutorial tab /
+  image-tag match is step 0, the native probes and the `gdb` owner search follow.
 - `nnal-atb-missing-library.md` — `libatb.so` / `libop_plugin_atb.so` unsourced
   NNAL roots, the `CANN: None` collector blind spot.
 - `abi-undefined-symbol.md` — the same NNAL/ATB component at the other failure
@@ -234,6 +250,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   at vllm-ascend v0.11.0), and the maintainer-confirmed answer on #5750 — do not add
   triton-ascend to these images, and move the release (v0.14.0rc1 needs none)
   rather than the compiler.
+- `triton-extension-op-silent-miscompute.md` — a Triton-Ascend extension op that runs
+  and computes the wrong values (`extract_slice` of a bf16 sub-tile at an unaligned
+  start): the wheel pin (`requirements.txt:20`), the doc claim (bf16 supported,
+  无特殊限制) against a UT that only slices 1-D fp32 at 2048-byte-aligned starts, the
+  lowering chain from `vec_ops.py:97-136` to `tensor::ExtractSliceOp`, the two runs
+  that separate dtype from offset, the host-side workaround ladder, and the 42
+  in-tree call sites that are aligned by construction today (#18345).
 - `host-cxx-compile-header-conflict.md` — a *host* clang/gcc compile of a generated
   TU (the triton-ascend `launcher_cxx11abi{0,1}.cxx` ABI probe, or a generated
   kernel source stopping on a missing standard header, #3135) failing inside a

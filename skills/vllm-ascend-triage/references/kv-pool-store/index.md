@@ -42,6 +42,15 @@ transport topology to inspect.
   2+ KV cache groups) → `cross-engine-lookup-zero-hits.md`. Do not re-check the store's
   put/get first: hash granularity (`gcd`/`min`), group-granularity chunk keys and the
   dense-chain + `cache_transfer_granularity` rounding are what produce the 0.
+- Nothing fails: the pool is attached, requests are served, and the **cold
+  (cache-miss) requests are several times slower** than the same deployment without
+  the pool while hits are faster ("初始 TTFT 慢 6-7 倍，命中后很快"), or a benchmark's
+  first row is 100 % cold against warm rows → `pool-attached-cold-request-cost.md`.
+  The miss path does no load work at all; what only a miss pays is the full-KV put
+  into the pool (plus, on A2, the store init/`all_gather`) — and the pinned sample
+  `mmc-local.conf` sets an **A3** protocol (`device_sdma`) while the table recommends
+  `device_rdma` for A2. Split one-time init from steady state by timing the same
+  prompt twice before reading the connector.
 - PD on a hybrid linear-attention model and the decode node emits corrupt output →
   `../pd-disaggregation/hybrid-state-transfer.md`.
 - The connector module itself will not import (`ascend_transport.so`, `No module
@@ -92,6 +101,12 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   granularity, the dense chain from chunk 0 with the `min` over groups and rounding to
   `cache_transfer_granularity`, and store/lookup masks that differ), then the three checks
   that separate them.
+- `pool-attached-cold-request-cost.md` — the deployment serves and only the *cold*
+  requests are slow: the miss/hit cost asymmetry at v0.18.0rc1 (`load_async` default
+  `False` makes the *hit* path blocking; the save runs off-step but syncs an NPU
+  event per layer), the A2 `all_gather` + `register_buffer` branch, the
+  `device_sdma`-in-the-sample vs `device_rdma`-for-A2 doc trap with
+  `HCCL_INTRA_ROCE_ENABLE=1`, and the five checks in order (same-prompt-twice first).
 - `hccl-onesided-store-put.md` — the request succeeds but the pool stays empty:
   `HcclBatchPut` `hccl_result = 4` (generic `HCCL_E_INTERNAL`) with
   `error_codes=[-1]` (the store's generic code, not `-200` out-of-space), the

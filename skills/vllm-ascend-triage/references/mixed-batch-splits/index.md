@@ -38,6 +38,13 @@ Two entry shapes, same class:
   (`../feature-enable-recipes/index.md`) as a card/flag problem, and do not ask
   for an MTP-only ablation: the offset only exists because MTP is on.
 
+A **Python `UnboundLocalError` in `mla_v1.py`'s forward** (`decode_hs_or_q_c`, then
+`decode_k_pe` after a hand patch) under `torchair_graph_config` is *not* this topic even
+though a mixed step is what reaches it: no unit is mis-sliced, a branch guarded by
+`not self.torchair_graph_enabled` was simply never taken, and the answer is the
+torchair × chunked-prefill config contract —
+`../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md`.
+
 Not this topic: a pure decode-only or prefill-only crash (read that backend's own
 page), **the variant the operator itself refuses** — `EZ9999 … When layout is TND,
 queryT(N) must be equal to the last element of actualSequenceLengthQ(M)`, which is

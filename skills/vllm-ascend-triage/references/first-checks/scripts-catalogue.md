@@ -37,6 +37,16 @@ after that keeps the header, not this text.
   reconciles, 1 = no common step count (mixed windows / broken collection), 2 =
   unusable input. Table lines are `<name> <count>` / `<name>,<count>`; a garbled
   OCR row is listed as skipped rather than guessed.
+- `scripts/op-shape-lane.sh <vllm-ascend-root> [op-name …]` — the launch-lane check
+  behind a profiler row with `N/A` shapes (#9026): with no op name it prints the
+  `CUSTOM_OPS`/`CUSTOM_OPS_ARRAY` lists of `csrc/build_aclnn.sh`, the `EXEC_NPU_CMD`
+  and `SetCustomHandler` counts in `csrc/`, and every customHandler site; per op name
+  it prints the build-list hits, the csrc files that mention it with their binding
+  style, and one verdict — `aclnn-built` (an `aclnn<Op>` entry point exists, shapes
+  expected), `raw-kernel-lane` (the op's own adapter launches from a
+  `SetCustomHandler` lambda and never calls `EXEC_NPU_CMD`, so `N/A` is the expected
+  outcome) or `unknown at this pin`. It extracts sites; it does not prove what the
+  installed CANN reports.
 - `scripts/quant-scale-dtype-audit.py <vllm-ascend-root>` — the sibling sweep for a
   quant-scale dtype gate (`EZ1001 … Tensor scale not implemented for DT_FLOAT16`,
   `161002`): prints every weight-side scale handed to `npu_quant_matmul` /
@@ -64,6 +74,19 @@ after that keeps the header, not this text.
   `ps -o stat,wchan`. Its per-rank line is arithmetic, **not** a phase bound —
   vLLM allocates the params on the device before reading
   (`base_loader.py:53-64`), so equal numbers prove nothing (#11095).
+- `scripts/recipe-tab-diff.py --page <tutorial-page.md> [--section N.N] [--command FILE]
+  [--tab NAME]` — which hardware tab a serve command belongs to (#11300). The model
+  pages repeat their deployment section per SoC (`::::{tab-item} A3 series` / `A2
+  series`, `:sync:`-paired) and the blocks are not interchangeable (dp/tp,
+  `--max-model-len`, `--api-server-count` in one tab only, `enable_dsa_cp` in one tab
+  only, and a `-a3` image tag beside an unsuffixed A2 one). Prints per tab the serve
+  line's `path:line`, the flags whose value differs from another tab, the flags only
+  that tab has, plus its `export`/`IMAGE` lines; with `--command` it tokenises the
+  reporter's script, prints the dp/tp/`max-model-len`/`--api-server-count` it actually
+  asks for and each tab's distance from it, then names the closest tab. The page,
+  not the script, is the evidence — cite the `path:line` it prints. Exit 0 even when
+  no tab matches (that is the finding); 2 for a missing page/command file. Step 0 of
+  `../image-dependency-faults/native-string-abort.md` uses it on a startup abort.
 - `scripts/history-titles.sh [-i] [-b] '<regex>' [root] [limit]` — precedent index,
   one `<file> :: <title>` line per matching history issue (rule 8: titles first).
   **Title-only is the default**: `-b` adds whole-body matching, and a title-only
@@ -227,7 +250,13 @@ after that keeps the header, not this text.
   checkpoint's root tensor-name prefixes from the safetensors header (no device, no
   weight load), plus `lm_head` presence, `config.json` `architectures` and any
   `config_sentence_transformers.json`; exit 1 = root-level names, which cannot load into a
-  `…ForCausalLM` class (#5549).
+  `…ForCausalLM` class (#5549). `--scales` switches it to the quantisation census:
+  every `.scale` / `.weight_scale` / `.weight_scale_inv` / `.quant_bias` key grouped
+  by module family, plus `quant_model_description.json` and any
+  `quantization_config`; it separates "quantised export, wrong/absent method" from
+  "full-precision release whose few FP8-stored projections carry a scale" behind a
+  load-phase `KeyError: '<prefix>.weight_scale'`
+  (`../startup-failures/weight-scale-keyerror-quant-variant.md`).
 - `scripts/checkpoint-header-scan.py <model-dir|*.safetensors>` — is each shard a
   safetensors *container*: per file the size, whether the first 8 bytes are a Git-LFS
   pointer / zeros / HTML, the decoded header length, the tensor count and a `BAD`

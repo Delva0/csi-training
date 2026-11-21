@@ -661,3 +661,15 @@ cap inside cause 2 — the matrix, ladder and scope never shipped. The page now 
 the coverage verdict (the 310P prefix-cache test and the 310P MTP test never combine
 the features) and the three launches that decide it:
 `../accuracy-benchmarks/mtp-prefix-cache-310p.md`.
+
+- **#16116** — vllm `v0.26.0` + vllm-ascend `v0.26.0rc1`, 910 8-card, CANN 9.1.0:
+  "[Bug]: DeepSeek-V4-Pro thinking stream loops in delta.reasoning and never emits content", a
+  well-instrumented body (376 SSE chunks all `delta.reasoning`, `output_token ==
+  max_completion_tokens == 77817`, an ~812-character self-rejection cycle, the request and gateway
+  metadata pasted). The recorded run answered in 21 messages — every turn carried draft text, the
+  verdict moved into the message at turn 3 — and shipped the full ranked answer at the cap of its
+  own budget rather than the harness's: `max_completion_tokens` outranks `max_tokens`
+  (`chat_completion/serving.py:307-311`), no loop brake exists, `thinking_token_budget` is a no-op on
+  NPU (`npu_input_batch.py:56-59`), and `reasoning_effort: high` on DeepSeek-V4 is a prompt prefix
+  (`patch_deepseek_v4_thinking.py:25-48,85-86`) that *asks* for the enumerated-rejection loop. Page:
+  `../accuracy-benchmarks/reasoning-output-routing.md`, last section.

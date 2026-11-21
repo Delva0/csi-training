@@ -29,7 +29,7 @@ gates; this topic keeps the per-track detail that used to sit beside them.
 
 ## Routes
 
-- `signature-routes/index.md` — the 155-row classification index (log fragment →
+- `signature-routes/index.md` — the classification index (log fragment →
   track A/B/C/D → owning page), moved out of `SKILL.md` and split into five pages by
   the shape's home track (startup/load, device ops, serving/output, parallel/KV,
   capability/docs/throughput). Its scope defines the four tracks and routes to the

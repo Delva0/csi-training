@@ -1,5 +1,9 @@
 # Worked case #9335: 2-NPU stage deploy of Qwen3-Omni-30B-A3B on 910B
 
+A **310P** omni question is not this page: no `-310p` omni image exists, and the source
+build plus the per-stage `platforms.npu` block are
+`../soc-platform-paths/310p-omni-model-deploy.md`.
+
 Report: vllm-ascend alone serves text models with `tensor_parallel_size=2` on the
 same two 910B cards; a **vllm-omni** stage-based deploy (stage 0 = thinker, stages
 1+2 = talker/code2wav) works from the GPU docs' 2-device example but not on NPU;

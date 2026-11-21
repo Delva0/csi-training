@@ -24,7 +24,12 @@ Inherit the rules in SKILL.md, plus these:
    **billions** — `671` for DeepSeek-R1, not `671e9`; the script refuses the raw
    count, because every result of that mistake is 1e9× and the verdict inverts). A sum above
    1.0 on any device is **infeasible by construction** and is not a scheduler,
-   connector or device-visibility bug.
+   connector or device-visibility bug. Each ratio is **per-instance**
+   (`vllm/config/cache.py:66-74` at v0.22.1: "only applies to the current vLLM
+   instance"), so the sum is a feasibility check — never a licence to inflate one
+   instance to cover another's usage, and a start-up that fails at KV sizing while
+   the device has free HBM is that other instance's memory being charged twice
+   (`../runtime-memory/kv-budget-per-instance-vs-device-global.md`).
 2. **The device-visibility env var is the second half of every such report.**
    On Ascend the control variable is `ASCEND_RT_VISIBLE_DEVICES`
    (`vllm_ascend/platform.py:101` at v0.19.1rc1; every multi-node launch script
@@ -71,6 +76,52 @@ Inherit the rules in SKILL.md, plus these:
    assigned as … EP rank …` — and they are one grep, while decoding the OOM's
    byte count needs a `config.json` the report never carries:
    `moe-load-oom-expert-shard.md`.
+
+7. **A pasted multi-node launch line is audited before any layout is designed.**
+   Four structural checks, each with its own error text, all cheaper than the
+   sizing arithmetic — and the reporter has usually already run one such line
+   ("I tried the official 5.2 section and can hardly run it up"):
+   - *World size vs the cards in that one command.* `TP × PP × DP` must be
+     satisfiable by the devices the command owns. A `--tensor-parallel-size 16` on
+     an 8-card node means one engine spanning nodes, which at vllm v0.18.0 is
+     `--nnodes N --node-rank k` — accepted **only** with
+     `--data-parallel-backend mp` (`assert self.data_parallel_backend == "mp" or
+     self.nnodes == 1`, `vllm/engine/arg_utils.py:1588-1589`) — or the Ray backend
+     (`../startup-failures/ray-npu-resource-label.md` owns that one's failure).
+     The shape the vllm-ascend tutorials ship is the other one: **DP per node × TP
+     inside the node** (`../feature-enable-recipes/moe-expert-parallel-with-dp.md`
+     §4, and `moe-load-oom-expert-shard.md` for what the missing DP group does to
+     the expert shard).
+   - *`--headless` is a role, not a mode.* It sets `api_server_count = 0`
+     (`vllm/entrypoints/cli/serve.py:59-67` at v0.18.0) and `run_headless` then
+     demands `data_parallel_size_local > 0` (`serve.py:167-168`), so a pasted
+     headless line with no `--data-parallel-*` group produces a worker-only
+     process and **nothing listening on the client's port** — which is why "it
+     failed" arrives with no engine error at all. The node whose address the
+     client uses must not be headless.
+   - *Long-flag spelling.* vLLM rewrites `_`↔`-` inside `--` flags
+     (`vllm/utils/argparse_utils.py:237-246`), so `--speculative_config` is not a
+     typo; a misspelled word (`--pipeline-paralle-size`) is not repaired and dies
+     at parse time as `unrecognized arguments` before any device work. Diff the
+     paste's long flags against the tutorial block first.
+   - *Which checkpoint, and which per-card HBM* — rules 5-6 — and note the docs may
+     ship **no** recipe for the weights asked about: on Qwen3.5-397B-A17B every
+     serve block in the pinned tutorial is the `-w8a8-mtp` artifact, while its BF16
+     requirement line is 2× A3 (64G×16) or **4× A2 (64G×8)**
+     (`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:21-22`, MP block `:151`,
+     Ray section `:262`, at v0.18.0 `e18643f8`). `Ascend910B4/-1` is a real device
+     id (`cann/hcomm/src/platform/inc/adapter/adapter_hal.h:47-48`) but its HBM
+     size is not in that tree — `npu-smi info` (65536 vs 32768 MB per card)
+     decides the arithmetic. "No recipe for the weights you asked about, and the
+     document's own minimum is double the HBM you name" is a complete sizing
+     answer.
+   Precedent: #13591 asked for a non-quantized 4×800I A2 recipe, and its next
+   public message was a hand-assembled Ray line carrying three of these defects
+   (`--tensor-parallel-size 16 --pipeline-paralle-size 2 --headless`, no
+   `--nnodes`, no `--data-parallel-*`). Audit that shape in the first answer
+   rather than choosing the path for the reporter: "don't use Ray" is a
+   preference the tutorial's own Ray section does not support — say which path
+   your recipe uses and why, then correct the line they already have.
 
 Conditional routes:
 

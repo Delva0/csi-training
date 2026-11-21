@@ -18,6 +18,20 @@ Verified at vllm v0.12.0 `4fd9d6a8` + vllm-ascend v0.12.0rc1 `42ceaf08`; the
 per-worker-config contract is upstream's and has been stable across v1 releases,
 but re-grep the line numbers below at another pin.
 
+**Re-verified at vllm `v0.19.1` (`b1388b1f`) + vllm-ascend `v0.19.1rc1` (`da421afa`),
+and the anchors moved.** Recorded #10910: 2 nodes × 16 910C, Qwen3-235B-A22B (94
+layers), `--distributed-executor-backend ray`, and the reporter's own matrix decides it
+— `DP=1,PP=1,TP=32` works, single-node `PP=2,TP=8` works, `PP=4,TP=8` dies, `DP=2`
+fails elsewhere (see `../startup-failures/ray-dp-placement-group-npu-exhausted.md`).
+At this pin: `global_rank` frozen at `v1/worker/worker_base.py:199`, the index at
+`:303` (`kv_cache_config = kv_cache_configs[self.global_rank]`), **`adjust_rank` is
+`v1/executor/ray_utils.py:54-61`** — a `rg "def adjust_rank" v1/worker/` returns
+nothing at this pin and costs a turn — the re-rank sort is
+`v1/executor/ray_executor.py:247-276` (`0 if ip == driver_ip else 1, ip_counts[ip], ip`,
+then `collective_rpc("adjust_rank", …)` at `:276`), and `collective_rpc` walks the
+sorted `self.workers`. So TP-only survives (every config carries the same 94 names)
+while PP>1 does not, which is exactly the reporter's control pair.
+
 **Not** the offloading page: `../upstream-downstream-drift/kv-offloading-layer-coverage.md`
 covers the same *key shape* raised in `offloading_connector.py register_kv_caches`
 from a layer-**type** filter. Decide by the frame, not the key: `initialize_kv_cache

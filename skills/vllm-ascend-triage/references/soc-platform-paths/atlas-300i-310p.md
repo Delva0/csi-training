@@ -10,6 +10,12 @@ For "there is no 310P artefact for my machine" (arm64 host, an arm64 tag that pu
 amd64, an aarch64 wheel) the owner is the image pipeline, not this page:
 `../image-dependency-faults/image-arch-and-tag-availability.md`.
 
+Two *runtime* shapes on this SoC are not this page's either: an op that lands on the
+CPU/AICPU fallback (`507018` "aicpu execution is abnormal" / `funcName=RunCpuKernel` /
+`IndexPut` / `<Op>Operation setup failed!`) is `310p-cpu-fallback-op-fault.md`, and a
+non-fp16 KV cache (`--kv-cache-dtype fp8`) refused at the first store is
+`310p-kv-cache-dtype.md`. This page owns the gates, the docs and the startup lanes.
+
 ## The documented status (quote it, then move on)
 
 - `docs/source/faqs.md:18`: "[Experimental] Atlas 300I inference series (Atlas
@@ -354,6 +360,16 @@ for that release even though the image is not byte-verified.
   a segfault dump as this allocation
   (`../hccl-and-hardware/worker-segfault-no-python-frames.md`,
   `## The startup variant`).
+- **Trap: the 310P KV budget charges device-global HBM, so a small model can be told
+  there is no room.** `_310p/worker_310p.py:96-102,106,128-130` derives
+  `non_torch_memory_cleared_by_empty_cache` from `mem_get_info()` (total − free −
+  reserved, i.e. every process on the die) and subtracts it *in addition to* the
+  instance-local `non_kv_cache_memory` (`#14274`: `Available KV cache memory: 0.09
+  GiB (halved for workspace)` for Qwen3-0.6B at `gmu=0.5` with ≈23 GiB free). The
+  `(halved for workspace)` suffix identifies this override; `gpu_memory_utilization`
+  is a per-instance limit, so raising it is only a bounded workaround, and
+  `--kv-cache-memory` is inert on 310P even though the inherited log recommends it →
+  `../runtime-memory/kv-budget-per-instance-vs-device-global.md`.
 
 ## At v0.22+/v0.23: a quantized model that loads and then dies in an op
 

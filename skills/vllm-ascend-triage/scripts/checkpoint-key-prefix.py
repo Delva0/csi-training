@@ -19,6 +19,17 @@ Usage:
   uv run --no-project python checkpoint-key-prefix.py /model/Qwen3-Embedding-0.6B
   uv run --no-project python checkpoint-key-prefix.py model-00001-of-00002.safetensors
   uv run --no-project python checkpoint-key-prefix.py - < model.safetensors.index.json
+  uv run --no-project python checkpoint-key-prefix.py --scales /model/DeepSeek-V4-Flash
+
+``--scales`` switches to the quantisation census instead: which ``.scale`` /
+``.weight_scale`` / ``.quant_bias`` tensors the checkpoint carries, grouped by module
+family, plus whether the directory declares a quantisation at all.  It answers the
+mirror question of the prefix mode — a load-phase ``KeyError: '<param>.weight_scale'``
+means the checkpoint owns a scale the engine built no parameter for, and the census
+says whether the served directory is a quantised export (then the ``--quantization
+ascend`` flag/method is the question) or a full-precision release whose few
+FP8-stored projections ship a per-tensor scale (then the weight *variant* is the
+question).  See references/startup-failures/weight-scale-keyerror-quant-variant.md.
 
 Exit status: 0 = weights read, 1 = root-level (unprefixed) tensor names found,
 2 = no safetensors weights could be read (ask the reporter for `ls` of the dir).
@@ -97,12 +108,109 @@ def load_json(path):
         return None
 
 
+QUANT_SUFFIXES = (
+    ".weight_scale_inv",
+    ".weight_scale",
+    ".quant_bias",
+    ".weight_offset",
+    ".input_scale",
+    ".scale",
+)
+
+
+def quant_suffix(name):
+    for suf in QUANT_SUFFIXES:
+        if name.endswith(suf):
+            return suf
+    return None
+
+
+def module_family(base):
+    """Strip the layer/expert indices so one line per module kind remains."""
+    parts = base.split(".")
+    keep, skip_next = [], False
+    for tok in parts:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok in ("layers", "experts", "mtp") and tok != parts[-1]:
+            skip_next = True
+            continue
+        if tok in ("model",):
+            continue
+        keep.append(tok)
+    return ".".join(keep) or base
+
+
+def report_scales(names, source, path):
+    base_dir = os.path.dirname(os.path.abspath(path)) if os.path.isfile(path) else path
+    cfg = load_json(os.path.join(base_dir, "config.json"))
+    desc = load_json(os.path.join(base_dir, "quant_model_description.json"))
+
+    kinds, families, examples = {}, {}, {}
+    n_quant = 0
+    for n in names:
+        suf = quant_suffix(n)
+        if suf is None:
+            continue
+        n_quant += 1
+        kinds[suf] = kinds.get(suf, 0) + 1
+        fam = module_family(n[: -len(suf)])
+        families[fam] = families.get(fam, 0) + 1
+        examples.setdefault(fam, n)
+
+    print(f"tensor source: {source}")
+    print(f"tensors: {len(names)}; quantisation tensors: {n_quant}")
+    if kinds:
+        print("  by kind: " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items(), key=lambda kv: -kv[1])))
+        print(f"  by module family: {len(families)} distinct")
+        for fam, cnt in sorted(families.items(), key=lambda kv: -kv[1])[:15]:
+            print(f"    {fam:52} {cnt:5d}   e.g. {examples[fam]}")
+        if len(families) > 15:
+            print(f"    ... {len(families) - 15} more families")
+
+    qcfg = None
+    if cfg is not None:
+        qcfg = cfg.get("quantization_config") or cfg.get("compression_config")
+    print()
+    print("quantisation declarations:")
+    print(f"  quant_model_description.json:  {'present (modelslim/msmodelslim export)' if desc is not None else 'absent'}")
+    print(f"  config.json quantization_config/compression_config: {qcfg if qcfg is not None else 'absent'}")
+    if cfg is None:
+        print("  config.json:                   not found next to the weights")
+
+    print()
+    print("verdict:")
+    if n_quant == 0:
+        print("  no scale-like tensors: this directory cannot produce a")
+        print("  `KeyError: '<param>.weight_scale'`. The failing name came from another")
+        print("  tree — re-check the served path, the bind mount and any cached copy")
+        print("  (`vllm serve` on a mount root rather than on the checkpoint dir).")
+    elif desc is not None or qcfg is not None or len(families) >= 4:
+        print("  a quantised export: scales cover the main linear/MoE families and/or the")
+        print("  directory declares a quantisation. The question is whether the engine")
+        print("  selected the matching method (--quantization ascend, the flag, and the")
+        print("  checkpoint's own description file) ->")
+        print("  references/startup-failures/quantization-method-gate.md (section B).")
+    else:
+        print("  a full-precision release with a few FP8-stored projections: scales are")
+        print("  confined to a handful of module families and nothing declares a")
+        print("  quantisation, so the engine builds those linears unquantised and has no")
+        print("  `weight_scale` parameter for the scale the loader meets -> compare the")
+        print("  served directory against the tutorial's weight list and serve the")
+        print("  documented quantised variant with `--quantization ascend`:")
+        print("  references/startup-failures/weight-scale-keyerror-quant-variant.md")
+    return 0
+
+
 def main(argv):
-    if len(argv) != 2:
-        print("usage: checkpoint-key-prefix.py "
+    flags = [a for a in argv[1:] if a.startswith("--")]
+    positional = [a for a in argv[1:] if not a.startswith("--")]
+    if flags not in ([], ["--scales"]) or len(positional) != 1:
+        print("usage: checkpoint-key-prefix.py [--scales] "
               "<model-dir|*.safetensors|*.index.json|->", file=sys.stderr)
         return 2
-    path = argv[1]
+    path = positional[0]
 
     try:
         names, source, _files = collect(path)
@@ -112,6 +220,9 @@ def main(argv):
               "`Loading safetensors checkpoint shards: ... N/N` line, or a "
               "`config.json` paste — no verdict without the key list.")
         return 2
+
+    if "--scales" in flags:
+        return report_scales(names, source, path)
 
     # Distinct first components, in first-seen order, with counts.
     order, counts = [], {}

@@ -128,6 +128,44 @@ shipped recipe exists and carries the project's not-recommended position; no
 `tests/e2e/**` config runs it — so the verdict is neither "unsupported" nor
 "validated", and the reporter's "EP does not work on 2×A2" is not yet established.
 
+## Step 3b — when the text is `EI0007/qp` + `561000`, not `507014`
+
+The same extra dummy run can fail as a **refused allocation** rather than a timeout:
+`call aclnnMoeDistributeDispatchV3 failed, error code is 561000`, then
+`Allocation_Failure(EI0007): Failed to allocate resource[qp] … send_cq_depth:32768 …
+Memory resources are exhausted`, `DestLink` lines and `HcclAllocComResourceByTiling …
+ret = 4` — no `fault kernel_name` line, no `ERR02005`. Everything above still holds for
+the arithmetic (`mc2_tokens_capacity`, `global_bs`, per-rank derivation) and for the
+`HCCL_INTRA_*` reading; what changes is the lever. Recorded #5947 (v0.13.0rc1, 2×A2,
+DeepSeek-R1-0528-W8A8, DP4×TP4, EP, MTP 3, `FULL_DECODE_ONLY`, `HCCL_BUFFSIZE=200`):
+
+- **The phase is not in that paste.** There is no Python frame and no `LoadGraph failed`
+  block, so do not present `profile_run` as established: name the block you inferred it
+  from (an `aclnn…Dispatch` + `HcclAllocComResourceByTiling` pair is an MC2 collective,
+  `LoadGraph failed … ERR03005` is torchair capture) and put the missing line in the ask
+  list. `qp-resource-exhausted-at-graph-load.md` owns the capture variant.
+- **Do not derive the CQ depth from the batch.** `32768 ≠ max_num_batched_tokens × top-k`
+  is a coincidence hunt: the batch that asks is `capacity` tokens (64 in that run, from
+  `cudagraph_capture_sizes [4,16,32,48,64]` and TP4), and `send_cq_depth` is a request
+  field of the transport, not a reporter knob (topic index rule above).
+- **Read the run from the engine's own config line, not from the body.** The
+  `non-default args` dict plus the `Initializing a V1 LLM engine … with config:` line give
+  TP/DP/DP-local, `enable_prefix_caching`, `enable_chunked_prefill`, `async_scheduling`,
+  the capture sizes and `max_cudagraph_capture_size`; #5947's body claimed TP8/DP8 while
+  the log ran TP4/DP4/DP-local 2 (which is what makes 47.2958 GB of weights per card
+  possible on 16 dies), and the log's engine line carried `enable_prefix_caching=True` /
+  `enable_chunked_prefill=True` that the CI recipe below explicitly avoids.
+- **Recipe diff, one file:** `tests/e2e/nightly/features/test_mtpx_deepseek_r1_0528_w8a8.py`
+  at v0.13.0rc1 `1b5d5ab` is the project's own R1-0528-W8A8 launch: `HCCL_BUFFSIZE=1024`
+  (`:72`), DP2×TP8 with EP (`:87-90`), `--no-enable-prefix-caching` (`:86`),
+  `--max-model-len 40960 --max-num-seqs 14`, and per MTP depth — mtp2 `:101-105`
+  (`--max-num-batched-tokens 4096`, `gpu_memory_utilization 0.92`), mtp3 `:108-114`
+  (`HCCL_OP_EXPANSION_MODE=AIV`, `--max-num-batched-tokens 2048`, `0.9`,
+  `FULL_DECODE_ONLY` with `cudagraph_capture_sizes [56]`). Two axes in #5947's run differ
+  from it and both change the per-card budget or the dispatch path: TP4 instead of TP8
+  (non-expert weights sharded 4 ways), and prefix caching/chunked prefill left on. Quote
+  the file; do not assemble a launcher from the constraints.
+
 ## Step 4 — ranking, ladder, artefacts
 
 **Before the ranking: if the reporter already ran the env matrix, do not re-issue

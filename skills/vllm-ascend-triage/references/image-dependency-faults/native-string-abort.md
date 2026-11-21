@@ -2,7 +2,8 @@
 
 Symptom, verbatim (`#8745` v0.13.0rc3 + HDK 25.5.2, DeepSeek-V4-Flash; `#10943`
 v0.20.2rc1 + CANN 8.2.RC1, `nvidia/LocateAnything-3B` through
-`TransformersMultiModalForCausalLM`):
+`TransformersMultiModalForCausalLM`; `#11300` v0.22.1rc1 `5f6faa0` + vllm v0.22.1, a
+DeepSeek-V4-Flash-w8a8-mtp tutorial deployment with `--data-parallel-size` > 1):
 
 ```text
 terminate called after throwing an instance of 'std::logic_error'
@@ -17,6 +18,20 @@ ModelNetLoaderElastic` (#8745), or `Initializing a V1 LLM engine (v…) with
 config: …` (`vllm/v1/engine/core.py:108-113` at the pinned vllm v0.20.2,
 `bc150f5`, #10943). `Failed core proc(s): {}` is a generic parent-side message —
 the empty set is not evidence about which rank died.
+
+**Release-scoped correction**: the "no Python traceback / no per-rank worker prefix"
+shape above is true for #8745 and #10943 but **not** at v0.22.1rc1, where #11300's
+paste carries `(EngineCore_DP1 pid=1036)` prefixes and a full stack —
+`multiproc_executor.py:200 _init_executor` → `:747 wait_for_ready` →
+`Exception: WorkerProc initialization failed due to an exception in a background
+process. See stack trace for root cause.`, then the child's
+`multiprocessing/process.py:314 _bootstrap` → `vllm_ascend/patch/platform/patch_balance_schedule.py:650`.
+Every one of those frames is the *reporting* path: `wait_for_ready` re-raises the
+child's death and the balance patch only re-dispatches `run_engine_core`. The root
+cause is still the two `terminate`/`what():` lines the child printed above them, so
+do not chase `wait_for_ready`, the balance patch or `--model-loader-extra-config`
+(`Registered model loader …RForkModelLoader` is printed unconditionally by
+`vllm_ascend/__init__.py:56-63` and is merely the last line before the child dies).
 
 ## What the text proves, and what it does not
 
@@ -51,6 +66,38 @@ the empty set is not evidence about which rank died.
 
 ## Steps
 
+0. **Before any probe: was this command the one for these cards?** The model pages
+   tab their deployment section per SoC and the tabs are **not** interchangeable.
+   At v0.22.1rc1 `docs/source/tutorials/models/DeepSeek-V4-Flash.md` §5.1, the A2
+   tab (`:146-191`) is `--data-parallel-size 1 --tensor-parallel-size 8
+   --max-model-len 133120 --max-num-batched-tokens 8192 --max-num-seqs 32
+   --no-enable-prefix-caching` plus `"enable_dsa_cp": true` (`:189`), while the A3
+   tab (`:194-238`) is dp4/tp4, `--max-model-len 1048576`,
+   `--max-num-batched-tokens 10240`, `--api-server-count 1`, `--max-num-seqs 64` and
+   **no** `enable_dsa_cp`; the image tags differ too (`:51` `…|<ver>|-a3` versus
+   `:94` the unsuffixed A2 tag). #11300 is the worked instance: the reporter's image
+   was `vllm-ascend:v0.22.1rc1-a3`, the command they pasted is **the A2 block**
+   (dp1/tp8, `--max-model-len 133120`, `"enable_dsa_cp": true`), the log's
+   `EngineCore_DP0`/`DP1`/`DP2` lines imply dp ≥ 3, and the thread closed with the
+   reporter's own "已解决，A3机器跑了A2的命令" — the A2 block on the A3 machine. So
+   this paste disagrees with itself on two axes at once (command vs log dp, command
+   vs image tag), which is exactly what one grep settles. That is why the tab check
+   is step 0 and not a footnote: it costs one command
+   (`uv run --no-project python scripts/recipe-tab-diff.py --page <page>
+   --section 5.1 --command <the reporter's script>`), it is decided entirely in the
+   pinned tree, and it is the only hypothesis in this family the reporter can
+   settle in one line. Two guard rails, both from the same thread:
+   - **The log's process names are the real readout of what ran.** `EngineCore_DP<N>`
+     exists only when `data_parallel_size > 1` (vllm v0.22.1 `0decac0`,
+     `vllm/v1/engine/utils.py:136,151`; `vllm/v1/engine/core.py:1104-1110`), so a
+     paste carrying `EngineCore_DP1`/`DP2` beside `--data-parallel-size 1` is two
+     different launches. #11300 pasted exactly that pair, and the DP-prefixed shape
+     matches the **A3** dp4 tab — never assume the pasted command produced the
+     pasted log.
+   - **The tab is an eliminator, not a closure.** The same reporter pasted the
+     identical two lines again 15 minutes later labelled "A3命令报错". If the
+     matching tab still aborts, the recipe lane is closed with that one datum and
+     steps 1-4 below are live; say so, and leave the null-pointer mechanism open.
 1. **Decide whether the model is involved at all — one run, same host, same
    image.** Serve a stock text checkpoint with the same flags:
    `vllm serve Qwen/Qwen2.5-0.5B-Instruct --enforce-eager --max-model-len 4096`.
@@ -112,12 +159,18 @@ the empty set is not evidence about which rank died.
   start, not a bad checkpoint and not an unsupported architecture — the model never
   reaches the device. Say that the two model-side questions the reporter will ask
   ("is my config wrong", "is the arch registered") are already answered no.
-- Cheapest first: the stock-model run, the three probes, then `gdb`/`catch throw`
-  output to name the `.so`; a working later image if one is known for that
-  hardware.
+- Cheapest first: the tab/image-tag match against the reporter's card generation
+  (step 0 — quote the dp/tp/`max-model-len`/`enable_dsa_cp` diff, and the
+  `EngineCore_DP<N>` prefix as the check that the pasted command is the one that
+  ran), then the stock-model run, the three probes, then `gdb`/`catch throw` output
+  to name the `.so`; a working later image if one is known for that hardware.
 - What to send back: the stock-model result, the three probe outputs, the gdb
   backtrace, `pip show vllm vllm-ascend torch_npu`, `cat
   /usr/local/Ascend/ascend-toolkit/latest/version.cfg`, `npu-smi info`, and the
   child's stderr from plugin activation to the abort.
 - Scope: image tag and ref; label the null-pointer mechanism as source-verified
   libstdc++ behaviour and the owning `.so` as open until the backtrace arrives.
+  Where a reporter has already reported a resolution ("跑了 A2 的命令"), cite it as
+  their claim with its date, note whether a later paste contradicts it, and do not
+  upgrade it to "this abort always means the wrong tab" — #11300's own follow-up
+  did.

@@ -8,7 +8,11 @@ orders of magnitude above its neighbours, a bad `QuantModel` artifact, or "the
 quantized checkpoint answers garbage" with no engine-side failing flag. Inherit
 `index.md`; this page owns the phase *before* the engine starts, so lanes A/B/C and
 the harness-vs-engine checklist only apply once the checkpoint's own quality is
-settled.
+settled. If the converted artifact *loads and serves* but prices and behaves like
+the BF16 model (same throughput, a whole layer class with no quant kernel), that is
+a coverage question owned by
+`../performance-throughput/quantized-artifact-layer-coverage.md`, not a conversion
+quality question.
 
 ## Rules
 

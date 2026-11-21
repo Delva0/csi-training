@@ -113,6 +113,15 @@ The chain, source-verified at that pin:
    (`quantization.md:99-101`). Precedent #813 at a nearby ref reports the same
    `KeyError …q_a_proj.weight` from `load_model`.
 
+**The mirror signature is a different page.** When the missing name is a *scale*
+(`KeyError: '<prefix>.weight_scale'`, e.g. `…self_attn.wkv.weight_scale`) and the
+rank set clusters on a few sub-projections rather than spreading over every linear,
+the direction is inverted: the checkpoint carries more scale tensors than the engine
+has parameters, which at this family of checkpoints usually means a **full-precision
+release** was served where the tutorial lists only the quantised variant —
+`weight-scale-keyerror-quant-variant.md` (census first, `--quantization ascend`
+second).
+
 What the answer says, in order: (1) pass `quantization="ascend"` (serve:
 `--quantization ascend`) — that is the documented enabling switch and the pinned
 FAQ's first remedy; (2) the paste has no root cause, so ask for the **per-rank

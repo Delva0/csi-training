@@ -70,7 +70,11 @@ reading any code:
 Not this topic: a score/MMLU gap between harnesses (`../accuracy-benchmarks/index.md`),
 garbled *text* from a generation model (`../accuracy-benchmarks/`), a device dump
 or a kernel-launch aclnn error from a custom op (`../custom-ops-runtime-faults/`),
-an OOM (`../runtime-memory/`), 310P launch problems (`../soc-platform-paths/`).
+an OOM (`../runtime-memory/`), 310P launch problems (`../soc-platform-paths/`),
+or the **second reranker/embedding instance on one card** dying at KV sizing
+(`Available memory: 0`) while the die has free HBM
+(`../runtime-memory/kv-budget-per-instance-vs-device-global.md`, the recorded
+`#7308` case — it came from exactly this deployment shape).
 The split that keeps class 5 here rather than in the custom-op lane is textual:
 `EZ1001 … Get regInfo failed` / `does not support opType` is the install fault
 there, while `EZ1001 … <Dtype> weight NZ is unsupported … now self is DT_<x>` is a

@@ -65,6 +65,44 @@ code**, and the finding is that the release does not own the failing path.
   the log's debug prints; the printed shapes and values are their instrumentation,
   not the framework's.
 
+## The version string names the nearest tag; the tree can be a later line
+
+A report that prints `vllm-ascend: v0.9.2rc1(e7d32ed3f18d…)` gives the *nearest
+reachable tag* plus a commit (derivation: `../image-dependency-faults/installed-version-vs-checkout.md`).
+It does **not** say the tree is that release: a main-branch build keeps the previous
+tag's number. Decide it from the reporter's own `file:line`s against the pinned trees
+— one grep per candidate ref, and the direction matters more than the label:
+
+- #2064 printed `v0.9.2rc1(e7d32ed…)` and its traceback carried
+  `vllm_ascend/utils.py:321 num_hidden_layers = get_max_hidden_layers(hf_config)` and
+  `vllm_ascend/worker/model_runner_v1.py:71 from vllm.v1.worker.utils import
+  (bind_kv_cache, gather_mm_placeholders, …)`. At the case's pin (v0.9.2rc1
+  `b5b7e0e`) there is **no** `get_max_hidden_layers`, and `model_runner_v1.py:66`
+  imports `bind_kv_cache` from `vllm.v1.utils`. The next release whose tree this
+  library holds, v0.10.0rc1 (`4604882`), has `get_max_hidden_layers` at
+  `utils.py:291-292`, the call at `utils.py:321`, and the same import block at
+  `model_runner_v1.py:70-71`. So that tree is a **0.10-dev build**, and its
+  counterpart is vllm 0.10.0 — not the vllm 0.9.2 that was installed.
+- The consequence is a **pairing** answer, not a patch. `bind_kv_cache` is at
+  `vllm/v1/utils.py:278` in vllm v0.9.2 and at `vllm/v1/worker/utils.py:120` in vllm
+  v0.10.0, so `ImportError: cannot import name 'bind_kv_cache' from
+  'vllm.v1.worker.utils' (<a real path>)` says the plugin is written for the newer
+  vLLM while the installed vLLM is the older one. Pair them; do not edit the import,
+  and do not call the build a stale nightly without checking the newer tree.
+- Read the **direction** before naming it: the same message is produced by a plugin
+  *newer* than vLLM (symbol not there yet) and by one *older* than vLLM (symbol moved
+  away). The reporter's own import line compared against both candidate vLLM trees is
+  what separates them; "the pin does not export it" cannot, because the pin may be
+  older than the reporter's build.
+- One reply settles it: `pip show vllm vllm-ascend`, `python -c "import vllm,
+  vllm_ascend; print(vllm.__file__, vllm_ascend.__file__)"` (in #2064 `vllm` resolved
+  to a source tree at a CI workspace path, `/__w/…/vllm-empty/vllm/`, not
+  site-packages), `git -C <checkout> log -1 --format=%H`, and the two source lines
+  their traceback printed.
+- If the snapshot holds no release near enough to match their lines, say the tree is
+  **later than the pin** and label the exact release as inferred — then still give the
+  pairing verdict, which does not depend on the label.
+
 ## Check "is model X supported here" in the source, once
 
 - Registration: `vllm_ascend/models/__init__.py` `register_model()` is the

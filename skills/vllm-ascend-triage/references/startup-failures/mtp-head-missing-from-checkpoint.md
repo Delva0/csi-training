@@ -24,7 +24,15 @@ ERROR … [core.py] EngineCore failed to start.
   the file", not "one tensor is misnamed";
 - the launch carries `--speculative-config '{"method": "qwen3_5_mtp"|"mtp", …}'`,
   the checkpoint is a **fine-tune export**, and the base checkpoint of the same
-  model starts fine with the same command;
+  model starts fine with the same command — **or** the served artefact is the
+  reporter's own quantization of a BF16 directory (msmodelslim/msit W8A8), whose
+  conversion may not have carried the `mtp.` module. The tree's own published GLM-4.x
+  W8A8 set is named `glm4.5_w8a8_with_float_mtp` precisely to state that the MTP head
+  survives conversion in float (`../spec-decode-mtp/fia-tnd-seqlen-mismatch.md` weight
+  row, v0.14.0rc1), while `BF16 dir + --quantization ascend` relies on the source
+  directory carrying it. Ask which artefact was served ("发布的还是自己量化的") before
+  explaining the loader — several recorded reports say `<model>-W8A8` for a checkpoint
+  that has no public release;
 - nothing in the log says "file not found", "unexpected key" or "shape mismatch".
 
 ## Why config alone enables it (v0.23.0)

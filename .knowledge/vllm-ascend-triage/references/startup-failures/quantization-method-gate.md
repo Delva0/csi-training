@@ -113,14 +113,22 @@ The chain, source-verified at that pin:
    (`quantization.md:99-101`). Precedent #813 at a nearby ref reports the same
    `KeyError …q_a_proj.weight` from `load_model`.
 
-**The mirror signature is a different page.** When the missing name is a *scale*
-(`KeyError: '<prefix>.weight_scale'`, e.g. `…self_attn.wkv.weight_scale`) and the
+**The mirror signature is a different page.** When the missing name is a quant aux
+tensor — a *scale* (`KeyError: '<prefix>.weight_scale'`, e.g.
+`…self_attn.wkv.weight_scale`) or an *offset* (`…mlp.experts.w2_weight_offset`, where
+the index-free name is upstream's remap of a per-expert key and only the
+`W8A8_DYNAMIC` MoE method allocates offsets at v0.8.5rc1) — and the
 rank set clusters on a few sub-projections rather than spreading over every linear,
 the direction is inverted: the checkpoint carries more scale tensors than the engine
 has parameters, which at this family of checkpoints usually means a **full-precision
 release** was served where the tutorial lists only the quantised variant —
 `weight-scale-keyerror-quant-variant.md` (census first, `--quantization ascend`
-second).
+second). The **offset** form reads differently and that page's `.weight_offset`
+section owns it: at v0.8.5rc1 only `W8A8_DYNAMIC` allocates MoE offsets (the static
+`W8A8` MoE raises `NotImplementedError` before load), so a load-phase
+`…mlp.experts.w2_weight_offset` `KeyError` means the description in effect marked the
+experts `FLOAT` — a wrong/hand-merged description, not a full-precision release
+(recorded #986).
 
 What the answer says, in order: (1) pass `quantization="ascend"` (serve:
 `--quantization ascend`) — that is the documented enabling switch and the pinned

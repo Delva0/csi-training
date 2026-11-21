@@ -61,6 +61,36 @@ A community-test row's 测试方法 step usually reads "参考资料社区文档
 
 One call decides it: `rg -n '<section title>' docs/` before any grading.
 
+## The 已知问题 field: "容器内无法使用 postman 工具发送推理请求"
+
+Both Qwen3.5-27B rows carry it verbatim (`任务问题和需求` #11770,
+`已知问题和补充说明` #11760). It is a **document gap, not an image fault** — so it
+becomes the FAQ's first item and at most costs 易用性; do not grade the image for
+it, and do not treat it as the task's root cause.
+
+- postman is a desktop GUI client; a headless serving container can neither run
+  nor install it. State that, then give the path that works.
+- **host-side postman, no container change**: the page's `docker run` already
+  passes `--net=host` (`Qwen3.5-27B.md:52`), so port 8000 sits on the node's
+  network interface and postman on the tester's PC/宿主机 reaches
+  `http://<node-ip>:8000`. This is the only reading under which the 任务书's
+  "postman or requests" is executable as written.
+- **in-container client**: `requests` (`vllm/requirements/common.txt:6`,
+  `requests >= 2.26.0`) and `openai` (`:15`) are hard dependencies of vllm, so a
+  `python -c` client is always importable — the guaranteed substitute.
+- **`curl` is not guaranteed**: the page's only request example is one `curl`
+  (`:148`), while vllm-ascend's `Dockerfile:36` installs `git vim wget net-tools
+  gcc g++ cmake numactl libnuma-dev libjemalloc2` and nothing else, and no
+  `curl` appears anywhere in that Dockerfile. The base (`Dockerfile:18`, a
+  `quay.io/ascend/cann:8.5.1-…-ubuntu22.04-py3.11` image) may still carry it, so
+  phrase it as an open item with the one-line check (`command -v curl` in the
+  container) — never "the image lacks curl".
+- **parity for grading the page**: five pages in the same tree do print a python
+  client (`MiniMax-M2.md`, `PaddleOCR-VL.md`, `Qwen3_reranker.md`,
+  `Qwen3-VL-Reranker.md`, `user_guide/feature_guide/batch_invariance.md`), so
+  "this page has no in-container python example" is a completeness defect with an
+  in-tree sibling behind it.
+
 ## Staged emission protocol
 
 The report is a file, so write it as the sections become true, and keep each

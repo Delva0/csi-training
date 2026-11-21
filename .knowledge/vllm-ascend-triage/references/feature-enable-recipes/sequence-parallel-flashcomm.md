@@ -3,8 +3,10 @@
 Scope: `VLLM_ASCEND_ENABLE_FLASHCOMM=1` / `VLLM_ASCEND_ENABLE_FLASHCOMM1=1` appears in
 the report and the engine either refuses the combination up front or dies in the
 memory-profiling forward with a **shape** error. Verified at vllm-ascend v0.14.0rc1
-(`52d4acfa`) + vllm v0.14.1 (`d7de043`), the #6261 pins; the guard, the env name and
-the assertion texts are ref-specific — re-grep at the reporter's ref.
+(`52d4acfa`) + vllm v0.14.1 (`d7de043`), the #6261 pins, and the VL guard re-verified at
+v0.15.0rc1 (`3d43ed99`) + vllm v0.15.0 (`f176443`) for #6950: the guard, the env name, the
+predicate and the assertion texts are all ref-specific — re-grep at the reporter's ref, and
+read the guard's *own wording* before deciding what to recommend.
 
 Verdict shape for the recorded case (Qwen3-Omni-30B-A3B + `VLLM_ASCEND_ENABLE_FLASHCOMM=1`,
 TP2 + EP, crash at `profile_run`):
@@ -39,22 +41,45 @@ tp_size > 1") and, for a MoE model, `enable_expert_parallel=True`
 (`utils.py:838-841`). Both are recorded as satisfied in #6261, which is why the run
 reached the forward.
 
-## The VL / Omni guard, and what it does *not* cover
+## The VL / Omni guard: two different guards, one per generation
 
-`platform.py:394-403` raises
-`ValueError: Currently, VL models doesn't support FLASHCOMM in vllm-ascend. We will fix
-this in the future. Please set VLLM_ASCEND_ENABLE_FLASHCOMM1=0.` when `is_vl_model()`
-is true and either env is set, and `is_vl_model()` counts a checkpoint whose
-`hf_config` carries `thinker_config` as VL — the comment names "Qwen-Omni-thinker
-models" (`utils.py:905-915`). Consequences:
+Read the reporter's ref before quoting either. Same symptom string family, different predicate
+and a different recommendation inside the message.
 
-- On a ref that has this branch the same export fails **fast at engine start**; a
-  report showing the crash later (inside `profile_run`) means the guard did not cover
-  that model at the reporter's version. A one-commit snapshot cannot diff another
-  release: state that as the open comparison and ask them to re-run the same command
-  on the newer ref.
-- The guard is the project's own statement of support. Do not route around it with
-  `pass_config.enable_sp` — that keeps the unsupported path and skips only the check.
+| ref | guard | what counts as VL | what it tells the reporter |
+|---|---|---|---|
+| v0.14.0rc1 (`52d4acfa`) | `ValueError: Currently, VL models doesn't support FLASHCOMM in vllm-ascend. We will fix this in the future. Please set VLLM_ASCEND_ENABLE_FLASHCOMM1=0.` at `platform.py:394-403` | `thinker_config` in `hf_config` — the comment names "Qwen-Omni-thinker models" (`utils.py:905-915`) | unset the env |
+| v0.15.0rc1 (`3d43ed99`, #6950) | `assert not is_vl_model(vllm_config), "Flash Comm V1 is not supported for VL models. Please disable it by setting VLLM_ASCEND_ENABLE_FLASHCOMM1=0. For optimal performance with VL models, we recommend enabling Sequence Parallelism via --compilation-config '{"pass_config": {"enable_sp": true}}'."` at `platform.py:399-403`, inside `if enable_flash_comm_v1():` | `thinker_config` **or** `vision_config` in `hf_config.to_dict()` (`utils.py:816-827`) — every ordinary VLM, not just Omni | **switch to the Inductor SP pass**, not just unset |
+
+Unchanged across both: this fires **fast at engine start** (`check_and_update_config`), so a report
+whose crash is later (inside `profile_run`) means the guard did not cover that model at the
+reporter's version.
+
+**At v0.15.0rc1 the pass route is the documented replacement, not a way around the check.**
+`docs/source/user_guide/feature_guide/sequence_parallelism.md:41-57` is a support matrix, not
+prose: without quantization SP × VL+Dense = `graph`, SP × VL+MoE = `x`, FC1 × VL = `x`; with
+quantization every cell is `x`. The page states SP for VL-class models is implemented on the
+Inductor pass, and the pass is graph-only — `enable_sp_by_pass` is
+`not enforce_eager and pass_config.enable_sp` (`utils.py:736-738`), `sp_threshold` defaults 1000
+(`compilation/passes/sequence_parallelism.py:16-24`). The tree also tests it:
+`tests/e2e/multicard/2-cards/test_sp_pass.py:9-50` serves `Qwen/Qwen3-VL-2B-Instruct` at TP2 with
+`enable_sp` false/true and compares outputs. That is in-tree coverage at this ref, **not** wired in
+`.github/workflows`, so call it "the tree's own e2e test", never "CI-validated".
+
+What the older reading still owns: the assert removes only the *check*, and the machinery behind
+both doors is the same `sp_enabled` path, so a model whose forward adds a **full-length** auxiliary
+tensor (deepstack / per-layer injected features — next section) still breaks, and VL+MoE and every
+quantized checkpoint stay out of the matrix. Procedure therefore: verify the model's forward first
+(§*The mechanism*), then route VL+Dense to the pass and keep "unset the env" as the answer for
+everything the matrix marks `x`.
+
+**The guard predates the reporter's "works on v0.13.0" — expect the predicate, not the guard, to be
+what changed.** `release_notes.md:498`, under `## v0.11.0rc2`, records "Add a check that to ensure
+FLASHCOMM feature doesn't work with vl model. It'll be supported in 2025 Q4 [#4222]". So when a
+reporter says an older release worked, the likely difference is the VL predicate (thinker-only →
+`vision_config`) or the error class (ValueError → assert), not the guard's existence. A one-commit
+snapshot cannot diff their release: state that, and give them the one command —
+`sed -n '/def is_vl_model/,+12p' vllm_ascend/utils.py` — on their own tree.
 
 ## The mechanism, so the shape error reads as arithmetic
 
@@ -81,8 +106,11 @@ shard handling and the same failure.
 
 ## Procedure
 
-1. Answer first: unset the env (or set 0), keep TP/EP/graph flags, re-run. That is the
-   rung-1 fix and it is what the guard itself asks for.
+1. Answer first, then the replacement. On a ref whose guard says only "disable it" (v0.14.0rc1
+   family): unset the env (or set 0), keep TP/EP/graph flags, re-run. On a ref whose guard names
+   SP-by-pass (v0.15.0rc1 family): unset the env **and** add
+   `--compilation-config '{"pass_config": {"enable_sp": true}}'` when the model is VL+Dense
+   unquantized — that is the same message's own instruction and it is in the matrix.
 2. Cite the guard `path:line` for the reporter's ref family and the mechanism for the
    shape arithmetic; label the guard's absence at their version as the open item.
 3. Send back / ask for: the full per-rank traceback (the `from user code:` frame names

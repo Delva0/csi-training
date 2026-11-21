@@ -23,7 +23,7 @@ hybrid; the hybrid connector is the DeepSeek-V4/Qwen3.5-family recipe
 | 1 | Connector class matches the family | GLM-5.2 PD: `MooncakeConnectorV1` with `use_ascend_direct` (`GLM5.2.md:694,763,831,899,1371,1442`); the A2 8-node variant uses `MooncakeConnector` (`:1040,1121`). Qwen3.5-397B: `MooncakeLayerwiseConnector` (same tree, `Qwen3.5-397B-A17B.md:361,442,524`). DSv4-Pro/Flash: `MooncakeHybridConnector` (`hybrid-state-transfer.md`) |
 | 2 | `--speculative-config` is present on **both** sides | GLM-5.2 PD prefill `{"num_speculative_tokens":1,"method":"deepseek_mtp","enforce_eager":true}` (`:679,748,1064`); decode `num_speculative_tokens` 5 (`:818-820,886-888`) or 3 (`:1109,1147`) |
 | 3 | `--no-disable-hybrid-kv-cache-manager` only on a hybrid family | Present in DeepSeek-V4-Pro (5 sites), V4-Flash (4) and Qwen3.5-397B-A17B (3) tutorials; **nowhere** in `GLM5.2.md`, which never says "hybrid" |
-| 4 | DSA sparse-gate parity | GLM-5.2 PD sets `enable_sparse_sfa_c8` + `enable_sparse_li_c8` on both sides (`:683,752,821,889`; co-located adds `c8_enable_reshape_optim`) |
+| 4 | DSA sparse-gate **parity and the per-SoC value** | GLM-5.2's **A3** PD blocks set both C8 flags `true` on both sides (`:683,752,821,889`; co-located adds `c8_enable_reshape_optim`), the **1M PD** block does too, prefill `:1365` and decode `:1436` (`enable_flashcomm1`/`enable_dsa_cp` true on P and false on D, `recompute_scheduler_enable` false on P and true on D — the exact lattice recorded #14085's two nodes carried) — but the **8-node Atlas 800 A2 (910B)** PD block sets both `false` (`:1059-1060` P, `:1142-1143` D) and uses no DCP at all (`:984`; `--decode-context-parallel-size` appears only in the 1M and single-node sections, `:1251,1306,1362,1433`). So parity is necessary and not sufficient: compare the reporter's `--additional-config` key lattice against **each** block. A lattice match to the 1M block on a 200 K 910B deployment is a cross-copy, and its C8/DCP rows are the deviation — say which block they copied, not just which flag differs. Flag algebra: `../dsa-sparse-attention/c8-flags-and-kv-store-path.md` |
 
 Why invariant 2 is not cosmetic: the connector derives its transfer geometry per
 side from that config, so an absent `--speculative-config` on one side is two
@@ -52,6 +52,13 @@ asserting it.
 - `enforce_eager` inside `--speculative-config` only affects the **drafter**. The
   top-level `--enforce-eager` is the ablation that removes torch.compile/ACL graph
   (SKILL.md rule 15; `../startup-failures/compile-backend-banner-then-silence.md`).
+- A hand-written `cudagraph_capture_sizes` list whose entries are **not** multiples of
+  `num_speculative_tokens + 1` (a `298` beside `256`/`320` with `n=3`). Under full
+  decode graphs with spec decode, vLLM round-ups every entry to that multiple
+  (`adjust_cudagraph_sizes_for_spec_decode`, `vllm/config/compilation.py:1432-1443`
+  and `:1473-1516` at vllm v0.23.0) and only raises when nothing valid survives — one
+  wasted bucket, not a wrong token. Recorded #14085 spent four calls re-deriving this
+  lane; state it as closed and move on.
 
 ## Ablation ladder to hand back (one launch per row, same fixed prompt, `temperature=0`)
 
@@ -64,7 +71,12 @@ asserting it.
 6. Decode node alone, no PD, all other flags unchanged — separates transfer from a
    local decode defect.
 Send the same request twice: an identical 2048-token repeat is a state/geometry
-symptom, a different tail is a sampling symptom.
+symptom, a different tail is a sampling symptom. **A reported rate changes the
+sample size** — "偶现" with a count (recorded #14085: 29 repeats in 193 runs of one
+fixed prompt) needs `N ≈ 3/p` serial reruns (≈20 at 15 %) before a clean run means
+anything; two or three clean runs are not evidence, and a rate on one prompt retires
+the "this prompt always loops" row while leaving per-request state and sampling both
+open (`../accuracy-benchmarks/long-output-repetition.md`).
 
 ## The variant with no log at all: fault only at raised scale (#9578)
 

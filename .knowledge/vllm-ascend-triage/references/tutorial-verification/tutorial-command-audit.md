@@ -125,6 +125,12 @@ result, and never re-publish it as a measurement. When one of its numbers looks
 anomalous, check the precedent before blaming the doc
 (e.g. `#5991: Qwen3-Omni-30B-A3B-Thinking, when max-concurrency >= 2, TPOT only
 100ms` against the page's ~99 ms mean TPOT).
+A **dead flag** whose owner is the release, not the command, is graded one way
+further: the page's image tag is not its text but the `{{ vllm_ascend_version }}`
+substitution from `mkdocs.yml extra.*` at build time, so compare that value with
+the tag the reporter pasted, and grade `/en/latest/` as main — `docs-version-space-and-image-tag.md`
+(recorded #16954: a main-only `--kv-cache-dtype int8` pair printed beside a stale
+`0.23.0` tag; tier **breaks the command**, but the defect is the version line).
 
 ## 7. What should the FAQ contain?
 
@@ -330,7 +336,40 @@ Two things this page settles once, for the report body:
   `--async-scheduling`) and its own gates: `gsm8k-lite` accuracy baseline 95 with
   threshold 5 %, perf baseline 664.6449 at threshold 0.97. Quote those as the
   project's own gate; note TP4 appears only in
-  `tests/e2e/multicard/4-cards/test_qwen3_5.py:23-33` (`max_model_len` 4096).
+  `tests/e2e/multicard/4-cards/test_qwen3_5.py:24-36` (`max_model_len` 4096).
+
+### The same page on a **4-card** row (recorded #11760 and #11770)
+
+Two further rows of the same 任务书 name this identical page with `卡数 4`,
+`Eco-Tech/Qwen3.5-27B-w8a8-mtp`, HDK 25.5.0.B078 and a 部署 + 功能验证
+deliverable (no DP recipe, no AIME). Decide the transfer explicitly instead of
+copying the row-15 table:
+
+- **transfers**: the page-name absence, `max_completion_tokens` on
+  `/v1/completions` (`:153`), the `v0.17.0rc1` baseline (`:9,35,166,170`), the
+  missing performance table (`:172-197`), `--random-input` (`:194`), the
+  `m.daocloud.io/` prefix on the image line (`:45`), and the
+  `requires … (64G × 8)` sentence (`:21-22`) — that last one is check 5's
+  enablement-sentence species, contradicted by the page's own TP2/DP1 line.
+- **does not transfer**: "the page documents no DP>1 recipe". A row that asks
+  only for 部署 + 功能验证 never needs DP; presenting dp2×tp4 as the required
+  recipe mis-grades the page. Keep that finding for a row that asks for it.
+- **4-card device map, tiered honestly**: the run block maps `/dev/davinci0..7`
+  (`:54-61`), but its own first comment says "Update `--device` according to your
+  device (Atlas A2: `/dev/davinci[0-7]`)" (`:41`), so the reader was told to
+  adapt it — tier the device list **usability/完整性**, not "breaks the command".
+  What does break for a 4-card tester is `:21-22`, which reads as "you cannot run
+  this". Ship the trimmed `davinci0-3` block anyway.
+- **which parallelism on 4 cards**: the doc's TP2/DP1 line is the only recipe the
+  project gates, and its gate is the **A3** file
+  `tests/e2e/nightly/single_node/models/configs/Qwen3.5-27B-w8a8-A3.yaml` (no A2
+  variant in that directory; the TP4 coverage above is BF16-only). Offer TP2 as
+  the run-first line, TP4 to use all four cards, and label TP4 as derived — on a
+  `w8a8-mtp` + 133 K-context row it is not what the gate runs.
+- **weights cache**: the block's comment says "download the weight to
+  `/root/.cache` in advance" (`:43`) while the `docker run` mounts no
+  `/root/.cache` (mounts end at `:70`, `-it $IMAGE bash` is `:71`), so a `--rm`
+  restart re-downloads ~27 GB. Add `-v /root/.cache:/root/.cache`; tier 完整性.
 
 ## What a finding must carry
 

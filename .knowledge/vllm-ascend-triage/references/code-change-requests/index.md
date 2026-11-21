@@ -8,9 +8,19 @@ in PR #N", "deprecate / rename <flag|config key>", "this TODO should be done
 before the release". The body is often only two links — the PR and one review
 comment — with no environment dump, no log and no reproduction.
 
-Read this topic when the paste contains a **task statement about code** and no
-symptom. It is the wrong entry when anything failed at runtime (use the lane A/B/C
-table in `SKILL.md`), when the ask is "how do I turn F on"
+A second shape lands here with a traceback attached: an inference-only optimization
+that is correct for serving but breaks **live weight reload** in an RL rollout
+worker — "gate `dispose_layer(kv_b_proj)` behind a capability flag", usually with
+`AssertionError: param_data.shape == loaded_weight.shape` and `load_format: dummy`.
+The deliverable is a change plan plus the one check that proves the emptied
+parameter, not a load-phase diagnosis (`live-weight-reload-vs-disposal.md`); an RL
+weight sync that fails **inside a collective** is
+`../hccl-and-hardware/weight-sync-hccl-cascade.md` instead.
+
+Read this topic when the paste contains a **task statement about code** — with no
+symptom (a flag to remove) or with the traceback the proposed change is about (the
+disposal shape above). It is the wrong entry when an ordinary run failed (use the
+lane A/B/C table in `SKILL.md`), when the ask is "how do I turn F on"
 (`../feature-enable-recipes/index.md`), or when the ask is to grade a tutorial
 page (`../tutorial-verification/index.md`).
 
@@ -56,7 +66,15 @@ page (`../tutorial-verification/index.md`).
    #1262 replay spent 15 assistant turns on bare tool calls and put its first
    message text on the last turn. First message = the absence verdict plus the
    first two checklist rows; the rest of the sweep can follow.
-8. **When the edit is to a test that "passes" while the device faults, the edit alone
+8. **A parameter that is emptied in place is not a shape mismatch, and its disposer
+   owns the reload contract.** `x.set_(torch.empty((0,), …))` keeps the name and
+   registration, so the standard weight loader asserts on the *destination*; the fix
+   must gate that disposal or neutralize/rehydrate its loader, which this tree already
+   does for DSA-CP layer shards. Check `model.get_parameter(<key>).shape` first, and do
+   not gate the flag on `weight_transfer_config` alone — a trainer with its own
+   transport calls `model.load_weights()` directly. Worked case and anchors:
+   `live-weight-reload-vs-disposal.md` (#15463).
+9. **When the edit is to a test that "passes" while the device faults, the edit alone
    may not remove the fault.** Shape-only asserts on an asynchronous NPU hold whether
    the kernel computed anything or aborted, so such a test is not coverage; the parser
    is `ASCEND_LAUNCH_BLOCKING=1`, and the replacement is a numerical assert against the

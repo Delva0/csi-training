@@ -75,14 +75,18 @@ Not this topic, leave immediately:
 
 - **Date the engine from the metric line before choosing any lever.** `Swapped: N reqs,
   Pending: N reqs` (with `CPU KV cache usage`) is the **V0** logger — `vllm/engine/metrics.py:489`
-  at vllm v0.8.5.post1 — while V1 prints `Waiting` and `Prefix cache hit rate`
-  (`vllm/v1/metrics/loggers.py:115-117`). On a pre-V1 Ascend image graph mode is torchair
-  behind `additional_config={'enable_graph_mode': True}` (opt-in, force-disabled under V1)
-  and the platform hard-sets `enforce_eager = True` (`platform.py:124` at v0.8.5rc1), so the
-  ACL-graph capture rules below do not apply and must not be quoted:
-  `pre-graph-mode-eager-era.md`. It also answers the usual "what caps my concurrency"
-  question for free: `Pending: 0` with KV usage near 0 % means nothing was queued and the
-  running count is what the client offered.
+  at vllm v0.8.5.post1, `:418` at v0.9.1 — while V1 prints `Waiting` and `Prefix cache hit rate`
+  (`vllm/v1/metrics/loggers.py:115-117`; `:120-124` at v0.9.1). What the V0 date *means* splits
+  by generation: on **v0.8.x** graph mode is torchair behind
+  `additional_config={'enable_graph_mode': True}` (opt-in, force-disabled under V1) and the
+  platform hard-sets `enforce_eager = True` (`platform.py:124` at v0.8.5rc1), so the ACL-graph
+  capture rules below do not apply and must not be quoted; on **v0.9.x** `enforce_eager` is read
+  from the config, Ascend `supports_v1()` returns `True`, and the serve is V0 purely because
+  non-CUDA hardware falls back unless `VLLM_USE_V1=1` is exported — the release notes ask for
+  exactly that (`release_notes.md:52`, V0 frozen), so the lever is the env var and the `PIECEWISE`
+  ACL graph arrives with it. Both generations: `pre-graph-mode-eager-era.md`. The metric line also
+  answers the usual "what caps my concurrency" question for free: `Pending: 0` with KV usage near
+  0 % means nothing was queued and the running count is what the client offered.
 - **A cross-release comparison is priced from the new pin's own release notes
   before any flag is proposed.** `docs/source/user_guide/release_notes.md` at the new
   commit is cumulative — the v0.13.0rc1 file still holds `## v0.7.3` — so the old
@@ -278,12 +282,14 @@ Not this topic, leave immediately:
   `patch_mamba_config.py` inherits that decision, the one log line that confirms
   it on the reporter's host, and the later-version contrast.
 - `pre-graph-mode-eager-era.md` — the v0.8.x/v0.9.x sibling of these rules (#1138,
-  v0.8.5rc1, DeepSeek-R1-Distill-Qwen-32B TP4 on 4×910B, "AICore < 15 %, 57 tok/s"):
-  how `Swapped`/`Pending` date the paste to the V0 logger, why `Pending: 0` +
-  `KV 0.2 %` retires every server-side concurrency cap, the forced-`enforce_eager`
-  platform line with its two silent graph-mode gates (`supports_dynamo()`,
-  `VLLM_USE_V1`), the torchair opt-in that is the real lever there, and why AICore % is
-  a decode-shaped number rather than a defect meter.
+  v0.8.5rc1, DeepSeek-R1-Distill-Qwen-32B TP4 on 4×910B, "AICore < 15 %, 57 tok/s"): how
+  `Swapped`/`Pending` date the paste to the V0 logger, why `Pending: 0` + `KV 0.2 %` retires
+  every server-side concurrency cap, and why AICore % is a decode-shaped number rather than a
+  defect meter; then the **generation split** — v0.8.x force-sets `enforce_eager` with the
+  torchair opt-in as the only lever (its two silent gates, `supports_dynamo()` / `VLLM_USE_V1`),
+  while v0.9.x (#2099, a 1B VL serve on one 910B3) runs V0 only because non-CUDA hardware falls
+  back unless `VLLM_USE_V1=1`, which the release notes require and the singlecard CI already
+  uses for its `Qwen2.5-VL-3B` multimodal case.
 - `cross-run-ratio-normalization.md` — two runs, one number each (#2833 Ascend-vs-H800
   EvalScope screenshots; #14291 v0.23→v0.24 PD "12s vs 4s"): the reconcile step and
   what each field survives OCR, `step = concurrency / output tok/s` vs

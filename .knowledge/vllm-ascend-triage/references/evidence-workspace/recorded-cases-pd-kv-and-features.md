@@ -10,6 +10,30 @@ Routes: `../pd-disaggregation/index.md`, `../kv-pool-store/index.md`,
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#6950** vllm-ascend v0.15.0rc1 (`3d43ed99`) + vllm v0.15.0 (`f176443`), body only
+"[Bug]: v0.15.0rc1, Flash Comm V1 is not supported for VL models … Assertion failed … while
+v0.13.0 supports this" with an empty `collect_env` block. The string is the project's own guard —
+`assert not is_vl_model(vllm_config), "Flash Comm V1 is not supported for VL models. Please
+disable it by setting VLLM_ASCEND_ENABLE_FLASHCOMM1=0. For optimal performance with VL models, we
+recommend enabling Sequence Parallelism via --compilation-config '{"pass_config": {"enable_sp":
+true}}'."` at `platform.py:399-403`, under `if enable_flash_comm_v1():` (`utils.py:727-733`) — so
+the answer is a capability verdict plus the replacement route, not a regression hunt. Verified at
+the pin: `is_vl_model()` now counts `vision_config` as well as `thinker_config`
+(`utils.py:816-827`); `docs/source/user_guide/feature_guide/sequence_parallelism.md:41-57` marks
+SP × VL+Dense = `graph`, SP × VL+MoE = `x`, FC1 × VL = `x` (all `x` with quantization);
+`enable_sp_by_pass` requires graph mode (`utils.py:736-738`, `sp_threshold` 1000); the in-tree
+`tests/e2e/multicard/2-cards/test_sp_pass.py:9-50` serves `Qwen/Qwen3-VL-2B-Instruct` at TP2 with
+SP off/on and compares outputs (not wired in `.github/workflows` at this ref). The "v0.13.0
+worked" premise: `release_notes.md:498` places the guard under `## v0.11.0rc2` (#4222), i.e.
+*before* the reporter's working version, so the plausible change is the predicate (thinker-only →
+`vision_config`) or the error class (ValueError → assert) — not diffable from a one-commit
+snapshot, so it was delivered as that open comparison with
+`sed -n '/def is_vl_model/,+12p' vllm_ascend/utils.py` for the reporter's tree. The Qwen3-VL
+tutorial's glossary still explains the FC1 export without noting the VL refusal
+(`tutorials/models/Qwen3-VL-235B-A22B-Instruct.md:197`; its launch block does not carry it).
+Answer shipped in 26 turns / 10 tool results — route
+`../feature-enable-recipes/sequence-parallel-flashcomm.md` §*The VL / Omni guard*.
+
 **#3959** vllm-ascend `v0.11.0rc0` (`00ba071`) + vllm `v0.11.0rc3` (`8ce5d31`),
 "`v0.11.0rc0 Atlas 800T A3双机PD分离部署，当前是否支持走参数面网络通信？`" — no log, no
 serve command, only "两台机器通过参数面 ROCE 网络通信，超平面不通，没有灵衢交换机". Plane
@@ -250,3 +274,27 @@ corrections to keep: the detokenize helper is `vllm/tokenizers/detokenizer_utils
 Delivery: it completed with the verdict text present from turn 3 and the ranked answer at the
 end, but spent ~520 K cumulative prompt tokens re-reading trees whose anchors the page now
 carries. Page: `../pd-disaggregation/prompt-side-outputs-on-decode-node.md` (new).
+
+**#4866** — vllm-ascend v0.11.0rc2 (`a2e4c3f`), vllm v0.11.0, CANN 8.3.RC2,
+8×910B2 per node, image `v0.11.0rc2`: 2P2D `MooncakeConnectorV1` (DeepSeek-R1-W8A8,
+TP8, `kv_connector_extra_config` `prefill/decode` `dp=2 tp=8`, `kv_port 20001`,
+`engine_id 0/1`), both sides serving their own `/v1/completions`, and the first proxied
+request failing on D with `ascend_direct_transport.cpp:820 Failed to connect to target:
+<P ip>:<port>, status: 103900` + `:581 Failed to connect to segment` + `mooncake_connector.py:410
+Mooncake transfer failed for request … ret: -1` on all 8 TP ranks within 2 ms. The recorded
+answer classified it correctly (PD transport, no pool, first pull, nothing timed out) and
+priced the DP=2 layout out on the reporter's own 1P1D follow-up, but its **cheapest action**
+was `ss`/`nc` on the transport ports plus a `hostNetwork: true` ablation — a cross-node P/D
+cannot collapse to one HCCL server, and the config hint another commenter supplied
+(`use_ascend_direct` in `kv_connector_extra_config`) is a no-op at the pin, where
+`mooncake_connector.py:905-911` already defaults it `True` and only uses it to pick the
+engine-name form. The reporter's later `grep -rn ERROR /root/ascend/log` from the decode node
+supplies the deciding artifact: `topoinfo_ranktableConcise.cc:446 'device_ip' is not set
+correctly, must be set when multi Server or HCCL_INTRA_ROCE_ENABLE enabled` →
+`HcclCommInitClusterInfo failed, rankNum[0], server[], device[-1]` →
+`comm Name exist.` on retry, i.e. the transport's own HCCL comm never came up and no
+segment port was ever bound — and "same error" after the config move is what the source
+predicts. Cause left open; the deliverable is the D-side plog plus the `hccn_tool` device-plane
+block. Delivery: the ranked answer shipped at the last turn (51 messages, ~100 K prompt tokens)
+and was **output-truncated** inside action rung 5. Page:
+`../pd-disaggregation/mooncake-adxl-connect-103900.md` (new).

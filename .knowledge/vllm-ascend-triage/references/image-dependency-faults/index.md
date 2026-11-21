@@ -74,6 +74,16 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   (`0.7.3+empty`) beside another env's install. One `python -c "import
   vllm_ascend, sys; print(sys.executable, vllm_ascend.__file__)"` in the serving
   env decides it; the device, CANN and driver are innocent.
+- A serve installs from a **wheel** and dies *after weights load* with
+  `ModuleNotFoundError: No module named 'vllm_ascend.<sub>'` while a container of the
+  same release works — the frames are `vllm/compilation/backends.py:298` →
+  `vllm/utils.py::resolve_obj_by_qualname`, i.e. a qualname the engine itself asked
+  for. The subpackage has no `__init__.py`, so `find_packages()` leaves it out of the
+  wheel; two greps at the pin decide it, `--enforce-eager` is only the bridge, and the
+  reporter-confirmed remedy is the next rc or a source install →
+  `missing-subpackage-after-wheel-install.md` (#1156). Distinguish it from the
+  top-level `No module named 'vllm_ascend'` two bullets above and from
+  `vllm_ascend.vllm_ascend_C` (never built, `../soc-platform-paths/kernel-package-vs-card.md`).
 - A `python -c "import <pkg>"` (or the first real use) fails **at symbol
   resolution**, not at open: `ImportError: …/<pkg>/_ops.cpython-310-…so: undefined
   symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` and the ENV dump selects
@@ -244,6 +254,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `.pth`/`egg-link` residue check, the two-interpreter signature that the paste's own
   `site-packages` paths already expose, and the `+empty` marker that says vllm was
   source-built. Worked for #540 (v0.7.3rc2), cause left open.
+- `missing-subpackage-after-wheel-install.md` — `No module named 'vllm_ascend.<sub>'`
+  from a pip-installed release: the "who asks for the name" grep that splits packaging
+  from a version contract, the `find_packages` + missing-`__init__.py` test at the pin
+  (verified at v0.9.0rc1 `706de02`: `vllm_ascend/compilation/` is the only such
+  directory, `setup.py:357`, `platform.py:263-267`, editable install at `Dockerfile:52`),
+  the three reporter-side commands, and the ladder `--enforce-eager` → source install /
+  next rc (reporter-confirmed on #1156). Precedent family #415/#592/#1093/#1209/#2929.
 - `wrong-vllm-module-shadowed.md` — `cannot import name '<X>' from 'vllm'
   (unknown location)`: the two message tails and what each proves (bare directory
   vs a regular package at a named path), the minimal local reproduction of each,

@@ -9,12 +9,16 @@ crash, no log, usually no request body pasted. The question is *reproducibility*
 accuracy: nothing is being scored against a reference, so the deliverable is the
 pattern of divergence plus the knob ladder — not a score attribution.
 
-Two neighbours take the same phrasing and own their own answers: repeated requests
+Three neighbours take the same phrasing and own their own answers: repeated requests
 that **复读 / truncate reasoning / flip a tool call** on v0.18.0 DeepSeek-V4
 (`long-output-repetition.md`, `../spec-decode-mtp/index.md`),
-and a first-vs-second-call difference in **embedding vectors**
+a first-vs-second-call difference in **embedding vectors**
 (`../pooling-embedding/index.md`; #5725 is quoted below because its *pattern* is the
-cheapest discriminator here as well).
+cheapest discriminator here as well), and — the one that decides this page's question
+by the reporter's own body — divergence confined to `temperature>0` while the greedy
+runs are byte-identical, which is the sampler's side-stream `q` and not repeat-run
+noise (`sampler-side-stream-corruption.md`): sample it once before you tell the
+reporter to pin a seed.
 
 ## Rule 1 — the reporter's control refutes platform-independent mechanisms
 

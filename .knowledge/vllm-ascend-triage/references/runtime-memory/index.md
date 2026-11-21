@@ -31,6 +31,12 @@ so the device-side knobs in the report's environment block are irrelevant and th
 deliverable is which process class and which term (anonymous RSS vs page cache vs
 allocator retention) owns the rise — `container-working-set-growth.md`.
 
+Scope, part 5: **sleep mode** — `enable_sleep_mode=True` / `llm.sleep(level=…)`, an RL
+sleep/wake loop, or "sleep 掉模型 A 再起模型 B" — where the second engine does not die of
+OOM but of a **communicator creation** refusal (`sleep-mode-multi-instance.md`). Read it
+as an offload-capability question: what `sleep()` returns to the allocator, and what it
+leaves resident on the device.
+
 Not an accuracy or corruption report, and not a collective error even when the
 crash text names one (`HcclAllGather` in a late OOM is the allocation site); go
 to `../hccl-and-hardware/index.md` first only when a real collective failure
@@ -109,6 +115,22 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    proposal (#9372: the recorded run quoted both the vllm-ascend line and that
    ValueError, and kept the deliverable a diagnosability finding rather than a
    crash).
+8. **The exception *class* is a text predicate, so `torch.OutOfMemoryError` is not a
+   measurement of HBM.** torch_npu raises that class only inside `NPU_CHECK_ERROR`'s
+   generic `else` branch, gated on `c10_npu::isCannOOM(retmsg)`
+   (`torch_npu/csrc/core/npu/NPUException.h:199-204` at
+   `v26.0.1-pytorch2.10.0`; the same gate in `HCCLUtils.hpp:38`), over a `retmsg` that
+   ends with `c10_npu::c10_npu_get_error_message()` — ACL's *recent*-error buffer
+   (`:196-198`, declared `:337`). A stale `Memory_Allocation_Failure(EL0004)` /
+   `alloc device memory failed, runtime result = 207001` from earlier in the same log
+   therefore rides into a later failure's text and relabels it OOM. It cuts both ways:
+   neither vLLM nor vllm-ascend mints or branches on the class (vllm v0.23.0 mentions
+   `OutOfMemoryError` in only `v1/worker/gpu_model_runner.py` and a p2p NCCL engine), so
+   "vLLM's OOM path logs the `--gpu-memory-utilization` hints" is unsupported at the
+   pin. When the class is OOM but the text is a sync / stream / timeout code, read
+   `oom-class-is-not-a-cause.md` before any capacity arithmetic — and correct the code
+   names in the report (`107020` is `ACL_ERROR_RT_TASK_TIMEOUT`, not a synchronize
+   timeout).
 
 ## Reading a v0.21+ startup memory block
 
@@ -163,6 +185,12 @@ Conditional routes:
   first. The format cast is the allocation site, not the defect; a 310P host adds
   the `FRACTAL_NZ` copy and the 300I allocator prescription
   (`../soc-platform-paths/atlas-300i-310p.md`).
+- The traceback class is `torch.OutOfMemoryError` but the text is a synchronize /
+  stream / timeout code (`AclrtSynchronizeStreamWithTimeout … 107020`,
+  `107027`, `event wait timeout … task_timeout`) → `oom-class-is-not-a-cause.md`
+  first: the class comes from torch_npu's `isCannOOM` predicate over a buffer that still
+  holds an earlier `207001`, so the lead is the *earlier* allocation line, not the HBM
+  budget.
 - Any "memory leak" / "内存持续增长" report whose env dump carries
   `torch_npu==2.8.0` (or an unqualified `2.8.0`) → `host-ram-and-per-rank-rss.md`
   §"Step 0" first: the known pta leak, `2.8.0.post1`/`.post2` plus a vllm-ascend
@@ -177,6 +205,12 @@ Conditional routes:
   `max_model_len²` host attention mask, `attention-mask-host-allocation.md` and
   `bash <skill_root>/scripts/attn-mask-budget.sh --log <serve.log> --host-gib N`
   (#2873 reporter-confirmed: 262144 at TP=8, 0.10.1rc1, 0.10.0rc1 works).
+- The report is a **sleep-mode** one (`enable_sleep_mode`, `llm.sleep`, "sleep A then
+  start B"): `sleep()` returns only the pluggable allocator's `weights`/`kv_cache`
+  blocks; the process, its HCCL communicators and the devices' host-side HCCP process
+  survive, so the *new* instance dies creating a communicator (`hcclCommInitRootInfoConfig
+  … error code is 7` + `EJ0001 … HCCP process`) → `sleep-mode-multi-instance.md` (verdict,
+  the four greps, the disjoint-card discriminator, the vendor's own 10 s remedy).
 - The report is about score/accuracy dropping under memory pressure, or about
   garbled output after long runs → `../accuracy-benchmarks/index.md`.
 - The paste is a **container metric** (`container_memory_working_set_bytes`,

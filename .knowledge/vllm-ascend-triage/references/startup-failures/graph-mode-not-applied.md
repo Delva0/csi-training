@@ -62,6 +62,21 @@ otherwise runs the piecewise path — so a worker whose log lacks the success li
 3. If it reads "disabled under eager mode", find the flag: `--enforce-eager` in the
    serve line, in a stage yaml, or upstream's `speculative_config.enforce_eager`
    (vllm-ascend clears that one at `platform.py:424-437`).
+
+**A reporter's own `export` is not a flag.** `export ENFORCE_EAGER=1` sitting above an
+unchanged refusal or an unchanged banner (recorded #1456, vllm-ascend v0.9.1rc1
+`c30ddb8` + vllm v0.9.1 `b6553be`) buys nothing: `rg -n ENFORCE_EAGER` returns **zero**
+bindings in both trees, so nothing reads it — and because the name carries no
+`VLLM_`/`VLLM_ASCEND_` prefix it does not even trip the unknown-variable warning
+(`../observability-and-logs/env-var-validation-warning.md`), which is why the paste
+looks like a setting that was ignored rather than a name that was never a knob. The
+value the gate reads is `model_config.enforce_eager` (`vllm_ascend/platform.py:151` at
+that pair), written only by `--enforce-eager` / `LLM(enforce_eager=True)`
+(`vllm/engine/arg_utils.py:339`, `:929`), and the proof it took is one line —
+`Compilation disabled, using eager mode by default` (`platform.py:163-165`). So 0
+bindings ⇒ answer with the CLI flag plus the doc gap that invited the guess, never with
+a gate defect. When the refusal is the `ACL Graph does not support deepseek` form, that
+same flag is lever 1 of `../feature-enable-recipes/torchair-mla-head-count-tp-gate.md`.
 4. If no gate line exists at all, the setting never reached the process that
    matters: the stage yaml's `engine_args` and the top-level CLI are different
    inputs, and vllm-omni's merge is unreadable here — ask for each stage's log.

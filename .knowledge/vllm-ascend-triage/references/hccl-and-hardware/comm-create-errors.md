@@ -41,6 +41,22 @@ default `200` MB, `externalinput_pub.h:36-37`), and the config's magic word/vers
 (`comm_config.cc` `CheckMagicWord` → `EI0003 … Please make sure the config has been initialized by
 HcclCommConfigInit()`, the shape a torch_npu/CANN mismatch takes).
 
+## Code 7 `HCCL_E_UNAVAIL` beside `EJ0001` is a *live previous process*, not a parameter
+
+`error code is 7` plus `[ERROR] … ERR02200 DIST call hccl api failed` and
+`EJ0001: … Failed to initialize the HCCP process. Reason: Maybe the last training
+process is running.` is a different lane from code `1` above: nothing in the launch
+script was rejected. `EJ0001` is an **HCCP** (host RDMA/HDC agent) error, and the CANN
+table quotes its own fix — *"Wait for 10s after killing the last training process and
+try again."* (`cann/hcomm/src/common/error_code/error_code.cc:186-197`, mirrored in
+`cann/metadef/error_manager/error_code.json`; `bash <skill_root>/scripts/cann-error-lookup.sh EJ0001`).
+The "last training process" is usually the reporter's **own earlier engine** — one that
+was `sleep()`-ed rather than killed, an RL rollout that never exited, or a crashed
+leader whose RA/HCCP side is still up. Note the paste/OCR renders it `HCCP`; grep
+`Failed to initialize the HCC`, not `HCCL`. Read `../runtime-memory/sleep-mode-multi-instance.md`
+for the sleep-mode form (what `sleep()` does not release, the disjoint-card
+discriminator, the ladder) before walking any torch_npu C++.
+
 ## Order of work (3-4 calls, then deliver)
 
 1. **Say what the code means on the first turn that has it**: code `1` at this entry is a rejected
@@ -73,7 +89,8 @@ translate it.
 
 `#672`: same call site with `error code is 15` on a DP+EP offline DeepSeek-V2-Lite run.
 `#2712`: `create_config … :148` on a `--pipeline-parallel-size` serve. `#3196`: "how to
-troubleshoot" for code `11`. `#397`: the `create`/`HcclCommInitRootInfo` (no-config) sibling.
+troubleshoot" for code `11`. `#3172`: code `7` + `EJ0001` on the second engine after a
+`sleep()` — the previous process was still alive (`../runtime-memory/sleep-mode-multi-instance.md`). `#397`: the `create`/`HcclCommInitRootInfo` (no-config) sibling.
 
 Recorded #11542 (v0.22.1rc1 image, 2× 910B3, fork branch, `DeepSeek-V4-Flash-DSpark-bf16`, MoE EP
 group at `token_dispatcher.py`) walked this stack correctly down to the `:1396/:1399` folding and

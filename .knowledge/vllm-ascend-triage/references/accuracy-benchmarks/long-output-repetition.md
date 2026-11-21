@@ -25,6 +25,31 @@ That last row is the cheapest identity check and belongs in the first answer: a
 long-CoT model can loop on its own, and no engine ablation outranks it until the
 serial rerun is clean.
 
+## A reported rate is the sample size, not an anecdote
+
+Recorded #14085 (vLLM-Ascend v0.23.0rc1, GLM-5.2-w4a8c8, 8×910B PD disaggregation,
+C8 sparse flags + DCP=8, called from `opencode`) said only "偶现乱码，或重复说话";
+the reporter's later comment supplied the two numbers the report lacked: **one fixed
+prompt** (a domain-expert question a few hundred tokens long) and **29 repeats in
+193 runs (~15 %)**. Both follow-ups are worth having before the ladder runs:
+
+- **Three reruns cannot test a 15 % effect.** At p ≈ 0.15, three clean runs happen
+  with probability 0.85³ ≈ 0.61, so the identity row's "same request 3×" only
+  certifies a *deterministic* loop. Size the rerun as **N ≈ 3/p** (≈20 for 15 %) and
+  judge every later ablation row by the same count rather than by one clean response.
+- **A clean majority of the same prompt retires the model-side row only.** 164/193
+  clean runs of one prompt rules out "this prompt always degenerates", and leaves
+  per-request engine state (reuse/preemption, draft bookkeeping, sparse-attention KV
+  writes, graph replay) beside sampling equally open — sampler state moves with
+  batching too. `temperature: 0` plus a fixed seed is what separates them, and it is
+  the first launch, not the last.
+- **Ask for the rate in the first answer, beside the samples**: how many runs, how
+  many bad, one prompt or many, the prompt text, and `prompt_tokens`/`completion_tokens`
+  of one bad response. A report that says only "偶现" is asking the reader to guess N,
+  and the count is the cheapest thing the reporter can produce. The recorded run
+  shipped a complete ranked answer (C8/DCP lane first, six-rung ladder) without asking,
+  and the rate arrived 19 days later.
+
 ## First move: diff both commands against the model's tutorial
 
 Same move and same justification as `garbled-long-context-output.md`, applied to
@@ -93,6 +118,29 @@ with sparse SFA models (GLM-5.x) DCP requires `dcp_size == tp_size`
 (`vllm_ascend/platform.py:716-724`, `AssertionError` otherwise), so the meaningful
 DCP row is off vs `dcp == tp`, not an arbitrary size.
 
+## When the penalty itself is inert: `repetition_penalty` + `--async-scheduling`
+
+A loop report that also says "`repetition_penalty=2` 没有效果" has one cheap
+owner to check before any engine cause: output-token-based logits processors read
+their history from `sampling_metadata.output_token_ids`, and on an async-scheduling
+runner those are CPU-side placeholders until the runner copies the sampled ids
+back. #7769's reporter diagnosed exactly that on a DeepSeek w8a8 serve:
+`NPUModelRunner._sample` never called `update_async_output_token_ids()`, so every
+id read `-1` and the penalty scored nothing — "it did nothing" was the runner,
+not the sampler. At vllm-ascend **v0.19.1rc1** (`da421afa`) the call is present
+(`vllm_ascend/worker/model_runner_v1.py:1991`, inside the `_sample` override, with
+`:429-431` passing `logitsprocs_need_output_token_ids=bool(model_config.logits_processors)`),
+matching upstream v0.19.1 (`vllm/v1/worker/gpu_model_runner.py:3328`, `:634`)
+with the per-step CPU sync at `vllm/v1/worker/gpu_input_batch.py:850,970`.
+
+So on a report from an image **older** than that, one grep on the reporter's tree
+decides the lane — `rg -n 'update_async_output_token_ids'
+$(python -c 'import vllm_ascend,os;print(os.path.dirname(vllm_ascend.__file__))')/worker/model_runner_v1.py`:
+absent ⇒ the penalty is inert and the upgrade is rung 1; present ⇒ do not rank
+"penalty ignored" at all, and the loop is model-side or a reuse/draft path. It
+only applies when the failing request actually carries a penalty above its
+default; a body without one makes the whole lane irrelevant.
+
 ## The deliverable
 
 Verdict plus one action in the first paragraph, then a ranked list where every
@@ -101,7 +149,7 @@ failing request, `temperature=0`):
 
 | Row | Change | Still repeats means | Clean means |
 |---|---|---|---|
-| identity | `--max-num-seqs 1`, same request 3× | model-side long-output looping | engine reuse/draft path owns it |
+| identity | `--max-num-seqs 1`, same request **N ≈ 3/p** times at `temperature: 0` (3 only tests a deterministic loop) | model-side long-output looping | engine reuse/draft path owns it |
 | MTP | D node back to `num_speculative_tokens 3` | not the n≥4 branch | the n=5 path |
 | draft bookkeeping | D node `"enforce_eager": true` inside `--speculative-config` + `disable_padded_drafter_batch: true` | not the drafter batch | padded-drafter/graph replay |
 | reuse | D node `--no-enable-prefix-caching` (and, if `--async-scheduling` is on, off) | prefix cache/async scheduling unrelated | reuse bookkeeping |

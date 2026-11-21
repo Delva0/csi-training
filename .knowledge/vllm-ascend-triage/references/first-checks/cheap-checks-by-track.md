@@ -240,7 +240,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `bash <skill_root>/scripts/ranktable-check.sh <table-or-log>` — a declared
   `server_count > 1` (or more than one distinct `server_id`) decides the rest
   (multi-server view, `device_ip` + RoCE required). Then the plog grep set in
-  `../pd-disaggregation/transport-topology.md`.
+  `../pd-disaggregation/transport-topology.md`. If the connector is Mooncake and the
+  lines are `ascend_direct_transport.cpp:820 Failed to connect to target … 103900`
+  (`Mooncake transfer failed, ret: -1`), skip the port/`hostNetwork` tests and ask for
+  the decode node's plog in the first message: the recorded #4866 answer carried them
+  as the cheapest action and the plog the reporter then sent showed
+  `'device_ip' is not set correctly` → `HcclCommInitClusterInfo failed, rankNum[0]`
+  (`../pd-disaggregation/mooncake-adxl-connect-103900.md`).
 - KV pool / MemCache fault in storing or fetching KV rather than in the P/D
   handshake — the recorded shape is a **single node with no PD**, 800I/T A3 +
   DeepSeek-V4 `compress_ratios` + `ock.mmc.local_service.protocol: device_sdma`:
@@ -601,14 +607,19 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `quantization_config` started without `--quantization ascend` /
   `quantization="ascend"` and died in a worker (#2015) — the flag is mandatory
   exactly because upstream's auto-detection has nothing to read.
-- A load-phase `KeyError: '<prefix>.weight_scale'` (a **scale**, not a weight):
-  one call censuses the checkpoint before any `modelslim_config.py` read —
+- A load-phase `KeyError: '<prefix>.weight_scale'` or `'…experts.w2_weight_offset'`
+  (a quant **aux** tensor, not a weight): one call censuses the checkpoint before any
+  `modelslim_config.py` read —
   `uv run --no-project python <skill_root>/scripts/checkpoint-key-prefix.py --scales <model dir>`
   — and the serve command decides the rest
   (`../startup-failures/weight-scale-keyerror-quant-variant.md`). Scales on the
   main linear/MoE families = a quantised export missing its method (the bullet
   above); scales confined to `self_attn.wkv` / `self_attn.indexer.wq_b` = a
-  full-precision release served instead of the documented quantised variant.
+  full-precision release served instead of the documented quantised variant; an
+  expert offset name with no expert index (`…mlp.experts.w2_weight_offset`) is
+  upstream's remap of a per-expert key, and at v0.8.5rc1 only `W8A8_DYNAMIC`
+  allocates MoE offsets — so the description in effect marked the experts `FLOAT`
+  (ask for that entry; recorded #986).
 - A `RuntimeError: Promotion for Float8 Types is not supported … Float8_e4m3fn and
   Bool` in `ops/fused_moe/token_dispatcher.py` on the first MoE forward: three
   `sed` reads and one ablation, never a device theory

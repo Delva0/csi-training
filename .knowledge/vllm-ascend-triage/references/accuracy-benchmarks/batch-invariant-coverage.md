@@ -101,7 +101,10 @@ branch (hypothesis, label it as such; the AttributeError variant is untested).
 - **Sampler randomness.** With BI on, the Ascend sampler delegates to upstream's
   implementation (`vllm_ascend/sample/sampler.py:104-105`), and a greedy body
   never enters it. `--no-enable-prefix-caching` and `--enforce-eager` in the
-  recorded config also remove the cache-warm and graph-bucket rows.
+  recorded config also remove the cache-warm and graph-bucket rows. That bypass is
+  also the probe in the other direction: if `temperature>0` corruption **survives**
+  `VLLM_BATCH_INVARIANT=1` at the same concurrency, the Ascend sampler and its
+  side-stream `q` are out (`sampler-side-stream-corruption.md`).
 - **vllm-ascend custom kernels.** `enable_custom_op()` returns False under BI
   (`vllm_ascend/utils.py:274-276`: no env override; off for BI, A5, or a failed
   `vllm_ascend_C` import), so no fused custom op is in play. That is design,

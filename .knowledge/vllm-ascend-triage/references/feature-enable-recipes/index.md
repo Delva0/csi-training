@@ -96,8 +96,10 @@ Rules for this topic:
 7. A **sequence-parallel / FlashComm** question ("能不能开 `VLLM_ASCEND_ENABLE_FLASHCOMM1`",
    or the export is already in the failing command) is answered from the predicate
    that turns SP on — four doors, including a legacy env name and upstream's
-   async-TP pass — plus the platform's VL/Omni guard, before any shape walk:
-   `sequence-parallel-flashcomm.md`.
+   async-TP pass — plus the platform's VL/Omni guard **and the remedy that guard's own
+   message names at the reporter's ref** (unset-only on the v0.14 family; the Inductor SP
+   pass on the v0.15 family, whose support matrix makes it the VL+Dense route), before any
+   shape walk: `sequence-parallel-flashcomm.md`.
 
 8. An **other-SoC** question — the model runs, and the report is "速度很慢" plus "能否提供
    量化版本 / 社区只看到 310P 的" where the model's tutorial, support-matrix row and
@@ -191,7 +193,10 @@ Pages:
   (DeepSeek-V3.2 QuaRot on A2, v0.19.1rc1): card arithmetic, the DCP divisibility
   and `cp_kv_cache_interleave_size` gates, the `VLLM_ASCEND_ENABLE_CONTEXT_PARALLEL`
   requirement of the MoE path, what the pinned tree actually validates for A2, and
-  the PCP-defect precedent family (#8578/#8579/#8580/#7375).
+  the PCP-defect precedent family (#8578/#8579/#8580/#7375), and **§4b** for the
+  accuracy-degradation shape: PCP on with `--no-enable-expert-parallel`, where the
+  answer is a coverage statement (every CP accuracy test in the tree is EP-on) plus
+  one flag, not a MoE source walk.
 - `torchair-mla-graph-and-chunked-prefill.md` — torchair graph mode on DeepSeek/MLA
   (v0.9.1rc1 `c30ddb8`), worked for #1369: the `decode_hs_or_q_c` UnboundLocalError at
   `mla_v1.py:1099` explained by the `running_in_graph` binder structure (`:1040,1065-1075`),

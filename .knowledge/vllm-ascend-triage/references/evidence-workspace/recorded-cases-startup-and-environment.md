@@ -718,6 +718,27 @@ one answer at turn 8. Page `../startup-failures/checkpoint-file-not-safetensors.
 one call `../../scripts/checkpoint-header-scan.py <model dir>`. Open: how the
 weights were obtained and the shard sizes.
 
+**#986** image `quay.io/ascend/vllm-ascend:v0.8.5rc1-openeuler` (tree v0.8.5rc1
+`ec27af34`; the snapshot's vllm pin is v0.6.6.post1, **not** the 0.8.x in the image),
+`DeepSeek-R1-bf16-hfd-w8a8` from modelers.cn, 2 nodes, TP8 × PP2 + ray,
+`--enforce-eager`, **no** `--quantization` flag, the checkpoint's
+`quant_model_description.json` hand-merged into `config.json` per #856: all 16 ranks
+die while loading (shards `2/157`) at upstream
+`vllm/model_executor/models/deepseek_v2.py:788 param = params_dict[name]` with
+`KeyError: 'model.layers.23.mlp.experts.w2_weight_offset'` on the PP0 ranks and
+`layers.40…` on PP1. Track: the index-free name is upstream's own remap of a
+per-expert key (`make_expert_params_mapping` + `name.replace(…, "experts.w2_")`), and
+at this ref only `W8A8_DYNAMIC` allocates MoE offsets (`w8a8_dynamic.py:417,426`),
+the static `W8A8` MoE path raising `NotImplementedError` before load
+(`quantizer.py:266-270` + `:210-212`) — so the experts resolved to the unquantised
+method, i.e. the description in effect did not say `W8A8_DYNAMIC`. The recorded run
+read the fused name as proof of a stacked msmodelslim export, then walked
+quantizer/create_weights, and ended **output-truncated at 16 384 tokens with zero
+answer text** (913 K cumulative prompt tokens); it never asked for `ls` of the model
+dir or the experts' description entry. Page:
+`../startup-failures/weight-scale-keyerror-quant-variant.md` (`.weight_offset`
+section).
+
 **#12985** vllm-ascend `v0.23.0rc1-310p-openeuler` (tree v0.23.0rc1 `f4a08bdd`) +
 CANN 9.1.0-beta.1, 4× Atlas 300I Duo = 8 dies of ~43 GiB, Qwen3.5-35B-A3B-w8a8-MTP:
 `vllm serve --tensor-parallel-size 8 --max-model-len 100000
@@ -991,6 +1012,21 @@ and points at `AscendScheduler` (which disables it); after being pointed at
 `mla_v1.py#L1075` the reporter answered "I was careless". Page now carries the binder
 structure, the silent-key/cached-config check and the "patching one line moves the crash"
 follow-up: `../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md` (new).
+
+**#1456** `[Doc]` vllm-ascend v0.9.1rc1 (`c30ddb8`) + vllm v0.9.1 (`b6553be`),
+DeepSeek-R1-w8a8 on one host, `vllm serve … -tp 16 --max-model-len 4096
+--quantization ascend` with `export ENFORCE_EAGER=1`: config-time
+`NotImplementedError: ACL Graph does not support deepseek … Or set enforce_eager=True`
+from `vllm_ascend/ascend_config.py:148-157`, before any weight is read. Track: the
+`export` is not a knob (0 `ENFORCE_EAGER` bindings in either tree; the gate reads
+`model_config.enforce_eager`, `platform.py:151`), so `--enforce-eager` is the whole
+fix, and the same answer owes the page defect that invited the guess (`graph_mode.md:10`
+gives only the Python form; `:58`'s TorchAirGraph online example serves Qwen). The
+recorded run verified the env-var no-op in two greps and delivered the answer plus
+three doc defects, and its own deduction that TP=16 would then hit the MLA
+heads-per-rank gate (128/16 = 8) if the reporter moved to torchair. Page:
+`../feature-enable-recipes/torchair-mla-head-count-tp-gate.md`, and
+`../startup-failures/graph-mode-not-applied.md` for the no-op-env-var check.
 
 **#1579** vllm-ascend v0.9.1rc1 (`c30ddb8`), vllm v0.9.1
 (`b6553be`), torch_npu `v7.1.RC1.alpha002` (`d33df55`), image

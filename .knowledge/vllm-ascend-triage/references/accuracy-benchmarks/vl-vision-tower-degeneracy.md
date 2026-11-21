@@ -43,6 +43,26 @@ just poorer. Either way the presence of an **image** is what selects this page; 
   Qwen2.5-VL-7B = 1280/16 → 80 is recall; it decides whether the padding branch
   below is even in play, so it must come from their file.
 
+- **If the reporter's request is verbatim a pinned tutorial's sample request, the
+  tutorial's sample response is a matched control for the input side — read it before
+  ranking any mechanism.** Recorded #6909 (vllm-ascend v0.15.0rc1 `3d43ed9` ↔ vllm
+  v0.13.0 `72506c9`): the paste's system message + `qwen.png` + "What is the text in
+  the illustrate?" *is* the request in
+  `docs/source/tutorials/models/Qwen3-VL-30B-A3B-Instruct.md:112-128` (doc form: a
+  modelscope URL for `qwen.png` and `"max_completion_tokens": 100`; reporter: the same
+  image via `file:///media/qwen.png`, no cap), whose sample response (`:130`) answers
+  correctly in 15 tokens with `prompt_tokens: 107` — and
+  the reporter's degenerate answer to the same body also says `prompt_tokens: 107`
+  with `completion_tokens: 2`, `finish_reason: "stop"`, `stop_reason: null`. Equal
+  `prompt_tokens` certifies that the image reached the model exactly as the validated
+  recipe delivers it, which exonerates `--allowed-local-media-path`, `file:///`, the
+  processor and MM-token expansion by arithmetic (no `config.json` round trip), and
+  leaves the *serving difference* as the subject: diff the launch against that page's
+  recipe (`:87-90` — `--tensor-parallel-size 2 --enable-expert-parallel
+  --max-model-len 128000` there, versus the reporter's TP4 with neither) before
+  theorising about the tower. A `prompt_tokens` that is *smaller* by the image's token
+  count is the opposite verdict and sends you to the input side.
+
 ## Step 1 — the two-implementation gate (cheapest restart)
 
 At vllm-ascend `v0.9.2rc1` (`b5b7e0e`), Qwen2.5-VL is registered **twice** and
@@ -91,6 +111,55 @@ checkpoints, which is exactly the precedent pattern below.
 
 Rows 1-3 are the ones that decide ownership; all six are one flag each, so the
 reporter can run the matrix in one sitting.
+
+## The PD/EPD split: one instance answers the same body correctly
+
+A VL/OCR deployment behind 1P1D (or EPD) whose image request comes back as **fluent but
+unrelated text** is this page's wrong-but-not-repeated surface with the *topology* as the
+axis. Recorded #5628: the request (served name `dotsocr`, shell working directory
+`…/models/Qwen/Qwen2.5-VL-7B-Instruct`) answered `请告诉我这张图片上有些什么？` with 18
+tokens of unrelated Chinese prose at HTTP 200, `prompt_tokens: 1424` (all figures read from
+the screenshot OCR), no error and no `null` content. Do not start in the connector or
+`kv_p2p/`: the answer is coherent text, so nothing here says the transfer failed, and the
+first question is whether the defect survives without the split.
+
+- **The pinned tree ships a 1P1D single-node recipe on Qwen2.5-VL-7B**, so "VL is not
+  supported under PD" is not the answer —
+  `docs/source/tutorials/pd_disaggregation_mooncake_single_node.md:1-7`, serve flags at
+  `:149-154` and `:192-197`: `--no-enable-prefix-caching`, `--tensor-parallel-size 1`,
+  `--seed 1024`, `--max-model-len 40000`, `--max-num-batched-tokens 40000`, and the same
+  `kv_connector_extra_config` on both sides. The doc's own header says v0.11.0rc1 / vLLM
+  v0.11.0, so it is the reference the report is diffed against, not the report's version.
+- Rows that change the *answer* while the transport is healthy, cheapest first:
+  1. **Same body against a single-instance serve** of the same checkpoint, image and
+     flags. A title saying the accuracy dropped *after* switching to PD makes the no-PD
+     run the reporter's own control: a cause that also predicts that run failing —
+     unpinned temperature/seed, an OCR model asked a generic chat question — ranks below
+     it (SKILL rule 15), it does not lead.
+  2. **`usage.prompt_tokens` on one good and one bad run.** Different counts mean the two
+     sides did not build the same prompt (image fetched twice, a dropped placeholder) →
+     `../multimodal-inputs/index.md`, not this page.
+  3. **Prefix caching**, on by default (vLLM v0.13.0 `vllm/config/cache.py:76`) while the
+     1P1D recipe disables it on **both** sides. On the decode side a local hit changes
+     what the prefiller is asked to send: `get_num_new_matched_tokens` returns
+     `max(len(request.prompt_token_ids) - num_computed_tokens, 0)` after
+     `assert num_computed_tokens % block_size == 0`
+     (`vllm_ascend/distributed/mooncake_connector.py:862,864`), and
+     `update_state_after_alloc` pulls only `get_unhashed_block_ids()` (`:870-884`).
+     Which block set the decode side ends up owning is the open question — hypothesis,
+     and `--no-enable-prefix-caching` on both sides is the one-flag launch that tests it.
+  4. **Same SoC, dtype and TP on both sides**: heterogeneous P/D nodes are unsupported
+     (`docs/source/developer_guide/feature_guide/disaggregated_prefill.md:101`) and the
+     recipe pins TP 1. The reporter's `npu-smi` showing three engine processes cannot be
+     read as "1P+1D" without both serve commands — ask for them instead of inferring TP
+     from HBM.
+- An OCR/document model asked a generic chat question answers prose on any topology; check
+  the checkpoint's intended prompt and its `config.json` before calling it a defect. Naming
+  it is a data gap when the shell directory and the served model name disagree (#5628:
+  `Qwen2.5-VL-7B-Instruct` vs `dotsocr`).
+- Ask for: both serve commands, `usage.prompt_tokens` of one good and one bad run, and the
+  same body against a non-PD instance. Two screenshots of the same image are one
+  observation — #5628's export held only the bad-result OCR under two file names.
 
 ## Precedent in the issue corpus
 
@@ -232,5 +301,7 @@ there and ask for the version.
 `config.json` `vision_config` (hidden_size, num_heads, depth, patch_size), the
 full serve command (TP, `--max-model-len`, `--limit-mm-per-prompt`,
 `USE_OPTIMIZED_MODEL`, `--enforce-eager`), one raw request+response JSON with
-`usage.prompt_tokens` and `finish_reason` (to prove the image tokens reached the
-model at all), and rows 1-3 of the matrix with their outcomes.
+`usage.prompt_tokens` and `finish_reason`, and rows 1-3 of the matrix with their
+outcomes. Compare that `prompt_tokens` with the model tutorial's sample response for
+the same request yourself (the grading bullet above) — ask for the tutorial file only
+when the report names no model whose page exists at the pin.

@@ -1,4 +1,4 @@
-# Load-phase `KeyError: '<param>.weight_scale'`: the checkpoint's scale tensors vs the engine's quant config
+# Load-phase `KeyError: '<param>.weight_scale'` / `.weight_offset`: the checkpoint's quant aux tensors vs the engine's quant config
 
 Lane B, every rank, after `Starting to load model` (the shard bar is usually
 visible). The traceback's deepest frames are the model loader:
@@ -17,8 +17,10 @@ DeepSeek-V4-Flash, TP8 + `--enable-expert-parallel`, DP1/PP1).
 
 This is the **mirror** of `quantization-method-gate.md` section B. There, the
 checkpoint has int8 *weights* a dense model cannot hold; here the checkpoint
-carries *scale* tensors the engine built no parameter for. Classify on the key:
-`.weight_scale` / `.scale` → this page; a plain `.weight` → the gate page.
+carries *scale*/*offset* tensors the engine built no parameter for. Classify on the
+key: `.weight_scale` / `.scale` / `.weight_offset` (any quant **aux** tensor) → this
+page; a plain `.weight` → the gate page. The `.weight_offset` family has its own
+reading rules — section below.
 
 ## What the pin does (verified at v0.23.0rc1 `f4a08bd`, one-commit snapshot)
 
@@ -37,6 +39,76 @@ carries *scale* tensors the engine built no parameter for. Classify on the key:
    there is a statement about **the engine's quantisation**, never about those two
    modules being special-cased in code.
 
+## The `.weight_offset` variant: the engine built that MoE unquantised (recorded #986)
+
+Same lane, same two calls, plus one reading rule. Signature — image
+`quay.io/ascend/vllm-ascend:v0.8.5rc1-openeuler`, `DeepSeek-R1-bf16-hfd-w8a8` from
+modelers.cn, TP8 × PP2 + `--distributed-executor-backend ray`, `--enforce-eager`,
+**no** `--quantization` flag, and the checkpoint's `quant_model_description.json`
+merged into `config.json` by hand (the advice in #856):
+
+```text
+(... RayWorkerWrapper pid=12580) ... vllm/model_executor/models/deepseek_v2.py", line 788, in load_weights
+    param = params_dict[name]
+KeyError: 'model.layers.40.mlp.experts.w2_weight_offset'    # PP1 rank; the PP0 ranks say layers.23
+```
+
+1. **That name is the engine's parameter, not the checkpoint's.** Upstream asks for it
+   by substring rewrite: `FusedMoE.make_expert_params_mapping` builds
+   `experts.{expert_id}.{down_proj}.` and the loader does
+   `name.replace(weight_name, "experts.w2_")`
+   (`vllm/model_executor/layers/fused_moe/layer.py:542-557` and
+   `vllm/model_executor/models/deepseek_v2.py:564-616` in the pinned vllm tree), so a
+   per-expert tensor `…experts.40.down_proj.weight_offset` reaches `params_dict` as
+   `…experts.w2_weight_offset`. **The absent expert index does not mean the checkpoint
+   is a fused/stacked export**, and which of `_offset`/`_scale` a shard reaches first
+   needs no explaining. The recorded run inferred a fused msmodelslim layout from
+   exactly this, then walked quantizer/create_weights, and shipped **no answer** at
+   the 16 384-token cap — that inference is the whole trap.
+2. **What a missing offset means, per layer family** (vllm-ascend v0.8.5rc1
+   `ec27af34`, the recorded pin — re-grep at another ref, the whole map is two classes
+   and a `SUPPORT_ASCEND_QUANTIZER_TYPE` dict):
+
+   | layer family | allocation site | registers `.weight_offset`? |
+   |---|---|---|
+   | linear, `W8A8` | `quantization/w8a8.py:75` (`AscendW8A8LinearMethod`) | yes |
+   | linear, `W8A8_DYNAMIC` | `quantization/w8a8_dynamic.py:337` | yes |
+   | MoE experts, `W8A8_DYNAMIC` | `w8a8_dynamic.py:417`, `:426` (`AscendW8A8DynamicFusedMoEMethod`) | yes — `w13_weight_offset`, `w2_weight_offset` |
+   | MoE experts, `W8A8` (static) | none: `W8A8Quantizer` defines only `build_linear_method` (`quantization/quantizer.py:266-270`), so the inherited `VLLMAscendQuantizer.build_moe_method` (`:210-212`) raises `NotImplementedError("MoE method is not implemented for the current quant type.")` while `AscendFusedMoEMethod.__init__` builds the layer | never reached — it dies **before** `Starting to load model` |
+   | MoE experts declared `FLOAT` | `AscendUnquantizedFusedMoEMethod` (`quantization/quant_config.py:96-99` through `is_layer_skipped_ascend`, `:104-129`) | no |
+
+   The lookup the branch performs is `quant_description['…mlp.experts.weight']`
+   (`is_layer_skipped_ascend`; upstream builds the MoE with
+   `prefix=f"{prefix}.experts"` — `models/deepseek_v2.py:115-125` in the pinned tree,
+   which also defines no `packed_modules_mapping`, so it is that one fused key;
+   the pin is v0.6.6.post1, so re-read the construction site for the reporter's vllm). Four values, four
+   outcomes, and only one is a load-phase offset `KeyError`: the key absent →
+   `KeyError: '…mlp.experts.weight'` during construction; `W8A8` → row 4's
+   `NotImplementedError`; `W8A8_DYNAMIC` → row 3 allocates both offsets;
+   **`FLOAT` → unquantised experts, and the first `_weight_offset` tensor the loader
+   reaches has no parameter.** So the description that was in effect marks the experts
+   `FLOAT` while the checkpoint ships expert offsets — it does not describe these
+   weights (wrong variant, or a hand-merged/renamed file).
+3. **The description in effect is the artefact — ask, do not walk.** At that ref
+   `AscendQuantConfig.get_config_filenames()` is exactly
+   `["quant_model_description.json"]` (`quant_config.py:69-70`), while the tutorial's
+   own converted tree lists `quant_model_description_w8a8_dynamic.json`
+   (`docs/source/tutorials/multi_npu_quantization.md:65`, produced by the
+   `--is_dynamic True` conversion at `:54`; its serve line `:78` carries no
+   `--quantization` flag). Collect: `ls <model dir>`, the `config.json`
+   `quantization_config` if the description was merged there, and the value of
+   `model.layers.<failing>.mlp.experts.weight` — the documented recipe needs
+   `W8A8_DYNAMIC` on the experts, not `W8A8` and not `FLOAT`.
+4. **One log line says which quantizer decided.** `Using the vLLM Ascend Quantizer
+   version now!` (`quantizer.py:88`) is printed only when `mindie_turbo` is *not*
+   importable (`:50-53`). Without that line a `MindIETurboQuantizer` in the image owns
+   every decision above and the table does not apply — say so and let `pip show
+   mindie-turbo` (or the image's file list) settle it instead of deriving a layout.
+5. Either way state the ask: at that ref nothing converts a `FLOAT`/static-`W8A8`
+   expert block into the dynamic method, so "re-convert with `--is_dynamic True` (or
+   serve the modelers.cn *w8a8_dynamic* directory)" and "send the description entry"
+   are the deliverable, not a patch.
+
 ## Procedure — two calls before any source walk
 
 1. **Get the contract first: the exact `vllm serve` line (or launch script) and
@@ -47,7 +119,7 @@ carries *scale* tensors the engine built no parameter for. Classify on the key:
    device, reuses `../../scripts/checkpoint-key-prefix.py`:
    `uv run --no-project python ../../scripts/checkpoint-key-prefix.py --scales <model dir>`
    It prints every `.scale` / `.weight_scale` / `.weight_scale_inv` /
-   `.quant_bias` key grouped by module family, plus whether
+   `.weight_offset` / `.quant_bias` key grouped by module family, plus whether
    `quant_model_description.json` and a `quantization_config` in `config.json`
    exist. Read the **family count**, not the tensor count:
    - scales across the main linear/MoE families (`self_attn.wq_a`/`wq_b`/`wo_a`/

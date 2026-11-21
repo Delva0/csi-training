@@ -113,6 +113,42 @@ names `openai_gptoss` / `seed_oss`, which differ from their files
 `_REASONING_PARSERS_TO_REGISTER` at the claimed ref instead of trusting the spellings,
 and never propose a name you have not found there or in the reporter's own list.
 
+## DeepSeek / `deepseek_v3`: the delegation is per request, and `thinking` *is* its key
+
+Verified at vllm v0.18.0 (`bcf2be9`); recorded #9521
+(DeepSeek-V3.1-Terminus **w4a8 + MTP + QuaRot**, vllm-ascend v0.18.0rc1,
+`stream: true`, `chat_template_kwargs: {"thinking": true}`, short user prompt,
+`content` empty on *some* requests — "概率性出现没有content").
+
+| claim | anchor at vllm v0.18.0 |
+|---|---|
+| the parser reads `thinking` **or** `enable_thinking` (each default `False`) and delegates: truthy → `DeepSeekR1ReasoningParser`, falsy → `IdentityReasoningParser` (everything stays in `content`) | `vllm/reasoning/deepseek_v3_reasoning_parser.py:32-41` |
+| the `*WithThinkingParser` aliases instead **force** `thinking=True` when neither key is present | `:78-90` (the registered `glm45` / `holo2` names) |
+| the parser is rebuilt **per request** from that request's kwargs merged over `--default-chat-template-kwargs` | `vllm/entrypoints/openai/chat_completion/serving.py:229-236`; merge `defaults \| request` at `vllm/entrypoints/openai/engine/serving.py:815-824` |
+| the R1 branch splits on `<think>` / `</think>` | `vllm/reasoning/deepseek_r1_reasoning_parser.py:19-25` |
+| in streaming every delta without the end token is emitted as `reasoning` — "reasoning content continues" | `deepseek_r1_reasoning_parser.py:63-65` |
+
+Three consequences, all of which change what to investigate:
+
+1. **A body-level `thinking` toggles routing request by request**, so "sometimes
+   empty, sometimes fine" on one server can be two different bodies rather than a
+   race, a sampler or a kernel. Diff the *requests* before the responses look
+   random.
+2. **For a `deepseek_v3` serve, `chat_template_kwargs: {"thinking": true}` is the
+   right spelling, not the AisBench-ism the kwarg trap below warns about.** Treating
+   it as wrong routes the case into a model/quantization hunt while the mechanism
+   is one `content: null` + populated `reasoning`.
+3. **The release-diff branch is closed here.** The reporter later reported the same
+   empty `content` on `0.18.0` **and** `0.19.1rc1`
+   (`issue/9521#issuecomment-4541092252`). That rules out "a newer rc fixed it" and
+   leaves two live branches — routing (the caller reads only `content`) versus a
+   genuinely short completion — which the same observation does **not** separate.
+   The deciding artefact stays one response printed whole: `content`, `reasoning`,
+   `finish_reason`, `completion_tokens`, `return_token_ids: true`. On this
+   deployment class the competing explanations (MTP block-verify, w4a8-QuaRot
+   degeneration, `--max-model-len` truncation) all predict a *small*
+   `completion_tokens`, so that number, not the version, is the discriminator.
+
 ## The inverse shape: "thinking is inside `content` and `reasoning_tokens` is 0"
 
 Re-verified at vllm v0.22.1 (`0decac0d96c4`) + vllm-ascend v0.22.1rc1 (`5f6faa0`),
@@ -200,7 +236,10 @@ GDN/RoPE kernels spends its budget on the wrong layer.
 and some Qwen3.5-era templates expose the switch as `thinking`. If the served template's
 switch name and the parser's key differ, thinking control silently does nothing and the
 parser mis-classifies output. Do not assume either spelling: check the model's
-`chat_template.jinja` and prefer `enable_thinking` with the parser. (Corroborating issue
+`chat_template.jinja` and prefer `enable_thinking` with the parser. (For a
+`deepseek_v3` serve **both** keys are read and `thinking` is the switch that
+selects the R1 splitter — see the DeepSeek section above before calling the
+reporter's key wrong. Corroborating issue
 precedent: #7061 / #7094 in `history/`, which also track the upstream parser fix PR 34779.)
 
 The spelling is per-parser, so one client body flips the branch by model family. At

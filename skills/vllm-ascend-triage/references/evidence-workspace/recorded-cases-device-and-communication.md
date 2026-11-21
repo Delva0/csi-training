@@ -23,6 +23,28 @@ the registry lane separate. Two costs worth not repeating: its second call dumpe
 it typed `rg -rn` (the documented `--replace` trap) and had to kill the job and redo it.
 Page: `../custom-ops-runtime-faults/custom-op-ownership-and-dispatch.md`.
 
+**#7443** vllm-ascend v0.17.0rc1 (`e20f0b1a`) + vllm v0.17.0 (`b31e9326`), DeepSeek-V3.1
+on a W8A8 checkpoint, `--quantization ascend --enable-expert-parallel
+--data-parallel-size 4 --tensor-parallel-size 4`: dies at `determine_available_memory()
+→ profile_run()` on the first quantized dense linear with `call
+aclnnQuantMatmulWeightNz failed, error code is 161002` and
+`AclNN_Parameter_Error(EZ1001): Tensor scale not implemented for DT_FLOAT16, should be
+in dtype support list [DT_UINT64, DT_BFLOAT16, DT_INT64, DT_FLOAT]`. Track: custom-op
+**parameter** rejection — the op is registered, the launch was refused for one operand
+dtype — whose owner is the quantization method, not the package and not DP/EP/TP. The
+recorded run verified the reporter's reading at the pin (`w8a8_dynamic.py:86-89` passes
+`layer.weight_scale` while `:103` builds a `weight_scale_fp32` nobody reads), noticed
+that only `DT_FLOAT16` is missing from the printed support list, and *did* find the
+asymmetry it should have led with — `:249` still passes the non-fp32 `w2_weight_scale` —
+but dismissed it as safe because `moe_mlp.py:175` casts w1's scale, a rescue that covers
+gmm1 only while `moe_mlp.py:144` derives the GMM2 **output** dtype from
+`w2_scale[0].dtype`, the gate's second operand. The reporter's later public comment
+confirms the miss: after the linear repair the identical error returned in the MoE path
+(`aclnnGroupedMatmulWeightNz … 161002`, fix pushed as PR #7444). Answer with the whole
+parameter family plus the output-dtype half, one call:
+`scripts/quant-scale-dtype-audit.py`. Page:
+`../custom-ops-runtime-faults/quant-scale-dtype-gate.md`.
+
 **#6243** vllm-ascend v0.12.0rc1 (reported ref, no commit named; pinned views at
 v0.13.0rc2 `a17059a2`), DeepSeek-V3.2 on two 800I A2 nodes: hundreds of requests served,
 then `call aclnnKvRmsNormRopeCache failed, error code is 561002`, `ERR00100 PTA call acl
@@ -197,6 +219,29 @@ boundary arithmetic, the tutorial diff, a refuted-rows list and a four-rung ladd
 Track: lane C, MC2 dispatch during profiling
 (`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`); the hang's own cause
 stayed open (no `npu-smi`, no headless-node log in the paste).
+
+**#8294** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`), 2×A2
+(`2*8*910B3`), GLM-4.7-W8A8, `--data-parallel-size 2 --data-parallel-size-local 1
+--tensor-parallel-size 8 --enable-expert-parallel`, DP=2 across two `--headless`/master
+nodes, CANN 8.5.1, npu-smi 24.1.0.3. Title: 无法成功 torch.compile and initial
+profiling/warmup. The paste's own traceback is
+`worker.py:343 determine_available_memory` → `model_runner_v1.py:2544
+_dummy_run(mc2_tokens_capacity, …)` → `:2492` → `:1818`, all matching the pin line for
+line, so this is the same extra profiling dummy run as #5509 — with `507014` / `fftsplus
+aicore timeout` after ~11 min of `shm_broadcast` lines. What the paste additionally
+carried: the two nodes' **own** launch commands, and they disagree —
+`cudagraph_capture_sizes [1,2,4,8,16,32,64]` on node 0 vs
+`[1,2,4,8,16,32,64,128,256,512]` on node 1, i.e. capacity 64 vs 512 and `global_bs` 128
+vs 1024 inside one `ep_world_size = 16` group. The recorded run found that in 11 calls
+and also refuted the A2 no-ops (`VLLM_ASCEND_ENABLE_FUSED_MC2` is A3-only there) and
+corrected the reporter's "EP needs FLASHCOMM1" (the real dependency is
+`enable_shared_expert_dp` → `enable_sp`). Post-hoc, the reporter reported (2026-04-17)
+that all combinations of three envs, including all unset, still fail at the same
+phase — the env lane is closed and the symmetry/transport rows are what remain. The
+second (follow-up) turn restated the whole ranking under a 8 192-token cap and was cut
+in its closing section: `../evidence-workspace/delivery-discipline.md`.
+Tracker: `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` (Step 1b, and
+`scripts/mc2-capacity-asymmetry.sh`).
 
 **#9984** vllm-ascend v0.19.1rc1 (`da421afad7`) / vllm v0.19.1 (`b1388b1fbf5a`),
 GLM-5.1-w4a8 started with the tutorial's FLASHCOMM1 + MTP flags:
@@ -460,4 +505,26 @@ this run's path, and `507011` is `ACL_ERROR_RT_MODEL_EXECUTE`
 `fault kernel_name`. The recorded run reached this family and the coverage verdict
 but emitted **zero message text on its first 13 turns**, writing the whole ranked
 answer on the 14th and last. Page:
+`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`.
+
+**#4326** vllm-ascend v0.11.0rc1 (`c5fe179`) + vllm v0.11.0 (`b8b302c`),
+Qwen3-30B-A3B-W8A8 (TP1×DP8, `--enable-expert-parallel`, 32768 ctx,
+`--async-scheduling`, `VLLM_ASCEND_ENABLE_FLASHCOMM`): "[Bug]: Qwen3-moe
+FULL_DECODE_ONLY inference crash". Body = the OpenAI frontend re-raising
+`EngineDeadError … See stack trace (above)` ~15 times (once per queued streaming
+output, i.e. death at **concurrency**, not on the first request) plus a plog from
+44 min earlier at interpreter teardown (`cann_kb_finalize`, `ConnectionRefused`) —
+no root-cause stack, no in-window plog. Track: FULL-mode replay (ranked:
+async-scheduling × per-replay argument patch, the GQA `_npu_paged_attention`
+workspace note, EP/DP collectives inside the graph, flashcomm/SP). Two version
+facts worth the two greps: at this pin `acl_graph.py` records update events
+(`:249`, `:307`) with **no** `torch.npu.synchronize()` before `replay()` (`:190`)
+and no `event.wait` consumer, so the ordering hazard is live on the 0.11 line and
+`--async-scheduling False` is a real lever; and neither `using_paged_attention` nor
+`pa_shape_list` exists there, so the paged-attention path is default, not opt-in.
+Coverage: `test_full_graph_mode.py` (TP2, `max_model_len=1024`, bf16) is referenced
+by no `.github/workflows` file; the wired graph runs are `singlecard/test_aclgraph.py`
+and `test_aclgraph_mem.py` (`_e2e_test.yaml:77,91-92`). The run delivered the ranked
+answer plus the per-replay mechanism on its 11th and last turn, with seven of its
+eleven turns carrying no message text. Page:
 `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`.

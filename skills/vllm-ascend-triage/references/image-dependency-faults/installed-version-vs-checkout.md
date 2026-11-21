@@ -2,7 +2,11 @@
 
 Scope: the report is a **version-string question**, nothing crashed — "`pip show
 vllm-ascend` shows 0.9.0rc2 but I installed 0.9.1dev", "版本号显示不对", "is there a
-`0.9.1dev` version at all", "which version am I actually running". No log, no
+`0.9.1dev` version at all", "which version am I actually running", or — the same
+question asked of an official image — "为什么我拉的镜像
+`quay.io/ascend/vllm-ascend:v0.9.1-dev` 安装的包不是 0.9 呢" beside
+`vllm 0.9.1+empty` and `vllm_ascend 0.1.dev1+gf5f88f78b`, both
+`Editable project location: /vllm-workspace/…`. No log, no
 traceback, no worker. The owner is the **build's metadata**, not the code that gets
 imported, so the deliverable is a decision (which of three causes) plus the
 five-second command that proves which code is loaded — not a version survey.
@@ -49,9 +53,21 @@ arithmetic on these two outputs.
   `0.9.0rc2`; N commits past it → `0.9.0rc3.devN+g<sha>`. A bare `0.9.0rc2` with no
   `.devN+g…` suffix therefore means the built tree sat *exactly* on that tag, or the
   number is a leftover dist-info. Nothing else produces that string.
-- A **shallow** clone of a branch carries no tags: `git clone --depth 1 --branch
-  <branch>` ⇒ `LookupError` ⇒ `0.0.0`. So "I cloned the dev branch shallow" cannot
-  explain a real-looking number; that row is closed by the derivation, not by a test.
+- **No reachable tag, but git metadata present** ⇒ `0.1.devN+g<sha>`
+  (`0.1.dev1+gf5f88f78b` is the reported dev-image value). The base `0.1` is
+  setuptools_scm's `guess-next-dev` fallback from 0.0, and the `+g<sha>` local
+  part is a **git node id** — it cannot be produced without a `.git`, so this
+  string proves "built from a checkout whose tags were not fetched", not "built
+  from something else". `0.0.0` is the *other* branch, `setup.py`'s
+  `except LookupError` (`v0.9.1 setup.py:279-285`), reached when there is no SCM
+  metadata at all (an unpacked tree). Read which of the three strings is in the
+  paste before ranking a cause; the derivation is labelled as such, and the
+  reporter's own `git -C <checkout> describe --tags --always` closes it.
+- `+empty` (vllm) is **not** a setuptools_scm artifact: `vllm/setup.py:548-554`
+  appends it when the build ran with `VLLM_TARGET_DEVICE="empty"` (`_no_device()`,
+  `+empty`). So `vllm 0.9.1+empty` says two things at once — the tag `v0.9.1` *was*
+  visible to that build, and the wheel is the no-CUDA device build the plugin
+  images produce (`Dockerfile:43`).
 - The documented source build clones a *tag*: `docs/source/installation.md:150-170`
   (`--depth 1 --branch |vllm_ascend_version|`, then `pip install -v -e .`), and
   `docs/source/conf.py:67-76` fills those substitutions with `vllm_version: v0.9.2`,
@@ -65,6 +81,33 @@ arithmetic on these two outputs.
   `vllm_version_is()` raises `ValueError: Invalid vllm version …` whose own message
   is the fix (`Set the environment variable VLLM_VERSION … format of x.y.z`).
 
+## The official `-dev` image: both projects are editable source installs
+
+`vllm-ascend` `Dockerfile` at v0.9.1 does not install release wheels at all:
+`:34` `COPY . /vllm-workspace/vllm-ascend/`, `:41`
+`git clone --depth 1 $VLLM_REPO --branch $VLLM_TAG /vllm-workspace/vllm`, `:43`
+`VLLM_TARGET_DEVICE="empty" pip install -v -e /vllm-workspace/vllm/`, `:52`
+`pip install -v -e /vllm-workspace/vllm-ascend/`. Two consequences for the
+answer, and they settle this shape in one paragraph:
+
+- `pip show`'s `Version` is whatever the **build-time** SCM derivation saw, and
+  `Editable project location: /vllm-workspace/<repo>` is the tell that the string
+  describes a checkout, not a published release. `0.1.dev1+g<sha>` therefore
+  means "the image was built from a branch checkout with no reachable tag", which
+  is exactly what a `-dev` image is; it is **not** a wrong install, a stale
+  dist-info, or evidence that the user pulled a mismatched image.
+- The release identity lives in the **image tag** (`v0.9.1-dev` is a branch, and
+  the tag pair it was built from is in the same Dockerfile's `VLLM_TAG`), so the
+  check to hand back is
+  `git -C /vllm-workspace/vllm-ascend rev-parse HEAD` (or `pip show -f`'s
+  editable location) rather than a pip version comparison. When the reporter's
+  goal is "am I on the version this issue was fixed in", the answer is the commit
+  hash, and `pip show` cannot supply it.
+- Do not use `vllm --version`/`pip show` to decide the *vLLM pairing* either: the
+  gates read `vllm.__version__` (`vllm_ascend/utils.py:162-168` at v0.9.1), and `+empty` is the device
+  marker, so a `0.9.1+empty` line is consistent with any patch-level plugin in the
+  same branch.
+
 ## Ranked causes
 
 1. **Stale dist-info — the old distribution is still the installed one.** Images
@@ -77,7 +120,9 @@ arithmetic on these two outputs.
    mechanism at `b5b7e0e`.
 3. **Expectation mismatch.** Released pip versions are `rc` tags (`conf.py:74-76`),
    `-dev` is a branch, and an unpinned `pip install vllm-ascend` installs the newest
-   non-prerelease — a different artifact from the branch they meant to build.
+   non-prerelease — a different artifact from the branch they meant to build. The
+   same mismatch inside an official image is the `0.1.dev1+g<sha>` /
+   `0.9.1+empty` pair above: correct behaviour, wrong expectation.
 
 ## Recorded run: #1784 (vllm-ascend v0.9.2rc1 `b5b7e0e` + vllm v0.9.2 `a5dd03c`)
 

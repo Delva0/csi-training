@@ -7,7 +7,7 @@ checks to take **before** any source archaeology, each ending at the topical pag
 that owns the rule. `scripts-catalogue.md` is the same material one level down:
 the flag synopsis and expected reading of every re-runnable script the two pages
 name. It is consulted per report — place the report with the signature index
-(`signature-routes.md`) or `SKILL.md`'s topic-entry table, then read only the entry
+(`signature-routes/index.md`) or `SKILL.md`'s topic-entry table, then read only the entry
 for that track.
 `SKILL.md` keeps the Lane A/B/C ordering, the attribution rule and the delivery
 gates; this topic keeps the per-track detail that used to sit beside them.
@@ -29,9 +29,11 @@ gates; this topic keeps the per-track detail that used to sit beside them.
 
 ## Routes
 
-- `signature-routes.md` — the 126-row classification index (log fragment →
-  track A/B/C/D → owning page), moved out of `SKILL.md`. Its scope defines the four
-  tracks; open it when the signature is specific, and read the middle cell before
+- `signature-routes/index.md` — the 155-row classification index (log fragment →
+  track A/B/C/D → owning page), moved out of `SKILL.md` and split into five pages by
+  the shape's home track (startup/load, device ops, serving/output, parallel/KV,
+  capability/docs/throughput). Its scope defines the four tracks and routes to the
+  five; open it when the signature is specific, and read the middle cell before
   following the link, since it carries the decisive local rule.
 - `scripts-catalogue.md` — every script under `scripts/`, with its arguments and
   what its output decides. Open it when a track or topical page names a script;

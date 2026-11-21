@@ -10,6 +10,27 @@ document cases and `[Community Test]` reports. Routes: `../startup-failures/inde
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#2473** vllm-ascend v0.10.0rc1 (`4604882a3e2c`) + vllm v0.10.0
+(`6d8d0a24c02b`), Qwen3-30B-A3B-W8A8 (msmodelslim) on 910B4 ×8, TP8 +
+`--quantization ascend` + `--enable-expert-parallel`, `--max-model-len 4096
+--max-num-batched-tokens 8192 --max-num-seqs 32`, chunked prefill + prefix
+caching: engine start dies at graph capture with
+`AclrtSynchronizeStreamWithTimeout(copy_stream), error code is 107027`, `ERR00100
+PTA call acl api failed`, `EE9999 … Not allow to synchronize captured-stream,
+stream_id=9`, deepest frame `compilation/piecewise_backend.py:194` →
+`entry.runnable`. Track: capture-phase host sync inside the W8A8-dynamic MoE
+all2all dispatch (`w8a8_dynamic.py:1001` → `:384` `torch.bincount` in the
+`init_routing_quant` fallback, `:446-448` still syncing on the newer branch);
+`ERR00100` is the generic wrapper, not a fabric fault. The report carried **no
+serve command** — `--enable-expert-parallel` was inferred from the code path,
+which the reporter's later comment confirmed along with the cheapest
+discriminator nobody had asked for: the unquantized Qwen3-30B-A3B-Instruct-2507
+with `--quantization None` and identical flags serves clean, so the quantization
+axis owns the extra sync (and the bf16 EP path's own `bincount` at
+`ops/fused_moe.py:369` is the follow-up question that keeps it honest). The run
+delivered its ranked answer on the 12th turn. Page:
+`../startup-failures/captured-stream-host-sync.md`.
+
 **#8286** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`),
 "[Installation]: vllm & vllm-ascend torch version conflict" — two wheel commands
 (`pip install vllm==0.18.0`, then `uv pip install … vllm-ascend==0.18.0rc1` from the
@@ -151,6 +172,17 @@ and the `pip install transformers==4.51.0` line against the image's own
 `>=4.56`/`>=4.57.4` pins by turn 14. See
 `../tutorial-verification/community-test-report.md` for the page's verified
 defect set and the write-granularity rule this run cost.
+
+**#11751** the third community-test row of that family (v0.18.0 image,
+hjh2-Qwen3-VL-8B-Instruct on 1×Atlas 800I A2, HDK 25.5.0.B078, page
+`Qwen-VL-Dense.md`): the report file *was* written this time — a 4.3 K skeleton
+from the 10th assistant turn plus two appends, 15.4 K characters — and the run
+still hit the 16 384-token cap, because those three appends were 16.1 K
+characters of tool-call arguments beside 24.0 K of reasoning. The final message
+was a second copy of the report and was cut inside row 5 of its defect table, so
+the last defect, the three 完整性/易用性/正确性 scores and the FAQ never shipped.
+The audit itself was at the quality of the runs that delivered — the loss is
+write-and-message sizing only (`../tutorial-verification/community-test-report.md`).
 
 **#18130** vllm-ascend `v0.27.1rc1` (`3b31886`) / vllm `v0.27.1` (`6e448d0`),
 GLM-5.3-w8a8c8 on 4×Atlas 800I A2 (910B2) multi-node co-located, command copied
@@ -704,6 +736,18 @@ with no `ENV LD_*` in the recipe. Left open, correctly: whether the reporter's
 `v0.22.1rc1-a3` tag carries the same lines (tag not in this snapshot) and any concrete
 Mooncake failure (nothing in the paste shows one).
 
+**#2725** reporter on v0.10.0rc1 (pinned tree v0.9.1rc3 `763ed69`), openEuler23.03
+aarch64, `vllm serve Qwen/Qwen2.5-7B-Instruct --tensor-parallel-size 1 --enforce-eager
+--dtype float16` (verbatim from the 300I tutorial): weights load (14.2488 GB) and then
+`the socversion Ascend910B1 of bin package does not match the current device socverison
+Ascend310P3. Please modify default socversion in run.sh or execute run.sh with
+socversion parameter.` The recorded run reached the right verdict (910B image/package on
+a 310P3 card, pull the `-310p` variant) but spent four calls grepping the pinned trees
+and the history bodies for the message text, which is in neither — it comes from the
+CANN custom-op build's `run.sh`. Also landed on the self-build variant
+(`vllm_ascend/envs.py:58-61` `SOC_VERSION` default `"ASCEND910B1"`, `setup.py:168`
+`-DSOC_VERSION=`). Page: `../soc-platform-paths/atlas-300i-310p.md`, its `bin package`
+section.
 **#2315** vllm-ascend image `v0.9.2rc1-310p` (tree `b5b7e0e`) + vllm v0.9.2 (`a5dd03c`),
 2×`310P3` (host `NPU-SMI 24.1.0.1`), Qwen3-32B TP2: engine start dies inside torch_npu
 device open — `RuntimeError: SetPrecisionMode: … AclSetCompileopt(aclCompileOpt::
@@ -769,3 +813,16 @@ this ref" was wrong — `tests/e2e/310p/test_offline_inference_310p.py` exists, 
 by a label-gated workflow, and is eager-only, which is the sharper statement. Route now
 `../soc-platform-paths/atlas-300i-310p.md` (v0.12.0rc1 section) and
 `../feature-enable-recipes/index.md` rule 9.
+
+**#3524** vllm-ascend `v0.11.0rc0` (`00ba0710`) + vllm `v0.11.0rc3` (`8ce5d319`),
+DeepSeek-V3.1-W8A8 with `--quantization ascend`, 2 nodes × 8 910B2, ray,
+`--tensor-parallel-size 8 --pipeline-parallel-size 2 --enforce-eager`: startup is
+clean (both stages print `Loading model weights took 38.9 GB`, KV cache sized, API
+server up) and the first `/v1/completions` kills the engine with
+`AttributeError: 'PPMissingLayer' object has no attribute 'self_attn'` at
+`vllm_ascend/attention/mla_v1.py:311`, wrapped in `RayTaskError` from the remote
+node. The recorded run read it right — PP-blind `layers[0]` RoPE-cache lookup, three
+backend twins, the tree's own `start_layer` pattern, the PP e2e test commented out in
+CI — but spent most of its turns on a source walk to get there. Page now carries the
+mechanism, the stage-aware patch and the `--pipeline-parallel-size 1` ablation:
+`../pipeline-parallel/pp-blind-first-layer-lookup.md` (new).

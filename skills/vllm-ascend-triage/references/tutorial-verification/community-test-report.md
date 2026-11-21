@@ -1,4 +1,4 @@
-# The community-test report: shape, staged emission, and what went wrong twice
+# The community-test report: shape, staged emission, and what went wrong in three runs
 
 ## The task shape (recorded #11739, vllm-ascend v0.18.0 image `v0.18.0`)
 
@@ -64,7 +64,7 @@ One call decides it: `rg -n '<section title>' docs/` before any grading.
 ## Staged emission protocol
 
 The report is a file, so write it as the sections become true, and keep each
-write small. Suggested split (three writes, ~2-4K characters each):
+write small. Suggested split (three writes, ~2-2.5 K characters each):
 
 1. **Turn 2-3, one message + one file write.** Which doc page, which image, and
    the corrected deploy script: container run line, env block, `vllm serve`
@@ -78,14 +78,31 @@ write small. Suggested split (three writes, ~2-4K characters each):
    baseline, the empty result slots with the exact command that fills each, and
    the FAQ from 2-3 precedents whose titles name a mechanism.
 
-Each write is an **append of 2-3 K characters**; a full report body is 5-6 K and
-does not fit in one heredoc once the session has spent its reasoning
-(`delivery-discipline.md`).
+**The file body and the final message draw on one budget, and a heredoc's
+characters are output tokens** — they travel as tool-call arguments, charged to
+the same 16 384-token cap as the reasoning and the answer. Measured on #11751
+(third run of this shape, 34 messages, cap reached): 24.0 K characters of
+reasoning (55 %), **16.1 K characters of tool-call arguments — the three writes
+of a 15.4 K-character report (36 %)** and 3.8 K of message text (9 %). Nothing
+failed loudly: the file was complete and the *message* was cut inside row 5 of
+its 6-row defect table. So budget it explicitly:
 
-Then the final message is the condensed report: verdict on the doc (works /
-works with the listed corrections), the corrected deploy line, the 3-5 defects
-with severity, the report path, and the items that need the reporter's hardware.
-Do not hold that message until the audit "finishes" — it never does.
+- file body **≤ ~8 K characters** in total, 2-2.5 K per write. A 15 K-character
+  report is a "how to write it" document, not a "what I found" one — the defect
+  set is 5-6 rows;
+- a few lines of reasoning per turn once a finding is already in the file; do
+  not re-audit it there;
+- the last ~2.5 K characters of the session are the message, written in cut
+  order: (1) verdict + report path + the three 完整性/易用性/正确性 scores, one
+  line each (they are 交付件 items, not appendix material); (2) one line per
+  defect, `path:line` → fix, most severe first; (3) what the tester must supply
+  or measure. **Do not re-paste the docker block or the tables** — the file
+  holds them and the message names it; repeat only the one corrected
+  `vllm serve` line.
+
+The message's first block — verdict, report path, the scores — belongs on the
+turn the first defect is pinned, not on a turn the audit "finishes"; it never
+does.
 
 ## #11759, the second run of this exact shape
 
@@ -98,6 +115,22 @@ ignored `max_completion_tokens` (turn 8), the one-card sizing pass (turn 11) and
 the `transformers==4.51.0` install against the image pins (turn 14). The page's verified defect set is tabulated in
 `tutorial-command-audit.md` ("Second worked page"), so a future run on this row can
 write section 1 at turn 2 and skip the audit that killed this one.
+
+## #11751, the third run: the file fit, the message did not
+
+Same shape (v0.18.0 image, `hjh2-Qwen3-VL-8B-Instruct`, 1×Atlas 800I A2, HDK
+25.5.0.B078, page `Qwen-VL-Dense.md`). It fixed what killed #11739/#11759: the
+report file was opened at the 10th assistant turn with a 4.3 K-character
+skeleton plus two appends (15.4 K characters by the end), and every finding was
+pinned to the tree. It still lost the delivery to the same cap from the other
+side — the final message was a *second copy* of the report (the docker block
+plus the whole defect table) and the cut landed inside that table. Lost: the
+last defect row, the three sub-scores and the FAQ. Kept: verdict, the deploy
+script, five of six defect rows (the 32B tab's `SamplingParams(max_completion_tokens=512)`
+→ `TypeError` at vllm v0.18.0, the `v0.11.0rc3-a3` stale baseline, the missing
+performance result, the doc's 0.5389 reference below the project's own 0.55 e2e
+gate, and `--random-input` for `--random-input-len`). The audit was not the
+problem; the write and message sizes above were.
 
 ## What the report must not do
 

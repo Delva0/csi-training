@@ -21,8 +21,8 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
 
 - **Split parameter/registry errors from device faults first.** `AclNN_Runtime_Error`
   / a dump / tiling text means the kernel ran or was launched: the operator and shape
-  matter. `AclNN_Parameter_Error(EZ1001)` is **two** families and the text after the
-  code decides which:
+  matter. `AclNN_Parameter_Error(EZ1001)` is a **family** and the text after the code
+  decides which:
   (a) `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not
   support opType [...]` — aclnn could not resolve the op for this SoC **before any
   launch**: the owner is the build/install chain, and no tiling fact will help —
@@ -35,11 +35,47 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   `FRACTAL_NZ` by the weight-format gate, which dies on the startup dummy pooler run
   (#4679, v0.11.0rc3) — `../pooling-embedding/fp32-head-nz-format-crash.md`. Answer
   it with that track's gate grep, not with `SOC_VERSION` or `ASCEND_CUSTOM_OPP_PATH`.
+  (c) **quant-parameter dtype**: a rejection on the same code —
+  `Tensor scale not implemented for DT_FLOAT16, should be in dtype support list
+  [DT_UINT64, DT_BFLOAT16, DT_INT64, DT_FLOAT]` on `aclnnQuantMatmulWeightNz`
+  (`161002`) or on the grouped twin. Owner: the quantization method's `apply()`,
+  not the package — and **one repaired site is not the answer**, because the linear
+  and MoE methods (and their `_list` variants) repeat the same contract violation;
+  the sweep and the output-dtype half of the gate are in
+  `quant-scale-dtype-gate.md`.
+  (d) **shape**: `Not support mat2 n = 1 or k = 1 when format is FRACTAL_NZ, mat2: [2048, 1]` —
+  the same `aclnnMatmulWeightNz` / `161002` wrapper but a **shape** refusal: the
+  weight is ND-legal and NZ-illegal, so any linear with a 1-length dimension (a MoE
+  shared-expert gate `ReplicatedLinear(hidden, 1)`, a bias-like projection) kills the
+  load whenever the NZ gate converts it. Still not an operator or install fault — the
+  owner is the gate's missing shape test, and the lever is the NZ mode
+  (`../startup-failures/nz-weight-format-refusal.md`). Read the text after `EZ1001`
+  before choosing between (a)-(d): all four arrive in the same wrapper.
   A **built-in** op dying the same way before launch (`call aclnnArange failed …
   EZ9999 … Parse dynamic kernel config fail`, `AclOpKernelInit failed opType`,
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed`) is not a custom op at all: the
   image's CANN kernel package does not cover the running SoC —
   `../soc-platform-paths/kernel-package-vs-card.md`.
+- **A garbled MoE output or an AI-Core invalid-GM-address under
+  `enable_fused_mc2=1` is a workspace/stride question inside one of three op variants,
+  and the variant is the lever.** `csrc/mc2/dispatch_ffn_combine{,_bf16,_w4_a8}/` share a
+  kernel body but differ in how they size the aliased GMM1 workspace: W8A8 and W4A8 alias
+  `ptrC`/`ptrC2` and `ptrA`/`ptrPermutedToken` into two regions, so each must be the
+  **wider** of its two users (`max(N, K)`, `max(K, N/2)` where `N = 2 ×
+  moe_intermediate`), and the GMM1 row stride must be `N`, not the hidden `K`. Two
+  discriminators isolate it without a device: flip only `enable_fused_mc2`, then keep the
+  flag and dequantize only the experts to bf16 — a return to coherence names the W8A8
+  kernel and clears the MC2 dispatch/Combine orchestration. Never accept "the nightly op
+  test passes" as coverage until you have read its shapes and scales
+  (`mc2-variant-workspace-and-strides.md`).
+- **A report that already names the file, the line and the fix is a claim-check, not a
+  hunt.** Verify each `path:line` at the `SOURCES.json` pin, say which are off, quote the
+  sibling variant the reporter used as reference precisely, name the sites where the
+  current expression is **correct** so the patch is not swept too wide, and keep
+  reporter-measured numbers (relative error, tok/s, eval parity) labelled
+  reporter-confirmed. The checklist is in
+  `mc2-variant-workspace-and-strides.md` §"Reviewing a self-diagnosed defect report".
+
 - **A built-in `aclnn<Op>` *execution* error has no vllm-ascend owner, and the host
   driver outranks every tiling theory.** `aclnnRmsNorm` / `aclnnAddRmsNorm` /
   `aclnnLayerNorm` and friends are CANN library ops reached through `torch_npu`
@@ -160,6 +196,16 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
 
 ## Pages
 
+- `mc2-variant-workspace-and-strides.md` — the fused-MC2 workspace family: the three
+  `dispatch_ffn_combine` variants, the aliasing rule and why it is `max()` not a sum, the
+  verified pre-fix sites at v0.26.0rc1 `f2f74a16c` (`_tiling.cpp:297-304`,
+  `_kernel.hpp:473,522,927-931,946-950,1129,1133`, the epilogue row stride at
+  `utils/block_epilogue_pertoken_swiglu.hpp:189`, W4A8's already-`max()` host tiling and
+  the maintainer comment that states the rule), the `N > K` / `N > 2K` thresholds, the
+  sites where `k()` is correct (the remote peer A buffer), the discriminators, the
+  degenerate op test (`n = k = 1024`, `randint(0, 1)` scales) and the single A3 config
+  that enables the feature, plus the review checklist for a self-diagnosed report
+  (recorded #16561).
 - `moe-init-routing-tiling.md` — `aclnnMoeInitRoutingV3 … 561103` (and the
   `MoeInitRoutingV2` tiling wording): the decoded EZ9999 `CheckTokenCount` check,
   which caller parameters the tiling compares, the dispatcher arithmetic that
@@ -213,6 +259,19 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   `patch/worker/patch_rejection_sampler.py:1-12`, `worker/v2/sample/sampler.py:19,48`), the
   greedy/`top_p` trigger, the name-order hypothesis it refuses to grade, and the in-image
   reads that decide a release newer than the snapshot (recorded #8730, `0.14.0.RC1`).
+- `quant-scale-dtype-gate.md` — `161002` / `EZ1001 … Tensor scale not implemented for
+  DT_FLOAT16` on `aclnnQuantMatmulWeightNz` / `aclnnGroupedMatmulWeightNz` at
+  vllm-ascend v0.17.0rc1: the scale is allocated in `params_dtype` so the gate is
+  fp16-only (bf16 passes, which is why CI is blind), the float32 companion exists and
+  is read nowhere on the linear path (`w8a8_dynamic.py:86-89` vs `:103`), the MoE w2
+  side has **no** fp32 companion (`:249`) — reporter-confirmed as the identical
+  failure right after the linear repair (#7443 → PR #7444) — plus the second gate
+  operand (`moe_mlp.py:144` derives the output dtype from the scale) and the one-call
+  sweep (`scripts/quant-scale-dtype-audit.py`).
+- `../startup-failures/nz-weight-format-refusal.md` — the `EZ1001`/`161002` text this
+  topic does **not** own: `Not support mat2 n = 1 or k = 1 when format is FRACTAL_NZ`
+  is a shape refusal by an op that is registered, so the answer is the NZ mode
+  (`weight_nz_mode` 0/1/2), not a package or SoC question (#10014, v0.20.2rc1).
 - `op-not-registered-for-soc.md` — the opposite class for the same op: `EZ1001 Get
   regInfo failed … does not support opType [AddRmsNormBias]` for `ascend910_93`
   (#11519, v0.18.0). Where `SOC_VERSION`, the per-SoC `build_aclnn.sh` branches,

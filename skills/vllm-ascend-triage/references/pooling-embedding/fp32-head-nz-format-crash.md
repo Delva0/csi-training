@@ -81,6 +81,11 @@ recommended escape is the project's own wording, not a workaround invented here.
   model loaded), graph capture (`--enforce-eager` is irrelevant — the first hit
   is in eager profile code), and an OOM (`gpu_memory_utilization` will not help).
 
+One family is not about dtype at all: `Not support mat2 n = 1 or k = 1 when format
+is FRACTAL_NZ` is the **shape** refusal, and it hits decoder MoE shared-expert gates
+(`ReplicatedLinear(hidden, 1)`) as readily as a pooling head —
+`../startup-failures/nz-weight-format-refusal.md`. Same gate, different missing test.
+
 ## The version split (this is the load-bearing part)
 
 The same fp32 head is built at both pins — at v0.23.0 through
@@ -92,11 +97,15 @@ The same fp32 head is built at both pins — at v0.23.0 through
 | Pin | Gate | fp32 outcome |
 |---|---|---|
 | v0.11.0rc3 | `is_enable_nz(dtype)` (`utils.py:74-84`), cast in `AscendUnquantizedLinearMethod.process_weights_after_loading` (`ops/linear.py:43-51`) | **converted** → crash |
+| v0.20.2rc1 | `_should_trans_nz` / `maybe_trans_nz` (`utils.py:203-235`): fp32 → ND (`:205-206`), 310P → always NZ, mode 0 → ND, bf16/fp16 → NZ **only at mode 2** (`:220-222`), other dtypes → NZ; cast in `AscendUnquantizedLinearMethod.process_weights_after_loading` (`ops/linear.py:78-82`) | not converted (fp32 is the first rule) — but the same gate has **no shape test**, so this ref fails instead on a 1-length weight: `../startup-failures/nz-weight-format-refusal.md` |
 | v0.23.0 | `_should_trans_nz` / `maybe_trans_nz` (`utils.py:260-298`), first rule `FP32 cannot use NZ`; policy comment lists `FP32: never convert`; cast sites are the quantised methods (`quantization/methods/w8a8_static.py:155`, `w4a8.py:195`, …) | not converted |
 
-`VLLM_ASCEND_ENABLE_NZ` also changed meaning: at v0.23.0 it is a three-valued
-mode (`envs.py:86-92`; `0` off, `1` only quantised weights, `2` also bf16/fp16),
-so advice quoted from one ref can invert on another. Grep the gate at the
+`VLLM_ASCEND_ENABLE_NZ` also changed meaning: from v0.20.2rc1 on it is a
+three-valued mode (`envs.py:92` default `1`; `ascend_config.py:216-223` also
+accepts `additional_config.weight_nz_mode`; `0` off, `1` only quantised weights,
+`2` also bf16/fp16) and `2` is the *aggressive* one, so advice quoted from one ref
+can invert on another — including a reporter's own "(or 2) may avoid it", which is
+backwards whenever the weight is bf16. Grep the gate at the
 reporter's ref (`rg -n "def is_enable_nz|_should_trans_nz|maybe_trans_nz"
 vllm_ascend/utils.py`) before naming either the mechanism or the fix, and state
 which ref the verdict is verified on.

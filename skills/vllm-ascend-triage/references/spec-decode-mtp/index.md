@@ -235,3 +235,7 @@ from the acceptance numbers.
   `0 < temperature < 1` branch anchor in the rejection sampler with what remains
   unverified, the ladder (async off → MTP off → token step), and the upstream fix
   shape (#8724).
+- `../accuracy-benchmarks/mtp-prefix-cache-310p.md` — when spec decode is the
+  *second* feature on a **310P** hybrid model: MTP over an `align`-mode prefix cache
+  (per-block SSM state, `num_speculative_blocks`, `accept_token_bias`, the fp16 state
+  dtype, and the two 310P CI tests that cover each feature alone and never together).

@@ -15,7 +15,7 @@ Every branch guarded by one of those names is this topic's candidate owner, and
 and `vllm_ascend/attention/attention_v1.py` (attention routing, masks) are where
 they live.
 
-Five symptom classes, different owners — decide which one the report is before
+Six symptom classes, different owners — decide which one the report is before
 reading any code:
 
 1. **The service never becomes ready**: `EngineCore failed to start` at the first
@@ -57,6 +57,15 @@ reading any code:
    `vllm_ascend` frames `ops/linear.py` → `ops/linear_op.py` → `F.linear`
    → the fp32 classifier head was cast to `FRACTAL_NZ` (`fp32-head-nz-format-crash.md`).
    This is **not** the custom-op install lane even though `EZ1001` appears in both.
+
+6. **The launch line is rejected before anything is built** — `vllm serve:
+   error: argument --task: invalid choice: 'rerank' (choose from 'auto',
+   'classify', … 'score', …)`, or the task is accepted and the release cannot
+   serve a pooler at all → the value (`score`, and `/v1/rerank` is unchanged) plus
+   the **pooling release gate** (v0.9.1 = `Pooling 🟡 Planned`, "v0.9.1 doesn't
+   support pooling. Use higher version instead"; V1 pooling from v0.9.2rc1,
+   #1359) — `task-values-and-pooling-release-gate.md`. No worker ever started, so
+   nothing in classes 1-5 applies.
 
 Not this topic: a score/MMLU gap between harnesses (`../accuracy-benchmarks/index.md`),
 garbled *text* from a generation model (`../accuracy-benchmarks/`), a device dump
@@ -136,9 +145,10 @@ Three scripts serve this topic's startup classes directly:
 
 ## Pages
 
-- `embedding-checkpoint-as-generate.md` — class 1. Worked case vllm-ascend
+- `embedding-checkpoint-as-generate.md` — class 1. Worked cases vllm-ascend
   #5549 (vllm v0.10.0 + vllm-ascend v0.10.0rc1, 310P3, Qwen3-Embedding-0.6B
-  launched with no `--task`): how to read the `ValueError`'s prefix and class
+  launched with no `--task`) and #2556 (same pair on a 910B/A2 host, screenshot-only
+  paste: the cause is platform-independent): how to read the `ValueError`'s prefix and class
   name, why `--task embed` turns the root-level checkpoint keys into a loadable
   set (the wrapper's `WeightsMapper({"model.": ""})`), why the downstream class
   is not the owner (verbatim upstream loader), and the pooling-type and
@@ -156,6 +166,14 @@ Three scripts serve this topic's startup classes directly:
   pooling branches (encoder-attention branch, fixed-size pooling masks, 310P
   chunked-prefill dispatch), the ranked leads each with its deciding check, and
   the ablation ladder an answer can be shipped from.
+- `task-values-and-pooling-release-gate.md` — class 6. Recorded case vllm-ascend
+  #4796 (v0.9.1, `bge-reranker-v2-m3`, `--task rerank`): `rerank` is not in
+  `TaskOption` (`vllm/config.py:82-83`), the endpoints already exist, and on
+  vllm-ascend v0.9.1 pooling is `🟡 Planned` while the V0 engine is retired — so
+  upstream's own `_raise_or_fallback` makes `--task score` either raise
+  `NotImplementedError` (VLLM_USE_V1=1 exported) or fall back to an engine this
+  image dropped; the model was named as working at v0.7.3rc1 (#229), which is why
+  the reporter's expectation is reasonable. A 3-call answer.
 - `seq-cls-arch-routing.md` — class 4. Worked case vllm-ascend #14817 (v0.23.0,
   Qwen3-Reranker-0.6B, A2): how `ModelRegistry._normalize_arch` rewrites
   `*ForSequenceClassification` to a registered base class, why
@@ -168,6 +186,7 @@ Three scripts serve this topic's startup classes directly:
   (v0.11.0rc3, Qwen3-Reranker-8B, 910B): the fp32 score head built by upstream
   `adapters.py`, the `is_enable_nz` gate that excluded only fp16/bf16, the NZ cast
   in `AscendUnquantizedLinearMethod.process_weights_after_loading`, the
-  `VLLM_ASCEND_ENABLE_NZ=0` escape, the two `EZ1001` text families, and the
+  `VLLM_ASCEND_ENABLE_NZ=0` escape, its `EZ1001` dtype x layout text (the shape
+  sibling is `../startup-failures/nz-weight-format-refusal.md`), and the
   v0.23.0 gate rewrite (`_should_trans_nz`, "FP32 cannot use NZ") that makes the
   verdict ref-specific.

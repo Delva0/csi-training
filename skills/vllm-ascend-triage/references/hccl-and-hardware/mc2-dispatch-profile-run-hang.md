@@ -59,6 +59,37 @@ line, and take the SoC row from the function, not from memory — at v0.13.0rc1 
 A2 row is `MC2` iff `num_tokens <= capacity` **and** `world_size_across_dp/pp >=
 16`, else `ALLGATHER` (there is no A2 `ALLTOALL` row at this ref).
 
+## Step 1b — the derivation is per rank, so diff the two nodes' own commands
+
+Both numbers come from **the local node's** `--compilation-config`, so on a
+multi-node EP start they are a *per-rank declaration* handed to one collective:
+`set_mc2_tokens_capacity` (`vllm_ascend/ascend_forward_context.py:170-182` at
+v0.18.0rc1 `99e1ea0`) takes `compilation_config.max_cudagraph_capture_size` (or
+`min(max_num_reqs * uniform_decode_query_len, 512)` when the flag is absent) and
+returns `ceil(max_num_tokens / tp) * tp`; `token_dispatcher.py:100-118` derives the
+same per-rank value and then `global_bs = ceil(max_num_tokens / tp) *
+ep_world_size`, which `get_dispatch_mc2_kwargs` passes to the dispatch op as an
+attribute (`:156`).
+
+So **diff the two nodes against each other, not only against the tutorial**. A
+capture-size list that differs between nodes makes the two halves of the EP group
+declare different sizes for the same all-to-all. Recorded #8294 (v0.18.0rc1, 2×A2,
+GLM-4.7-W8A8, EP on, `--data-parallel-size 2 --tensor-parallel-size 8`): node 0
+pasted `[1,2,4,8,16,32,64]`, node 1 `[1,2,4,8,16,32,64,128,256,512]` → capacity 64 vs
+512, `global_bs` 128 vs 1024, 8× apart inside the `ep_world_size = 16` group. One
+call reproduces the table:
+`bash <skill_root>/scripts/mc2-capacity-asymmetry.sh --capture-a 1,2,4,8,16,32,64
+--capture-b 1,2,4,8,16,32,64,128,256,512 --tp 8 --dp 2 --experts 128
+--max-num-batched-tokens 8192` (pass `default` for a node that omits the flag); it
+also prints whether `profile_run` still takes the extra dummy run and whether the A2
+expert gate passes.
+
+Keep the status honest: the derivation and the kwargs are source-verified; *that the
+mismatch hangs instead of erroring* is a hypothesis — different per-rank token counts
+are supported by design (that is what `global_bs` is for, `token_dispatcher.py:103-104`),
+what differs here is the declared buffer size. Close it with the identical-config
+rerun, and keep the transport rows and the missing headless log live until then.
+
 ## Step 2 — the env pair that changes the dispatch variant is the *recommended* one
 
 `is_hierarchical_communication_enabled()` is exactly
@@ -85,7 +116,37 @@ are the validated two-node recipe, including `HCCL_BUFFSIZE=200`,
 so and move the ranking to transport/driver; the answer is not a reshuffled
 launch command.
 
+For a two-node start the tutorial check is also a *symmetry* check, and it is
+source-level at v0.18.0rc1 `99e1ea0`: both node blocks in
+`docs/source/tutorials/models/GLM4.x.md` use the SAME `cudagraph_capture_sizes
+[1,2,4,8,16,32,64,128,256,512]` (`:226`, `:279`). Quote the page's own multi-node
+sentence verbatim for "is 2×A2 EP supported for this model?":
+`Although the former tutorial said "Not recommended to deploy multi-node on Atlas 800
+A2 (64G × 8)", but if you insist to deploy GLM-4.x model on multi-node like 2 × Atlas
+800 A2 (64G × 8), run the following scripts on two nodes respectively.` (`:177`). A
+shipped recipe exists and carries the project's not-recommended position; no
+`tests/e2e/**` config runs it — so the verdict is neither "unsupported" nor
+"validated", and the reporter's "EP does not work on 2×A2" is not yet established.
+
 ## Step 4 — ranking, ladder, artefacts
+
+**Before the ranking: if the reporter already ran the env matrix, do not re-issue
+it.** #8294's reporter came back on 2026-04-17 with "all combinations of these 3 envs
+… fails at the same phase (torch.compile). Even I unset the 3 envs, it fails too" —
+that closes `HCCL_OP_EXPANSION_MODE` / `PYTORCH_NPU_ALLOC_CONF` / the FLASHCOMM1 pair
+as causes for that report, and the phase in the title is the reporter's label, not the
+phase (their traceback line is what dates it). Ask which three variables they mean
+rather than guessing, then spend the turn on the symmetry check above and the missing
+artefacts.
+
+Settled by source at v0.18.0rc1 (`ascend_forward_context.py:236-247`): EP off or ep
+world 1 → `ALLGATHER`; A2 → `MC2` iff `num_experts_per_device <= 24` **and**
+`ep_world_size = world_size_across_dp // pp >= 16` **and** `num_tokens <= capacity`;
+`VLLM_ASCEND_ENABLE_FUSED_MC2` is read only in the A3 branch, so on A2 setting it is a
+no-op (never rank "unset `VLLM_ASCEND_ENABLE_FUSED_MC2`" as a fix), and there is no
+env that forces `ALLGATHER` while EP stays on — `--enable-expert-parallel` off is that
+route. A reporter's "single node works" is therefore expected at world 8 and does not
+clear the MC2 path.
 
 Ranked, one check each: (1) the cross-node leg of the all-to-all not completing
 (rank table / `device_ip` / NIC / the hierarchical mode) — hypothesis, decided by
@@ -102,7 +163,9 @@ last, and only with a per-card code or the same `pc start` on several chips
 `VLLM_ASCEND_ENABLE_MLAPO` (MLA/SFA only, non-prefill branch, auto-disabled on a
 non-W8A8 checkpoint — `attention/mla_v1.py:845-856`).
 
-Ladder, one axis per launch: (1) comment out both `HCCL_INTRA_*`; (2) drop
+Ladder, one axis per launch: (0) make the two nodes' commands identical (the
+symmetry check above) — cheapest, and when asymmetric it also restores the
+documented recipe; (1) comment out both `HCCL_INTRA_*`; (2) drop
 `--enable-expert-parallel` (→ `ALLGATHER`, the kernel disappears: proves the
 transport); (3) single node (world < 16, MC2 never selected) to separate
 "cross-node" from "MC2"; (4) `--enforce-eager` / `cudagraph_mode: NONE`, then
@@ -117,7 +180,12 @@ Same op, same 2×A2 shape, title/body only (no comments in the snapshot): #4256
 (DeepSeek-v3.2-EXP-W8A8, `MoeDistributeDispatchV2`, `507011` at a copy-stream sync
 on device 0) and #2858 (0.10.1rc1 two-node Qwen3-235B-A22B,
 `aclnnMoeDistributeDispatchV2 failed 561002`). Both are family support, not
-resolutions.
+resolutions. #8294 (v0.18.0rc1, 2×A2 GLM-4.7-W8A8 W8A8, EP with DP2×TP8, CANN
+8.5.1) is the recorded cross-node-asymmetric-capture-size case: the
+traceback is `worker.py:343 determine_available_memory` → `model_runner_v1.py:2544`
+`_dummy_run(mc2_tokens_capacity, …)` → `:2492 _model_forward` → `:1818`, i.e. exactly
+this page's extra dummy run, and the post-hoc reporter observation (2026-04-17) says
+every env combination including all-unset failed at the same phase.
 
 A `561002` is **not** always this page's hang. If the paste carries
 `moeExpertNum is N, in case of unlayered, it must no more than 24`
@@ -128,7 +196,9 @@ returned immediately: that is the A2 MC2 per-card **expert cap** — `N` =
 (reporter-confirmed on #7635, fallback merged as PR #7364), not a transport
 question and not worth a plog.
 
-Pins: vllm-ascend v0.13.0rc1 `1b5d5ab`, vllm v0.13.0 `72506c9`. The
+Pins: vllm-ascend v0.13.0rc1 `1b5d5ab`, vllm v0.13.0 `72506c9`; re-pinned for
+the symmetry step and the A2 selector rows at vllm-ascend v0.18.0rc1 `99e1ea0`,
+vllm v0.18.0 `bcf2be9`. The
 `profile_run` dummy run, the selector location, the capacity formula and the
 hierarchical predicate are the parts to re-grep at another ref (`profile_run`,
 `select_moe_comm_method`, `set_mc2_tokens_capacity`,

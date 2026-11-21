@@ -21,6 +21,16 @@ That is the verdict sentence: **the pinned tree predates the PR, so the removal
 cannot be applied here**; the checklist below is for the branch that carries it.
 Do not substitute a later release's knowledge for the pinned ref.
 
+**A release-note bullet is not proof the code is gone.** At v0.23.0
+(`5cb98caaadef`) `docs/source/user_guide/release_notes.md:1408` (under
+`## v0.12.0rc1`, `:1395`) says *"we removed the env `COMPILE_CUSTOM_KERNELS`. You
+can not set it to 0 now."*, while `vllm_ascend/envs.py:43` still reads it (default
+`1`) and `Dockerfile:58` still passes it as a build arg. When a request asks you
+to remove a switch "already retired in release N", read the note **and** the
+definition: the definition is the behaviour, and the stale note is a separate doc
+defect (recorded #17718, graded in
+`../tutorial-verification/missing-guidance-and-contributor-docs.md`).
+
 ## Step 2 — the touch-point sweep (anchors verified at v0.9.0rc2)
 
 | Site | What to change | Anchor at this ref |

@@ -252,3 +252,9 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
   wrapper swallows, the `MultiModalBudget` construction as the prime raise site,
   `--skip-mm-profiling` as a smoke test that is not a fix, and the v2
   `try/finally` wrapper as the discriminator.
+- `unsupported-path-raise.md` — a downstream backend's own `raise`
+  (`RuntimeError: Prefix cache and chunked prefill are currently not supported`, beside
+  `# TODO: Will support … soon.`) reached from an RL trainer that builds `vllm.LLM(...)`
+  itself: the metadata state the branch refuses (any prefill batch carrying a
+  `block_tables` tensor), the V0 defaults that prove a caller enabled it, the multimodal
+  auto-disable row, and the "fixes" that cannot work. Recorded #133 (v0.7.1rc1).

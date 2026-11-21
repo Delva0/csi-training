@@ -69,7 +69,9 @@ version, gaps stated.
   (`HIXL Connect failed | 103900`, HCCL `RanktableCheck` / `'device_ip' is not set
   correctly`, `wait_for_save failed`, `Failed to put N keys out of N`, a recipe that
   needs `hostNetwork: true`), or KV moves and the decode node emits wrong/alternating
-  output on a hybrid linear-attention model, or a KV pool is attached and the *first*
+  output on a hybrid linear-attention model (GDN/Mamba — but a **DSA/MLA** model such
+  as GLM-5.2 that repeats one phrase to the token cap is a recipe-contract question
+  first: `references/pd-disaggregation/recipe-contract-diff.md`), or a KV pool is attached and the *first*
   transfer fails (`503900` / `HcclCommPrepare ret: 0x13`, the pool's
   `global_segment_size` the cause), or the put never lands (`HcclBatchPut,
   hccl_result = 4`, `PutEnd` 0), or the decoder never receives the request
@@ -89,6 +91,13 @@ version, gaps stated.
   `tp_rank` — so it is not the slow-TTFT mechanism. Settle TTFT with the concurrency and
   first-request discriminators before any connector or rank-table read —
   `references/pd-disaggregation/llmdatadist-done-signal-and-ttft.md`.
+  If instead the **decode node logs `Error in KVCacheTransferThread. error=unhashable
+  type: 'list'.`** and the deployment keeps serving: that line is the recv thread's catch-all
+  printed *in place of* the real failure — downstream `_mark_failed_recv_request` feeds
+  `set[int].update(<list[list[int]]>)` a grouped `BlockIds` before the `logger.exception` that
+  would have named it — so the paste carries no transport information; unmask (flatten, or the
+  layerwise connector, which already flattens) before any HCCL, plog or rank-table read
+  (`references/pd-disaggregation/kv-transfer-thread-masked-error.md`).
   If instead **one side's EngineCore dies on its own bookkeeping** and the other keeps
   serving, name the side and the owning structure from the last three frames before any
   transport read: a prefiller bare `AssertionError` in upstream
@@ -115,6 +124,12 @@ version, gaps stated.
   hardware. The evidence is the pinned tree — which command no longer parses, which
   path is absent from the image, which baseline predates the image, whether the card
   count matches the weights — `references/tutorial-verification/index.md`.
+  When the reported defect is an **absence** instead ("the Quick Start should
+  mention a mirror / link the FAQ", "the contributor docs never state a
+  prerequisite"), three greps decide it — does the content exist, does any page
+  reach it, do the sibling pages already carry it — and the reporter's own URL
+  anchor is checked against the pin before it is quoted
+  (`references/tutorial-verification/missing-guidance-and-contributor-docs.md`).
 - **Release known-issues bulletin**: a maintainer's notice for one release —
   `[Bug][vX.Y.Zrc1]: Known Issues for <model A>/<model B> service hang on A3`, an
   impact table (version / models / hardware / scenario), one or two tracked issue
@@ -185,6 +200,16 @@ delivery pattern is rule 1.
      the 16 384-token cap — the bigger run spent an 11.8 K character block deriving
      a parser mid-session and then re-wrote the whole ranked answer in a 6.2 K block
      before typing it.
+   - **The paste can already contain the whole answer surface.** An argparse error
+     prints the complete valid choice list; a log line can name its own thread and
+     owner. When the evidence is one such line, the verdict is owed at G1 with no
+     source read: #4796 had `--task rerank` vs the printed `score` by its 4th turn,
+     spent 32 turns and 1.77 M cumulative prompt tokens before the cap, and emitted
+     **no message text at all**; the same issue's pooling release gate (v0.9.1 🟡
+     Planned, v0.9.2rc1 #1359) was two greps from the same paste. Its minibatch
+     sibling #10962 reasoned the whole source-verified answer and typed it on the
+     last turn, cut mid-sentence. Test at every turn: could I write the first
+     paragraph now? — if yes, the tool call goes in a message that already carries it.
    - **A new hypothesis that needs a new code area is not this session's job.**
      Put it in the answer as an open question with the one command that decides
      it; #14506 delivered only after a final block that took half the session. For
@@ -211,7 +236,14 @@ delivery pattern is rule 1.
      message the condensed report (path, defects, open items). Never compose the
      whole report in one heredoc: #11739 wrote no file, #11759 lost a finished 5.7 K
      report to the cap, #11742 opened its heredoc on turn 9 of 10 and shipped **no
-     text** (`community-test-report.md`).
+     text** (`community-test-report.md`). The file body and the message share one
+     budget — heredoc characters are tool-call arguments, i.e. output tokens: #11751
+     wrote a 15.4 K-character report in three appends (16.1 K characters of tool
+     arguments, 36 % of the cap) and then had its **message** cut inside the defect
+     table, losing the three required 完整性/易用性/正确性 scores and the FAQ. Keep
+     the file ≤ ~8 K characters and lead the message with the 交付件 items (verdict,
+     report path, the three scores, one line per defect) instead of re-pasting the
+     deploy script or the tables.
    - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
      write it at G2 *in place of* the reasoning block; once it exists the next
      turn's text is the answer (`delivery-discipline.md` §draft).
@@ -250,8 +282,8 @@ delivery pattern is rule 1.
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C;
    for a runtime report, decide whether it is a device-op fault, an accuracy/score
    gap, a corruption report or a performance claim. The signature index
-   (`references/first-checks/signature-routes.md`) holds the row for a specific
-   signature; the track-level routes are in *Support entry points*. The
+   (`references/first-checks/signature-routes/index.md`) routes to the page holding the
+   row for a specific signature; the track-level routes are in *Support entry points*. The
    classification decides which code and which evidence even matter. Do not open
    a deep source walk when a config value, one re-run flag or a health tool can
    settle the question.
@@ -295,10 +327,18 @@ delivery pattern is rule 1.
    20-40 KB full-file read of an AscendC kernel header buys one fact and costs
    the budget for several conclusions. Two traps that each cost a recorded run
    whole steps:
-   - `rg -r` is `--replace`, not "recursive". `rg -rn "pat" .` rewrites every
-     match to `n` and `rg -rl` to `l`, so output looks like corrupted source
-     (`self.n`, `decoder_layer.l`) and invites a false theory about the code.
-     Recursion is implicit on a directory: use `rg -n "pat" .` or `grep -rn`.
+   - `rg -r` is `--replace`, not "recursive": in any short cluster whose first
+     letter is `r`, the rest of the cluster is the replacement string, so `-rn`,
+     `-rl` **and `-rln`** rewrite every match to `n` / `l` / `ln`. Output then
+     looks like corrupted source (`self.n`, `decoder_layer.l`) or, worse, like a
+     real upstream defect: #14423's `rg -rn "daocloud|nju.edu.cn"` turned
+     `m.daocloud.io` into `m.n.io`, and #17718's `rg -rln 'set_env.sh'` turned
+     `source …/ascend-toolkit/set_env.sh` into `source …/ascend-toolkit/ln` in
+     `faqs.md` — which it nearly published as a doc typo and dropped only by
+     luck, blaming a "stale .po". **The tell is one short token spliced
+     uniformly into every match across unrelated files**; re-run as
+     `rg -n '<pat>' <dir>` before quoting any matched text. Recursion is implicit
+     on a directory: use `rg -n "pat" .` or `grep -rn`.
      An **empty pattern matches every line of every file**: a probe typed while
      unsure how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped
      65 KB into one recorded session (#6240, mid-investigation, buying nothing).
@@ -306,6 +346,19 @@ delivery pattern is rule 1.
      `rg --files -g '<glob>' <dir>` (or `find <dir> -maxdepth 1 -name '<glob>'`) —
      never an empty pattern, which is still what #549 typed while looking for an
      upstream selector and cost itself 65 KB in one result.
+   - **A pasted message is usually split across source lines.** C++ `OP_LOGE` and
+     Python messages are emitted as adjacent literals (`"… default chat template is no
+     longer "` / `"allowed …"`), so `grep -rn "<whole sentence>"` returns nothing and reads
+     as "not in this tree" — grep the shortest distinctive clause, or add `-A1`. #6345
+     spent three calls that way, on the exact sentence it was looking for.
+   - **A `--glob '!<dir>/**'` exclusion is matched against the path you passed,
+     not against the search root.** `rg -l 'x' docs/source --glob '!locale/**'`
+     still searches `docs/source/locale/**` (verified at v0.22.1rc1: one .po hit
+     survives), while `--glob '!**/locale/**'` or `cd docs/source` first excludes
+     it. A failed exclusion floods the result with gettext `msgid`/`msgstr`
+     lines that read exactly like doc prose — and `.po` files are machine
+     translations whose `#: ../../source/x.md:N` references lag the source, so
+     neither their text nor their line numbers are citable.
    - **Scope a grep to one repo.** A case view holds 20-40 exported trees under
      `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
      seconds and returns hits from unrelated products (torchair, metadef,
@@ -369,9 +422,13 @@ delivery pattern is rule 1.
    `SOURCES.json` under `unavailable` (commonly `cann/hixl`, `cann/opbase`,
    `cann/ge`, the ops-* repos). Even when a tree is exported, `.cc` files that
    emit a given error string may be missing (the rank-table checkers under
-   `cann/hcomm/src/framework/common/src/topo/` exist only as headers). One grep
-   pass per tree, then use the plog, the version correspondence and the hardware
-   path.
+   `cann/hcomm/src/framework/common/src/topo/` exist only as headers). A tree
+   `sources-summary.sh` prints as `files=1478/4849 TRUNCATED` can also lack the whole
+   module you came for (a `transformers` export with no `tokenization_utils_base.py`,
+   exit 2 on the grep): check the path exists before reading its absence as "the string
+   is not there", and prefer the caller's tree — vLLM re-raises its dependency's message
+   verbatim. One grep pass per tree, then use the plog, the version correspondence and
+   the hardware path.
 10. **Report gaps instead of filling them.** Missing shapes, dtype, batch
     regime, server flags, harness config and filtered log lines are the usual
     reason a report is unanswerable or a lane misclassified; naming them is part
@@ -488,9 +545,11 @@ traceback), lane B (worker raised a Python error) or lane C (collective or devic
 fault), and for a report with no symptom that means one of the D tracks (sizing,
 document, capability, code-change). Then, when the signature is specific — a log
 fragment, an error string, a flag that did nothing, a title that names a mechanism —
-the exact row in `references/first-checks/signature-routes.md`: 141 signatures, each
-with the lane or track it belongs to and the page that owns it. Read the row's middle
-cell before opening the page; it carries the decisive local rule.
+the exact row in `references/first-checks/signature-routes/index.md` (five pages split by
+the shape's home track, 155 signatures in all): each row carries the lane or track it
+belongs to and the page that owns it. Read the row's middle cell before opening the
+page; it carries the decisive local rule. A token you cannot place: one
+`rg -n '<fragment>' references/first-checks/signature-routes/` searches all rows.
 
 ## Procedure
 
@@ -622,7 +681,7 @@ that break them, `recorded-cases.md` the per-issue index).
 |---|---|
 | score/accuracy disagreement, 乱码/重复 on short or long prompts, truncated output, **the same prompt run repeatedly giving different lengths/contents**, **or the same body differing only with concurrency while `VLLM_BATCH_INVARIANT=1` is set** (batch-invariance coverage, not run-to-run noise), reasoning routing, VL degeneration, quantized-checkpoint conversion | `references/accuracy-benchmarks/index.md` |
 | the asking is for an edit: remove/deprecate an env flag or a temporary switch | `references/code-change-requests/index.md` |
-| a custom op crashes the device (incl. a `507015` "MPU address access is invalid" in the chunked FLA/GDN `chunk_fwd_o` path, or a nightly op test that passes while the device faults), or an aclnn SoC **registration**/`EZ1001` error (the NZ weight-layout one is the pooling lane), a `<tensor> shape is invalid` / `do tiling failed, ret is -1` out of `<op>_tiling.cpp` `GetShapeAttrsInfo` (an argument rejection, nothing launched), or a MoE init-routing tiling code, or an op the operator side returns as "非cann算子" (a framework-owned `…Custom` op — the dispatch-site/ownership answer) | `references/custom-ops-runtime-faults/index.md` |
+| a custom op crashes the device (incl. a `507015` "MPU address access is invalid" in the chunked FLA/GDN `chunk_fwd_o` path, or a nightly op test that passes while the device faults), or an aclnn SoC **registration**/`EZ1001` error (the NZ weight-layout ones — a dtype family on a pooling head and a **shape** family, `Not support mat2 n = 1 or k = 1 when format is FRACTAL_NZ`, on any narrow linear such as a MoE shared-expert gate — are `references/startup-failures/nz-weight-format-refusal.md` and the pooling lane), a `Tensor scale not implemented for DT_FLOAT16` / `161002` on `aclnnQuantMatmul*`/`aclnnGroupedMatmul*` (a quant scale dtype gate whose sibling methods must be swept too), a `<tensor> shape is invalid` / `do tiling failed, ret is -1` out of `<op>_tiling.cpp` `GetShapeAttrsInfo` (an argument rejection, nothing launched), or a MoE init-routing tiling code, or an op the operator side returns as "非cann算子" (a framework-owned `…Custom` op — the dispatch-site/ownership answer), **or** garbled MoE output / an invalid-GM-address fault under `enable_fused_mc2=1`, where the W8A8/W4A8 `dispatch_ffn_combine` variant sizes its aliased GMM1 workspace and row stride by `K` instead of `N = 2×moe_intermediate` (`mc2-variant-workspace-and-strides.md`) | `references/custom-ops-runtime-faults/index.md` |
 | a `call aclnn<Op> failed, error code is <6 digits>` on a MoE deployment (`aclnnMoeInitRoutingV3 … 561103`), often with "DP2 TP4 有没有限定 / 能否启动时校验拦截" attached | `references/custom-ops-runtime-faults/moe-init-routing-tiling.md` — the code is a failed **tiling check on one input**, never a card/HCCL claim, and the named op is not a grep key |
 | capacity or stage-layout questions, two serve commands that differ by one resource knob where the larger OOMs at start (128K-256K contexts **and** a short 4K one), or a load-phase `NPU out of memory` inside `create_weights`/`get_weight` on a 384-512-expert MoE with `--enable-expert-parallel` + `--data-parallel-size` | `references/deploy-sizing/index.md` — the TP4-up/TP8-OOM shape is its `tp-scaling-oom-at-startup.md` page, which separates a post-sizing reserve shortfall (frame: capture/workspace) from the KV pool's own allocation loop (frame: `initialize_kv_cache_tensors`); the EP+DP load OOM (experts-per-card, the `[EP Rank r/N]` greps) is `moe-load-oom-expert-shard.md` |
 | DSA / DeepSeek-V3.2 sparse attention (indexer scatter, MLAPO token gate, concurrency crash with no log), an SFA/LI **C8** deployment whose prefill node stops answering or garbles the first request with `enable_sparse_sfa_c8` / `enable_sparse_li_c8` / `c8_enable_reshape_optim` in `--additional-config`, or an engine-start `assert sum_page_size_bytes % … page_size_bytes == 0` in `_reshape_kv_cache_tensors` | `references/dsa-sparse-attention/index.md` — the flag algebra and the `store_kv_block*` ops are `c8-flags-and-kv-store-path.md`, the KV-page assertion is `c8-page-size-reshape-assertion.md` |
@@ -636,18 +695,18 @@ that break them, `recorded-cases.md` the per-issue index).
 | a LoRA-enabled serve is far slower than its base model, or dies when a graph is captured on a request | `references/lora-adapters/index.md` |
 | a device fault or corruption whose deepest frame is an attention backend in a mixed decode+prefill batch; **or** a host-side `could not broadcast input array` / `np.repeat` length error in `worker/pcp_utils.py` with spec decode on and PCP > 1 | `references/mixed-batch-splits/index.md` (the PCP schedule variant is `pcp-schedule-index-units.md`) |
 | a logging/profiling flag appears to do nothing, `/start_profile` 404, unknown-env warning | `references/observability-and-logs/index.md` |
-| P/D or EPD starts but cannot move KV, moves it and the output alternates, or the client times out while D logs no request and only P prints `Force freed expired request … (480 seconds)`; **or** requests are served but TTFT is slow while P prints `fail to receive KV Cache transfer done signal in 120s` (`llmdatadist-done-signal-and-ttft.md`); **or** the transport *plane* is asked about before any run — A3 双机, 参数面 RoCE only, no 灵衢 switch, no log → `plane-selection-a3-parameter-plane.md` | `references/pd-disaggregation/index.md` |
+| P/D or EPD starts but cannot move KV, moves it and the output alternates, or the decode node **repeats one token/phrase to the model cap** on a DSA/MLA model (GLM-5/5.2, DSv3.x: `1 + 1 = 2.` ×2048) or dies as a bare `ACL stream synchronize failed` only when the batch/sequence/capture-size knobs are raised — diff both serve commands against that model's own tutorial recipe (connector class, `--speculative-config` on **both** sides, the HMA flag) before any `kv_p2p/` read, `recipe-contract-diff.md`; or the client times out while D logs no request and only P prints `Force freed expired request … (480 seconds)`; **or** requests are served but TTFT is slow while P prints `fail to receive KV Cache transfer done signal in 120s` (`llmdatadist-done-signal-and-ttft.md`); **or** the transport *plane* is asked about before any run — A3 双机, 参数面 RoCE only, no 灵衢 switch, no log → `plane-selection-a3-parameter-plane.md` | `references/pd-disaggregation/index.md` |
 | throughput, queueing, prefix-cache hit rate on a healthy engine; **or the evidence is a profiler table** (`<Op> 被调用了 N 次`, "NPU 空闲时间 95%", an NPU-vs-GPU operator-count compare) | `references/performance-throughput/index.md` (profiler tables: `profiler-opcount-evidence.md` first) |
 | the engine stops answering after one oversized request (`Running` 0, nothing scheduled, restart the only recovery), or requests wait forever on an idle pool | `references/scheduler-admission/index.md` — the admission gate (`full_sequence_must_fit`) and the FIFO `break` are `waiting-queue-wedge.md`; a queue that drains is *not* this topic |
-| an embedding/pooling service never starts (checkpoint served as generate, score/rerank arch-name routing, fp32 head weight format), dies under concurrency, or returns wrong vectors | `references/pooling-embedding/index.md` |
+| an embedding/pooling service never starts (checkpoint served as generate, score/rerank arch-name routing, fp32 head weight format), dies under concurrency, returns wrong vectors, **or the launch line is rejected outright** — `vllm serve: error: argument --task: invalid choice: 'rerank'`, where the value is `score` *and* the reported release may not carry pooling at all (v0.9.1: 🟡 Planned, V0 retired), so give both verdicts in one message | `references/pooling-embedding/index.md` |
 | OOM after a healthy period, HBM not released, host RAM, container working set, KV-init allocation failure, or an `expandable_segments` unmap crash at `empty_cache` | `references/runtime-memory/index.md` |
-| traceback frames are only `vllm/**` + `site-packages/**` (tokenizer `Already borrowed`, frontend preprocessing) | `references/serving-frontend-faults/index.md` |
-| a SoC-conditional path: 310P/300I (including a **VL/OCR** model there that serves and answers garbage), A5 vs A2 wheel, kernel package for the running SoC | `references/soc-platform-paths/index.md` |
+| traceback frames are only `vllm/**` + `site-packages/**` (tokenizer `Already borrowed`, frontend preprocessing), or every chat request fails with `ValueError: As of transformers v4.44, default chat template is no longer allowed …` (a chat-template/mode answer, not a checkpoint one — `chat-template-missing-and-tokenizer-mode.md`) | `references/serving-frontend-faults/index.md` |
+| a SoC-conditional path: 310P/300I (including a **VL/OCR** model there that serves and answers garbage), a **newer model family on 300I Duo whose only doc mention is a "preview … follow #NNNN" closing note** (a capability verdict owed in the first message, not a mechanism hunt — the pinned 310P tutorial's own table and closing note are the answer), A5 vs A2 wheel, kernel package for the running SoC | `references/soc-platform-paths/index.md` |
 | a PP>1 deployment (`--pipeline-parallel-size`), or "does PP work on this model/hardware" | `references/pipeline-parallel/index.md` |
 | spec-decode/MTP symptoms: acceptance collapse, empty first response, async bookkeeping, drafter count copy, a TND `queryT`/`actualSequenceLengthQ` refusal, a dense-backend `attn_mask` `AssertionError` | `references/spec-decode-mtp/index.md` |
-| engine/worker never becomes ready (both lanes), model-type/quantization gates, arg validation, a multi-process launch (`external_launcher`/torchrun SPMD, TP>1) that hangs at init with no traceback and no `Starting to load model`, a parallel-size `reshape` failure, metadata/capture phase, a graph setting that never took effect, a **torchair** capture failing with `torch._dynamo.exc.Unsupported … DelayGraphBreakVariable` (`fullgraph=True`), an inductor fusion pass calling an op that was never registered (`'_OpNamespace' … has no attribute 'qkv_rmsnorm_rope'`), a `torch_npu` ACL/GE init failure at device open (`SetPrecisionMode … 500001`, `PlatformInfoInit … SocVersion`, `ERR99999`), an offloading-spec `KeyError: '<layer>.self_attn.attn'`, first-weight-group `ValueError` (embedding checkpoint served as generate), a shard that is not a safetensors file (`HeaderTooLarge`) | `references/startup-failures/index.md` |
+| engine/worker never becomes ready (both lanes), model-type/quantization gates, arg validation, a multi-process launch (`external_launcher`/torchrun SPMD, TP>1) that hangs at init with no traceback and no `Starting to load model`, a `--distributed-executor-backend ray` start whose paste carries `ValueError: Current node has no NPU available … 'GPU': 8.0` after `Connected to Ray cluster.` (the raylets advertise `GPU` where the platform asks for `NPU` — one `ray status` settles it), a parallel-size `reshape` failure, metadata/capture phase (including a capture-time `Not allow to synchronize captured-stream` / `107027` — a host readback inside the captured region, not a fabric fault: `references/startup-failures/captured-stream-host-sync.md`), a graph setting that never took effect, a **torchair** capture failing with `torch._dynamo.exc.Unsupported … DelayGraphBreakVariable` (`fullgraph=True`), an inductor fusion pass calling an op that was never registered (`'_OpNamespace' … has no attribute 'qkv_rmsnorm_rope'`), a `torch_npu` ACL/GE init failure at device open (`SetPrecisionMode … 500001`, `PlatformInfoInit … SocVersion`, `ERR99999`), an offloading-spec `KeyError: '<layer>.self_attn.attn'`, first-weight-group `ValueError` (embedding checkpoint served as generate), a shard that is not a safetensors file (`HeaderTooLarge`) | `references/startup-failures/index.md` |
 | the symptom is a tool call (`JSON Parse error` in `arguments`, no `tool_calls` while streaming, or a clean `name` with `arguments` exactly `{}` on a GLM serve) | `references/tool-call-streaming/index.md` — the `{}` shape is `empty-arguments-object.md` |
-| the deliverable is a report about a document (community test, `[Doc]`, tutorial commands) | `references/tutorial-verification/index.md` |
+| the deliverable is a report about a document (community test, `[Doc]`, tutorial commands), **or a `[Doc]` whose defect is an absence** — a page that should link a section existing elsewhere, a contributor path missing a prerequisite | `references/tutorial-verification/index.md` (absences: `missing-guidance-and-contributor-docs.md`) |
 | `AttributeError`/`TypeError` in a downstream patch, an upstream refactor that kept upstream code, an attribute the upstream `__init__` assigns unconditionally (a swallowed constructor exception), or a `KeyError` from upstream's `Attention`-only layer filter under an offloading spec | `references/upstream-downstream-drift/index.md` |
 
 Scripts are re-runnable; `<skill_root>` is the path `skill_view` reports and each
@@ -655,5 +714,5 @@ header carries its flags. Their arguments, output and originating issue are in
 `references/first-checks/scripts-catalogue.md`; open it rather than guessing a name,
 and the topical pages name the ones they use. The per-signature classification
 index (log fragment → track → owning page) is
-`references/first-checks/signature-routes.md`.
+`references/first-checks/signature-routes/index.md`.
 

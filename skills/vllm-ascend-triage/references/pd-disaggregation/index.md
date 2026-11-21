@@ -29,8 +29,17 @@ output, or did no request ever reach a decode engine?**
   `transport-topology.md`.
 - Connected, but the answer is corrupt/empty/alternating, or the decode node's
   first token is wrong, on a **hybrid linear-attention (GDN/Mamba)** model —
-  Qwen3.5/Qwen3.6, DeepSeek-V4, GLM — under PD →
-  `hybrid-state-transfer.md`.
+  Qwen3.5/Qwen3.6, DeepSeek-V4 — under PD → `hybrid-state-transfer.md`.
+- Connected, and the decode node **repeats** the same token or phrase to the model
+  cap (`finish_reason: length`, e.g. `1 + 1 = 2.` ×2048) or otherwise answers wrong
+  text on a **DSA/MLA sparse** model — GLM-5/5.2 (DSA), DeepSeek-V3.x (MLA), which are
+  not GDN/Mamba hybrids whatever the connector name suggests — with both serve commands
+  in the report; **or** the same deployment dies as `ACL stream synchronize failed`
+  only when the batch / sequence / capture-size knobs are raised, with no log pasted
+  → do not start in `kv_p2p/`: diff both commands against
+  `docs/source/tutorials/models/<model>.md` first (connector class,
+  `--speculative-config` on **both** sides, the HMA flag, DSA sparse gates) →
+  `recipe-contract-diff.md`.
 - Connected, the answer degenerates only at long context **and** concurrency on a
   **dense-attention MoE** model (Kimi-K2.x MLA, Qwen3-MoE) with spec decode and/or
   prefix caching, and both serve commands are in the report: do not start in
@@ -94,6 +103,14 @@ output, or did no request ever reach a decode engine?**
   `chosen_rank_list([…]) does not match num_group_pulls(…) and prefill pp size(1)`
   — the group pull helper is the one pull-count derivation that skips the
   MLA/sparse single-pull rule → `asymmetric-tp-pull-count.md`.
+- The **decode node** logs `Error in KVCacheTransferThread. error=unhashable
+  type: 'list'.` during a loaded P/D deployment and keeps serving: that sentence
+  is the recv thread's catch-all, and the traceback it replaces was the real
+  failure — the downstream `_mark_failed_recv_request` does
+  `set[int].update(<list[list[int]]>)` before the `logger.exception` that would
+  have named it, so the paste carries **no** transport information, and the
+  request may go on to decode on partial KV → `kv-transfer-thread-masked-error.md`
+  (unmask with the one-line flatten or the layerwise connector, then classify).
 - Nothing connects at all because the connector module itself fails to import —
   `ImportError: ascend_transport.so: cannot open shared object file` at
   `kv_p2p/mooncake_connector.py:24`, `No module named mooncake` — or the decode
@@ -176,6 +193,15 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   `register mem … mem type:host, length:N` fingerprint, the two ablations, and
   the documented 1 GB alignment / fabric-mem budget. Also says which knobs are
   *not* this one (`kv_buffer_size`, `HCCL_INTRA_ROCE_ENABLE`, the timeouts).
+- `recipe-contract-diff.md` — the decode node corrupts or the deployment dies only
+  at raised scale: the recipe contract to diff **before** any `kv_p2p/` walk, with
+  the v0.23.0rc1 anchors for GLM-5.2 / Qwen3.5-397B / DSv4 (connector class, MTP on
+  both sides, the HMA flag being the hybrid families' flag, DSA sparse-gate parity),
+  the divergences that are *not* the mechanism (decode `--max-num-batched-tokens`,
+  `--block-size`, `enforce_eager` inside `--speculative-config`), the one-launch-per-row
+  ablation ladder, and the no-log scale-fault variant with two verified non-answers
+  (GDN chunk-meta buffer arithmetic, #7863's 310P-only masked assign). Worked for
+  #13381 and #9578 at v0.23.0rc1 / v0.19.1rc1.
 - `hybrid-state-transfer.md` — PD on a hybrid linear-attention model: the
   connector matrix (`MooncakeConnectorV1` / `MooncakeHybridConnector` /
   `MooncakeLayerwiseConnector` / `AscendStoreConnector`), the
@@ -193,6 +219,15 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   why the assert carries no request id, and the two DEBUG lines that separate a
   duplicate/late send report from an abort-status free. Verified at vllm v0.12.0
   `4fd9d6a85c00` / vllm-ascend v0.12.0rc1 `42ceaf08`, cause left open (#6266).
+- `kv-transfer-thread-masked-error.md` — the D node's
+  `Error in KVCacheTransferThread. error=unhashable type: 'list'.` (recorded #10962,
+  v0.21.0rc1, A3 4-node 2P1D): the mask in `mooncake_connector.py:542-586`
+  (`invalid_block_ids: set[int]` fed a grouped `BlockIds`, mark before the
+  `logger.exception`), the same-commit sibling that flattens
+  (`mooncake_layerwise_connector.py:1350`), the `finally` that lets a half-filled
+  request decode anyway, and the unmask-then-classify ladder (MambaSpec
+  block-count mismatch, transfer-engine pull, the *unmasked* pull-count assert).
+  A 2-3 call answer; upstream has no such bookkeeping.
 - `asymmetric-tp-pull-count.md` — P/D with different TP sizes on an MLA/DSA-sparse
   model: `chosen_rank_list(…) does not match num_group_pulls(…)`, the three
   derivations of the pull count and the one that omits the MLA/sparse rule, the

@@ -242,6 +242,12 @@ node or DP=1. Then cheapest first:
 5. Only then the graph/compile details (`cudagraph_capture_sizes`, the AIV
    `HCCL_OP_EXPANSION_MODE` env), and file the MC2-with-DP failure with the
    selector line and both ablations.
+6. On **more than one node**, compare the nodes' commands before ablating anything:
+   `mc2_tokens_capacity` and the dispatch's `global_bs` are derived per rank from
+   that node's own capture-size list, so an asymmetric flag makes the halves of the
+   EP group declare different buffer sizes to one all-to-all
+   (`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` Step 1b,
+   `scripts/mc2-capacity-asymmetry.sh`).
 
 Send back: the un-interleaved per-rank log, the `moe_comm_type` debug lines, whether
 row 1 changes the outcome, the `additional_config` keys

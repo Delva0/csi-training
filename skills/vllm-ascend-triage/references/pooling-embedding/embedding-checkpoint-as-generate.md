@@ -24,6 +24,20 @@ ValueError: There is no module or parameter named 'embed_tokens' in CustomQwen3F
 
 and the engine-init line above it says `pooler_config=None`.
 
+A second record of the same ValueError, **#2556**, puts it on a different
+platform with a dirtier paste: an Ascend 910B (A2) host, the same vllm v0.10.0 +
+vllm-ascend v0.10.0rc1, `torch 2.7.1+cpu` / `torch_npu 2.7.1.dev20250724`,
+`npu-smi 24.1.rc1`, a repacked directory (`…_master_20250606_02`) served with
+`--max-model-len 32768 -tp 1 --enable-prefix-caching --enable-chunked-prefill`
+and **no `--task`**. Its log came only as a screenshot: the OCR keeps the frame
+*names* — `…/vllm_ascend/models/q3.py` (i.e. `qwen3.py`) →
+`return loader.load_weights(weights)` and `model_executor/models/utils.py line
+277 raise ValueError(msg)` — the same `AutoWeightsLoader` path as #5549 — but it
+loses the class name after `in` and mangles the init dump, so here the issue
+*text*'s `in CustomQwen3ForCausalLM` is the decisive token and the OCR only
+corroborates the loader frame. Classification is unchanged and
+platform-independent: 310P and 910B fail identically, before any device op.
+
 Two ways this is *not* answered: "the 310P can't do Qwen3-Embedding" and "the
 checkpoint is corrupt". The 310P gates (NZ formats, eager-only, fp16) are
 `../soc-platform-paths/atlas-300i-310p.md`; nothing in this traceback reached
@@ -135,7 +149,10 @@ vLLM does not know at all).
 ## What this page does not establish
 
 - The reporter's real key list and `config.json` (not pasted in #5549); step 1 of
-  the checks is what turns the inference into evidence.
+  the checks is what turns the inference into evidence. #2556 did not paste it
+  either, and a repacked directory name is a hint about the export, not a defect.
+- That `--task embed` actually fixed #2556: the reporter's only later reply on
+  that issue was a mention of a maintainer, with no log.
 - That a 310P host completes an embedding serve at this pin — no reporter
   confirmation exists in the trace, and step 3's memory arithmetic is unproven
   for their host.

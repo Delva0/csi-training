@@ -186,8 +186,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   when the reporter says another entry path worked, and that ref's compatibility
   matrix has no MindIE Turbo column filled (answer the pairing question from it).
 - Nothing crashes and the question is a **version string**: `pip show
-  vllm-ascend` reports `0.9.0rc2` while the reporter installed "0.9.1dev", or asks
-  whether that version exists at all → `installed-version-vs-checkout.md`. The
+  vllm-ascend` reports `0.9.0rc2` while the reporter installed "0.9.1dev", asks
+  whether that version exists at all, or asks why the official
+  `vllm-ascend:vX.Y.Z-dev` image reports `vllm_ascend 0.1.dev1+g<sha>` /
+  `vllm 0.9.1+empty` instead of `X.Y.Z` → `installed-version-vs-checkout.md`
+  (the `-dev` images `COPY` the branch and `pip install -e` both projects, so the
+  number is a build-time SCM derivation and the image tag/commit is the release
+  identity). The
   number is build-time metadata (`setup.py:305-311` `setuptools_scm`, no constant in
   `vllm_ascend/`), no runtime reader consults it, and the pairing gates read
   `vllm.__version__` — so the deliverable is the two output paths, not a survey.

@@ -631,3 +631,33 @@ any RNG) refutes the sampler at `temperature: 0` from source. It also never cite
 own FAQ #16 (`docs/source/faqs.md:167-203`, four determinism env vars), leading instead with
 the beta `VLLM_BATCH_INVARIANT=1` program and its gates. Page:
 `../accuracy-benchmarks/repeated-run-nondeterminism.md`.
+
+**#9521** vllm-ascend `v0.18.0rc1` + vllm `v0.18.0`, DeepSeek-V3.1-Terminus-
+w4a8-mtp-QuaRot, `stream: true`, `chat_template_kwargs: {"thinking": true}`,
+`temperature: 0.1`, a one-word user prompt, no `max_tokens`: "概率性出现没有content".
+Track: response contract versus completion length, not a crash. The recorded run
+classified it there and verified the two facts that decide the shape — `deepseek_v3`
+reads `thinking`/`enable_thinking` from the **request's** kwargs and rebuilds the
+parser per request (vllm v0.18.0 `deepseek_v3_reasoning_parser.py:32-41`,
+`chat_completion/serving.py:229-236`) — then delivered a five-cause ranking with an
+ablation ladder (routing → budget → MTP/w4a8 → detokeniser → template key) and the
+ask for one response printing `content`, `reasoning`, `finish_reason`,
+`completion_tokens`, `return_token_ids`. Reproducing two log greps and a DeepSeek
+tutorial read cost turns the page now spares. Later reporter data (same behaviour on
+`0.18.0` **and** `0.19.1rc1`, `issue/9521#issuecomment-4541092252`) closes the
+"fixed in a later rc" branch and leaves routing vs a genuinely short completion open
+— which is exactly what the one whole-response dump separates, so this case supports
+asking for that artefact earlier, not a claim about the cause.
+**#14339** vllm-ascend `v0.23.0rc1` (`f4a08bd`) + vllm v0.23.0
+(`0fc695fc`), Atlas 300I DUO / 200I PRO: "[v0.23.0][Bug]: the accuracy of the MTP and
+prefix cache of the 310P Qwen3.5 series models is abnormal", with an empty
+`collect_env` block and a two-sentence body — no log, no request, no serve command.
+Track: hybrid GDN state x spec decode x prefix caching on a SoC-conditional fallback.
+The recorded run localized the right surface (align mode, `num_speculative_blocks`,
+the 310P torch fallbacks, the fp16 SSM state) and its rank 1 was defensible, but it
+spent ~42 K characters of reasoning over 22 tool calls with **no message text on 17
+assistant turns**, then began the ranked answer on turn 20 and was cut at the output
+cap inside cause 2 — the matrix, ladder and scope never shipped. The page now carries
+the coverage verdict (the 310P prefix-cache test and the 310P MTP test never combine
+the features) and the three launches that decide it:
+`../accuracy-benchmarks/mtp-prefix-cache-310p.md`.

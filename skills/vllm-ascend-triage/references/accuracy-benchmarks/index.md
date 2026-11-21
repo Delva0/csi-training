@@ -87,6 +87,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   validated row is `-Chat`, not the base model) and keep the two V2-Lite-only
   branches (`q_proj` when `q_lora_rank is None`, the `global_num_experts == 256`
   MoE gate) as labelled suspects rather than causes.
+- A one-line accuracy report on **310P** naming **MTP *and* prefix caching together**
+  ("Qwen3.5 series + MTP + prefixcache 精度异常") with an empty `collect_env` and no log:
+  on a hybrid GDN model both features move the same per-block SSM state, and 310P is the
+  one lane whose state copy/postprocess is a torch/numpy fallback with an fp16 SSM state.
+  The deliverable is the coverage verdict — two 310P CI tests, each feature alone, never
+  the combination — plus the three launches, `mtp-prefix-cache-310p.md`.
 - First question: **did both numbers come from the same server, weights and serve flags?**
   If yes, sampling, decoding budget, output routing, extraction and aggregation are the
   attributable knobs — but **"same server" does not mean identical logits on Ascend**: on a
@@ -136,7 +142,15 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `--reasoning-parser` and `--tool-call-parser` read two separate registries, so the
   flag is the whole gate, the printed list fingerprints the release, and a Coder /
   non-thinking checkpoint needs no reasoning parser at all (#8022; the name-space
-  section of the page).
+  section of the page). (e) A `deepseek_v3` serve: that parser reads
+  `thinking`/`enable_thinking` from **each request's** kwargs and delegates to the
+  R1 splitter or to the identity parser (vllm v0.18.0
+  `deepseek_v3_reasoning_parser.py:32-41`, `chat_completion/serving.py:229-236`), so
+  the reporter's `chat_template_kwargs: {"thinking": true}` is the parser's own key
+  and "概率性没有content" is first a **request-body diff**, not a model defect;
+  #9521 reproduced it on 0.18.0 and 0.19.1rc1, which closes the release-diff branch
+  and leaves `completion_tokens` (small ⇒ genuinely short completion) as the
+  discriminator against routing.
 - `quantized-checkpoint-conversion.md` — per-layer loss tables and bad artifacts from
   msmodelslim conversion: the two gates (engine version plus the msit branch, which
   differs between doc pages), the published-checkpoint split test, layer-localization by
@@ -246,3 +260,13 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   Triton kernel), the reporter-confirmed serve command that already rules out graph mode,
   MTP, EP and quantisation, the ablation matrix that separates model, platform and kernel
   ownership, and the #3689 / #3571 / #4057 precedents with what remains unestablished.
+- `mtp-prefix-cache-310p.md` — 310P (Atlas 300I) Qwen3.5-class hybrid model with
+  MTP **and** prefix caching on: the verified chain `--enable-prefix-caching` →
+  `mamba_cache_mode="align"` (`vllm/model_executor/models/config.py:349-379`) → the
+  310P-only config patch (`patch_mamba_config_310.py:84-85`) → `num_speculative_blocks`
+  plus `accept_token_bias` in `preprocess_mamba`/the postprocess, where
+  `_can_launch_triton_batch_memcpy() = not is_310p()` swaps the Triton copy for
+  torch/numpy fallbacks (`patch_mamba_utils.py:22-23,108-183`), and the GDN op forces an
+  fp16 SSM state (`_310p/ops/fla/gdn_310.py:134-151`). Coverage verdict from the two 310P
+  PR-lane tests that never combine the features, the five-row launch matrix, and the stop
+  rule that cost #14339 its answer (42 K characters of reasoning, no text on 17 turns).

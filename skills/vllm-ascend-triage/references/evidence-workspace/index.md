@@ -19,7 +19,10 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   release, not a proven copy of the reporter's install — say so when the claim depends on
   the exact bits the reporter ran. Read it through `scripts/sources-summary.sh` (one line
   per repo); `cat`/`head -100` of the raw JSON cost ~24 KB of transcript in a recorded run
-  and told it nothing the summary line does not.
+  and told it nothing the summary line does not — and the bundle is the expensive
+  form: `ls /workspace; cat SOURCES.json; ls /workspace/history` batched beside the
+  `skill_view` came back as one **42 KB** tool result in #10014 (68 KB when the
+  skill body is counted), which is the rule-7 trap, not orientation.
 - Content exports are truncated by a byte limit; absence of a file in an export is not
   evidence that upstream lacks it. Check `complete_regular_files` / `files` vs
   `regular_files` before concluding "not implemented". A component named by the report
@@ -67,7 +70,13 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   run called it noise and stopped, and the same listing held #488 with the reporter's
   exact `error code:507035`. A ~100% hit rate indicts the pattern, not the corpus:
   `history-titles.sh` is titles-only by default for this reason, and the survivors of a
-  split alternation are the precedents.
+  split alternation are the precedents. **One search per shell call:** a batched
+  command that outlives the tool's foreground window comes back as
+  `{"kind": "promoted", "jobId": …}` carrying only its first chunk, so the second and
+  third searches in it were never seen — #13381 batched `glm` / `w4a8c8` / `重复`,
+  received only the 40 `glm` lines (a category word, 135 hits of noise) and then
+  reasoned about whether the other two had hit anything. If a result says
+  `promoted`, fetch that job before reading "no hits" out of it.
 - Attachments are multi-modal OCR text: line order, labels and table rows get scrambled.
   Treat a number as trustworthy only when a log line, caption or arithmetic cross-check
   confirms it; otherwise state the OCR caveat next to the claim.

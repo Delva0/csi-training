@@ -56,7 +56,13 @@ because `profile_run` runs an extra `_dummy_run(capacity, with_prefill=True)`
 has the capacity/`global_bs` arithmetic, the `HCCL_INTRA_PCIE_ENABLE=1 /
 HCCL_INTRA_ROCE_ENABLE=0` → hierarchical-dispatch gate that is the *documented*
 A2 setting (do not rank it as the misconfiguration), the tutorial diff that closes
-the flag lane, and the ladder.
+the flag lane, and the ladder. **On a multi-node start, diff the two nodes' own
+commands first**: capacity and `global_bs` are derived per rank from that node's
+`--compilation-config`, so an asymmetric capture-size list makes the halves of the EP
+group declare different sizes to the same all-to-all — one call:
+`bash <skill_root>/scripts/mc2-capacity-asymmetry.sh --capture-a … --capture-b … --tp
+8 --dp 2` (recorded #8294). If the reporter has already run the env matrix, treat it
+as closed (`aiv-mc2-env-ablation.md`, "When the whole matrix has already been run").
 
 **Then separate a *shapeless* hang from a collective error.** A DP>1 MoE run
 whose dummy/`profile_run` batch passes and whose first **real request** stops a

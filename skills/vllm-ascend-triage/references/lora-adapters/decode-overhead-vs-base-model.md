@@ -33,7 +33,12 @@ question does not need a source walk each time.
   eager mode is supported", with `enforce_eager=True` in both the offline and
   the API examples. The generic graph switch agrees: `use_aclgraph =
   compilation_config.level == PIECEWISE and not enforce_eager`
-  (`vllm_ascend/worker/model_runner_v1.py:316-318`).
+  (`vllm_ascend/worker/model_runner_v1.py:316-318`). **Version bound on that
+  premise**: it is the v0.11-and-earlier tutorial; from at least v0.18.0 the 310P
+  tutorial (`docs/source/tutorials/hardwares/310p.md:7-11`) documents
+  `FULL_DECODE_ONLY` on 300I Duo with TP>1 capture-count limits, so check the
+  reporter's release before calling the launch overhead structural
+  (`../soc-platform-paths/atlas-300i-310p.md`, v0.18.0 block).
 - **310P also loses the torch-npu fused ops**: `vllm_ascend/platform.py:206-208`
   (`if not is_310p(): compilation_config.custom_ops = ["all"]`), which is why the
   300I tutorial hand-lists `["none", "+rms_norm", "+rotary_embedding"]`. The

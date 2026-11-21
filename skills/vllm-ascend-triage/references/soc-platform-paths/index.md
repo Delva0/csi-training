@@ -94,6 +94,19 @@ Conditional routes:
   ADD_TO_LAUNCHER_LIST_AICORE failed`) on a card the release's docs exclude, often
   asked as "does image `<tag>` support `<card>`?" → `kernel-package-vs-card.md`
   (image/CANN kernel package vs the live SoC; one standalone op probe).
-- The report is a version gate ("does V support model M on 310P?") →
-  `../startup-failures/model-type-not-recognized.md` plus the status lines in
-  `atlas-300i-310p.md`.
+- The report is a version gate ("does V support model M on 310P?") — typically an
+  `[Installation]`/`[Bug]` title, a tutorial-copied `vllm serve` line and the only log an
+  external attachment URL → **read the pinned `docs/source/tutorials/hardwares/310p.md`
+  first** (one `sed`): its validated table and its closing note name both the supported and
+  the *preview* families ("preview support for Qwen3.5 and Qwen3.6 … follow #7394", `:207-209`
+  at v0.18.0). A family outside that table with a preview note is a **capability verdict owed
+  in the first message** — the reporter's next question is verbatim "只支持 #NNNN 中的 POC
+  镜像吗?", and #NNNN is usually a future issue this snapshot cannot resolve. Then
+  `../startup-failures/model-type-not-recognized.md` for the recognition-error form, and the
+  status lines in `atlas-300i-310p.md` (its v0.18.0 block).
+- A **hybrid linear-attention** family (Qwen3.5/3.6-class GDN) fails on a `-310p` image at the
+  first decode step with `AttributeError: 'TritonPlaceholder' object has no attribute 'cdiv'`
+  (or `next_power_of_2`) → the image's own "does not support triton" rule meets a decode path
+  whose `patch_triton` rebind is `HAS_TRITON`-gated: `atlas-300i-310p.md`, the triton-less
+  hybrid section (a Python error before any device op, so no plog line — one grep of the
+  traceback settles it).

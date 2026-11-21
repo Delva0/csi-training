@@ -121,6 +121,12 @@ Run it once per node (or carry the values through ray `runtime_env` `env_vars` /
 `worker_process_setup_hook`), and ask the reporter for that output rather than for
 "the versions".
 
+Before the per-worker environment, check the cluster's resource *view*: a paste that
+carries `Current node has no NPU available … 'GPU': 8.0` (or the preceding `The
+number of required NPUs exceeds …` warning) never reached a worker at all — the
+nodes advertise `GPU` where the platform asks for `NPU`, and one `ray status` per
+node settles it: `ray-npu-resource-label.md`.
+
 Recorded #3098 (vllm-ascend v0.10.2rc1, ray with 2 nodes x 8 910B4,
 Qwen3-Next-80B-A3B): that model imports Triton at module import
 (`vllm_ascend/ops/fla.py:11-12`, `ops/casual_conv1d.py:14-15`), and the release's

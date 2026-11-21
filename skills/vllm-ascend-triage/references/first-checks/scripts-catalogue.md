@@ -37,6 +37,16 @@ after that keeps the header, not this text.
   reconciles, 1 = no common step count (mixed windows / broken collection), 2 =
   unusable input. Table lines are `<name> <count>` / `<name>,<count>`; a garbled
   OCR row is listed as skipped rather than guessed.
+- `scripts/quant-scale-dtype-audit.py <vllm-ascend-root>` — the sibling sweep for a
+  quant-scale dtype gate (`EZ1001 … Tensor scale not implemented for DT_FLOAT16`,
+  `161002`): prints every weight-side scale handed to `npu_quant_matmul` /
+  `npu_grouped_matmul*` / `fused_experts` with `file:line`, whether each parameter has
+  a `_fp32` / `_fp32_list` companion in the package, which companions are `CREATED
+  BUT NEVER READ` (the v0.17.0rc1 linear site), and which call sites take the op's
+  output dtype from a scale tensor (`moe_mlp.py:144`, `device_op.py:142`) — the
+  second operand of the same gate (#7443). Run through
+  `uv run --no-project python …`; per-token/activation scales are excluded by design,
+  and a site it lists still has to be read in `apply()` before it can be cited.
 - `scripts/pp-layer-partition.sh --layers N --pp P [--key-layer K]` — the PP layer
   split and stage-start fingerprint (#5724). Mirrors `get_pp_indices`: the
   `layers % pp` remainder goes to `[-2], [-3], …`, never the last partition, so
@@ -169,6 +179,18 @@ after that keeps the header, not this text.
   capture list, which bucket a one-request step replays versus a full step, the
   idle ranks' `execute_dummy_batch()→_dummy_run(1)` (eager, still joins the DP
   all_reduce), and the four-row ablation (#3128).
+- `scripts/mc2-capacity-asymmetry.sh --capture-a LIST|default --capture-b LIST|default
+  --tp N [--dp --pp --experts --max-num-seqs --num-spec
+  --max-num-batched-tokens]` — the cross-node MC2 symmetry check (#8294): each
+  node's own capture-size list is turned into `mc2_tokens_capacity =
+  ceil(max_capture/tp)*tp` and `global_bs = ceil(max_capture/tp)*ep_world_size`,
+  printed side by side with the ratio, plus the A2 selector gates
+  (`ep_world_size >= 16`, `experts/ep_world <= 24`) and whether `profile_run`
+  still takes the extra `_dummy_run(capacity)`. `default` means the node omits
+  `--compilation-config`. It prints `ASYMMETRIC`/`SYMMETRIC` and the next lane;
+  that the mismatch *hangs* is a hypothesis (close it with the identical-config
+  rerun), and `VLLM_ASCEND_ENABLE_FUSED_MC2` is an A3-only switch
+  (`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` Step 1b).
 - `scripts/device-type-check.sh <paste|serve-log|-> | --soc-version N` — which side
   of the device-type assert is the card and which is the wheel (#12141).
 - `scripts/cuda-only-path-audit.sh <vllm-root> [subpath] [vllm-ascend-root]` — the
@@ -234,10 +256,16 @@ after that keeps the header, not this text.
   registered suffix rewrite, with the model family (text vs multimodal) that
   decides a `TypeError: Invalid type of HuggingFace config` report (#14817).
 - `scripts/nz-format-gate-check.sh <paste|-> [vllm-ascend-root]` — which `EZ1001`
-  family the paste is (aclnn registry vs dtype × layout), the phase of the first
-  hit, and the NZ gate's fp32 policy at the checked-out ref (`is_enable_nz` vs
-  `_should_trans_nz`), i.e. whether an fp32 pooling/score head is being cast to
-  `FRACTAL_NZ` (#4679).
+  family the paste is (**aclnn registry** vs **dtype × layout** vs **shape**,
+  `Not support mat2 n = 1 or k = 1 when format is FRACTAL_NZ`), the phase of the
+  first hit (a load-phase `process_weights_after_loading` /
+  `_validate_shared_expert_consistency` hit makes `--enforce-eager` irrelevant), the
+  NZ gate's fp32 policy at the checked-out ref (`is_enable_nz` vs
+  `_should_trans_nz`), whether that gate tests the weight's **shape** at all, and how
+  `weight_nz_mode` resolves there (`0` off / `1` quantised-only default / `2`
+  bf16+fp16) — i.e. whether an fp32 pooling head (#4679) or a bf16 MoE
+  shared-expert gate (#10014) is being cast to `FRACTAL_NZ`, and which mode is the
+  escape.
 - `scripts/toolcall-raw-output-audit.py <dir-or-file> [...] [--markers '<a>,<b>']`
   — read a case's request / rendered-prompt / tokenized-request / completion
   dumps and print the lane: no tool-call marker in the engine's own completion

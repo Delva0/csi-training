@@ -77,6 +77,10 @@ teardown hook changes the answer to "upgrade".
 3. **B's device set overlaps A's** — `ASCEND_RT_VISIBLE_DEVICES` is the platform's
    `device_control_env_var` (`vllm_ascend/platform.py:53`). With A on all 8 cards
    there is no disjoint set left, and that *is* the answer.
+   When the two engines are meant to coexist (a P/D pair on one host) and the sets
+   were never really disjoint, the owner is the launcher, not sleep:
+   `../pd-disaggregation/same-host-pd-device-partition.md` (#4725 — cards numbered
+   from 0 in every `launch_online_dp.py` invocation, `Bind_Failed(EJ0003)`).
 
 **The discriminator between 1 and 3 is one launch**: B on a disjoint card pair while
 A sleeps. It starts → the block is the sleeping process's device-side resources, and

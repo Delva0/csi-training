@@ -104,6 +104,10 @@ Conditional routes:
   substitution from `mkdocs.yml extra.*`, and the answer is the version gate
   plus the correction site — `docs-version-space-and-image-tag.md` (recorded
   #16954, main-only `--kv-cache-dtype int8` pair beside a stale `0.23.0` tag).
+  When the substitution **matches** the tag that works and the page also prints a
+  literal model-branded tag in prose, the substitution is not the defect and
+  `extra.*` must not be touched: §6 of that page has the discriminating grep, the
+  frozen-image precedent and the release-claim scope gate (recorded #18041).
 - The doc's log/flag claims override the doc rather than the code:
   `../observability-and-logs/request-output-logging-flags.md`.
 - The doc's accuracy or performance numbers look anomalous: check the precedent

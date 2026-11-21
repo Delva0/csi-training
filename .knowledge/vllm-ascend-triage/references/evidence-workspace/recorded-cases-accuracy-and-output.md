@@ -912,3 +912,31 @@ was already refuted. Same pin and same three-flag cell as the `decode_hs_or_q_c`
 the doc/test anchors were cheap to reach — and the right move was to rank them, not to quote
 the known issue. Page: `../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md`
 §*chance-level*.
+
+**#12060** vllm-ascend v0.20.2rc1 (`367b8e62da79`) + vllm v0.20.2 (`bc150f502991`),
+official image `quay.io/ascend/vllm-ascend:v0.20.2rc1`, 4 cards, Qwen2.5-7B,
+PP2+TP2, no log at all: "pp+chunked prefill 场景下首token不对", with both controls
+already stated (off chunked prefill fine, off PP fine). The intersection is real and
+untested at the pin — the PP e2e prompts are 5-6 tokens
+(`tests/e2e/multicard/4-cards/test_pipeline_parallel.py:35-38`) and the only
+multicard chunked e2e is context-parallel — but the recorded run answered it as a
+mechanism hunt (upstream `scheduler.py:1079-1099` token-id path, the downstream
+`sync_and_slice_intermediate_tensors` fork) and shipped a truncated verdict with
+four source hypotheses, 43 K characters of reasoning against 2 K of text. The
+reporter's later public comment (2026-07-17) is the resolution: *"tried the latest
+version, it works fine"* — the rung the answer owed first was the release lane.
+Page: `../pipeline-parallel/pp-chunked-prefill-numeric.md`.
+
+**#5643** vllm-ascend v0.11.0 (`2f1aed98ccdb`) + vllm v0.11.0, RL rollout (1 训 2 推,
+reduced layers, weight re-send) with static EPLB (`additional_config.expert_map_path`)
+and a garbled-OCR screenshot; "静态负载均衡是否有精度问题", 主线推理正常. Verified at
+that pin in this review: `vllm_ascend/ops/expert_load_balancer.py` reshapes the file's
+`layers_num`/`ranks_num` and never compares them with the deployed `num_moe_layers`/
+EP size, the off-rank `log2phy` fallback picks a copy with unseeded `random.choice`,
+`check_expert_map_tensor` only compares the file across ranks, and `expert_map_path`
+appears in `tests/ut/` + docs only (no e2e/nightly) — so the static-map path has no
+accuracy regression coverage. The recorded run delivered the ranked answer (map-file
+shape vs deployment, weight re-send vs physical slots, unseeded fallback, support
+surface) with a 4-rung ladder and the screenshot gap stated; no reporter
+confirmation. Route: an RL/weight-reload accuracy report is a *deployment-shape* audit
+first, and the OCR of a screenshot is not evidence when it is garbled.

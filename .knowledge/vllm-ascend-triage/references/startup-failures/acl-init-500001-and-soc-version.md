@@ -25,6 +25,17 @@ is 500001` plus `PlatformInfoInit … SocVersion` pair recurs in **#302**, **#56
 and **#692** on **910B2** hosts — so the shape is an environment family, not a 310P
 or a Qwen3 one.
 
+**#302 is the only case here with a reporter-confirmed resolution, and the fix is a
+container flag.** Image `quay.io/ascend/vllm-ascend:v0.7.1rc1` (`Dockerfile:17` → CANN
+`8.0.0-910b` base), 910B2 ×8, driver 24.1.rc3, `vllm serve Qwen2.5-7B-Instruct
+--max_model_len 26240`; the `docker run` carries exactly the documented device/mount
+list (`docs/source/quick_start.md:15-30` at that pin — `davinci0` + `davinci_manager` +
+`devmm_svm` + `hisi_hdc`, `dcmi`, `npu-smi`, the driver's `lib64/` + `version.info`,
+`/etc/ascend_install.info`), and the printed `SocVersion = Ascend910B2` matches the card.
+The reporter closed it himself the next day: 「已解决，加个--privileged=true即可」 — that
+one flag on the otherwise unchanged command, with no driver, CANN or image change
+reported (#302 comment 2716169193, 2025-03-12).
+
 ## What the two log facts mean
 
 - `SetPrecisionMode` is torch_npu's own init step; no vLLM flag reaches it. At the
@@ -48,26 +59,54 @@ or a Qwen3 one.
 | `npu-smi info` chip | `PlatformInfoInit … SocVersion` | Reading |
 |---|---|---|
 | `310P3` | `Ascend@910B…` (or any name the card cannot report) | the runtime did not bind to this card: the mounted host driver/firmware, or a toolkit/opp inside the container that is not the card's line. Name the conflict before anything else |
-| matches the card | `500001` still | the matching-SoC precedents (#302/#564/#692, all 910B2): host driver/firmware older than the image's CANN base, or the device is unusable inside the container — so a *matching* line does not exonerate the pairing |
+| matches the card | `500001` still | the container lane first: re-run the **same** `docker run` with `--privileged=true` added and nothing else changed — the reporter-confirmed fix on #302 (910B2, documented mounts, SoC matching). Only if that clears nothing: host driver/firmware older than the image's CANN base, or a device unusable inside the container. A matching line exonerates nothing, and the flag does not say *which* device or capability was short |
+
+## Containerized run: one flag, one variable, before any pairing theory
+
+The documented `docker run` (`docs/source/quick_start.md:15-30` at v0.7.1rc1,
+`docs/source/installation.md:53-65` at the later pins) is a **minimum** device/mount
+list — four `/dev` nodes, the driver's `lib64/` + `version.info`, `dcmi`, `npu-smi`,
+`/etc/ascend_install.info` — and it passes no `--privileged` and no `--cap-add`. It is
+not a sufficiency proof: a sibling Ascend deployment doc asks for more from its first
+line (`LMCache-Ascend v0.3.3 docs/deployment.md:17-19`: `--privileged
+--cap-add=SYS_RESOURCE --cap-add=IPC_LOCK`, read in the same snapshot). So when a paste
+like #302 dies at device open inside a container whose run line matches the docs, the
+cheap discriminating ablation is the failing command plus **one** flag:
+
+```bash
+# the reporter's own line (mounts abbreviated) with `--privileged=true` added, nothing else changed
+docker run --privileged=true --name vllm-ascend --device /dev/davinci0 ... \
+  quay.io/ascend/vllm-ascend:v0.7.1rc1 vllm serve Qwen/Qwen2.5-7B-Instruct --max_model_len 26240
+```
+
+Reporter-confirmed on #302 with the driver unchanged. Do **not** bundle a second change
+into that re-run — a whole-driver mount (`-v /usr/local/Ascend/driver:/usr/local/Ascend/driver`),
+a driver upgrade, a different image tag: two variables, and the case that closed needed
+only the flag. Widening privilege is not a mechanism either, so keep the pairing lane
+open: if the flag changes nothing, run the checks below; if it fixes the case, the
+container's device/capability set was short, and narrowing it afterwards (`--cap-add`,
+per-device `--device`) is a follow-up experiment, not this diagnosis.
 
 ## Checks, in this order (all on the reporter's host)
 
-1. **Framework-free probe in the same container**, no vLLM:
+1. **The `--privileged=true` re-run above**, when the deployment is a container whose
+   `docker run` matches the docs (#302). Then the framework-free probe.
+2. **Framework-free probe in the same container**, no vLLM:
    `python -c "import torch, torch_npu; torch.npu.set_device(0); print(torch.npu.get_device_name(0))"`.
    The same `500001` there ends the vllm-ascend part of the case.
-2. The version set plus the image tag: `cat /usr/local/Ascend/driver/version.info`,
+3. The version set plus the image tag: `cat /usr/local/Ascend/driver/version.info`,
    `npu-smi info` (header version + chip), `cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg`,
    `pip show torch torch-npu vllm vllm-ascend`. The container's CANN is the
    **image's** — `docs/source/installation.md:53-65` mounts only the driver's
    `lib64/` + `version.info`, `dcmi`, `npu-smi` and `/etc/ascend_install.info`,
    never `ascend-toolkit/`. What the host contributes is driver/firmware, and that
    is the pairing under test.
-3. Compare against the image's own base: at v0.9.2rc1 `Dockerfile.310p:18` is
+4. Compare against the image's own base: at v0.9.2rc1 `Dockerfile.310p:18` is
    `FROM quay.io/ascend/cann:8.1.rc1-310p-ubuntu22.04-py3.10` and
    `requirements.txt:27` pins `torch-npu==2.5.1.post1.dev20250619`. A host driver
    older than that CANN release is the top-ranked candidate here (#2315 reports
    `NPU-SMI 24.1.0.1`); it is a candidate, not a confirmed fix — see Limits.
-4. **Conform the container to the 300I tutorial before blaming the driver**: the
+5. **Conform the container to the 300I tutorial before blaming the driver**: the
    documented `docker run` also mounts `-v /usr/local/dcmi:/usr/local/dcmi` and
    `-v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi`
    (`docs/source/tutorials/single_node_300i.md:28-29`); #2315's command omits both,
@@ -97,9 +136,12 @@ or a Qwen3 one.
 
 ## Limits
 
-- The history corpus carries issue bodies only: "match the host driver/firmware to
-  the image's CANN" is the mechanism plus four precedents, **not** a reported fix
-  for this startup phase. The *runtime* variant of the same pairing does have one —
+- "Match the host driver/firmware to the image's CANN" is the mechanism plus four
+  precedents, **not** a reported fix: the only reporter-confirmed resolution for this
+  startup phase is #302's `--privileged=true`, and it shipped no version change, so the
+  pairing stays hypothesis-class — it may still be what #2315's 310P host (CANN base
+  newer than the host's `NPU-SMI 24.1.0.1`) or #564/#692 met. The *runtime* variant of
+  the same pairing does have a reported fix —
   a worker killed during a long-context step, upgraded to a matched set
   (`../hccl-and-hardware/cancelled-executor-teardown.md`, #16023) — but do not
   carry that upgrade into a `500001` at device open: different phase, and no

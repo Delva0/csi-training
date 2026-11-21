@@ -23,6 +23,13 @@ performance server line (`:288` at v0.18.0, `:294` at v0.19.1rc1) passes
 cannot start** at v0.18.0 even though `--disable-log-stats` and `--load-format`
 on the same line are fine. Report the line and the corrected one.
 
+The **value's syntax** is a separate, weaker question: a dict-valued flag written
+as a Python literal (`--compilation-config {'full_cuda_graph': 1}`) needs no repair,
+because the dataclass field is parsed from the string — #4696's own paste shows the
+resolved value reaching `platform.py`. Tier quote style **cosmetic** at most; the
+mode it names is the finding (`../startup-failures/graph-mode-not-applied.md`, the
+`FULL` section).
+
 ## 2. Does the `vllm bench` subcommand use the argument names of that release?
 
 ```bash
@@ -131,6 +138,11 @@ substitution from `mkdocs.yml extra.*` at build time, so compare that value with
 the tag the reporter pasted, and grade `/en/latest/` as main — `docs-version-space-and-image-tag.md`
 (recorded #16954: a main-only `--kv-cache-dtype int8` pair printed beside a stale
 `0.23.0` tag; tier **breaks the command**, but the defect is the version line).
+The page can print **two** image tags: the templated `{{ vllm_ascend_version }}`
+block and a literal model-branded one in prose. When the substitution equals the tag
+the reporter found works, the literal is the defect and `mkdocs.yml extra.*` is not —
+`docs-version-space-and-image-tag.md` §6 (recorded #18041: `DeepSeek-V4-Flash.md:41`
+`…:DeepSeekV4-flash-0731-a3` beside `:85` `{{ vllm_ascend_version }}-a3`).
 
 ## 7. What should the FAQ contain?
 

@@ -31,7 +31,14 @@ was launched: a **group** creation was refused. `1` there is not a network code 
 (`init external input error` / `init environment config error` / `load comm config
 failed` / `nRanks…`), so read the HCCL `ERROR` line, then diff the two nodes' serve
 scripts, and only then ask whether the recipe exists at the pin for that model and
-node count. `comm-create-errors.md`. **Code `7` (`HCCL_E_UNAVAIL`) beside an `EJ0001`
+node count. `comm-create-errors.md`.
+**The no-config sibling `create … HcclCommInitRootInfo(…)` with code `2` is a different lane**:
+the group belongs to whichever caller the traceback names, often a third-party trainer
+(DeepSpeed `_broadcast_model`, TRL `prepare_deepspeed`) colocated in the engine's process, with no
+`vllm_ascend/` frame at all; `2` is `HCCL_E_PTR` and names no precondition, and on a one-rank group
+the store cannot be what failed. Get the trainer's launch line (it *is* `numRanks`) and compare a
+multi-rank run of the same recipe before any torch_npu read — `comm-create-errors.md`
+§*The no-config `create` sibling*. **Code `7` (`HCCL_E_UNAVAIL`) beside an `EJ0001`
 line is not a script problem**: the vendor's table names it
 `HCCP_Process_Initialization_Failure` and its fix is "wait for 10s after killing the
 last training process", i.e. a **previous process of the same box is still alive** —
@@ -205,6 +212,15 @@ the rule that it is a finding only when it is in-window — in #12487 the title 
 that line while it was a three-day-old re-print and the in-window error was an AICPU
 `reduce_scatter` param-invalid on a chip the reporting rank did not own.
 
+`Bind_Failed(EJ0003)` on the *normal* port `16666` is the other family: 16666 is
+`HETEROG_CCL_PORT`, the one default comm port, so the endpoint is decided by the local
+device IP alone and a collision means **two live processes on one device** — count
+engines against cards before touching any port variable. Two engines started side by
+side on one host (a P/D pair) are the usual pair, and the external-DP launcher hands
+every invocation cards from 0: `comm-create-errors.md` §code 7, then
+`../pd-disaggregation/same-host-pd-device-partition.md` (#4725,
+reporter-confirmed).
+
 **Then separate a link-creation failure from the collective it is reported as.** If the
 first collective after the weights load dies with `Transport_Init_Error(EI0009)` /
 `[Create][DestLink]Create Dest error!` / `createLink para:rank[i]…dst_rank[j]` plus
@@ -231,7 +247,7 @@ HCCL_E_INTERNAL wrapping the earlier `9`/TIMEOUT, so a title of
 `aclnnMoeDistributeDispatch… 561000` is **not** evidence for the QP/budget lane and
 `HCCL_BUFFSIZE`/gmu cannot fix it. Ask for the plog from **both** nodes and **every
 card**, then read the table wholesale-vs-subset. `link-establish-timeout.md`
-(recorded #9872, #1955, #4725; also the `[HcclSocket][Listen] … port[16666] fail`
+(recorded #9872, #1955; also the `[HcclSocket][Listen] … port[16666] fail`
 server half, and why `ping` between the nodes does not clear it).
 
 **Then separate a *refused resource allocation* from that link-creation failure.**

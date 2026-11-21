@@ -94,6 +94,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   is HBM usage higher than expected (set `max_model_len`/`gpu_memory_utilization`). A
   report that runs the tutorial's model but not its flags is a recipe diff first
   (recorded #3170).
+- **Two engines were started on the same host** (a P/D pair, or two deployments) and the
+  second one to start dies at worker init with `Bind_Failed(EJ0003)` /
+  `hcclCommInitRootInfoConfig … error code is 7` while the first keeps serving → count
+  cards per engine before any port variable. `16666` is HCCL's single default comm port,
+  so the endpoint is decided by the device IP alone and a collision means the two
+  launches were given the **same cards** — the external-DP launcher numbers them from 0
+  in every invocation → `../pd-disaggregation/same-host-pd-device-partition.md` (the
+  family split: `../hccl-and-hardware/comm-create-errors.md` §code 7).
 - Every rank's last line is `Using OOT custom backend for compilation` (nothing
   raised, port refused, HBM resident) → `compile-backend-banner-then-silence.md`
   first: at v0.22.1rc1 that banner is printed **while the model object is built**
@@ -196,7 +204,10 @@ Inherit the rules in SKILL.md. Conditional routes:
   + `EH9999 … [PLATFORM]PlatformInfoInit runtime platform info failed. SocVersion <name>`
   + `GEInitialize failed`, often ending `ERR99999 UNKNOWN application exception`: ACL/GE
   bring-up inside torch_npu, before any `vllm_ascend` frame. Read the printed `<name>`
-  against `npu-smi` before anything else, then the driver/firmware-vs-image-CANN pairing
+  against `npu-smi` before anything else; a `<name>` that matches the card inside a
+  container whose `docker run` already matches the docs takes the same command +
+  `--privileged=true` as its next step (reporter-confirmed #302), and only then the
+  driver/firmware-vs-image-CANN pairing
   → `acl-init-500001-and-soc-version.md` (no precision flag is the cause; cap the C++ walk).
 - The startup dies inside `torch.compile` with `AttributeError: '_OpNamespace' '<ns>'
   object has no attribute '<op>'`, deepest frames `vllm_ascend/compilation/passes/**`
@@ -278,6 +289,15 @@ Inherit the rules in SKILL.md. Conditional routes:
   tensors into a dense model, behind the bare `Engine core initialization
   failed` (#2015). Ask for the per-rank traceback and the `quantization=` /
   `--quantization ascend` flag before ranking causes.
+  A **third** form on the same page is earlier than both and looks like a release
+  limit: `vllm serve: error: argument --quantization/-q: invalid choice: 'ascend'
+  (choose from 'aqlm', …, None)` — `argparse`, so no `APIServer pid=` line either,
+  and the printed choices are upstream's static `QuantizationMethods` `Literal`.
+  On a ref whose `NPUPlatform.pre_register_and_update` ignores the `parser` it is
+  handed (v0.8.5rc1) the plugin never adds the name to `--quantization`, while the
+  platform list at that same ref *would* accept it — classify on the message form
+  (§D of `quantization-method-gate.md`), and check the reporter's installed
+  `pre_register_and_update` before calling the build unquantized.
 - The loader raises `KeyError: '<prefix>.weight_scale'` (also `.scale` pre-remap,
   and the whole `…mlp.experts….weight_offset` family of a W8A8 export) at
   `param = params_dict[name]`, on every rank but with a **different layer** each

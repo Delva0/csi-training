@@ -34,6 +34,8 @@ the topical tree.
 
 ### `recorded-cases-startup-and-environment.md`
 
+- **#6257** — vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2, offline Gemma-3-1b-it on a `device_count()` TP: `PagedAttentionOperation` / `ERR33133` at ACL-graph replay, answered **after** the ❌ row it needed; the reporter's follow-up was four more errors (capability verdict → `../feature-enable-recipes/unsupported-model-row.md`).
+
 - **#11308** — vllm-ascend v0.21.0rc1 (`80610e44`) + vllm v0.21.0 (`ad7125a`), Atlas 300I
   Duo, Qwen3.5-35B-A3B-w8a8 + MTP, CANN hand-upgraded to 9.1.0.beta3: start dies inside
   `Capturing CUDA graphs (decode, FULL)` with `aclrtMemcpy … 107030` + `ERR00100` + the canned
@@ -67,6 +69,8 @@ the topical tree.
 - **#15836** — vllm-ascend v0.23.0 image (5cb98caa), DeepSeek-V4-Flash-w8a8-mtp on 1×A2 64G×8 910B3: the body is two screenshots (OCR is the paste) and the copied launcher drops the tutorial's `export VLLM_ASCEND_ENABLE_FLASHCOMM1=1` while keeping `"enable_dsa_cp": true`, so model construction raises `ValueError: DSA CP requires SP to be enabled …`; the recorded run answered with the doc/line diff (a model-config gate, not a device fault).
 - **#12985** — vllm-ascend v0.23.0rc1-310p + CANN 9.1.0-beta.1, 300I Duo ×4 (8 dies), Qwen3.5-35B-A3B at TP8/100 K/`FULL_DECODE_ONLY`: stall behind the upstream 60 s `shm_broadcast` watchdog; the working TP4/60 K/`--enforce-eager` script sat in the screenshots, and the same stall on Qwen3-VL-32B shows it is the documented 310P mask/graph limits, not a card.
 - **#2315** — image `v0.9.2rc1-310p` on 2×`310P3`, Qwen3-32B TP2: ACL/GE bring-up dies at device open (`SetPrecisionMode … ACL_PRECISION_MODE … 500001`, `PlatformInfoInit … SocVersion Ascend@910B`, `ERR99999`) with no `vllm_ascend` frame and an OCR'd paste; environment-owned, and the recorded run shipped no answer — `../startup-failures/acl-init-500001-and-soc-version.md`.
+- **#2960** — vllm-ascend v0.9.0rc2 + vllm v0.9.0, `Qwen2.5-32B-Instruct-GPTQ-Int8`, "is it supported?": `quantization=ascend` is set for the reporter by `override_quantization_method` and startup dies in `is_layer_skipped_ascend` with `KeyError: …q_proj.weight` — a renamed foreign format, not a layer bug; msmodelslim W8A8/W8A8_DYNAMIC only at that ref — `../startup-failures/quantization-method-gate.md` (section C).
+- **#302** — image v0.7.1rc1 (CANN `8.0.0-910b`) on 910B2 ×8, driver 24.1.rc3, Qwen2.5-7B-Instruct behind the documented `docker run`: the same ACL/GE pair (`500001` + `SocVersion = Ascend910B2`, matching the card) with no `vllm_ascend` business frame. The recorded answer's ranking was the defect — driver/CANN pairing first, the container flag third — while the reporter closed it with 「已解决，加个--privileged=true即可」, one flag on the unchanged command — `../startup-failures/acl-init-500001-and-soc-version.md`.
 - **#6578** — v0.14.0rc1, Qwen3-32B on 910B: `torch.compile` fusion pass traces `torch.ops.vllm.qkv_rmsnorm_rope`, which is registered only `if HAS_TRITON`; the neutral fix is `fuse_qknorm_rope: false` — `../startup-failures/missing-triton-op-in-compile-pass.md`.
 - **#1784** — vllm-ascend v0.9.2rc1 (b5b7e0e) + vllm v0.9.2 (a5dd03c), "installing vllm-ascend 0.9.1dev and …
 - **#7352** — v0.14.0rc1 (still broken at v0.17.0rc1) DeepSeek-R1-Distill-Qwen-1.5B 1P1D Mooncake PD, 910B4: …
@@ -79,6 +83,8 @@ the topical tree.
 - **#955** — image v0.8.4rc2 / vllm-ascend 0.8.5rc1 + vllm 0.8.5.post1, Qwen2.5-VL-7B-Instruct TP=4 on 910B2C: `HeaderTooLarge` at `Loading safetensors checkpoint shards: 0%` on every rank — the shard is not a safetensors container, not TP and not model support; page `../startup-failures/checkpoint-file-not-safetensors.md`.
 - **#8286** — vllm-ascend v0.18.0rc1 (99e1ea0) + vllm v0.18.0 (bcf2be9), two wheel commands then pip's post-install block (`requires torch==2.10.0, but you have torch 2.9.0`): not a defect — the PyPI wheel's `cuda.txt` pin against the `VLLM_TARGET_DEVICE=empty` build the `Dockerfile` ships, …
 - **#1796** — vllm-ascend v0.9.2rc1 (b5b7e0e) + vllm v0.9.2 (a5dd03c), install report: "Unmatched torch …
+- **#1774** — vllm-ascend v0.7.3.post1 (c69ceac) + vllm v0.7.3, 910B, CANN 8.1.RC1 / torch-npu 2.5.1: `COMPILE_CUSTOM_KERNELS=1 python setup.py install` dies at 93 % with `ld: multiple definition of 'rope_custom_true_half'` — the `recompile:` line lists one `csrc/kernels/pos_encoding_kernels.cpp` under two absolute prefixes of one tree, i.e. two path spellings, not a code or version defect; unset the flag + `rm -rf build` + `pip install --no-build-isolation -e .` is rung 1 and the reporter confirmed 「Solved!」 — `../image-dependency-faults/custom-op-build-stage.md`.
+- **#2838** — `[Installation][v0.9.1]`, README `torch-npu>=2.5.1.post1` vs `pyproject.toml` `==`, no log: the `==` is the executable contract (mirror-comment pair + `install_requires`), the README prose is the doc bug — `../image-dependency-faults/pip-index-visibility.md` (rule 4).
 - **#4737** — vllm-ascend image v0.11.0rc2/0.11.0rc3 (tree a2e4c3f) + vllm v0.11.0 (b8b302c), Qwen3-32B-W8A8: …
 - **#1895** — vllm-ascend v0.9.2rc1 (b5b7e0e) + vllm v0.9.2 (a5dd03c1), 4×910B3, Qwen2.5-32B, TP=4: v1 graph …
 - **#4309** — vllm-ascend v0.11.0rc1 (c5fe179cef7f) + vllm v0.11.0 (b8b302cde434), 8×910 64 GB, …
@@ -110,6 +116,23 @@ the topical tree.
 
 - **#1716** — vllm-ascend v0.7.3.post1 (`c69ceaca`) + vllm v0.7.3 (`ed6e9075d`), 8×910B, Qwen2.5-14B-Instruct-1M TP8, `max_model_len` 204800: a long prompt kills all ranks in the same second with `AttributeError: 'Tensor' object has no attribute 'mask_fill_'` at `vllm_ascend/attention/attention.py:140` — a downstream typo for `masked_fill_`, reachable only when the longest request's full sequence length exceeds `min(max_model_len, PAGED_ATTENTION_MASK_LEN=10000)`, so it is the *rebuild* branch of `get_splitfuse_attn_mask` and `--max-num-batched-tokens` cannot dodge it. The recorded run answered it correctly (rename, gate, the host-mask follow-on) and correctly refused to raise `PAGED_ATTENTION_MASK_LEN`; the reporter's later public comment points at #769 (not in this corpus), so treat the duplicate as unverified — page `../upstream-downstream-drift/library-method-typo.md`.
 
+- **#902** — vllm-ascend v0.8.5rc1 (`ec27af3`) + vllm v0.8.5.post1 (`3015d56`), image `v0.8.5rc1`, QwQ-32B-w8a8 TP4: `vllm serve … --quantization ascend` dies inside `argparse` with `invalid choice: 'ascend' (choose from …)` — the release supports the method but never adds it to `--quantization`: choices are a copy of the `QuantizationMethods` `Literal` (`vllm/engine/arg_utils.py:600-604`) and `platform.py:66-75` takes `parser` without touching it, while `supported_quantization = ["ascend"]` (`:61`) and the offline `LLM(quantization="ascend")` path both accept it; fixed form verified at v0.17.0rc1 (`platform.py:134-147`, `tests/ut/test_platform.py:54-100`) — `../startup-failures/quantization-method-gate.md` §D.
+- **#4696** — vllm-ascend v0.11.0rc0 (00ba0710) + vllm v0.11.0rc3 (8ce5d319), 910B: `[Doc]` — the Qwen2.5-Omni tutorial's "Graph Mode / full graph" says `--compilation-config {'full_cuda_graph': 1}`, and the serve log answers `CUDAGraphMode.FULL cudagraph_mode is not support on NPU. falling back to NONE` (that text is `platform.py:256-259`'s `else`; upstream maps the legacy flag to `FULL`, and the tree's own unit test asserts the fallback). Doc defect, three-mode table + `FULL_DECODE_ONLY` as the replacement; the page itself is not in the pin — `../startup-failures/graph-mode-not-applied.md` (`FULL` section).
+
+- **#18041** — vllm-ascend v0.27.1rc1 (3b31886) / vllm v0.27.1 (6e448d0), Atlas A3 1P1D for DeepSeek-V4-Flash: `[Doc]` — a `deepseek-v4.1-flash-a3` branded image will not start while `v0.27.1rc1-a3` does; the pin's `mkdocs.yml:167-168` substitution *is* that working tag, so the defect is the literal model-branded tag in prose (`DeepSeek-V4-Flash.md:41`) beside the templated block (`:85`), plus the missing release-scope line (`release_notes.md:5,26` claim 950DT only) and the `zh_CN` `.po` copy of the same sentence — `../tutorial-verification/docs-version-space-and-image-tag.md` §6.
+
+- **#5117** — the compose says `quay.io/ascend/vllm-ascend:v0.11.0rc2` while its own
+  `collect_env` block reports vllm-ascend `0.11.0rc4.dev20+g01a13a9b7` (pin `01a13a9b` ↔ vllm
+  v0.11.0 `b8b302c`), Qwen3-VL-32B, 4×910B4, TP4, `--block-size 128 --max-model-len 131000
+  --mm_processor_cache_type shm`: the first request dies in all four workers on `ValueError:
+  Data for address:id '4826649034:82' has been modified or is invalid.` from upstream
+  `shm_object_storage.py:588`, then `RuntimeError: Worker failed with error …` →
+  `EngineDeadError`, no `vllm_ascend` frame. Upstream's shm mm-feature cache; the serve flag
+  is the verdict and dropping it is the one restart. The recorded run spent its entire
+  16 384-token cap on `SingleWriterShmRingBuffer` internals (address wrap, reader/writer
+  flags) with the flag already visible in the paste and shipped **152 characters** of
+  message text — `../multimodal-inputs/shm-mm-cache-invalid-object.md`.
+
 ### `recorded-cases-device-and-communication.md`
 
 - **#8091** — image `quay.io/ascend/vllm-ascend:v0.18.0rc1` (pin vllm-ascend v0.18.0rc1 `99e1ea0f` ↔ vllm v0.18.0 `bcf2be96`), 910B, Qwen3.5-397B-A17B-w4a8-mtp TP8+EP under `MooncakeLayerwiseConnector` PD with `FULL_DECODE_ONLY`, `--async-scheduling` and `qwen3_5_mtp` ×3: the decode workers all die in `Replaying aclgraph` with `aivec error` / `The vector core execution is abnormal` on the first request after the KV arrives, and the runtime names `prepare_inputs_padded_kernel` (a downstream Triton copy at `ops/triton/spec_decode/utils.py:22`, launched from `eagle_proposer.py`). The run read the right owner (MTP drafter input preparation, `disable_padded_drafter_batch` as the one-launch bypass) and then spent the whole 16 K cap deriving the mechanism, so the answer was cut mid-table — the durable correction is the gate it found and did not get to use: with `--async-scheduling`, `method: mtp` forces the drafter eager (`eagle_proposer.py:136-142`), so the reporter's "`enforce_eager` true/false both crash" compared nothing and the `Replaying aclgraph` lines are the **target**'s buckets. Page `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` (scope note) + `../spec-decode-mtp/empty-first-response.md` Step 6b; the reporter closed as 已解决 with no mechanism, so the root cause stays open.
@@ -117,6 +140,15 @@ the topical tree.
 - **#9263** — image `quay.io/ascend/vllm-ascend:v0.19.1rc1-a3` (`da421af`), GLM-5-w4a8 on one A3, TP16 + EP, `FULL_DECODE_ONLY` + `deepseek_mtp` n=3 + `enable_npugraph_ex` + `multistream_overlap_shared_expert: true` + `--async-scheduling`: the **first** curl dies with a capture-mode `rtMemcpy … 107030` / `kind = 1` record, then `streams.py:187` `aclrtSynchronizeEvent` → `507011` on `Device: 8`; the whole paste is one attached screenshot's OCR. The reporter's command is the **tutorial's**, and there the shared-expert multi-stream is `true` while `tests/e2e/nightly/…/GLM-5.yaml:34` runs `false` (wired at `schedule_nightly_test_a3.yaml:283`), so the documented flag is the uncovered path — reporter-confirmed off-fix on #8502. The run ranked that correctly in 22 turns but emitted **no message text** on 21 of them and had its answer cut at the cap inside the artefact list — `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` (§7 recipe diff, §8).
 
 - **#3172** — vllm-ascend v0.9.1 (`0740d10`) + vllm v0.9.1, 8×910B3, CANN 8.2.RC1: `sleep()` model A then start model B on the same cards → the **new** instance dies creating a communicator (`hcclCommInitRootInfoConfig … error code is 7`, `EJ0001 … Failed to initialize the HCCP process. Reason: Maybe the last training process is running.`); screenshot-only evidence. The run got the mechanism right but burned 5 rounds in torch_npu C++ and was cut at the cap inside its table — the CANN error table names the code and the vendor's own fix ("wait for 10s after killing the last training process") in one call — `../runtime-memory/sleep-mode-multi-instance.md` (new).
+- **#4725** — v0.11.0rc3 (`b6d63bbd`) + vllm v0.11.0, one A3 box, P and D started by two
+`launch_online_dp.py` invocations: the second dies at worker init with
+`Bind_Failed(EJ0003)` + `hcclCommInitRootInfoConfig … error code is 7` and plog
+`[HcclSocket][Listen] … port[16666] fail`. `16666` is the real default comm port, so the
+collision is a shared **card** — the launcher numbers cards from 0 in every invocation
+and has no device-start flag. The run opened the impossible-port page and spent the whole
+cap in HCCL band arithmetic with no message; the report's own `npu-smi` table (two workers
+per chip on NPU 0-3, none on 4-7) and one grep of `visiable_devices` would have ended it —
+`../pd-disaggregation/same-host-pd-device-partition.md` (new), reporter-confirmed.
 - **#7015** — v0.14.0rc1 (`52d4acf`) + vllm v0.14.1, 2×A2 DSv3.2-W8A8 DP2×TP8 EP16 + MTP2 + `FULL_DECODE_ONLY`: bare `TimeoutError` from `shm_broadcast` at the **first prefill step** = the 300 s RPC watchdog; capacity 48 from the reporter's own capture list puts a 37-token step on cross-node MC2 with `DP×TP = 16` exactly on the gate, and the pin has no A2 dual-node recipe (A3 only, six flag differences) — `../hccl-and-hardware/rpc-watchdog-timeouts.md` + `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`.
 - **#7239** — image `quay.io/ascend/vllm-ascend:v0.16.0rc1` (pin vllm-ascend v0.16.0rc1 `a78a00e` ↔ vllm v0.16.0 `89a77b1`), 910B4, Qwen3-Omni-30B-A3B-Instruct TP4 with a `FULL_DECODE_ONLY` compilation config and `--async-scheduling`, no `--enable-expert-parallel`: start dies in `profile_run → embed_multimodal → qwen2_5_vl.py:395 → mm_encoder_attention.py:108 torch.diff(cu_seqlens).to("cpu")` with `current working operator name is HcclAllreduce` / `ERR00100` — the first collective of the profile run, surfaced at a host sync; one turn to the sync-point rule (#7477) and to the blocking-mode guard (`platform.py:332-343`), then the encoder dummy-profile modality split absorbed the rest of the budget — `../hccl-and-hardware/collective-error-chain.md` (new section).
 
@@ -170,6 +202,9 @@ the topical tree.
 - **#393** — vllm-ascend v0.7.3rc1 (`f025df0`) + vllm 0.7.3, ms-swift 3.2.1 GRPO on the V0 engine, ~5 training steps: every rank dies with a bare `RuntimeError: setup failed!` at `vllm_ascend/attention.py:869` `torch_npu._npu_flash_attention_qlens`, preceded by `mki_log log dir:/root/atb/log exist`. Reaching that branch proves the rollout engine set `enable_prefix_caching=True` with chunked prefill off, and the pack it builds carries a hard-coded **128** (`128 × 128`) compress mask while the same branch's `query_lens` (partial hit) / `context_lens` (full hit) can exceed one block. Source-verified size, hypothesis on the ATB side; the ladder is the two flags — `../custom-ops-runtime-faults/setup-failed-call-site.md` (new).
 
 ### `recorded-cases-accuracy-and-output.md`
+
+- **#12060** — image v0.20.2rc1 (`367b8e62da79`), Qwen2.5-7B PP2+TP2, "pp+chunked prefill 首token不对" with both controls in the body: a real intersection the pin never tests (PP e2e prompts are 5 tokens), answered by the recorded run as a mechanism hunt and cut mid-answer — **reporter-confirmed fix: "tried the latest version, it works fine"**, so rung 1 was the release lane (`../pipeline-parallel/pp-chunked-prefill-numeric.md`, new).
+- **#5643** — v0.11.0 (`2f1aed98ccdb`), RL 1训2推 with static EPLB `expert_map_path`: map file never checked against the deployed layer/EP shape, unseeded `random.choice` fallback, UT-only coverage; ranked answer with a 4-rung ladder delivered, no confirmation; the anchors and the deployment-shape audit live in this case entry (no page yet — send the map-file/deployment shape comparison and the weight-reload ask with the first answer).
 
 - **#3547** — vllm-ascend v0.11.0rc0 (`00ba0710`) + vllm v0.11.0rc3 (`8ce5d3198d00`), 8×910B3, GLM-4.5-Air (non-MLA MoE) TP8, `--max-model-len 131072`, `--max-num-seqs 24`, `--tool-call-parser glm45 --reasoning-parser glm45`, `--additional-config '{"ascend_scheduler_config":{"enabled":true,"enable_chunked_prefill":true}}'`, litellm gateway + Claude Code client, **no log at all**: after a while of healthy serving **every** request — brand-new conversations too — returns `!!!!…`, and a restart restores it. Reported version `0.11.0` final is not in the snapshot. The recorded run read the shape right (constant id ⇒ degenerate forward; new-conversation-plus-restart ⇒ persistent state, not sampling) but ranked prefix cache first without evidence and never body-searched the literal `!` run in the corpus (that search reaches #1754, whose title names the mechanism) — `../accuracy-benchmarks/constant-token-degeneracy.md` (new).
 
@@ -247,7 +282,20 @@ the topical tree.
 
 - **#1798** — vllm-ascend v0.9.2rc1 + vllm v0.9.2, DeepSeek-V3-0324-w8a8 DP4/TP4/EP: raw `<｜tool▁calls▁begin｜>…` markers in `content` (no `tools` field, no tool-parser flags), 7/10 well-formed, 2/10 looping; the reporter's follow-up with `--tool-call-parser deepseek_v3` + the official tool chat template returns **both** fields empty — the parser's silent drop (start marker seen, strict fenced-call regex unmatched, `tools_called=True`) — `../tool-call-streaming/deepseek-parser-silent-drop.md`.
 
+- **#3806** — image `quay.io/ascend/vllm-ascend:v0.11.0rc0` (pin v0.11.0rc0 `00ba0710`,
+  committed 2025-09-30 ↔ vllm v0.11.0rc3 `8ce5d319`), A2, Qwen3-VL-30B-A3B-Instruct, TP4,
+  `--compilation-config '{"cudagraph_capture_sizes": [1…15]}'`, a **video** request
+  (`prompt_tokens: 11686`): the answer is `!` repeated to the cap. The recorded run read the
+  downstream Qwen3-VL path correctly — the unconditional registration (so
+  `USE_OPTIMIZED_MODEL` is not a row), the dead `--mm-encoder-tp-mode data` — and shipped a
+  ranked answer, but never offered the **image tag** as rung 1; the reporter confirmed the
+  next day that the identical body on `quay.io/ascend/vllm-ascend:latest` answers correctly.
+  A tag a month / several rcs behind the analysis date makes the version rung first —
+  `../accuracy-benchmarks/vl-vision-tower-degeneracy.md` §*Fourth pin*.
+
 ### `recorded-cases-memory-and-throughput.md`
+
+- **#5124** — vllm-ascend v0.11.0rc3 (`b6d63bbd`) + vllm v0.11.0, Qwen spec decode: ACLGraph ~20 % slower than eager at the `attention_v1.py:674-675` query truncation — the padding gate one block above owns it (`../performance-throughput/graph-mode-slower-than-eager.md`).
 
 - **#2099** — vllm-ascend v0.9.1rc1 (`c30ddb83`) + vllm v0.9.1 (`b6553be1`), one 910B3, a ~1B
   Qwen-VL-class model served online: "多模态在线推理性能较差，显卡利用率很低", decode ~28 tok/s,
@@ -323,6 +371,8 @@ the topical tree.
 - **#11923** — vllm-ascend 0.18.0rc1 + reporter patches (snapshot pins v0.18.0rc1, `99e1ea0`), 910B/A2, GLM-5.1 2P1D with `AscendStoreConnector` + `memcache_hybrid`/`memfabric_hybrid` 1.1.1: "初始 TTFT 慢 6-7 倍，命中后快很多" — a speed-only pool report; the miss/hit asymmetry, the A2 `all_gather`/`register_buffer` branch and the `device_sdma`-in-the-sample vs `device_rdma`-for-A2 doc row are pinned in `../kv-pool-store/pool-attached-cold-request-cost.md`; the run shipped a ranked answer then lost its correction to a re-issued "final answer".
 
 - **#10724** — vllm-ascend `v0.21.0rc1` (`80610e44`) + vllm v0.21.0, DeepSeek-V4-Flash-w8a8 MTP in PD-mix on 2×2 Atlas 800 A2 (32 GB) with Mooncake `AscendStoreConnector`, prefix caching and hybrid KV: after ~3 h, 1 of ~10 instances dies with `AssertionError: prev_free_block of fake_free_list_tail should always exist` at upstream `kv_cache_utils.append_n` — upstream invariant, downstream group set, plog's one-sided-service block is teardown; closed non-reproducible, 100 characters of message text — `../upstream-downstream-drift/kv-block-free-list-assert.md`.
+
+- **#7508** — vllm-ascend v0.17.0rc1 (`e20f0b1a`), image `v0.17.0rc1-a3`, A3, Kimi-K2.5 W4A8 TP8 × DP2 + EP on a PD P node (`MooncakeLayerwiseConnector`, `VLLM_ASCEND_ENABLE_MLAPO=1`, `VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE=4`, `layer_sharding: ["o_proj"]`): a worker dies while loading weights at `ops/layer_shard_linear.py:73` `AssertionError: layer_idx must be consecutive`, because both switches register the same `o_proj` into one shard series; the pin's own `layer_sharding.md:53-59` ships the pair and TP8 × 4 passes `utils.py:1018-1028`; the run ended `output_truncated` with zero message text over 15 turns — `../feature-enable-recipes/flashcomm2-o-shard-layer-sharding.md`.
 
 ### `recorded-cases-brief-mentions.md`
 

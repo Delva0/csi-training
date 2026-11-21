@@ -104,6 +104,17 @@ proves nothing here: it works only for the reader who also ran the CANN block.
 `ldd .../torch_npu/lib/libop_plugin_atb.so | grep -i atb` shows the unresolved
 dependency directly when the reporter cannot run the Python probe.
 
+## When the follow-up is the recipe question
+
+A reporter in a self-installed CANN + conda env (or a container they launched
+themselves, with no host access) usually answers the NNAL finding with 「哪里可以看到
+你们镜像制作的依赖，我对比下」. That comparison is `image-recipe-inventory-and-diff.md`:
+the image sources `nnal/atb/set_env.sh` at `Dockerfile:51` and never installs NNAL, so
+the base image is where it comes from, and the same recipe also carries the `devlib`
+`LD_LIBRARY_PATH` append (`:48,52`) and the `torch-npu` index (`requirements.txt:25-27`)
+that a hand-built env must reproduce. Put those paths plus the in-container `pip list`
+diff in the same message as this page's step 1, not in a later turn.
+
 ## The two distractors in the same log
 
 - **`CANN: None` / empty CANN version in the environment dump is a script

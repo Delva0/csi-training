@@ -12,6 +12,15 @@ sysctl -w net.ipv4.ip_local_reserved_ports=****-**** ...
 2. Check whether the service process is started multiple times on a device ...
 ```
 
+**This page is the *impossible* port only.** A bind error on a normal port —
+`Bind_Failed(EJ0003)` / `[HcclSocket][Listen] … specific port[16666] fail` — is a real
+socket and a real second process: `16666` is `HETEROG_CCL_PORT`, the single default
+comm port, and two engines sharing one device collide on it. Route that to
+`comm-create-errors.md` §code 7 and, when the two engines are a P/D pair on one host,
+to `../pd-disaggregation/same-host-pd-device-partition.md`; `HCCL_IF_BASE_PORT` moves
+nothing there (#4725 — the recorded run that opened this page spent its whole budget
+in the band arithmetic the reporter later said was unrelated).
+
 It arrives as a device error record inside a Python traceback, so it inherits the
 rule-13 problem: the record keeps its own date. In #12487 the title named this port
 line, while every log line was `07-21 06:27:44` and the record itself said

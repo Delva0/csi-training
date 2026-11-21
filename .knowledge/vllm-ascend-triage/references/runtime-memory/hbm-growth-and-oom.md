@@ -121,6 +121,11 @@ per ref, because the same switches move between releases.
   announced for v0.13, `vllm/engine/arg_utils.py:387,969-975`) while still zeroing the
   value. So "I disabled the MM cache and HBM still grows" is *expected* — say it and
   drop the thread, do not investigate the preprocessor.
+- `--mm-processor-cache-type shm` is the only setting that routes MM features through the
+  **object store** (a named segment, `VLLM_OBJECT_STORAGE_SHM_BUFFER`); it is not the
+  default (`lru`), and it can abort the engine with a stale-slot
+  `ValueError: Data for address:id …` on a request — if the paste carries that line the
+  report is a cache/flag question, not memory: `../multimodal-inputs/shm-mm-cache-invalid-object.md`.
 - The VL side's HBM cache is the **encoder** cache: `encoder_cache` is keyed by mm
   hash, filled per image and popped on `free_encoder_mm_hashes`
   (`vllm/v1/worker/gpu_model_runner.py:273,550,1601,3402`;

@@ -125,6 +125,14 @@ version, gaps stated.
   one class's source on P and D before any source walk (reporter-confirmed #10398,
   「P和D节点没注意统一代码版本」) —
   `references/pd-disaggregation/node-build-skew-attribute-error.md`.
+  If instead **both engines run on one machine** and the second one to start never gets
+  past worker init — `Bind_Failed(EJ0003) … port have been bound already` +
+  `hcclCommInitRootInfoConfig … error code is 7` out of `w8a8_dynamic.py`'s
+  `get_hccl_comm_name`, plog `[HcclSocket][Listen] … port[16666] fail`, "start P first,
+  D crashes; start D first, P crashes" — the port is real and the collision is a shared
+  **card**: intersect the two launches' device sets (the external-DP launcher numbers
+  cards from 0 every invocation) before any `HCCL_IF_BASE_PORT` / control-plane
+  arithmetic — `references/pd-disaggregation/same-host-pd-device-partition.md`.
   If instead **one side's EngineCore dies on its own bookkeeping** and the other keeps
   serving, name the side and the owning structure from the last three frames before any
   transport read: a prefiller bare `AssertionError` in upstream
@@ -196,7 +204,7 @@ delivery pattern is rule 1.
    truncation: what decides the outcome is not how much evidence was gathered but
    whether the message exists. The runs that shipped **no answer at all** each had
    a usable lead in hand (#6784, #13853, #11454, #11095, #17991, #3107, #6266, #5571, #527,
-   #587, #11680, #1579, #11771, #7947, #10522, #1255, #5772 — the last two with the owning
+   #587, #11680, #1579, #11771, #7947, #7508, #10522, #1255, #5772 — the last two with the owning
    line already in the paste (#1255's plog names the kernel and its owner is one grep away;
    #5772's dumped `SchedulerOutput` carries the two counts, and the deciding fact is a
    model-directory log line); #2807 and #15394 held every verified fact of a complete
@@ -335,7 +343,15 @@ delivery pattern is rule 1.
      the reporter later published as the resolution was a serve line (the cross-node
      `--data-parallel-*` flags + `gpu_memory_utilization`), not a mechanism. Ask for
      the line; send the ranked answer
-     (`references/deploy-sizing/moe-load-oom-expert-shard.md`).
+     (`references/deploy-sizing/moe-load-oom-expert-shard.md`). **The same holds for a
+     tensor shape quoted from a debugger** (`变量 x.shape [5040, 1, 1152]`): it is a
+     gap in the paste, not the failing allocation, and which line produces it is a
+     confirmation, not the answer. #7419 spent 19 tool turns (punica `bgmv`/`sgmv` and vision-attention
+     reads) to locate the producing `.unsqueeze(1)` and shipped **zero**
+     message text at the cap, while the two facts that *were* the answer — upstream
+     `vllm/lora/models.py:613-624` drops vision-tower adapters, and the middle `1` is
+     the Ascend VL tower's own batch axis — came from two greps
+     (`references/lora-adapters/multimodal-vit-lora-ignored.md`).
    - **Truncation eats the tail, not the head — and the body has a size too.** One minibatch showed both halves (#1255 typed no message text across 24
      tool turns and shipped nothing; #3170 kept its verdict and ranked causes but lost the
      action ladder's last commands), so type the ladder before the scope block.
@@ -372,6 +388,14 @@ delivery pattern is rule 1.
 3. **The deliverable is a ranked diagnosis the reporter can act on**, not a code
    walk: per hypothesis, the evidence you have, the one command or log line that
    confirms or refutes it, the cheapest fix to try, and what to send back.
+   **A repair that only removes an exception is not a fix.** For a downstream copy of a
+   library body, a `getattr`/`try`/`except` guard starts the service and leaves the
+   numerics unvalidated (reporter-confirmed #11991: the `attention_type` guard made
+   `vllm serve` come up and broke image recognition), so name the structural repair and
+   state the acceptance check — one real request whose output is compared with a working
+   run — rather than offering the guard
+   (`references/upstream-downstream-drift/patched-forward-api-drift.md`, rule 6 for the
+   claim label).
 4. **The reporter's machine is the only environment here.** You cannot inspect
    it, and local NPU state (healthy, absent, a different card) is not evidence
    about it. Prefer checks the reporter can run — config value, env var, health
@@ -426,6 +450,30 @@ delivery pattern is rule 1.
    cannot hold a later fix, and the upgrade is the only check that can see one
    (`references/startup-failures/environment-correspondence.md` §*A self-built
    vllm beside an rc vllm-ascend*).
+
+   **The same applies to an old image tag with no mismatch in it.** When the tag in
+   the report is two or more rcs (or ~a month) older than the analysis date, the
+   snapshot predates any fix by construction, so for a **garbage/degenerate output or
+   a crash on a recently registered model** the tag is rung 1: one line in the first
+   message — "re-run the same body on the current image; `<tag>` predates the fix" —
+   and the ranked mechanism below it for the case where the re-run still fails.
+   #3806 pinned v0.11.0rc0 while rc2/rc4 were current; the same `curl` body on
+   `quay.io/ascend/vllm-ascend:latest` returned the correct table (reporter-confirmed),
+   and the recorded session never offered the upgrade
+   (`references/accuracy-benchmarks/vl-vision-tower-degeneracy.md` §*Fourth pin*).
+   Do not read this as licence to demote a real mechanism: quote what the pinned tree
+   *does* carry (the registration, the dead lever, the coverage absence) and say plainly
+   that "is it fixed" cannot be answered from the snapshot.
+
+   **A matching trio does not close the version lane when the pin is an rc and the
+   trigger is a feature crossing that pin never tests.** An accuracy/numeric report
+   whose own controls are "feature A off: fine, feature B off: fine" points at the
+   intersection, and a fix that lands after the pin is invisible in the snapshot —
+   so the *next rc/final* is rung 1, not the mechanism. Recorded #12060
+   (`v0.20.2rc1` image, PP2+TP2 + chunked prefill, 首token wrong) closed on the
+   reporter's "tried the latest version, it works fine", while the recorded run
+   spent its whole budget deriving the PP token-id path
+   (`references/pipeline-parallel/pp-chunked-prefill-numeric.md`).
 6. **Label the strength of every claim**: reporter-confirmed > verified in the
    pinned source (`path:line` at commit X) > precedent in the issue history
    (quote the issue id) > unverified hypothesis / recalled tool default. Never
@@ -586,9 +634,13 @@ delivery pattern is rule 1.
     **ACL/GE bring-up failure** at device open — `SetPrecisionMode … AclSetCompileopt(
     aclCompileOpt::ACL_PRECISION_MODE …) error code is 500001` +
     `PlatformInfoInit … SocVersion <name>` + `GEInitialize failed`, ending
-    `ERR99999` with no `vllm_ascend` frame: the driver/firmware × image-CANN pairing
-    owns it, the printed SoC name is read against `npu-smi`, and no precision/dtype
-    flag is the cause → `references/startup-failures/acl-init-500001-and-soc-version.md`.
+    `ERR99999` with no `vllm_ascend` frame. Owner, in this order: a **containerized**
+    run whose `docker run` already carries the documented `--device`/mount list takes
+    that same command plus `--privileged=true` as its first re-run (reporter-confirmed
+    #302: 「已解决，加个--privileged=true即可」, driver unchanged, one variable); then the
+    driver/firmware × image-CANN pairing, with the printed SoC name read against
+    `npu-smi`. No precision/dtype flag is ever the cause →
+    `references/startup-failures/acl-init-500001-and-soc-version.md`.
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the title's sentence can be a day older than the
@@ -615,6 +667,15 @@ delivery pattern is rule 1.
     hardware scope is the project's position for that version (quote it, do not
     overturn it with an older issue), and a comment saying a sub-feature is unsupported
     is often a branch the code already takes (`sfa_cp.py` vs the table's MLAPO ✅).
+    The same table settles the **"<model> 离线推理报错 / 跑不通"** shape when the
+    release is named and the only evidence is screenshots: one `rg -n -i '<family>'
+    docs/source/user_guide` (the matrix path moved — `support_matrix/supported_models.md`
+    at v0.9.2rc1, a flat `supported_models.md` at older refs), and a `❌` row with a
+    tracking issue *is* the verdict, while `| Need test |` is a coverage gap, not a
+    refusal. Say the op fault is the manifestation and that the reporter's next
+    attempt will surface *different* errors (recorded #6257: four more screenshots
+    titled 其他错误 after the ❌-row answer), so the ladder must not read "then it
+    will work" — `references/feature-enable-recipes/unsupported-model-row.md`.
 15. **A working sibling path in the reporter's own evidence constrains the cause.**
     When the same box fails on one entry point and works on another — offline
     `LLM()` vs `vllm serve`, one flag, one model, one card — a mechanism that also
@@ -693,7 +754,15 @@ Two passes. First the **track**, from the dispatch table under *Support entry po
 below (`references/dispatch/classified-shapes.md`); for a startup log that means lane
 A (worker died without a per-rank traceback), lane B (worker raised a Python error) or
 lane C (collective or device fault), and for a report with no symptom that means one of
-the D tracks (sizing, document, capability, code-change). Then, when the signature is specific — a log
+the D tracks (sizing, document, capability, code-change). **An `[Installation]` /
+安装 report that fails before any engine exists** — a compiler or linker log, a pip
+resolution error, a missing library at import — is its own track: the paste's last
+frames name the failing *stage* and the stage names the owner (vllm-ascend's
+`CMakeLists.txt`/`setup.py` vs the CANN toolkit vs the image), the reporter's
+CANN/torch/torch-npu trio is checked against the pin's own requirements table before
+any version advice, and the cheapest working install is rung 1. A `multiple
+definition` at the AscendC kernel relink is one source under two path spellings, not a
+kernel defect: `references/image-dependency-faults/custom-op-build-stage.md`. Then, when the signature is specific — a log
 fragment, an error string, a flag that did nothing, a title that names a mechanism —
 the exact row in `references/first-checks/signature-routes/index.md` (five pages split by
 the shape's home track): each row carries the lane or track it

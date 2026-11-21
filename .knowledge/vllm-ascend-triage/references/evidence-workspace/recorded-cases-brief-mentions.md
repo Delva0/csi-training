@@ -13,7 +13,7 @@ per case in this file.
 
 **#3543** v0.11.0rc0 silent worker death; #7477 v0.17.0rc1 HCCL allreduce ending in
 an HCCS link fault; #11661 v0.22.1rc1 missing `attention_type` on a patched
-decoder layer; #8409 v0.13.0 `model_type` not recognised (version gate); #16015
+decoder layer (re-filed #11926 and #11991; the guard fix starts the service and breaks recognition); #8409 v0.13.0 `model_type` not recognised (version gate); #16015
 v0.26.0rc1 GLM-5.3 w8a8c8, PD disaggregation + sparse sfa c8 + DCP=16, 400K+
 prompt → 乱码; #5572 v0.12.0rc1 Qwen3-VL-30B-A3B PD disaggregation, Mooncake
 connector `AttributeError` on a nested config; #3389 v0.11.0rc0 Qwen3-VL-235B

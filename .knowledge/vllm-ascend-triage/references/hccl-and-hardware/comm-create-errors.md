@@ -1,4 +1,8 @@
-# Communicator creation fails: `HCCL function error: hcclCommInitRootInfoConfig … error code is N`
+# Communicator creation fails: `HCCL function error: hcclCommInitRootInfo(Config) … error code is N`
+
+Two entry points, one decision: `create_config` (`hcclCommInitRootInfoConfig`, the newer generation,
+first section below) and the older no-config `create` (`HcclCommInitRootInfo`, §*The no-config
+`create` sibling*, which also owns code `2` and groups owned by a third-party trainer).
 
 Reported as `RuntimeError: create_config build/CMakeFiles/torch_npu.dir/compiler_depend.ts:89 HCCL
 function error: hcclCommInitRootInfoConfig(numRanks, &rootInfo, rank, config, &(comm->hcclComm_)),
@@ -57,12 +61,91 @@ leader whose RA/HCCP side is still up. Note the paste/OCR renders it `HCCP`; gre
 for the sleep-mode form (what `sleep()` does not release, the disjoint-card
 discriminator, the ladder) before walking any torch_npu C++.
 
+### Code 7 with `Bind_Failed(EJ0003)` is the same lane, one device deeper
+
+`error code is 7` can also arrive as `Bind_Failed(EJ0003): Failed to bind the IP port.
+Reason: The IP address and port have been bound already.` with the plog repeating
+`[hccl_socket.cc:106] [HcclSocket][Listen] socket type[0], listen on ip[<ip>] and
+specific port[16666] fail …` → `[ServerInit] hcclRet -> 7`. Here the port is real
+(`16666` = `HETEROG_CCL_PORT`, the single default comm port; `HCCL_IF_BASE_PORT` does
+not move it) and the collision is **two live processes on the same device**: every
+rank uses that one port and differs only by the local device IP, so a shared chip means
+a shared endpoint. `EJ0001` (above) is the previous process not having exited;
+`EJ0003` is the previous process still *holding* the device — usually two engines
+started side by side on one host. Count cards per engine before anything else:
+`../pd-disaggregation/same-host-pd-device-partition.md` (#4725, reporter-confirmed —
+the external-DP launcher gives every invocation cards from 0). Only after the card sets
+are provably disjoint does this reduce to the stale-process ladder above.
+
+## The no-config `create` sibling
+
+Code `2`, on a group owned by a third-party trainer rather than by `vllm_ascend/`.
+
+Recorded #397: vllm-ascend v0.7.3rc1 (`f025df05`), vllm v0.7.3 (`ed6e907`), torch-npu
+`2.5.1.dev20250308`, CANN 8.0.0, 2x910B2, open-r1 GRPO on the TRL-npu fork. Title
+`RuntimeError: create:build/CMakeFiles/torch_npu.dir/compiler_depend.ts:89 HCCL function error:
+HcclCommInitRootInfo(numRanks, &rootInfo, rank, &(comm->hcclComm_)), error code is 2`, beside
+`[ERROR] … (Device:0, RankID:0) ERR02200 DIST call hccl api failed`. Verified against the #397
+snapshot (`Ascend/pytorch` `v6.0.0.alpha001-pytorch2.5.1`, vllm v0.7.3, `pytorch/pytorch` v2.5.1):
+
+- **The class sits in the `.hpp` on this generation.** `HCCLComm::create` is
+  `torch_npu/csrc/distributed/HCCLUtils.hpp:85-95` with the failing `HcclCommInitRootInfo` at `:91`
+  (matching the reporter's `compiler_depend.ts:89` within drift); `HCCLUtils.cpp` at that export is
+  117 lines of datatype maps only. A `grep HcclCommInitRootInfo HCCLUtils.cpp` that returns nothing
+  is the wrong file, not a wrong row. Reached from `ProcessGroupHCCL::createHCCLComm`
+  (`ProcessGroupHCCL.cpp:1133-1147`).
+- **The traceback names the group, and it may not be a `vllm_ascend/` group at all.** #397's frames
+  are `trl/trainer/grpo_trainer.py:568 prepare_deepspeed` → `deepspeed/runtime/engine.py:1201
+  _configure_distributed_model` → `:1120 _broadcast_model` →
+  `dist.broadcast(p.data, groups._get_broadcast_src_rank(), group=self.seq_data_parallel_group)` →
+  `torch/distributed/distributed_c10d.py:2421`. No `vllm_ascend/` frame: the owner is torch_npu +
+  HCCL invoked by a **third-party trainer colocated in the engine's process**, and the vllm-ascend
+  half of the answer is only that coexistence (the engine had already initialised the device and its
+  own process group). Say that on turn one instead of searching the tree for the caller.
+- **Code `2` is `HCCL_E_PTR` ("empty pointer") and names no precondition**
+  (`Ascend/pytorch` `third_party/hccl/inc/hccl/hccl_types.h:29`; `scripts/cann-error-lookup.sh 2`
+  prints it even when the snapshot carries no `cann/hcomm`, as the #397 pin does). With no
+  `op_base.cc` in the export there is nothing to fold into sub-checks — state that and stop; a
+  twenty-turn enumeration of HCCL internals cannot be verified from the evidence the case carries.
+- **The store/root-info plumbing is not the suspect, and on a one-rank group it cannot be.**
+  `broadcastMasterID` (`ProcessGroupHCCL.cpp:976-1049`) has rank 0 `store_->set(std::to_string(
+  hcclCommCounter_++), rootInfo)` and only non-zero ranks `store_->get`; a missing key throws the
+  distinct `… retrieving hcclUniqueId from [0] via c10d key-value store by key '<k>' …` error, and a
+  PTA skew only logs `PTA version mismatch`. Rank 0 therefore hands `HcclCommInitRootInfo` a rootInfo
+  it just produced, so a code `2` on a single-rank group is HCCL's own precondition on
+  `numRanks`/resources, not a store or rendezvous fault.
+- **Ask for the trainer's launch line in the first reply — it is `numRanks`.** #397's reporter later
+  posted it: `accelerate launch --config_file recipes/accelerate_configs/zero2.yaml
+  --num_processes=1 src/open_r1/grpo.py --config recipes/Qwen2.5-1.5B-Instruct/grpo/config_demo.yaml`
+  with `ASCEND_VISIBLE_DEVICES=1,2`, `PYTORCH_NPU_ALLOC_CONF=expandable_segments:True`,
+  `HCCL_RDMA_TIMEOUT=20`, `TASK_QUEUE_ENABLE=2`, `COMBINED_ENABLE=1`, `CPU_AFFINITY_CONF=1`,
+  `HCCL_CONNECT/EVENT/EXEC_TIMEOUT=1800`, `NPU_ASD_ENABLE=0`, `ASCEND_LAUNCH_BLOCKING=1`,
+  `ACLNN_CACHE_LIMIT=100000`, `ASCEND_GLOBAL_LOG_LEVEL=0`, `pkill -9 python3; sleep 10`. World size
+  **1** — which DeepSpeed's own `Config mesh_device None world_size = 1` in the paste already said.
+  The same open-r1 recipe at **7** processes (`#116`, on `#109`'s install and launch list) got past
+  this broadcast and died later at `copy_d2d … 507001`, so quote that comparison rather than ablating
+  the env list; none of those values names a `numRanks` precondition.
+- **Before writing "single-rank HCCL is unsupported", check who already made a one-rank comm.** At
+  vllm v0.7.3 `init_worker_distributed_environment` (`vllm/worker/worker.py:494-506`) calls
+  `init_distributed_environment` with no `world_size > 1` gate, and that function
+  (`vllm/distributed/parallel_state.py:803-823`) has **no** `world_size == 1` early return — so a
+  TP=1 engine may already hold a one-rank default-group comm. Creation is lazy (it happens on the
+  first collective), so ask whether any collective ran during warmup before ranking this.
+- **Deliverable for this shape**: enum name + the trainer frame + the world size in the first
+  paragraph; the actionable half is process topology (one process per card, or do not materialise a
+  trainer HCCL group in the engine's process) plus "vendor-side code `2` on a one-rank comm is not
+  something the launch env names". Recorded #397 spent all 16 384 output tokens on candidate
+  mechanisms (one-rank comm, port/HCCP reuse, `maybe_chunk_residual`, absent upstream `qwen3_5`
+  files) and shipped no message at all.
+
 ## Order of work (3-4 calls, then deliver)
 
 1. **Say what the code means on the first turn that has it**: code `1` at this entry is a rejected
    parameter/env value, not a NIC, rank table or card fault; the line that names it is an
    `HCCL_ERROR` in the process log / plog (`init external input error`, `init environment config
-   error`, `load comm config failed`, `nRanks…`). Ask for exactly that line.
+   error`, `load comm config failed`, `nRanks…`). Ask for exactly that line. If the call is
+   `HcclCommInitRootInfo` with **no** `config` argument and code `2`, it is not this entry at
+   all — the group belongs to a trainer; read §*The no-config `create` sibling* below.
 2. **Get both nodes' serve scripts** (reporters on a multi-node start usually have them) and diff
    them: `HCCL_BUFFSIZE` present and numeric, `HCCL_INTRA_PCIE_ENABLE`/`HCCL_INTRA_ROCE_ENABLE`,
    `HCCL_OP_EXPANSION_MODE`, `HCCL_DETERMINISTIC`, `HCCL_IF_IP` / `HCCL_SOCKET_IFNAME`, and the DP
@@ -90,7 +173,16 @@ translate it.
 `#672`: same call site with `error code is 15` on a DP+EP offline DeepSeek-V2-Lite run.
 `#2712`: `create_config … :148` on a `--pipeline-parallel-size` serve. `#3196`: "how to
 troubleshoot" for code `11`. `#3172`: code `7` + `EJ0001` on the second engine after a
-`sleep()` — the previous process was still alive (`../runtime-memory/sleep-mode-multi-instance.md`). `#397`: the `create`/`HcclCommInitRootInfo` (no-config) sibling.
+`sleep()` — the previous process was still alive
+(`../runtime-memory/sleep-mode-multi-instance.md`). `#4725`: code `7` + `EJ0003`
+`Bind_Failed` on the second of **two engines started side by side on one host** — the
+external-DP launcher gave both invocations the same cards
+(`../pd-disaggregation/same-host-pd-device-partition.md`). `#397`: the
+`create`/`HcclCommInitRootInfo` (no-config) sibling with code `2` — read §*The no-config
+`create` sibling* above before opening a torch_npu file, the group there belongs to a
+trainer, not to `vllm_ascend/`. `#116`: the same open-r1 + vLLM + DeepSpeed recipe (on
+`#109`'s install) at **7** processes, which got past this broadcast and died later
+(`copy_d2d … 507001`) — the world-size discriminator for #397.
 
 Recorded #11542 (v0.22.1rc1 image, 2× 910B3, fork branch, `DeepSeek-V4-Flash-DSpark-bf16`, MoE EP
 group at `token_dispatcher.py`) walked this stack correctly down to the `:1396/:1399` folding and

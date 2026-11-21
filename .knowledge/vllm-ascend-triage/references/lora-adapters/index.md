@@ -1,9 +1,9 @@
-# LoRA adapters: graph-mode capture crashes and per-step decode overhead
+# LoRA adapters: graph-mode capture crashes, decode overhead, and ViT adapters on VL models
 
 ## Scope
 
 The deployment was started with `--enable-lora` / `--lora-modules` and the
-complaint is one of two shapes:
+complaint is one of three shapes:
 
 - **It dies on a request**, after a clean startup, with an ACL/CUDA
   graph-capture error (`CUDA graph capturing detected at an inappropriate time.
@@ -14,11 +14,21 @@ complaint is one of two shapes:
 - **It is several times slower than the same model served without adapters**
   (recorded #1812: 9 tok/s → 2 tok/s on Qwen3-8B + LoRA, Atlas 300I Duo), with
   no error and no OOM → `decode-overhead-vs-base-model.md`.
+- **The model is a VL model and the adapter covers the vision tower**
+  ("LoRA（with ViT）", an RL rollout whose `target_modules` name `visual.*`), and
+  the complaint is an OOM in multimodal prefill ("请求显存明显超出预估"), answers
+  worse than the training run, or one source line the reporter says blows up.
+  ViT adapters are **filtered out by upstream** at these refs, so they are never
+  the crash and the quoted tensor shape is not the allocator's victim →
+  `multimodal-vit-lora-ignored.md`.
 
-Evidence that decides both: the two serve commands (with and without
+Evidence that decides these: the two serve commands (with and without
 `--enable-lora`), the SoC and whether graph capture is possible on it, the
 adapter `r` / `target_modules` / dtype, and for the crash the **worker**
-traceback above the `Worker failed with error` wrapper.
+traceback above the `Worker failed with error` wrapper. For the VL shape, the
+`target_modules` list and the server's `… will be ignored` warning decide it,
+and the memory question needs the allocator line plus `npu-smi info`, not a
+shape.
 
 Not this topic, leave immediately:
 
@@ -66,3 +76,10 @@ Not this topic, leave immediately:
    ms/step (`1000 / tok_s`), price the adapter's extra FLOPs (order 1 % for a
    rank-16 adapter on a dense 8B), and put the remainder on dispatch — then say
    which backend and whether a graph can amortise it on that SoC.
+5. **On a VL model, ViT adapters are dropped by upstream before any Ascend code
+   runs.** `vllm/lora/models.py:613-624` filters everything under the model's
+   `tower_model` / `connector` prefixes and only warns (`:489-497`), so rank a
+   vision-tower mechanism for a crash or an OOM on a VL serve only after that
+   grep comes back empty — and read `multimodal-vit-lora-ignored.md` for the
+   `[L, 1, H]` shape anchor before treating a quoted tensor shape as the failing
+   allocation.

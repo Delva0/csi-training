@@ -104,6 +104,71 @@ Generalise it as a pre-check before promising SP for any model: does the model's
 upstream model file for the add, then grep `vllm_ascend/` for the key — empty means no
 shard handling and the same failure.
 
+## v0.19.x hybrid layers
+
+One SP-sized buffer at layer 0, two writers into it, two enable gates — the Qwen3.5 / Qwen3-Next
+(GatedDeltaNet) family.
+
+Recorded #8990 (image `v0.19.1rc1-openeuler`, Qwen3.5-27B-w8a8-mtp, 910B3 x8, TP2, `qwen3_5_mtp`
+num_spec 3, `FULL_DECODE_ONLY` capture `[1,2,4,8,16,32,64]`, `--async-scheduling`,
+`--quantization ascend`, `ASCEND_RT_VISIBLE_DEVICES=0,1`, `VLLM_ASCEND_ENABLE_FLASHCOMM1=1`):
+`compile_or_warm_up_model` → `NPUModelRunner init failed … expected src to have a size equal to the
+slice of self. src size = [64, 5120], slice size = [32, 5120]`. Verified at v0.19.1rc1
+(`da421afad719`). The same model family x feature pair at v0.18.0rc1 is `#7996` (Qwen3.5-35B-A3B,
+MTP 3 + FLASHCOMM1, dies in `drafter.dummy_run` at the MoE combine add, `qwen3_next.py:358`, 4096 vs
+8192), with `#4011` ("flashcomm1 report shape error in DP>1") and `#6283` (PP with flashcomm1/sp)
+beside it — the family is older than the v0.19 regression reading.
+
+- **Read the direction out of the message before reading any source.** It is a `Tensor.copy_` /
+  `__setitem__` size check: dst rows are the *buffer's* rows, src rows the *producer's*.
+  `src = L`, `slice = ceil(L/tp)` means the buffer was SP-sized and the producer returned full
+  length; the reverse (`src = L/tp`, `slice = L`) means the buffer was full and the producer
+  reduce-scattered. The #8990 run reversed the two twice and lost turns to it.
+- **The SP-sized buffer exists at layer 0 only.** `patch/worker/patch_qwen3_5.py:91-96`, under
+  `if self.layer_idx == 0 and _EXTRA_CTX.flash_comm_v1_enabled`, allocates `(ceil(tokens/tp),
+  hidden)`; every other layer uses `empty_like`. So the failing layer is layer 0 of whichever model
+  is running — the target, or the MTP drafter's own single layer, which is the same patched class.
+  The capture dump proves which layer type that is (`l_self_modules_layers_modules_0_modules_linear_attn_…`
+  = GatedDeltaNet at this model).
+- **Two writers, told apart by the printed dst.** `output[:], _ = self.o_proj(attn_output)`
+  (`patch_qwen3_5.py:74`, `full_attention`) vs `output[:num_tokens], _ = self.out_proj(core_attn_out)`
+  (`ops/gdn.py:136`, `linear_attention`). In the GDN one Python **clamps** `[:num_tokens]` to the
+  buffer, so the pasted `slice size` is the buffer's rows and never `num_tokens` — that is exactly why
+  a full-length producer prints as `src > dst`.
+- **Whether the producer shards is a build-time decision, not a runtime one.** `ops/linear_op.py`
+  `_get_row_parallel_op` returns `SequenceRowParallelOp` only for prefixes in `sp_row_prefixes`
+  (`o_proj`, `out_proj`, `down_proj`, `attention.dense`, `:679-687`; the query side is
+  `sp_column_prefixes` = `gate_up_proj`, `in_proj`, `qkv_proj`, `conv1d`, `query_key_value`). Its
+  `matmul_and_reduce` (`:500-576`) then picks `all_reduce` (SP off, **full rows**), `npu_mm_reduce_scatter_base`
+  (unquant + `mmrs_fusion`, `:530`; w8a8 `:559`, needs `tp<=8`), or `apply` +
+  `tensor_model_parallel_reduce_scatter` (`:574`). A module whose name is outside those lists keeps
+  full rows: grep the prefix list before grepping `copy_`, and check a new model revision's projection
+  names against it.
+- **The gate is token-count dependent and is written twice, differently.** `ascend_forward_context.py:112-129`
+  sets `flash_comm_v1_enabled = enable_sp(vllm_config) and num_tokens is not None` for a MoE context
+  model, `False` for a **dense drafter** (comment: "for dense drafter, sp is redundant and is not
+  compatible with dp and graph"), and requires `num_tokens > 1000` for a dense target;
+  `platform.py:743-748` carries the same two-branch version **without** the drafter case and sets
+  `mmrs_fusion` unconditionally. So at 64 decode tokens the dense target is below the threshold while
+  the MoE 35B variant is always on — say which function built the context before claiming a mode, and
+  do not carry the threshold onto the MoE branch.
+- **The drafter shards its own inputs.** `eagle_proposer.py:1767-1777` `maybe_pad_and_reduce`s the
+  drafter's `hidden_states` and `positions` when `flash_comm_v1_enabled`, and the patched layer 0 then
+  re-derives `ceil(rows/tp)` from what it receives: print the row count each level sees, because a
+  double shard and a missing shard give opposite message directions.
+- **Coverage at this ref**: `tests/e2e/multicard/4-cards/test_qwen3_5.py:87-100` is the only case
+  with `VLLM_ASCEND_ENABLE_FLASHCOMM1=1` + `qwen3_5_mtp` + num_spec 3 + `FULL_DECODE_ONLY [4,8,12,16]`,
+  and it is Qwen3.5-35B-A3B at DP2 x TP2 x EP — the MoE branch. A dense w8a8 27B command with
+  `--async-scheduling` is outside it; say "in-tree tested for the MoE variant, not this one".
+- **Coverage gap to state once**: this snapshot pins vllm `v0.13.0` while the paired upstream is
+  `v0.19.1` (`docs/source/conf.py` `myst_substitutions.vllm_version`), so
+  `vllm/model_executor/models/qwen3_5.py` does not exist in it and the upstream layer forward is
+  unreadable — work from the downstream patch plus the capture graph's own module names instead of
+  re-grepping the upstream file.
+- A reporter's "works on v0.18.0rc1" is consistent with this layer-0 allocation being new or changed,
+  and a `one_commit_git` snapshot cannot diff their release: give them the read,
+  `sed -n '80,110p' vllm_ascend/patch/worker/patch_qwen3_5.py`, on their own tree.
+
 ## Procedure
 
 1. Answer first, then the replacement. On a ref whose guard says only "disable it" (v0.14.0rc1
@@ -123,4 +188,7 @@ Related SP side effects worth one line each: with SP on, the ACL-graph capture-s
 list must keep multiples of `tp_size` or `platform.py:250-267` asserts, and spec-decode
 sizing uses `max(query_len, tp_size)` (`vllm/config/compilation.py:1080-1090`); on DSA
 models the same env family selects an o_proj TP path that needs W8A8 weights
-(`../dsa-sparse-attention/o-proj-quant-attribute-crash.md`).
+(`../dsa-sparse-attention/o-proj-quant-attribute-crash.md`). FlashComm**2** is a separate
+switch: its `VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE` > 0 plus `layer_sharding: ["o_proj"]`
+registers one `o_proj` twice and asserts `layer_idx must be consecutive` while loading
+weights — `flashcomm2-o-shard-layer-sharding.md`, not the SP shape walk above.

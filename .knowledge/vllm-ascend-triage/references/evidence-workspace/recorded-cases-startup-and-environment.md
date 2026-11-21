@@ -897,9 +897,12 @@ shipped **no answer**: 18 turns / 26 tool calls / 232 characters of message text
 budget spent in `torch_npu` `LazyInitAclops.cpp`, the `SocVersion` enum and `is_310p()`.
 The three facts that answer it are the printed SocVersion against `npu-smi`, the image's
 CANN base (`Dockerfile.310p:18`, `requirements.txt:27`) against the host driver, and the
-framework-free `torch.npu.set_device(0)` probe. Semantics established here, not by a
-reported fix: `SetPrecisionMode` only *supplies* the precision string for the SoC it
-resolved, so the numeric code is not a flag problem.
+framework-free `torch.npu.set_device(0)` probe, plus — on a run whose `docker run`
+already matches the docs — the same command + `--privileged=true`. Semantics established
+here, not by a reported fix: `SetPrecisionMode` only *supplies* the precision string for
+the SoC it resolved, so the numeric code is not a flag problem. The 910B2 sibling **#302**
+(below) is the one case in this family with a reporter-confirmed ending, and it is a
+container flag: keep the driver-pairing theory under the privilege re-run.
 
 **#12856** image `vllm-ascend:v0.18.0-310p-openeuler` (tree `e18643f8`), Atlas 300I Duo ×8,
 Qwen3.6-35B-A3B (`Qwen3_5MoeForConditionalGeneration`) TP4+EP, BF16 with `--dtype half`,
@@ -1105,7 +1108,35 @@ Qwen3-32B to MindIE on a 310P T18 image. Page (new):
   TRF011 rule by turn 29 and shipped **no answer** (31 turns, ~48 K characters of
   reasoning, final turn all reasoning with no text); it had spent the earlier
   turns probing a truncated `transformers` export for a `qwen2/modeling_qwen2.py`
-  that is not there (`src/transformers/models/` holds only `gpt2`).
+  that is not there (`src/transformers/models/` holds only `gpt2`) — the body the
+  reporter's own site-packages has, so asking for `inspect.getsource` (now
+  `scripts/qwen2-body-drift-probe.py`) was the cheap out.
+  **Third filing #11991** (2026-07-14, same image and line) closes the repair question:
+  the reporter patched `causal_mask_mapping[getattr(decoder_layer, 'attention_type',
+  'full_attention')]`, first reported it working, then retracted it publicly on
+  2026-10-10 — *"this modification only allows the model service to start up normally,
+  but it will cause problems with model recognition"* — and rejected the suggested
+  attribute guard outright (*"It can't solve the problem"*). So the lane's answer is the
+  delegation (upstream `deepencoder2.py:104` hands the mapping to `super().forward()`),
+  and any start-only patch carries a real-request acceptance check.
+  `../upstream-downstream-drift/patched-forward-api-drift.md`.
+
+**#3029** image `v0.10.2rc1` (vllm-ascend `048bfd55`), one Atlas 800T A2 node, Qwen3-Next
+  via `vllm serve --trust-remote-code`: start dies with `ModuleNotFoundError: No module
+  named 'triton'` raised at `vllm_ascend/ops/casual_conv1d.py:14` (`ops/fla.py:11-12` is
+  the sibling) while the log above it carries `Triton not installed or not compatible`.
+  The image is triton-free **by design** — `Dockerfile:42-44` runs `pip uninstall -y
+  triton` under "in Ascend, triton doesn't work correctly" — and this model imports Triton
+  at module import, so the reporter's own tutorial (`docs/source/tutorials/
+  multi_npu_qwen3_next.md:46-61` at that ref — BiSheng toolkit `:48-54`, then the
+  `triton_ascend-3.2.0.dev20250914` aarch64 wheel at `:58-61`) makes triton-ascend plus
+  that toolkit a manual install. Track: image content / documented manual step, not a defect and
+  not the model's config; `pip install triton` from PyPI is the wrong repair. The recorded
+  run reached the verdict through the Dockerfile, the tutorial and the two import sites,
+  after first opening `../image-dependency-faults/triton-ascend-pair.md`, whose scope is
+  the *compile* failure (the missing-module shape is the signature row instead) —
+  `../startup-failures/environment-correspondence.md` carries the same per-worker install
+  for the ray case (#3098).
 
 **#16379** vllm-ascend v0.26.0rc1 (`f2f74a16`) + vllm v0.26.0 (`568afb3a`), one
 Atlas 800 A3 node, `DeepSeek-V4-Flash-0731-w8a8` DP4/TP4/EP with the doc's
@@ -1138,3 +1169,155 @@ public answer (quoted by the reporter 2025-05-20) was the **modelslim** tool plu
 trying the project's own `vllm-ascend/DeepSeek-R1-W8A8` weight — a checkpoint
 verdict, not a pairing one. Page (new):
 `../upstream-downstream-drift/attention-class-from-checkpoint-config.md`.
+
+**#302** image `quay.io/ascend/vllm-ascend:v0.7.1rc1` (`Dockerfile:17` → CANN
+`8.0.0-910b`), 910B2 ×8, driver 24.1.rc3, `vllm serve Qwen/Qwen2.5-7B-Instruct
+--max_model_len 26240` in a `docker run` that repeats `docs/source/quick_start.md:15-30`
+mount for mount (`davinci0`, `davinci_manager`, `devmm_svm`, `hisi_hdc`, `dcmi`,
+`npu-smi`, the driver's `lib64/` + `version.info`, `/etc/ascend_install.info`,
+`/root/.cache`, `-p 8000:8000`): the engine dies at `init_device` → `torch.npu.set_device`
+with `AclSetCompileopt(ACL_PRECISION_MODE) 500001` + `PlatformInfoInit … SocVersion =
+Ascend910B2` + `GEInitialize failed` (`ERR99999`), no `vllm_ascend` business frame and no
+`Starting to load model`, and the printed SoC matches the card. The recorded run answered
+with five ranked causes and the right exclusions (`--max_model_len`, `PYTORCH_NPU_ALLOC_CONF`,
+`VLLM_USE_MODELSCOPE`, the `No platform detected … UnspecifiedPlatform` line, the expected
+`vllm._C`/Triton absences) but ranked the driver/firmware × image-CANN pairing first and
+put the container lane third — as `--privileged` **plus** an extra whole-driver mount, two
+variables at once. The reporter's own closing comment the next day was
+「已解决，加个--privileged=true即可」: that one flag on the unchanged command, no driver or
+CANN change. The ordering is the lesson, not the exclusions — the documented mount list is
+a minimum, and the privilege/device set is the first rung
+(`../startup-failures/acl-init-500001-and-soc-version.md`).
+
+**#2960** vllm-ascend v0.9.0rc2 (`8dd686d`) + vllm v0.9.0 (`5873877`), `Qwen2.5-32B-Instruct-GPTQ-Int8`
+served as a capability question ("请问是否支持…?"): the log's engine args already show
+`quantization=ascend` with no `--quantization` on the command line, and startup dies at
+`vllm_ascend/quantization/quant_config.py:123 is_layer_skipped_ascend` with
+`KeyError: 'model.layers.0.self_attn.q_proj.weight'`. The recorded run derived the chain
+correctly — the platform list is `["ascend"]` alone (`platform.py:67`),
+`override_quantization_method` renames any declared method once the NPU is up
+(`quant_config.py:82-86`), and upstream's `get_quant_config` passes the GPTQ
+`quantization_config` dict straight into `AscendQuantConfig` as `quant_description`
+(`vllm/model_executor/model_loader/weight_utils.py:154-165`), so
+`quant_model_description.json` is never read — and answered "not supported; only
+msmodelslim-exported W8A8/W8A8_DYNAMIC", with the model itself supported. Accounting:
+15 assistant turns, the verdict only on the last one (3.7 K characters against ~30 K of
+reasoning), several calls spent re-deriving that chain from upstream source and reading
+`weight_scale` precedents that are a different signature. Section C of
+`../startup-failures/quantization-method-gate.md` now carries the two-call version.
+
+**#902** vllm-ascend v0.8.5rc1 (`ec27af3`) + vllm v0.8.5.post1 (`3015d56`), image
+`quay.io/ascend/vllm-ascend:v0.8.5rc1`, QwQ-32B-w8a8 TP4, `--max-model-len 32768`:
+`vllm serve … --quantization ascend` exits with `vllm serve: error: argument
+--quantization/-q: invalid choice: 'ascend' (choose from 'aqlm', 'awq', …, 'torchao',
+None)` and nothing else — no `APIServer pid=` line, no worker, no device or weight text.
+Parse-time lane, not the platform gate of §A: `--quantization` is added with
+`choices=[*QUANTIZATION_METHODS, None]` (`vllm/engine/arg_utils.py:600-604`), a copy of
+upstream's static `QuantizationMethods` `Literal`, and the plugin hook that is supposed to
+extend it runs *afterwards* (`:1640-1646`). At this pin `NPUPlatform.pre_register_and_update`
+takes `parser` and never uses it (`vllm_ascend/platform.py:66-75`), while
+`supported_quantization = ["ascend"]` (`:61`) and the offline path both accept the method:
+`ModelConfig._verify_quantization` gates on `supported_quantization = QUANTIZATION_METHODS`
+(`vllm/config.py:752-753`), which the import-time `@register_quantization_config("ascend")`
+(`vllm_ascend/quantization/quant_config.py:41`) has already extended because
+`EngineArgs.create_engine_config` calls `pre_register_and_update()` (`arg_utils.py:1096`)
+before `create_model_config()` (`:1099`). Failing and fixed states verified across pins:
+v0.17.0rc1 (`e20f0b1a`) rewrites the choices through
+`parser._option_string_actions.get("--quantization")` (`platform.py:134-147`, pinned by
+`tests/ut/test_platform.py:54-100`). The run delivered a complete ranked answer in 9
+assistant turns (evidence table, the action ladder — drop the flag when the checkpoint
+declares `quant_method`, import the config module before `make_arg_parser`, the offline
+`LLM(quantization=...)` spelling, upgrade — and the unverifiable "first fixed release"
+left open), and its own closing note flagged the
+gap this page then had. Route: `../startup-failures/quantization-method-gate.md` §D.
+
+**#8990** image `vllm-ascend:v0.19.1rc1-openeuler` (pin v0.19.1rc1 `da421afa` + vllm
+`v0.13.0` in the snapshot, while the paired upstream is v0.19.1), 910B3 ×8,
+`ASCEND_RT_VISIBLE_DEVICES=0,1`, Qwen3.5-27B-w8a8-mtp, TP2, `qwen3_5_mtp` num_spec 3,
+`FULL_DECODE_ONLY` capture `[1,2,4,8,16,32,64]`, `--async-scheduling --quantization ascend
+--max-model-len 250000`, `VLLM_ASCEND_ENABLE_FLASHCOMM1=1`: engine dies in
+`compile_or_warm_up_model` while capturing decode graphs with `expected src to have a size
+equal to the slice of self. src size = [64, 5120], slice size = [32, 5120]`, and the
+reporter's own claim is "works on v0.18.0rc1". The recorded run narrowed it to the family
+correctly — layer 0 of `patch/worker/patch_qwen3_5.py` allocating `ceil(tokens/tp)` rows
+and `ops/gdn.py:136` `output[:num_tokens], _ = self.out_proj(...)` as the linear-attention
+writer, with `_get_row_parallel_op`'s `sp_row_prefixes` deciding who reduce-scatters — then
+reversed the message direction, could not find `vllm/model_executor/models/qwen3_5.py`
+(the pin is older than the paired vllm) and hit the 16 384 output cap with **no message**.
+Page: `../feature-enable-recipes/sequence-parallel-flashcomm.md` §*v0.19.x hybrid layers*.
+
+**#4696** vllm-ascend v0.11.0rc0 (`00ba0710`) + vllm v0.11.0rc3
+(`8ce5d319`), Ascend 910B: `[Doc]` report that the Qwen2.5-Omni tutorial's
+"Graph Mode / full graph" section cannot be enabled, with the serve log carrying
+`CUDAGraphMode.FULL cudagraph_mode is not support on NPU. falling back to NONE`.
+The pasted line is the plugin's own `else` branch, the legacy `full_cuda_graph`
+is what lands there, and the tree's unit test asserts the fallback — so the doc's
+command is the defect and `FULL_DECODE_ONLY` is the replacement. The run delivered
+a complete ranked answer including the
+release note that already recorded the failure on A2 (910B1, #2182); the one
+correction the library now carries is the quote-style point (the Python-literal
+dict parsed, so it is cosmetic) — `../startup-failures/graph-mode-not-applied.md`
+(`FULL` section).
+
+**#18041** vllm-ascend v0.27.1rc1 (`3b31886`) / vllm v0.27.1 (`6e448d0`),
+Atlas 800 A3, DeepSeek-V4-Flash(-w8a8) two-node 1P1D from the
+`/zh-cn/latest/tutorials/models/DeepSeek-V4.1-Flash.html` page: the branded
+`deepseek-v4.1-flash-a3` image will not start and `v0.27.1rc1-a3` does. The
+substitution at the pin equals the working tag, so the build was not stale; the
+defect is a literal model-branded tag in prose beside the templated command
+block, no release-scope line for a section outside the release's claim table, and
+the `zh_CN` `.po` msgstr that will keep printing the old tag after an
+English-only edit. Delivered with the gap stated in the first message (the
+`V4.1` page does not exist at the pin) —
+`../tutorial-verification/docs-version-space-and-image-tag.md` §6.
+
+**#1774** vllm-ascend `v0.7.3.post1` (`c69ceaca1ecc`) + vllm `v0.7.3`, 910B,
+`CANN 8.1.RC1 / torch-npu 2.5.1 / torch 2.5.1`, install by
+`COMPILE_CUSTOM_KERNELS=1 python setup.py install`: the AscendC kernel build reaches
+93 %, then `ascendc_pack_kernel`'s `recompile:` line drives `ld` into
+`multiple definition of 'rope_custom_true_half'` / `'rotary_embedding_impl'` and
+`setup.py:250` `cmake --build` dies. The deciding artefact is inside that printed
+command: the **same** `csrc/kernels/pos_encoding_kernels.cpp` appears as two `.o`
+files under two absolute prefixes of one tree (`/efs/<user>/projects/...` beside
+`<HOME>/work/<user>/projects/...`), i.e. one tree compiled under two path spellings —
+not a kernel, C++ or version defect (`docs/source/installation.md:15-17` at that pin
+lists exactly the reporter's CANN/torch-npu/torch). Rung 1 that ended it: unset
+`COMPILE_CUSTOM_KERNELS`, `rm -rf build`, `pip install --no-build-isolation -e .`
+(`setup.py:217-218`, `:297-298`, then `platform.py:28-38` warns that all custom ops
+are disabled); the reporter's public reply is 「Thanks a lot. Solved!」 with no
+statement of which rung, so the path-alias mechanism stays open — CANN's
+`ascendc.cmake` / `recompile_binary.py` are not in any snapshot. Delivery: 16
+assistant turns, 39.7 K characters of reasoning against 4.1 K of message text and
+15.6 K of the 16.4 K completion-token cap, so the answer arrived on the last turn and
+only just; the version envelope and rung 1 were available from the paste plus one
+docs grep. Page (new): `../image-dependency-faults/custom-op-build-stage.md`.
+
+**#2838** `[Installation][v0.9.1]`, reporter quotes his own two links: README
+`torch-npu>=2.5.1.post1` vs `pyproject.toml` `torch-npu==2.5.1.post1`, and asks
+whether the pin is mandatory. No error, no log, no engine — a doc-versus-metadata
+question, and the answer is that the `==` is the enforced contract and the README
+prose is the defect: at the snapshot pin (v0.10.1rc1 `7e16b4a7cdb1`) the two exact
+files name each other as the mirror pair (`pyproject.toml:2`, `requirements.txt:1`)
+while the README is not in it, and `setup.py:331-341` feeds `requirements.txt` into
+`install_requires` (`:388`) beside the same pins in `[build-system] requires`. The
+recorded run answered in 13 tool calls and flagged that the report's own v0.9.1 tree
+is absent from the snapshot; its overreach was deriving *why* the pin is exact
+against upstream vLLM's torch pin, which no local file settles. Page:
+`../image-dependency-faults/pip-index-visibility.md` (rule 4).
+
+**#6257** vllm-ascend v0.9.2rc1 (`b5b7e0e`) / vllm v0.9.2 (`a5dd03c1`), "离线推理
+gemma-3-1b-it 报错" with three screenshots and no log text: the OCR carried an
+ACL-graph replay fault (`super().replay()`, `current working operator name is
+PagedAttentionOperation`, `ERR33133 PTA call acl api failed`, `RankID: 3`) plus the
+launch env (`NPROC_PER_NODE=8`, `VLLM_USE_V1=1`) and code using
+`tensor_parallel_size = torch_npu.npu.device_count()`. The answer was right and
+arrived late: `Gemma-3 | ❌ | #496` at
+`docs/source/user_guide/support_matrix/supported_models.md:26` (Qwen3 `✅` at `:12`)
+is the verdict, but the run first grepped `docs/source/user_guide/support_matrix.md`
+— a path that does not exist — read the empty result as "no gemma handling", and
+spent four turns on head-count arithmetic (`vllm/model_executor/models/gemma3.py:112`
+`assert total_num_heads % tp_size == 0`, `:115-123` KV replication) and on the
+`attention_v1.py:379` decode branch before finding the row. The public follow-up was
+the reporter's "其他错误：" with **four more** failure screenshots — the shape of an
+unvalidated model path, and what the answer should have pre-empted. Page (new):
+`../feature-enable-recipes/unsupported-model-row.md`.

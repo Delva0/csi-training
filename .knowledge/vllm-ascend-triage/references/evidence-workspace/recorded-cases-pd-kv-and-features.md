@@ -334,3 +334,24 @@ branches, and a numeric simulation of the preempt-resume case — then was cut a
 it derived had to be re-derived: the identity, the latch, the two checks
 (`vllm:num_preemptions`, `--disable-log-stats`) and the ownership split are now the page.
 Page: `../kv-pool-store/prompt-token-counter-negative.md` (new).
+
+**#7508** vllm-ascend v0.17.0rc1 (`e20f0b1a`), image
+`quay.io/ascend/vllm-ascend:v0.17.0rc1-a3`, A3, Kimi-K2.5 W4A8, `--quantization ascend`
+TP8 × DP2 + `--enable-expert-parallel`, `VLLM_ASCEND_ENABLE_MLAPO=1`,
+`VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE=4`, `additional_config` with
+`layer_sharding: ["o_proj"]` and `recompute_scheduler_enable: true`, P node
+(`kv_producer`) with `MooncakeLayerwiseConnector`. A worker dies while loading weights:
+`ops/layer_shard_linear.py:73 post_process_after_loading` →
+`AssertionError: layer_idx must be consecutive`. Both switches register the **same** `o_proj`
+linear into one shard series (`"[0,0,1,1,…]"` after the sort): the Flashcomm2 row-parallel
+op's `update_attrs` (`ops/linear_op.py:381-386` → `Flashcomm2OShardManager.register_layer`)
+plus the attention impl's `layer_sharding` kwargs (`attention/mla_v1.py:719-727`, DSA
+`sfa_v1.py:441-450`), both under `is_hidden_layer`. The pin's own
+`docs/source/user_guide/feature_guide/layer_sharding.md:53-59` ships exactly this pair, and
+`utils.py:1018-1028` accepts TP8 × 4, so neither the value nor the transport is at fault —
+`../feature-enable-recipes/flashcomm2-o-shard-layer-sharding.md` carries the two ablations
+and the `PARALLEL_SIZE` / `recompute_scheduler_enable` answers the reporter also asked for.
+The run reached the double-registration reading only in its last two turns, kept
+5-8 K characters of reasoning per turn, and ended `output_truncated` at 16 384 output
+tokens: 15 assistant turns, 26 tool results, 48 K characters of reasoning, **zero**
+characters of message text.

@@ -860,6 +860,24 @@ ablations. The recorded run opened `attention_v1.py`, `platform.py`,
 `../custom-ops-runtime-faults/aclnn-error-dump-reading.md` (built-in-kernel
 section).
 
+**#4725** — vllm-ascend v0.11.0rc3 (`b6d63bbd`) + vllm v0.11.0, A3 16 dies, Qwen3-235B-A22B
+w8a8, P and D started on that **one** machine by two invocations of
+`examples/external_online_dp/launch_online_dp.py` (DP2×TP4 / DP8×TP1, different
+`--vllm-start-port`): the second instance dies at worker init with
+`Bind_Failed(EJ0003)` + `hcclCommInitRootInfoConfig … error code is 7` out of
+`w8a8_dynamic.py:137`, plog `[HcclSocket][Listen] … specific port[16666] fail` per rank.
+The recorded run opened `control-plane-port-binding.md` first and spent its **entire**
+16 384-token budget inside HCCL port arithmetic (`HETEROG_CCL_PORT`,
+`SetRanksPort`, `GetLocalNicPort`, `GetHostPort`), never reached the launcher, and was
+cut with no final message; the reporter's later comment says the
+`ASCEND_DEFAULT_DEVICE_PORT` line "has nothing to do with" the case and that offsetting
+the decode instance's cards (0-7 → 8-15) fixed it. What would have redirected it: the
+report's own `npu-smi` table already showed two ~59 GB workers per chip on NPU 0-3 with
+NPU 4-7 empty, and one grep of `visiable_devices` in the launcher shows the card list
+starts at 0 in every invocation. Page:
+`../pd-disaggregation/same-host-pd-device-partition.md` (new), with the family
+separation in `../hccl-and-hardware/comm-create-errors.md` §code 7.
+
 **#8975** — vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be96`), CANN 8.5.1,
 8×910B / 16 dies with both engines' `VLLMWorker_DP` ranks resident, a P/D deployment:
 偶发性卡死, the API server still listening, `curl` returning nothing, `AICore 0 %` on every
@@ -942,3 +960,22 @@ should have sent on its first turn: the `cancelled` attribution, the
 `died unexpectedly` grep with its exit-code decode, the artefact list, and the
 driver/firmware × CANN lane first. Page:
 `../hccl-and-hardware/cancelled-executor-teardown.md`.
+
+**#397** vllm-ascend v0.7.3rc1 (`f025df05`) + vllm v0.7.3 (`ed6e907`), torch-npu
+`2.5.1.dev20250308`, CANN 8.0.0 (`V100R001C20SPC001B251`), 2×910B2, open-r1 GRPO on the
+TRL-npu fork: title `RuntimeError: create:…/torch_npu.dir/compiler_depend.ts:89 HCCL
+function error: HcclCommInitRootInfo(numRanks, &rootInfo, rank, &(comm->hcclComm_)), error
+code is 2` + `ERR02200 DIST call hccl api failed`, `Device:0, RankID:0`; the frames are
+`trl … prepare_deepspeed` → `deepspeed/runtime/engine.py _broadcast_model` →
+`dist.broadcast(…group=self.seq_data_parallel_group)`, so the group is the trainer's and no
+`vllm_ascend/` frame appears anywhere. The recorded run got the enum (`2` = `HCCL_E_PTR`),
+the `.hpp`-not-`.cpp` location of `HCCLComm::create` and the world-size split
+(#116/#109 ran the same recipe at 7 processes and passed this broadcast) — then spent the
+rest of 41 messages on candidate mechanisms (one-rank-comm theory, port/HCCP reuse,
+`maybe_chunk_residual`, upstream `qwen3_5` files absent from the pin) and hit the 16 384
+output cap with **no message**. The reporter's later comment is the launch line that
+settles `numRanks`: `accelerate launch --num_processes=1 … src/open_r1/grpo.py` with
+`ASCEND_VISIBLE_DEVICES=1,2` and the `HCCL_*`/`TASK_QUEUE_ENABLE`/`COMBINED_ENABLE`/
+`CPU_AFFINITY_CONF`/`NPU_ASD_ENABLE=0`/`ACLNN_CACHE_LIMIT` list — world size 1. Ask for it
+on turn one. Page: `../hccl-and-hardware/comm-create-errors.md` §*The no-config `create`
+sibling*; route row in `../first-checks/signature-routes/device-ops-and-collectives.md`.

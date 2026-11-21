@@ -1,10 +1,16 @@
-# Quantization method: rejected at config time, or never selected at all
+# Quantization method: rejected at config time, unnameable on the CLI, never selected, or renamed onto a foreign checkpoint
 
-Two failures live on this page and they point in opposite directions. **A** is a
+Four failures live on this page and they point in different directions. **A** is a
 method that is named and refused before any worker starts; **B** is a method that
 was never named, on a checkpoint whose own layout deliberately carries no
 `quantization_config` — so nothing refuses it, the engine starts, and it dies in a
-worker while loading int8 tensors into a dense model.
+worker while loading int8 tensors into a dense model; **C** is a *foreign* format
+(GPTQ/AWQ/…) that **is** named in `config.json` and is silently renamed to `ascend`,
+so the refusal never happens and the format question surfaces as a construction-time
+`KeyError` instead; **D** is a method the release supports but never named on its own
+command line, so `argparse` rejects the flag before `ModelConfig` is built at all.
+A and D are one grep apart and are told apart by the message form alone — `… not
+supported in npu` versus `invalid choice`.
 
 ## A. Signature family (named and rejected)
 
@@ -45,11 +51,14 @@ Two different messages live here, both pre-worker:
    One command: `python -c "import json;c=json.load(open('<ckpt>/config.json'));
    print(c.get('quantization_config') or c.get('compression_config'))"`.
 
-The CLI itself accepts the flag: `pre_register_and_update` only *appends* `ascend`
-to the `--quantization` choices and leaves e.g. `awq`/`gptq` in place
-(`vllm_ascend/platform.py:130-141`; the unit test that pins this is
-`tests/ut/test_platform.py:62-74` at v0.13.0). So an accepted launch command and a
-rejected run are consistent — do not read the surviving choices as support.
+Whether the CLI even accepts the flag is a property of the **installed plugin**, not of
+quantization support: on a ref whose `pre_register_and_update` rewrites the parser's
+choices it accepts `ascend` and leaves e.g. `awq`/`gptq` in place (`vllm_ascend/platform.py:130-141`
+at v0.13.0, `:134-147` at v0.17.0rc1; pinned by `tests/ut/test_platform.py:54-100`), so an
+accepted launch command and a rejected run are consistent — do not read the surviving
+choices as support. On an **older** ref the same hook ignores the parser and argparse
+rejects the flag outright; that rejection is its own gate with its own fix, so read §D
+before answering "not supported".
 
 ## What to answer
 
@@ -123,7 +132,8 @@ the direction is inverted: the checkpoint carries more scale tensors than the en
 has parameters, which at this family of checkpoints usually means a **full-precision
 release** was served where the tutorial lists only the quantised variant —
 `weight-scale-keyerror-quant-variant.md` (census first, `--quantization ascend`
-second). The **offset** form reads differently and that page's `.weight_offset`
+second). A plain `.weight` name raised from `is_layer_skipped_ascend` rather than from
+`params_dict[name]` is neither of those: it is section C, a renamed foreign format. The **offset** form reads differently and that page's `.weight_offset`
 section owns it: at v0.8.5rc1 only `W8A8_DYNAMIC` allocates MoE offsets (the static
 `W8A8` MoE raises `NotImplementedError` before load), so a load-phase
 `…mlp.experts.w2_weight_offset` `KeyError` means the description in effect marked the
@@ -150,6 +160,128 @@ fishing list: `enforce_eager=True` already satisfies the ACL-graph/DeepSeek guar
 not support deepseek` is raised only in the `else` branch of `if enforce_eager`),
 so #1458's cause is out; and a method that is *rejected* produces section A's
 `ValueError`, which this paste does not contain.
+
+## C. A foreign format that is named: renamed to `ascend`, then a `KeyError` at construction
+
+Signature — engine start, after `Starting to load model` but before any shard
+progress, one rank or every rank:
+
+```text
+File ".../vllm_ascend/quantization/quant_config.py", line 123, in is_layer_skipped_ascend
+    is_shard_skipped = self.quant_description[shard_prefix + '.weight'] == "FLOAT"
+KeyError: 'model.layers.0.self_attn.q_proj.weight'
+```
+
+and the `args:`/`Initializing a V0 LLM engine` line already shows
+`quantization=ascend` even though nobody passed `--quantization ascend` (recorded
+**#2960**: `Qwen2.5-32B-Instruct-GPTQ-Int8`, vllm-ascend v0.9.0rc2 `8dd686d` + vllm
+v0.9.0 `5873877`). Not section A — nothing was refused — and not the `weight_scale`
+page: the missing key is a plain `.weight`, and the frame is the **quant-method
+lookup**, not `params_dict[name]`.
+
+The chain, source-verified at that pin:
+
+1. `NPUPlatform.supported_quantization = [ASCEND_QUATIZATION_METHOD]` — the platform
+   list is `["ascend"]` alone (`vllm_ascend/platform.py:67`; later refs add
+   `compressed-tensors`, so re-grep per pin).
+2. Upstream's override loop asks each quant class to rename the checkpoint's declared
+   method, and `AscendQuantConfig.override_quantization_method` returns `ascend`
+   whenever `torch.npu.is_available()` (`quantization/quant_config.py:82-86`). So a
+   `config.json` carrying `quant_method: "gptq"` becomes `ascend` and the gate in
+   section A never fires — the plugin claims a format it never implements.
+3. `get_quant_config` prefers the **HF dict** over the model directory's own files:
+   `hf_quant_config = getattr(hf_config, "quantization_config", None)` … `return
+   quant_cls.from_config(hf_quant_config)` (`vllm/model_executor/model_loader/weight_utils.py:154-165`
+   at vllm v0.9.0), and `AscendQuantConfig` stores whatever dict it is handed as
+   `quant_description` (`quant_config.py:55`). Its own reader for
+   `quant_model_description.json` (`:74-79`) is never reached, and a GPTQ checkpoint
+   has no reason to ship that file.
+4. `get_quant_method` → `is_layer_skipped_ascend` indexes that dict with
+   `<prefix>.weight` (`:109-124`), so the first linear dies on the GPTQ dict's keys
+   (`quant_method`, `bits`, `group_size`, …). The `KeyError` is therefore a
+   **format** answer, not a per-layer bug.
+
+What to answer, in two calls: `rg -n 'supported_quantization' vllm_ascend/platform.py`
+at the pin, and
+`python -c "import json;c=json.load(open('<ckpt>/config.json'));print(c.get('quantization_config'))"`.
+If the method is not `ascend` and `quant_model_description.json` is absent from the
+directory, the checkpoint format is not implemented at that ref — say so, name the
+supported routes (msmodelslim → `--quantization ascend`, W8A8/W8A8_DYNAMIC per
+section A), and do not send them looking for a layer-name bug. A newer pin in the
+snapshot may already declare more methods; that is the version scope.
+## D. Named, but never an argparse choice (`invalid choice: 'ascend'`)
+
+```
+vllm serve: error: argument --quantization/-q: invalid choice: 'ascend'
+(choose from 'aqlm', 'awq', …, 'torchao', None)
+```
+
+This exits inside `argparse`, i.e. **before** `ModelConfig`, before the platform list of
+§A, before any `APIServer pid=` line, worker, device or weight read — and the printed
+choice list is upstream's static `QuantizationMethods` `Literal`, not a statement about
+Ascend. Recorded #902 (vllm-ascend v0.8.5rc1 `ec27af3` + vllm v0.8.5.post1 `3015d56`,
+image `v0.8.5rc1`, QwQ-32B-w8a8, `--quantization ascend`).
+
+The chain, source-verified at those two pins:
+
+- `--quantization` is built with `choices=[*QUANTIZATION_METHODS, None]`
+  (`vllm/engine/arg_utils.py:600-604`) — a **copy taken when the argument is added**, from
+  the module list seeded by the `QuantizationMethods` `Literal`
+  (`vllm/model_executor/layers/quantization/__init__.py:8-37`).
+- A plugin's `@register_quantization_config("ascend")` only *appends* to
+  `QUANTIZATION_METHODS` at import time (`…/quantization/__init__.py:43-73`, append at `:73`), which cannot
+  change a list already copied into an `argparse` action.
+- The intended hook is `pre_register_and_update(parser)`, and upstream calls it **after**
+  `EngineArgs.add_cli_args(parser)` (`vllm/engine/arg_utils.py:1640-1646`, hook call `:1645`), with a comment
+  naming exactly this use ("adding a new kind of quantization method to --quantization
+  argument"). So the plugin must mutate `action.choices`.
+
+| ref | `NPUPlatform.pre_register_and_update` | `vllm serve --quantization ascend` |
+|---|---|---|
+| vllm-ascend v0.8.5rc1 (`ec27af3`) | `platform.py:66-75` takes `parser` and never touches it (only `adapt_patch` + `import AscendQuantConfig`) | rejected by argparse, while `supported_quantization = ["ascend"]` (`:61`) would have accepted it |
+| v0.13.0 (`6281c120`) / v0.17.0rc1 (`e20f0b1a`) | appends `ASCEND_QUANTIZATION_METHOD` via `parser._option_string_actions.get("--quantization")` (`platform.py:130-141` / `:134-147`) | accepted |
+
+Procedure:
+
+1. Classify from the message form: `argument --quantization/-q: invalid choice` is the
+   parse-time lane; §A's `… not supported in npu` is the platform lane. They are different
+   gates with different answers, and at an old ref the platform will accept a method the
+   CLI refuses.
+2. One command on the reporter's own tree, not the snapshot:
+   `python -c "import inspect, vllm_ascend.platform as p; print(inspect.getsource(p.NPUPlatform.pre_register_and_update))"`
+   — no `--quantization` in the body means the flag cannot be passed.
+3. Three routes, cheapest first:
+   - **Drop the flag** if the checkpoint declares the method itself:
+     `python -c "import json;c=json.load(open('<ckpt>/config.json'));print(c.get('quantization_config'), c.get('quantize'))"`
+     — a `quant_method: ascend` there makes the CLI flag unnecessary (§A step 3). On the
+     documented msmodelslim export it is the opposite: `config.json` carries no
+     `quantization_config` by design, so dropping the flag converts this parse error into
+     §B's silent dense-model load — check the file before recommending this route.
+   - **Import before parsing** (no image change): `register_quantization_config("ascend")`
+     runs at import of the config module, so importing it *before* `make_arg_parser`
+     builds the choices copy already containing `ascend`:
+
+     ```python
+     import vllm_ascend.quantization.quant_config          # registers "ascend"
+     from vllm.entrypoints.openai.cli_args import make_arg_parser
+     from vllm.entrypoints.openai.api_server import run_server
+     from vllm.utils import FlexibleArgumentParser
+     import uvloop; uvloop.run(run_server(make_arg_parser(FlexibleArgumentParser()).parse_args()))
+     ```
+
+     Then reuse the reporter's original flags. Source-inferred, not reporter-confirmed —
+     label it so and let them run it.
+   - **Upgrade** to a release whose hook rewrites the choices; the snapshot carries only
+     v0.8.5rc1 in the failing state, so name the two verified states and the grep, never a
+     "first fixed in" claim.
+4. The **offline API is not the same door** and is a useful discriminator: `LLM(...,
+   quantization="ascend")` never parses argv, and `ModelConfig._verify_quantization` reads
+   `supported_quantization = QUANTIZATION_METHODS` (vllm `config.py:752-753` at that pin) —
+   which the import-triggered decorator has already extended, because
+   `EngineArgs.create_engine_config` calls `current_platform.pre_register_and_update()`
+   (`arg_utils.py:1096`) before `create_model_config()` (`:1099`). So at v0.8.5rc1
+   quantization *works* in-process and is merely unnameable on the CLI; say both, or the
+   reporter will conclude the build cannot quantize at all.
 
 ## Cost note
 

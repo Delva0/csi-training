@@ -4,10 +4,13 @@ Scope: the launch command carries `--pipeline-parallel-size 2` (or more) and the
 symptom is PP-shaped — the engine comes up and the **first request** dies on a
 non-last rank, a rank-specific `AssertionError`/`TypeError` with no device error,
 or the question is "is PP validated on this model/hardware at all?" — which
-includes "does PP work together with speculative decoding". Not the lane
-for a collective error on a PP cluster (that is `../hccl-and-hardware/index.md`)
-and not the lane for one-sided PP sizing/卡数 arithmetic
-(`../deploy-sizing/index.md`).
+includes "does PP work together with speculative decoding". A **numeric** PP
+report is this lane too — "pp+chunked prefill 场景下首token不对", a first token or
+logit delta that only appears with PP **and** chunked prefill on — and its page is
+`pp-chunked-prefill-numeric.md`, not a crash route. Not the lane for a collective
+error on a PP cluster (that is `../hccl-and-hardware/index.md`), not the lane for
+one-sided PP sizing/卡数 arithmetic (`../deploy-sizing/index.md`), and a throughput
+number is `../performance-throughput/index.md`.
 
 Inherit the rules in SKILL.md. Four that decide this topic:
 
@@ -60,6 +63,14 @@ Inherit the rules in SKILL.md. Four that decide this topic:
    executor to "see whether the sort happens" cannot, and it is where the turns go.
 
 Conditional routes:
+
+- **PP > 1 and the symptom is numeric, not a crash** — first generated token wrong,
+  logits differing from the TP-only run, correct with chunked prefill off or with PP
+  off, or the capability question "PP 和 chunked prefill 能一起开吗" → open
+  `pp-chunked-prefill-numeric.md` **before** any `model_runner_v1.py` read. Its rung 1
+  is the release lane (recorded #12060: reporter's own fix was "tried the latest
+  version, it works fine"), because the pin's PP e2e never builds a multi-chunk
+  prefill and the only documented PP+chunked recipe is the opt-in dynamic-chunk path.
 
 - Kv-cache init (after weight loading, before any request) dies with
   `KeyError: '<...>.layers.<N>.self_attn.attn'` raised in

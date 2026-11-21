@@ -145,11 +145,17 @@ answer is not "downstream drift".
    Never write "transformers removed X in 5.x" from such an export. State the pin
    you do have (`requirements.txt` line) and phrase the version claim as an open
    question with the check that settles it.
-4. **Mine the dependency's docs and utils when its source is gone.** Content
-   exports retain `docs/`, `utils/` and tests far more often than model code, and
-   library modeling-rule docs state the *sanctioned* pattern. In the recorded
-   case the answer came from `docs/source/en/modeling_rules.md`, not from the
-   missing `modeling_qwen2.py`.
+4. **Mine the dependency's docs and utils when its source is gone — and ask the
+   reporter for the body.** Content exports retain `docs/`, `utils/` and tests far
+   more often than model code, and library modeling-rule docs state the *sanctioned*
+   pattern. In the recorded case the answer came from
+   `docs/source/en/modeling_rules.md`, not from the missing `modeling_qwen2.py`. The
+   missing body is **not** a dead end either: the reporter runs the image, so
+   `inspect.getsource(<Class>.forward)` from their site-packages is the same text the
+   export lacks, and it is the check that says whether a downstream copy mirrors the
+   installed generation at all (`../first-checks/scripts-catalogue.md`,
+   `scripts/qwen2-body-drift-probe.py`). Requesting it costs one sentence in the answer;
+   concluding "unverifiable" costs the report its mechanism.
 5. **Give the reporter both halves**: the one-line check that proves the drift
    in their image, and the cheap image/version action. Repairing a downstream
    re-implementation is a patch proposal; a version change is a same-day fix.
@@ -261,6 +267,22 @@ answer is not "downstream drift".
    and the enclosing branch's gate — and the verdict is owed; the *gate* is what
    answers "why only long prompts" (`library-method-typo.md`).
 
+14. **A guard on the missing name is a rejected repair, and "the service started" is
+   not the acceptance test.** When the missing attribute is read by a downstream
+   **copy** of a library body, `getattr(x, '<attr>', <default>)` — or any attribute
+   guard — converts a crash into a running process whose numerics nobody checked.
+   Reporter-confirmed on #11991 (`attention_type` on `AscendQwen2DecoderLayer`,
+   v0.22.1rc1): the guard *"only allows the model service to start up normally, but it
+   will cause problems with model recognition"*, and a proposed attribute guard
+   *"can't solve the problem"*. So the repair sentence in your answer is *delete the
+   copy / restore the delegation*, a guard is at most a start-only diagnostic, and the
+   acceptance check you attach to it is one real request whose output is compared with
+   a working image — never `Application startup complete`. The guard is also checkable
+   rather than arguable: this wrapper supplies a **one-key** mask mapping
+   (`qwen2_decoder.py:90-95`) while the copy can index a `sliding_attention` key
+   (`:207-223`), so the "fixed" index may still be the wrong mask. Worked case, the
+   reporter's two comments and the body-diff probe: `patched-forward-api-drift.md`.
+
 ## Pages
 - `impl-and-oot-signature-drift.md` — `TypeError: AscendAttentionBackendImpl.__init__()
   got an unexpected keyword argument 'q_lora_rank'` at vllm-ascend `v0.7.3`: the V1
@@ -294,12 +316,14 @@ answer is not "downstream drift".
 - `patched-forward-api-drift.md` — worked case vllm-ascend #11661 (v0.22.1rc1,
   DeepSeek-OCR-2): `AscendQwen2DecoderLayer` has no `attention_type`, the
   evidence table, the decisive check, and what the report still leaves open.
-  Re-filed as #11926 on the **same** image and line, so the crash is
-  reproducible there rather than one host's accident; the page also answers the
-  reporter's "the docs say 0.16.0 supports it" with the pinned tutorial's own
-  first-support line, the tutorial-command diff, the missing e2e coverage, and
-  the rule that the repair-form choice ships with the probe instead of costing a
-  turn.
+  Re-filed as #11926 **and** #11991 on the **same** image and line, so the crash is
+  reproducible there rather than one host's accident; #11991 is the one that decides
+  the repair — the reporter's `getattr(..., 'full_attention')` guard started the
+  service and broke image recognition, so the page ships the delegation as the fix,
+  an acceptance check that is a real request, and the body-diff probe
+  (`scripts/qwen2-body-drift-probe.py`) that no truncated export can replace. It also
+  answers the reporter's "the docs say 0.16.0 supports it" with the pinned tutorial's
+  own first-support line, the tutorial-command diff and the missing e2e coverage.
 - `attention-class-from-checkpoint-config.md` — worked case vllm-ascend #881
   (reported on v0.8.5rc1, snapshot pin v0.7.3): `TypeError: DeepseekV2Attention.forward()
   got an unexpected keyword argument 'kv_cache'` at the first `profile_run` forward on a

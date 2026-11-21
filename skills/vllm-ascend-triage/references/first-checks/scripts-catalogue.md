@@ -27,12 +27,27 @@ after that keeps the header, not this text.
 
 ## Entries
 
+- `scripts/pp-layer-partition.sh --layers N --pp P [--key-layer K]` — the PP layer
+  split and stage-start fingerprint (#5724). Mirrors `get_pp_indices`: the
+  `layers % pp` remainder goes to `[-2], [-3], …`, never the last partition, so
+  61 layers / PP=4 is `[15,15,16,15]` (starts `0,15,30,46`), not the naive
+  `0,15,30,45`. With `--key-layer` it says whether a `KeyError: '…layers.<K>…'`
+  index is a stage start — the only index a foreign per-worker kv-cache config can
+  name — or contradicts that theory.
 - `scripts/history-titles.sh [-i] '<regex>' [root] [limit]` — precedent index,
   one `<file> :: <title>` line per matching history issue (rule 8: titles first).
   Arguments are **positional**; `-i` (case-insensitive) is the only flag, and any
   other leading `-x` exits 2 with the usage instead of being taken for the regex
   (a `history-titles.sh -i 'reranker'` call once burned a turn on
   `no such history root: reranker`).
+- `scripts/310p-rope-branch.py <config.json | model dir>` — which 310P rope
+  implementation a checkpoint lands in, from its own `config.json`: multimodal or
+  not, `uses_mrope` (`mrope_section` in `rope_parameters`), `head_size` /
+  `rotary_dim`, the predicted `_rope_forward_oot` branch (a/b/c at
+  `_310p/ops/rotary_embedding.py:136-190`), whether that branch's cos/sin globals
+  are populated for a multimodal config, and the one probe that decides it (#11936,
+  `../soc-platform-paths/310p-vl-ocr-garbage-output.md`). Exits 2 rather than
+  guessing when `head_size` cannot be derived.
 - `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one line
   per repo with coverage and `runtime_verified`, plus the unavailable repos.
 - `scripts/oom-budget-split.sh --line '<OOM line>' --gmu F [--params P] [--tp N]
@@ -97,6 +112,12 @@ after that keeps the header, not this text.
   instead of on its newest line.
 - `scripts/executor-timeout-check.sh <log|->` — vLLM's RPC/ringbuffer watchdog vs
   a real collective timeout; tolerates screenshot-OCR garble (#1865).
+- `scripts/dp-single-request-bucket.sh --capture-sizes 8,1 [--dp --tp
+  --max-num-seqs --report 1,2,8 --num-spec]` — the DP>1 + ACL-graph
+  single-request lane: the `bs_to_padded_graph_size` map for the launch's own
+  capture list, which bucket a one-request step replays versus a full step, the
+  idle ranks' `execute_dummy_batch()→_dummy_run(1)` (eager, still joins the DP
+  all_reduce), and the four-row ablation (#3128).
 - `scripts/device-type-check.sh <paste|serve-log|-> | --soc-version N` — which side
   of the device-type assert is the card and which is the wheel (#12141).
 - `scripts/cuda-only-path-audit.sh <vllm-root> [subpath] [vllm-ascend-root]` — the
@@ -131,6 +152,12 @@ after that keeps the header, not this text.
   weight load), plus `lm_head` presence, `config.json` `architectures` and any
   `config_sentence_transformers.json`; exit 1 = root-level names, which cannot load into a
   `…ForCausalLM` class (#5549).
+- `scripts/checkpoint-header-scan.py <model-dir|*.safetensors>` — is each shard a
+  safetensors *container*: per file the size, whether the first 8 bytes are a Git-LFS
+  pointer / zeros / HTML, the decoded header length, the tensor count and a `BAD`
+  verdict, plus `model.safetensors.index.json` vs disk; exit 1 names the file behind a
+  `HeaderTooLarge` / `HeaderTooSmall` / `invalid JSON` report, so the lane closes
+  without opening the loader (#955).
 - `scripts/sse-toolcall-audit.sh <raw-sse>` — the streamed `tool_calls` argument
   fragments, their assembly and a per-call verdict (`balanced` / `tail-lost` /
   `quote-gap` / `malformed`) (#17797, #12261).
@@ -144,6 +171,14 @@ after that keeps the header, not this text.
   hit, and the NZ gate's fp32 policy at the checked-out ref (`is_enable_nz` vs
   `_should_trans_nz`), i.e. whether an fp32 pooling/score head is being cast to
   `FRACTAL_NZ` (#4679).
+- `scripts/toolcall-raw-output-audit.py <dir-or-file> [...] [--markers '<a>,<b>']`
+  — read a case's request / rendered-prompt / tokenized-request / completion
+  dumps and print the lane: no tool-call marker in the engine's own completion
+  means the sampled sequence has no call (model-choice lane, a *rate* question),
+  a marker present means the parser lane; it also prints `sampling_params`
+  (a `temperature > 0` body explains a non-zero miss rate) and joins the dumps by
+  prompt-token count, warning when the request body and the completion come from
+  different requests (#12658). Exit 1 = no completion dump to judge.
 - `scripts/tool-schema-type-audit.py <request-body.json|->` — per tool argument,
   the declared JSON-Schema type, flagging the arguments a streaming parser will
   emit **unquoted** (`anyOf: [string, null]` and other schemas with no top-level

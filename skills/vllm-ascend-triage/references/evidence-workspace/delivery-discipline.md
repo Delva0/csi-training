@@ -34,6 +34,12 @@ leads were.
   its own last hypothesis. Carry one or two sentences of the current answer draft in
   the same message as every tool call — verdict line first, then what is being
   checked — so any truncation leaves a usable answer.
+  #11936 is the same shape at the cap: 28 assistant turns, **zero** message text,
+  16 384 completion tokens all inside reasoning blocks, cut mid-thought while
+  reading the 310P attention backend — although it had named a ranked candidate
+  (the 310P rope branches) by its middle turns, which the platform
+  topic now reduces to one probe
+  (`../soc-platform-paths/310p-vl-ocr-garbage-output.md`).
   The status-note form is the same waste: #17797 put one short note on each of its
   first 17 turns ("the 310P path has its own model runner — let me check X") and
   #5525 emitted zero message text on 11 of 20 turns, neither ever stating a verdict;
@@ -64,7 +70,11 @@ leads were.
   identical observation: write both readings and the single check that separates
   them, instead of reading the third file to pick one. Recorded #6598 had the two
   padding candidates for its operator message by its 8th turn and spent the rest of
-  the budget choosing between them.
+  the budget choosing between them. The same loop appears when the open question
+  lives in a component the snapshot does not export at all (ATB / op-plugin-atb,
+  CANN GE, the ops-* repos): no grep can close it, so it is an open question in the
+  message from the turn it is noticed — #4323 spent its last third hunting which
+  `torch_npu` op reaches ATB, with zero message text emitted.
 - **A log line whose fields another component fills is a mapping question, not a
   hypothesis.** #12015 spent roughly half its budget on an echo mismatch: the paste
   read `Enabled custom fusions: norm_quant, act_quant` although the reporter had set
@@ -76,6 +86,15 @@ leads were.
   component fills this field?") settles it; the answer belongs in the reply as
   "expected, not the cause", with one `path:line`, not in a walk through two config
   layers.
+- **A documented mechanism that is absent or fixed at the reporter's ref is the
+  answer's first sentence, not a detour.** Reading the branch a page names and
+  finding it changed (`_is_string_type` now type-aware, the frontend
+  `remaining_args` reconciliation deleted, a constant moved) dates the page and
+  retires a cause — that verdict ships *before* the next owner is explored,
+  because "your ref is not this bug, here are the two it can be with one check
+  each" is a complete reply. #14656 is the recorded cost: the gate was shown fixed
+  at its 7th turn, then three further owners were opened one at a time and the
+  session ended with two empty-text turns and no answer.
 - **An ownership question is answered by naming the owner.** "The flag did
   nothing", "the log line is missing", "the client cannot parse the tool call" are
   gate checklists on the owning component, and they are answered in 3-4 calls.
@@ -155,11 +174,19 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #8788 | by turn ~18: the invocation chain and the four `csrc/third_party` fetches plus the catlass submodule | **no answer at all**: 30 turns, every message a bare tool call, cut inside a block that had already begun "**Answer**: Yes, real…" |
 | #16563 / A | by turn ~14: the counter is cgroup host memory, the +80 GB/7 d arithmetic (3.5-7 KB per request, <16 B per decode step, so per-step host buffers are priced out), the closest precedents (#2650 host memory 1-2 GB/h, #12345 DeepSeek-V4 leak, #5847 CPU-memory leak) and the A2 recipe diff (`--no-enable-prefix-caching`, `additional_config.enable_flashcomm1`) | **no answer at all**: 20 turns, a 69-character opener then bare tool calls, ~48 K characters of reasoning, cut inside a reasoning block (`../runtime-memory/container-working-set-growth.md`) |
 | #12261 | by turn 11: the parser's `_is_string_type` gate on a nullable `anyOf: [string, null]` argument, the raw branch, the length-prefix delta and the arithmetic that reproduces the paste | **no answer at all**: 15 turns / 23 tool calls, ~35 K characters of reasoning against 3.5 K of message text, a one-line verdict on most turns, cut on a tool call while trying to `import vllm` (no torch in the sandbox) to simulate two functions it had already read |
+| #14656 | by turn 7: the page's schema-type gate is **fixed** at v0.23.0 (`_is_string_type` now `extract_types_from_schema`), so the GLM-5.2 paste needed another owner, and by turn 12 two verified candidates plus the downstream patches excluded | **no answer at all**: 15 assistant turns / ~16 K completion tokens of reasoning (blocks of 5-10 K characters) against ~2.1 K of message text, two final turns with empty text, cut inside a reasoning block; the streamed-text owner (`resetting decode stream`) was named as a hypothesis and never grepped (`../tool-call-streaming/detokenizer-text-delta.md`) |
 | #2015 | by turn 11: the pinned `quantization.md:37/:5/:94` contract (the W8A8 export carries no `quantization_config`, so the flag is mandatory) and the `enforce_eager` exclusion of the ACL-graph cause | **no answer at all**: 17 turns / 25 tool calls, ~45 K characters of reasoning against 4.0 K of text, cut on a tool call |
 | #1796 | by turn ~6: the wheel's `Requires-Dist` pin is `torch-npu==2.5.1.post1.dev20250619` while `setup.py:341` drops the `--extra-index-url`/`--pre` lines from the metadata, i.e. a mirror-only build made unfindable — and `torchvision<0.21.0` puts the same requirement set on the 2.5.x torch line against vllm 0.9.2's `torch==2.7.0` | **no answer at all**: 39 tool calls, ~16 K completion tokens of reasoning, every assistant message a bare tool call; the budget went to whether that dev wheel was rebased onto torch 2.7.1, a fact no local file can settle (`../image-dependency-faults/pip-index-visibility.md`) |
 | #3107 | by turn 3: the paste names the two objects whose roles differ (`attn_metadata.max_tokens_across_dp` → `get_forward_context().max_tokens_across_dp`), and by turn 5-6 the pin's writer (`ascend_forward_context.py:91-98`), the three consumers and the `dp_size × max_tokens = 544` arithmetic against the pasted `[544, 5120]` | **no answer**: 12 turns, 7 with no message text, ~49.6 K characters of reasoning against 661 characters of text, 22 tool calls, cut on the last turn's reasoning block; the `pangu_moe.py`-absent-from-the-pin finding (turn 4) was the one sentence the reporter needed (`../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`, `../startup-failures/environment-correspondence.md`) |
 | #698 | by turn 3: the phase after `Loading model weights took` (`worker.py:240-256` → `profile_run` → `npu.synchronize`), and by turn 6 the V0/V1 fingerprint from the log's own `model_runner.py:904` | **no answer**: 14 turns, 11 of them bare tool calls, ~47.6 K characters of reasoning against 322 characters of text; the answer's first paragraph was the artefact request (the full `vllm serve` line — the maintainer's own first reply asked for exactly that, and the reporter supplied it the next day) (`../startup-failures/silent-stall-after-weight-load.md`) |
+| #2754 | by turn ~6: the failing phase (torchair graph load), the all-peer `DestLink` block refuting "one bad edge", and the KV-before-capture ordering | **no answer at all** — 12 turns, 7 with no message text, the whole 16 K output budget in reasoning, cut inside the answer's opening sentence; the budget went to the `EI0007` QP-reservation mechanism, whose sources (`cann/hccl`, `cann/hcomm`, `cann/ge`) the case's own `SOURCES.json` lists as `unavailable`, so no local file could settle it and only the budget ladder was owed (`../hccl-and-hardware/qp-resource-exhausted-at-graph-load.md`) |
+| #16600 | by turn 9: the model's support row sits only in the `Atlas 300I DUO` tab (so "only 310P has quantized weights" is the project's SoC scope, not a gap), the same-SoC e2e recipe and the two `--additional-config` keys no code reads — a complete capability verdict for a "速度很慢 + 能否提供量化版本" report | **no answer**: the verdict sat in a mid-session message, then ~15 turns went into `platform.py` capture-mode gates, the hybrid-KV gate and issue bodies; the cap landed inside the block that had just started the ranked list (`#1 没开 MTP…`). A perf claim with no metric block is answered by the capability verdict plus the request for the metrics, not by a gate chain (`../feature-enable-recipes/per-soc-recipe-and-quantized-weights.md`) |
 | #16563 / B | by turn ~9: the same class and arithmetic, the env-flag liveness findings (no consumer at the pin for `VLLM_ASCEND_ENABLE_FLASHCOMM` / `PYTHON_NPU_ALLOC_CONF`), the MTP `pin_memory()` asymmetry and a `findings.md` draft | verdict, five causes, four precedents and the six-rung ladder did reach the message, but the cap landed inside the closing version-scope section: five causes with sub-paragraphs plus a precedent table plus a ladder is more answer than the budget holds |
+| #894 | by turn 2: a 4-token paste is a degeneration report with no serve command, no log and no env, so a ranked matrix *is* the answer — and the pin's forced `enforce_eager = True` (`platform.py:124`) plus the `-Chat`-only validated row were one grep each | **no answer at all**: 20 turns / 35 tool calls, 69 characters of message text against ~43 K characters of reasoning, the full 16 K output budget spent on `deepseek_v2.py` / `fused_moe.py` / `platform.py` (would this branch break V2-Lite?), cut inside a reasoning block (`../accuracy-benchmarks/deepseek-v2-lite-mla-degeneracy.md`) |
+| #4323 | by turn ~12: the ATB block is a real `atb::OperationSetup` failure inside `libop_plugin_atb.so`, so the pasted `eagle_proposer.py:476` frame is a join point (precedent #447 carries the same wording over `_npu_reshape_and_cache`); `draft_tensor_parallel_size` has no consumer under `vllm/v1/**` at the pin, and the eagle3 e2e there is single-card Llama-3.1 drafts only | **no answer**: 26 turns, **zero** message text on every one of them, the 16 384-token cap reached inside a reasoning block that already held the ranked causes and the ladder; the closing turns asked which `torch_npu` op reaches ATB — a fact no export in the case contains (`../spec-decode-mtp/atb-op-setup-failure-at-proposer.md`) |
+
+| #3062 (v0.9.1, `llmdatadist` PD) | by turn 9: the 120 s warning's emitter, the three port formulas (the advertised port carries no `tp_rank`), `ThreadPoolExecutor(1)` and the `query_register_mem_status` loop — i.e. the source-verified statement that the pasted line is P-side bookkeeping, plus both TTFT discriminators | **no answer at all**: 12 turns / 22 tool calls, ~51 K characters of reasoning against 1.2 K of text, and that text was status notes ("Now the decisive part: …", "Two last code facts to pin: …"); cut inside the block composing the ranked answer (`../pd-disaggregation/llmdatadist-done-signal-and-ttft.md`) |
+| #15927 (v0.26.0rc1, GLM-5.3-w8a8c8 C8 PD) | by turn 8: the direct precedents (#12533 "关掉C8就可以正常推理", #12905 first-curl garbled) and the flag gating that makes `c8_enable_reshape_optim` the one-variable ablation; the pinned GLM-5.2 recipe diff by turn 13 | a ranked answer did reach the message, but only on the **17th** turn, and the cap landed inside its action ladder (rung 2 of 4) after ~39 K characters of reasoning against 3.8 K of text; turns 3-16 carried lead lines ("The key hit: … Let me read the gating code"), not the verdict (`../dsa-sparse-attention/c8-flags-and-kv-store-path.md`) |
 
 Two consequences worth restating: an "I'll start by…" line is not an answer and
 does not satisfy G1, and a run whose last turn is a tool call has shipped nothing.

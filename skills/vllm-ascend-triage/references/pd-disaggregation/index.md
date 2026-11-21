@@ -45,6 +45,13 @@ node then produce wrong output, or did no request ever reach a decode engine?**
   others = one address per side) → `proxy-endpoint-vs-api-server-count.md`.
   Reporter-confirmed on #12432: the fix was writing only the DP master's IP and the
   start port per role.
+- Requests **are** served on `LLMDataDistCMgrConnector` but the prefiller prints
+  `Some requests in prefill node fail to receive KV Cache transfer done signal in 120s.
+  … 'export VLLM_LLMDD_ABORT_REQUEST_TIMEOUT=600' …`, alone or alongside "TTFT extremely
+  slow": that line is P-side expiry bookkeeping and the non-zero tp ranks emit it **by
+  design** (the advertised port carries no `tp_rank`), so it is not the slow-TTFT
+  mechanism — settle TTFT with the two discriminators in
+  `llmdatadist-done-signal-and-ttft.md` before any connector or rank-table theory.
 - The deployment never gets past engine start because the *KV-transfer config
   block itself* is rejected: `ValueError: KV transfer 'prefill' config has a
   conflicting data parallel size. Expected 1, but got 2.` (or `tensor parallel
@@ -161,3 +168,11 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   predicates) together with the refuted "our method name is not `mtp`" theory,
   and the ablation matrix to hand the reporter when the symptom is alternating
   good/bad output.
+- `llmdatadist-done-signal-and-ttft.md` — `LLMDataDistCMgrConnector` serves but TTFT is
+  slow and/or the prefiller logs `fail to receive KV Cache transfer done signal in 120s`
+  (`VLLM_LLMDD_ABORT_REQUEST_TIMEOUT`, default 120): where the warning is emitted, the
+  three port formulas that decide which P ranks can ever see a done signal and which
+  duplicates `_increment_task_count` drops, the held-block (`delay_free_blocks`) cost and
+  why `=600` makes it worse when queueing is the mechanism, and the D-side checks
+  (single-thread `pull_blocks`, `query_register_mem_status` link loop) with the cause
+  left open. Verified at v0.9.1 `0740d10` (#3062).

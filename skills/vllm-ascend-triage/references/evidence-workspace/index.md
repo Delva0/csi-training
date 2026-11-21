@@ -36,6 +36,14 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   upstream vllm config path, never from `src/transformers/models` in these
   snapshots (recorded twice: #5585, and #11863 where the dense-vs-MoE question for
   Qwen3.6-27B had only the model doc page to stand on).
+- **The workspace python is the standard library only.** `uv run --no-project python`
+  imports no `torch`, `numpy`, `triton`, `yaml` or `requests` (verified here; there is no
+  NPU either), so a `python` snippet may compute arithmetic over values you parse out of
+  the source — it cannot import the framework, the model, a tokenizer or an op's
+  pure-torch reference implementation. Two recorded runs spent calls on
+  `import torch` / `import vllm` before concluding this (#12261; #10572 then fell back to
+  reading the reference's shapes by eye, which was the correct move). Say "not
+  executed" in the answer, and never present a chosen tolerance as measured.
 - Precedent: `history/` holds thousands of issue bodies, no index. **Never `ls` it** —
   recorded runs dumped ~3k filenames (~24 KB) in one call for zero information. Start with
   `scripts/history-titles.sh '<regex>'`, which prints `<file> :: <title>` per hit so a whole
@@ -57,15 +65,28 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
 - Attachments are multi-modal OCR text: line order, labels and table rows get scrambled.
   Treat a number as trustworthy only when a log line, caption or arithmetic cross-check
   confirms it; otherwise state the OCR caveat next to the claim.
-- **When the body's only evidence is a screenshot, the OCR text is the log paste — read
-  it before theorising.** A `user-attachments` link, an `![...]`, or a line like 误报信息 /
-  截图 means the log lines live in `/workspace/attachments/<issue>/`: read
-  `ATTACHMENTS.txt` (it names the files) and then the few-hundred-byte `.ocr.txt`. That
-  is not the directory listing rule 7 forbids. Recorded #9986 filed a startup warning
-  with **no** pasted log; the answer's only version-pinned evidence —
-  `(APIServer pid=231) … [envs.py:1717] Unknown vLLM environment variable detected: …`
-  — sat in the OCR of the screenshot, and the run never opened it. Quote the scrambled
-  line with the OCR caveat rather than as a clean log line.
+- **A `user-attachments` link names the first artefact — open the file, not its
+  manifest.** `/workspace/attachments/<issue>/` holds what the issue linked:
+  `ATTACHMENTS.txt` is a manifest (file name | kind | source SHA256) and carries
+  no issue title, model name or attachment-id digits, so **a token grep of it
+  that returns nothing is not evidence of absence**. Search that one directory by
+  the file names the issue prints (`search_files pattern '*.json'`) — rule 7's
+  listing ban is about `history/` (thousands of bodies), not this handful.
+  Recorded #12658 declared its attachments missing on exactly that grep and lost
+  the session; the same directory held all four dumps below.
+- **Attachment shapes, and what each one decides.** A screenshot's `.ocr.txt` (a
+  few hundred bytes) is the log paste — recorded #9986 filed a startup warning
+  with no pasted log, and the answer's only version-pinned evidence
+  (`[envs.py:1717] Unknown vLLM environment variable detected: …`) sat in that
+  OCR unread; quote the scrambled line with the OCR caveat. A `*.json` is
+  usually a machine-readable **dump**, and its fields are the evidence: a chat
+  request body (`tools`, `chat_template_kwargs`, `stream`), a rendered prompt
+  (`/v1/chat/completions/render`), a tokenized request (`token_ids`,
+  `sampling_params`), a `/v1/completions` completion (`choices[0].text`,
+  `finish_reason`, `usage`), or a captured SSE. Read one with a 5-line
+  `uv run --no-project python -c` that prints `list(d)` first — several are
+  20-90 KB — and join them by prompt-token count before believing them
+  (`../tool-call-streaming/no-tool-call-in-raw-output.md`).
 - Network/tool coverage varies by case and is dated. Do not invent PR numbers, comments or
   review discussion; if only issue titles/bodies are available, say that comments were not
   consulted. Issue bodies are frozen at snapshot time, so a later public reporter comment

@@ -91,6 +91,80 @@ Consequences to state in the answer:
 - #5295's `cudagraph_capture_sizes: [4]` with TP=8 gives
   `ceil(4/8)*8 = 8`: any decode batch of ≤ 8 tokens takes MC2.
 
+## Step 2b — the A2 MC2 per-card **expert** cap (24): a tiling refusal, not a hang
+
+Verified at vllm-ascend **v0.17.0rc1** (`e20f0b1`) while triaging #7635 (two A2
+nodes, 16 cards, Qwen3.5-397B-A17B-w8a8, `--data-parallel-size 2
+--tensor-parallel-size 8 --enable-expert-parallel`); the mechanism is
+**reporter-confirmed** in the follow-up, including the fix.
+
+Same lane as Step 2 (the `profile_run` batch at `mc2_tokens_capacity`) and the same
+"a dispatch op failed at startup" shape as
+`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`, but a different failure
+kind: an **argument refusal inside the op's tiling**, back in seconds instead of a
+10-minute hang, with the reason spelled out in the last line:
+
+```text
+RuntimeError: npu_moe_distribute_dispatch_v2: … NPU function error:
+  call aclnnMoeDistributeDispatchV4 failed, error code is 561002
+[ERROR] … ERR00100 PTA call acl api failed.
+moeExpertNum is 32, in case of unlayered, it must no more than 24.
+  [FUNC:MoeDistributeDispatchA2CheckAttrAndSetTiling][FILE:moe_distribute_dispatch_v2_tiling.cpp][LINE:1152]
+op[MoeDistributeDispatchV2], MoeDistributeDispatchA2 CheckAttrAndSetTiling Failed
+MoeDistributeDispatchV2 do tiling failed, ret is -1.
+```
+
+Read that number as **experts per card**, never as the model's expert count: it is
+what the dispatch receives as `moe_expert_num`, i.e.
+`len(expert_map) + global_redundant_expert_num`
+(`ops/fused_moe/token_dispatcher.py:155`, packed at `:161`, called at `:215`), which
+equals `global_num_experts // ep_size` (`ops/fused_moe/fused_moe.py:283`; `ep_size`
+is the EP group's world size — `token_dispatcher.py:70` — i.e. TP×DP×PCP for that
+parallel layout).
+512 experts over 16 ranks = 32 > 24. Two artefacts settle it without arithmetic: the
+engine prints `[EP Rank r/N] Expert parallelism is enabled. Local/global number of
+experts: X/Y` (`fused_moe.py:284-295`), and the constant itself is **not** in
+`vllm_ascend/` at this ref (`rg -n 'no more than|max_local_expert' vllm_ascend/` is
+empty) — it belongs to CANN's `moe_distribute_dispatch_v2_tiling.cpp`, so its value
+carries CANN-version scope, and an older tree only surfaces the raw tiling error.
+
+The ladder is short because **no flag moves that count**:
+
+1. Drop `--enable-expert-parallel`, or keep EP while staying under
+   `world_size_across_dp/pp = 16` (DP1×TP8 = 8) → the `ALLGATHER` row, which never
+   calls this op. The reporter's own working run. Price: EP weight sharding is gone,
+   so the per-card MoE weight footprint goes up.
+2. Enlarge the EP group until `global_experts / ep_size <= 24` (512 needs ≥ 22 ranks;
+   `--data-parallel-size 4 --tensor-parallel-size 8` = 32 ranks → 16/card) — the only
+   way to keep MC2 by hand.
+3. Otherwise take a build with the fallback: upstream added "local experts over the
+   MC2 limit → `ALLGATHER`" as **PR #7364** (postdates v0.17.0rc1;
+   reporter-confirmed: service starts, load test normal, possible comm cost). It is a
+   per-batch selector decision, so EP weight sharding survives (`local_num_experts`
+   is computed in `FusedMoE.__init__`, independent of the method chosen per batch) and
+   only routing changes: `dp_group.all_gather` of hidden states + router logits
+   (padded to `max_tokens_across_dp`) and a closing `reduce_scatter` per layer
+   (`ops/fused_moe/prepare_finalize.py:378-379, 441`) instead of the sparse
+   dispatch/combine fused with the expert GEMM — which is exactly why the loss is
+   "every layer, no overlap", not a scale change.
+
+Refuted rows to keep in the answer: `--enforce-eager` and `cudagraph_capture_sizes`
+(the profiling batch *is* `capacity`, so MC2 is selected there whatever the capture
+size), the `HCCL_INTRA_PCIE_ENABLE=1`/`HCCL_INTRA_ROCE_ENABLE=0` pair (it only sets
+`need_expert_scale`, `token_dispatcher.py:112` / `utils.py:967-969`, and the kwargs
+carry no `comm_alg` or other layered parameter at this ref — `:158-176` — so A2 always
+dispatches *unlayered*; keep the documented performance pair, but do not offer it as
+an escape), `HCCL_BUFSIZE`,
+`HCCL_OP_EXPANSION_MODE=AIV` and `PYTORCH_NPU_ALLOC_CONF` (the reporter's failing and
+working runs both carried them; contrast `../hccl-and-hardware/aiv-mc2-env-ablation.md`,
+whose signature is `…V4 … 107020` inside a hang), and the card. Also watch EPLB: the
+count includes `global_redundant_expert_num`, so redundant experts can push a layout
+sitting at ≤ 24 over the cap. Worth reporting upstream (the recorded session proposed
+both): log the gate once when a fallback engages (at v0.17.0rc1 `moe_comm_type` is
+assigned with no log at all, `ascend_forward_context.py:70-72`, so the field cannot
+tell MC2 from ALLGATHER), and make the 24 a per-SoC/CANN value rather than a Python
+constant that silently disables MC2 for 512-expert layouts after a CANN bump.
+
 ## Step 3 — correct the premise: MC2 inherits the All2All finalize
 
 `PrepareAndFinalizeWithMC2(PrepareAndFinalizeWithAll2All)`
@@ -167,7 +241,9 @@ row 1 changes the outcome, the `additional_config` keys
 
 ## Scope
 
-Pins: vllm-ascend v0.12.0rc1 `42ceaf0`, vllm v0.12.0 `4fd9d6a`. The selector
+Pins: vllm-ascend v0.12.0rc1 `42ceaf0`, vllm v0.12.0 `4fd9d6a`. Step 2b is pinned separately at vllm-ascend
+v0.17.0rc1 `e20f0b1` + vllm v0.17.0, where the selector has moved to
+`ascend_forward_context.select_moe_comm_method:199-273` and the A2 row is at `:235-243`. The selector
 predicate, the capacity formula and the MC2/All2All inheritance are the parts to
 re-grep at another version (`_select_moe_comm_method`,
 `set_mc2_tokens_capacity`, `class PrepareAndFinalizeWithMC2`); A3 adds

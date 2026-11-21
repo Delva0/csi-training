@@ -24,6 +24,10 @@ Not this topic, leave immediately:
   `../image-dependency-faults/index.md`.
 - The engine never becomes ready, or a worker raised under a `WorkerProc` prefix
   → `../startup-failures/index.md`.
+- The request carries `guided_*` / `response_format` and vllm-ascend's own
+  scheduler raises `RuntimeError: Invalid request status: …` → that is downstream
+  fork drift, `../upstream-downstream-drift/scheduler-fork-missing-status.md`, not
+  the frontend.
 
 ## Rules
 
@@ -48,6 +52,14 @@ Not this topic, leave immediately:
   at vllm v0.16.0), so the engine stays healthy while requests fail. Separate the
   two in the answer; a reporter who says "the service failed" may only mean the
   requests did.
+- **Backend auto-selection prints a series of warnings that are one loop, not
+  several causes.** vLLM's guided-decoding `maybe_backend_fallback` is a sequence of
+  independent `if` blocks, so a later one undoes an earlier one: a host with no
+  xgrammar wheel sends `xgrammar`→`outlines` by *both* the arch gate and the import
+  gate, then the `json_object` gate sends it back to `xgrammar` and the dispatch
+  imports the missing backend anyway. Read the warnings in order, name the **last**
+  assignment, and check the request field that reached that block (a prompt asking
+  for JSON in words never does) — `guided-decoding-backend-aarch64.md`.
 - **One `history` grep, then stop.** These races are usually absent from the
   prior-month corpus (no `Already borrowed` hit at all across the recorded
   history); say "no precedent" and cite the upstream issue/comment instead of
@@ -60,3 +72,11 @@ Not this topic, leave immediately:
   threads that share one HF fast tokenizer in the API-server process, the single
   retry upstream already ships for this exception, the serial-request / retry
   ladder, and the transformers-version evidence gap.
+- `guided-decoding-backend-aarch64.md` — the worked #1592 case: a
+  `response_format: {"type": "json_object"}` request 500s on aarch64/Kylin while
+  plain chat answers; the three warnings as one loop with the pinned `path:line`s
+  (`requirements-common.txt:24` `xgrammar == 0.1.11; platform_machine == "x86_64"`,
+  `guided_decoding/__init__.py:47-50, 81-86, 89-93`, the unbound `xgr` at
+  `xgrammar_decoding.py:89`), why `--guided-decoding-backend outlines` cannot escape
+  and `lm-format-enforcer` can (including the `json_schema`-only per-request
+  default), and the two checks that place a new report.

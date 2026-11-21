@@ -56,3 +56,12 @@ page (`../tutorial-verification/index.md`).
    #1262 replay spent 15 assistant turns on bare tool calls and put its first
    message text on the last turn. First message = the absence verdict plus the
    first two checklist rows; the rest of the sweep can follow.
+8. **When the edit is to a test that "passes" while the device faults, the edit alone
+   may not remove the fault.** Shape-only asserts on an asynchronous NPU hold whether
+   the kernel computed anything or aborted, so such a test is not coverage; the parser
+   is `ASCEND_LAUNCH_BLOCKING=1`, and the replacement is a numerical assert against the
+   tree's own reference implementation. Then trace the proposed input change against
+   the line the fault passes through: aligning a shape or a length does **not** remove
+   a null-optional read in the op, so ranking it as the cheapest rung overstates it.
+   Worked case, with the reference-implementation layout trap:
+   `../custom-ops-runtime-faults/fla-chunk-varlen-null-chunk-offsets.md`.

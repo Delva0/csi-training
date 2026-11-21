@@ -49,8 +49,8 @@ whose `head_dim` is derived, not a nested-VL config — `hf_text_config` was alr
 in use), and the same reporter's next round hit
 `ImportError: ascend_transport.so` that turned out to be the launcher's effective
 `LD_LIBRARY_PATH` rather than the image; both lanes are now in
-`references/startup-failures/connector-config-attributes.md` and
-`references/image-dependency-faults/launch-env-and-library-path.md`;
+`../startup-failures/connector-config-attributes.md` and
+`../image-dependency-faults/launch-env-and-library-path.md`;
 
 **#1144** vllm-ascend v0.7.3.post1 (`c69ceac`) / vllm v0.7.3, torch+torch_npu 2.5.1,
 aarch64 EulerOS: `import mindie_turbo` →
@@ -465,3 +465,51 @@ dist-info probe under `/tmp` that vanished between calls, and was cut at the 16 
 with no final answer. No reporter follow-up in the corpus: which residue case applied
 stays open. Route: `../image-dependency-faults/plugin-load-module-missing.md` (three
 candidates, one `python -c` check each).
+
+**#15836** vllm-ascend v0.23.0 image (`5cb98caa`), 1×Atlas 800 A2 (64 GB × 8) 910B3,
+DeepSeek-V4-Flash-w8a8-mtp from ModelScope, launcher "完全拷贝" the tutorial's single-node A2 block. The
+body carried two screenshots and no log; the OCR shows
+`ValueError: DSA CP requires SP to be enabled. Please enable SP(set VLLM_ASCEND_ENABLE_FLASHCOMM1=1) to
+use DSA CP.` wrapped as `EngineCore failed to start`. Cause: `--additional-config` kept
+`"enable_dsa_cp": true` while the copied env block dropped `export VLLM_ASCEND_ENABLE_FLASHCOMM1=1`
+(doc `:196`), and `enable_dsa_cp()` raises during model construction
+(`utils.py:1515-1536` from `models/deepseek_v4.py:739`) before any weight load. The recorded run
+delivered verdict + two fixes + the doc/line table on its 15th turn, and correctly flagged that the
+screenshot's `utils.py:1388` differs from the pin's `1533` (image built from a nearby commit; message
+identical). Route: `../dsa-sparse-attention/index.md`.
+**#955** vllm-ascend image `v0.8.4rc2` (env dump says `vllm-ascend 0.8.5rc1`,
+vllm 0.8.5.post1, CANN 8.1.RC1, torch-npu 2.5.1), Qwen2.5-VL-7B-Instruct on 910B2C
+×10, `tensor_parallel_size=4`: "[Bug] … Failed with HeaderTooLarge Error". All four
+ranks die in the same second as `Loading safetensors checkpoint shards: 0% … 0/5`
+with `safetensors_rust.SafetensorError: Error while deserializing header:
+HeaderTooLarge`, reached from `vllm_ascend/worker/worker.py load_model` →
+`model_runner.py get_model` → upstream `qwen2_5_vl.load_weights` →
+`model_loader/loader.py` → `weight_utils.safetensors_weights_iterator`
+`safe_open`, plus `_pickle.PicklingError: Can't pickle <class
+'safetensors_rust.SafetensorError'>` masking it on ranks 1-3. Track: the checkpoint
+*file* is not a safetensors container (Git-LFS pointer / partial copy / wrong
+file) — not TP, not model support (`supported_models.md:11` lists Qwen2.5-VL), not
+the image/CANN pair, not the title-vs-env version disagreement. The corpus has no
+`HeaderTooLarge` hit at all (title grep and issue search), so there was no product
+defect to find. The recorded run computed the LFS arithmetic locally (first 8
+bytes `b"version "` → u64 2336927755350992246 ≫ the 100 MB cap), could not verify
+the cap itself (no network for `uv --with safetensors`), and delivered the verdict,
+`ls -l`/`head -c 80`, a per-shard header script and the `--max-model-len` aside in
+one answer at turn 8. Page `../startup-failures/checkpoint-file-not-safetensors.md`,
+one call `../../scripts/checkpoint-header-scan.py <model dir>`. Open: how the
+weights were obtained and the shard sizes.
+**#12985** vllm-ascend `v0.23.0rc1-310p-openeuler` (tree v0.23.0rc1 `f4a08bdd`) +
+CANN 9.1.0-beta.1, 4× Atlas 300I Duo = 8 dies of ~43 GiB, Qwen3.5-35B-A3B-w8a8-MTP:
+`vllm serve --tensor-parallel-size 8 --max-model-len 100000
+--gpu_memory_utilization 0.6` with `FULL_DECODE_ONLY` + `enable_npugraph_ex` stalls
+behind repeated `No available shared memory broadcast block found in 60 seconds`,
+while a TP=4 / 60 K / 0.4 run with `--enforce-eager` serves fine — and that working
+command exists only inside the report's screenshots. Track: 310P platform limits, not
+HCCL. The recorded run read the OCR first (upstream's watchdog text, the reporter's
+own working script, and a co-tenant `mindie_llm_backend --npu_device_id 2`/`3` beside
+`Worker_TP0..3`), then answered with the `O(max_model_len²)` mask cost at the
+configured context, the documented TP>1 graph-capture budget, and a three-axis ladder;
+the reporter later reported the same stall on Qwen3-VL-32B and asked "是硬件的问题么".
+That second checkpoint retires every model lane, so the answer stays the documented
+platform limits plus co-tenancy — a broken card is the last row. Route:
+`../soc-platform-paths/atlas-300i-310p.md` (ranked actions, items 2-3).

@@ -88,14 +88,29 @@ argument's declared schema type — check it with
 mechanism, working arithmetic and reprinter: `arg-type-gate-unquoted-value.md`
 (#12261, GLM-5.1, vllm v0.20.2).
 
-**D. Any other mid-string damage** — duplicated or reordered fragments, a brace
-pair inside a string, two requests' deltas interleaved. The text itself is wrong:
-a generation/decoding report, not a protocol question.
+**D1. Missing head plus a repeated fragment** — the value loses its first
+characters (`[`, an opening `"`) and a fragment reappears a few characters later,
+`stream: false` clean, damage clustered where the script changes (ASCII ↔ 中文 ↔
+arrows). The streamed **text** was damaged before the parser saw it: the
+incremental detokenizer. Two sub-owners, and one log line or one comparison
+decides which — `detokenizer-text-delta.md`:
+- `content` carries the same damage at the same place → the detokenizer's text
+  delta (`vllm/v1/engine/detokenizer.py`); grep the server log for
+  `resetting decode stream` (the fast `DecodeStream` path's recovery) and ask for
+  the image's `tokenizers` version.
+- `content` clean, damage only inside `arguments` → the parser's own
+  `_compute_args_diff` length prefix over a re-rendered `args_so_far`.
 
-The cheap discriminator between C and D: reassemble the fragments and compare the
+**D2. Any other mid-string damage** — reordered fragments, a brace pair inside a
+string, two requests' deltas interleaved. The text itself is wrong: a
+generation/decoding report, not a protocol question.
+
+The cheap discriminator between C and D1: reassemble the fragments and compare the
 *parser's* final string with what the deltas accumulated to. Where the assembled
 string is the valid JSON **minus one character before the last streamed fragment**,
-it is the delta arithmetic, not the model.
+it is the delta arithmetic, not the model; where characters are missing at the head
+*and* extra ones repeat later, one producing step emitted them and the text path
+owns it.
 
 ## Step 4 — the ordered ablations
 
@@ -140,7 +155,11 @@ the owner from steps 2-3 and give these as the confirmation ladder.
   first; the second belongs with `../accuracy-benchmarks/short-prompt-corruption.md`
   and the sampler rows there.
 
-## Ownership cheat sheet (vllm v0.17.0 / vllm-ascend v0.17.0rc1)
+## Ownership cheat sheet
+
+Paths and line numbers here were checked at vllm v0.17.0-v0.23.0 /
+vllm-ascend v0.17.0rc1-v0.23.0; re-read the branch at the reporter's ref when the
+report is about a version the topical page does not name.
 
 | Symptom in the paste | Owner |
 |---|---|
@@ -149,5 +168,6 @@ the owner from steps 2-3 and give these as the confirmation ladder.
 | `finish_reason: "tool_calls"` with short arguments | the stream ended early — engine or delta, decided by `return_token_ids` |
 | arguments valid but the model answered only CoT / no `tool_calls` | parser+flag gate: `--tool-call-parser`, `--enable-auto-tool-choice`, `--async-scheduling` row |
 | balanced braces, odd quotes, no opening quote on a value, `stream: false` clean | the tool parser's delta arithmetic, keyed on the argument's declared schema type (`arg-type-gate-unquoted-value.md`) — upstream vLLM, not the model and not vllm-ascend |
+| leading characters of a value missing **and** a fragment repeated later, `stream: false` clean, often at a script boundary | the streamed text: the incremental detokenizer (`detokenizer-text-delta.md`) when `content` is damaged identically, the parser's length diff when only `arguments` is — one grep for `resetting decode stream` separates them |
 | token ids short with `num_speculative_tokens >= 3` | vllm-ascend sampler (`sample/rejection_sampler.py:114`) |
 | token ids short with `num_speculative_tokens <= 2` | not block verify: look at the stop-token/`parse_output` trimming and the model's own early stop |

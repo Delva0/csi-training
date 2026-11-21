@@ -65,6 +65,13 @@ Conditional routes:
   checkpoint artifact decides (310-suffixed conversion vs the generic `-w8a8`),
   and the 310P `W8A8_DYNAMIC` scheme is the one path that forwards the model's
   fp16 bias → `310p-quant-checkpoint-soc-match.md` (three checks, no engine walk).
+- A **VL or OCR** checkpoint on 310P **serves and answers garbage** — 乱码,
+  "精度有问题", "随便跑个图片识别就能复现", no traceback, while a text model on the
+  same box is fine and the report names a sibling VL model that "seems OK" →
+  `310p-vl-ocr-garbage-output.md`. The per-model doc support lookup reproduces
+  that split, document parsing is a layout → recognise pipeline (the VLM alone is
+  one stage), and the 310P rope-branch map there is a single probe via
+  `scripts/310p-rope-branch.py`, not a source walk.
 - The op cannot be resolved for the SoC at all (`EZ1001`, `Get regInfo failed`,
   `does not support opType [X] … socVersion [ascend910_93]`) — a build/install
   fault, not a platform path →

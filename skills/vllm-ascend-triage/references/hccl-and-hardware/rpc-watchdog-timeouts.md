@@ -11,6 +11,18 @@ frames are `multiproc_executor.py` and `shm_broadcast.py`. It is not an HCCL
 or NIC timeout, and the paste usually cannot name the owner — so the deliverable
 is the classification plus the per-rank artefacts to request.
 
+Two conditional routes before the ranked list below:
+
+- **The trigger is the traffic shape** — one request at a time hangs at replay
+  while concurrency is served normally, on `-dp N` with ACL graph on: the idle
+  ranks run `execute_dummy_batch() -> _dummy_run(1)` and the pad target is not the
+  suspect. `dp-aclgraph-single-request-hang.md` (recorded #3128).
+- **The deployment is DP>1 with MoE**, hang or no hang: the DP all-gather's pad
+  target, the `with_prefill` phase vector and the owner slice are already worked
+  out in `../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`. Read it
+  instead of re-deriving shapes from source — that derivation is what has
+  consumed sessions.
+
 ## What the frames are (verified at the pinned commits)
 
 | Frame in the paste | Site (vllm `v0.9.2`, `a5dd03c1`) | What it means |
@@ -102,9 +114,19 @@ firing is expected in this configuration at all.
    `collective-error-chain.md` applies, not this page.
 
 Actions in order: env + flags from the recipe → `--enforce-eager` re-run →
-`--enable-expert-parallel` off (EP=TP, no cross-DP MoE collective) → TP=8/DP=2 →
-`ASCEND_LAUNCH_BLOCKING=1` re-run for attribution. Raising
+`--data-parallel-size 1` at the same world size (removes the DP collectives) →
+TP=8/DP=2 → `ASCEND_LAUNCH_BLOCKING=1` re-run for attribution (it needs
+`cudagraph_mode == NONE`, so pair it with `--enforce-eager`). Raising
 `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` buys observation time; it is never the fix.
+
+**Do not rank `--enable-expert-parallel` off as "the cross-DP collective removed".**
+At vllm-ascend v0.10.2rc1 (`048bfd5`) `_get_fused_moe_state(ep_size, with_prefill)`
+maps `ep_size == 1` to `NaiveMulticast` (prefill) / `AllGather` (decode)
+(`vllm_ascend/ascend_forward_context.py:26-42`), and the `dp_size > 1` branch in
+`vllm_ascend/ops/fused_moe.py:454-470` still pads to
+`forward_context.max_tokens_across_dp` and calls `get_dp_group().all_gather(...)`.
+EP changes *which* branch runs, not whether a DP collective exists; only
+`--data-parallel-size 1` removes them.
 
 Ask back for: the full per-rank log (every `WorkerProc` / rank-prefixed line), the
 plog covering the failure minute, `npu-smi info` from during the hang, the CANN /

@@ -34,7 +34,12 @@ allocator retention) owns the rise — `container-working-set-growth.md`.
 Not an accuracy or corruption report, and not a collective error even when the
 crash text names one (`HcclAllGather` in a late OOM is the allocation site); go
 to `../hccl-and-hardware/index.md` first only when a real collective failure
-accompanies the OOM.
+accompanies the OOM. The one HCCL form that *is* this topic: `EI0007 … Failed to
+allocate resource[qp] … Memory resources are exhausted` at graph capture with a
+`[Create][DestLink]` line for every peer — budget, not link
+(`../hccl-and-hardware/qp-resource-exhausted-at-graph-load.md`), and note the KV
+cache is allocated before capture, so a start-up that fails there already holds
+its `--gpu-memory-utilization` share.
 
 Inherit the rules in SKILL.md. Rules that decide success here:
 

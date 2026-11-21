@@ -21,6 +21,14 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   `anyOf: [string, null]` argument schema). That shape is the parser's
   per-token delta arithmetic, not a lost tail and not a model fault —
   `arg-type-gate-unquoted-value.md`.
+- **no call at all**: `tool_calls` empty or missing with `finish_reason: "stop"`
+  and ordinary prose in `content`, often conditional on non-thinking mode or
+  "概率性" ("tool call empty", #12658 DeepSeek-V4-Flash-w8a8-mtp,
+  `enable_thinking: false`). The uploaded dumps decide it: the engine's own
+  completion contained no tool-call marker, so the model chose not to call and
+  the deliverable is a *rate* plus the mode/vendor-API ablations, not a parser —
+  `no-tool-call-in-raw-output.md`, one call:
+  `scripts/toolcall-raw-output-audit.py <attachments dir>`.
 
 Not this topic — leave with the linked route:
 
@@ -37,32 +45,54 @@ Not this topic — leave with the linked route:
 
 ## Rules
 
+**Before rule 1, split the shape: is there a call to damage at all?** Rule 1
+audits an assembled call; a report whose `tool_calls` is *empty* has no
+assembled string to audit. For that shape run
+`uv run --no-project python <skill_root>/scripts/toolcall-raw-output-audit.py
+<attachments dir>` on the request / rendered-prompt / raw-completion dumps: no
+marker in the model's own output ends the investigation in the model-choice
+lane (`no-tool-call-in-raw-output.md`), and only a marker that survives to the
+parser puts you back on rule 1.
+
 1. **The message the reporter pastes is the client's, so the first artefact is
    the assembled string, not the model.** Concatenate
    `choices[i].delta.tool_calls[j].function.arguments` in arrival order and ask
    what the concatenation is (`bash <skill_root>/scripts/sse-toolcall-audit.sh
    <raw-sse-or-paste>`; it now labels the outcome itself — `balanced`,
    `quote-gap` = balanced braces with an odd quote count, `tail-lost`,
-   `malformed` — so its verdict no longer has to be overridden by hand). It has
-   four outcomes and they have different owners:
+   `malformed` — so its verdict no longer has to be overridden by hand). Its
+   outcomes have different owners:
    parses as JSON → the client's accumulation/framing; missing tail
    (unbalanced `{`/`"` at the end, `finish_reason` still `tool_calls`) → the
    stream stopped short; **braces balanced but quotes odd, with the gap inside a
    value** → the parser's incremental delta, decided by the argument's declared
    JSON-Schema type (`arg-type-gate-unquoted-value.md`; run
-   `scripts/tool-schema-type-audit.py` on the request body); anything else
-   unbalanced in the middle (duplicated/reordered fragments, a brace pair inside a
-   string) → the text itself is wrong. The third outcome looks like the fourth
-   until you check, so check it: a parser that emits valid *deltas* never leaves a
-   quote out, while a parser whose final `args_so_far` is valid but whose deltas
-   are a length-prefix of it reproduces exactly this string (the recorded #12261
-   run recovered it from the two functions alone).
+   `scripts/tool-schema-type-audit.py` on the request body); **characters missing
+   at the head of a value plus a fragment repeated a few characters later** → the
+   streamed *text* was already damaged, and that has two owners: the incremental
+   detokenizer when `content` shows the same damage at the same place
+   (`detokenizer-text-delta.md`; one log grep for `resetting decode stream`
+   decides it), the decoding/spec-decode lane when `content` is clean; a brace
+   pair inside a string or reordered fragments → the text itself is wrong. The
+   `quote-gap` outcome looks like the others until you check, so check it: a parser that
+   emits valid *deltas* never leaves a quote out, while a parser whose final
+   `args_so_far` is valid but whose deltas are a length-prefix of it reproduces
+   exactly this string (the recorded #12261 run recovered it from the two
+   functions alone).
    Do this before reading any parser, sampler or kernel. Two recorded
    calibrations: #7580's paste reassembles to `{"filePath":"/…/K8sYamlAgent.java`
    and `json.loads` reproduces the reporter's own `Unterminated string starting
    at: line 1 column 13 (char 12)`; #8122's pasted 97-chunk stream reassembles to
    fully valid JSON, so the sample in the issue was *not* one of the failing
    requests — say so instead of inventing a mechanism for a healthy stream.
+   **Both mid-string owners are version-specific, so read the branch at the
+   reporter's ref before naming it**: the schema-type gate documented for vllm
+   v0.20.2 is fixed at v0.23.0 (`_is_string_type` now uses
+   `extract_types_from_schema`, so a nullable `anyOf` string takes the quoted
+   branch), and at v0.23.0 the incremental detokenizer has a fast
+   `DecodeStream` path whose reset warning is the fingerprint. A report at that ref
+   showing a lost *leading* character therefore points at the text delta, not at the
+   gate — `arg-type-gate-unquoted-value.md` §Version correspondence.
 2. **A numeric `stop_reason` in a chunk is upstream vLLM's own field, not
    corruption.** `ChatCompletionResponseStreamChoice.stop_reason: int | str |
    None` is vLLM-specific (`vllm/entrypoints/openai/chat_completion/protocol.py:120`
@@ -116,11 +146,27 @@ Not this topic — leave with the linked route:
 ## Pages
 
 - `streamed-arguments-audit.md` — the audit procedure: how to obtain the raw SSE,
-  how to read the script's output and the four outcomes (A-D), the ordered
+  how to read the script's output and the outcomes (A, B, C, D1, D2), the ordered
   ablations
   (`return_token_ids` → `stream: false` → `num_speculative_tokens: 2` →
   `temperature: 0` → `--async-scheduling` off), what to send back, and the worked
   #7580 / #8122 rows.
+- `no-tool-call-in-raw-output.md` — the *missing* call: which of the four
+  dumps (request body, rendered prompt, tokenized request, raw completion)
+  exonerates which layer, how to join them (prompt-token count, not the user
+  message), the four-row rate protocol (N repeats → thinking on → vendor API →
+  `temperature: 0`), the #12658 facts read from its own uploads, and the owners
+  the dumps exclude (`patch_deepseek_v4_tool_call_parser.py`,
+  `patch_deepseek_v4_thinking.py`, `patch_tool_choice_none_content.py`'s
+  dropped `tool_calls: []`, `finish_reason` set only when a call was seen).
+- `detokenizer-text-delta.md` — the third owner, for damage **inside the text**:
+  missing head plus a repeated fragment at a script boundary, `stream: false`
+  clean. The two incremental-detokenizer paths at v0.23.0
+  (`vllm/v1/engine/detokenizer.py:49-66`), the fast path's
+  `resetting decode stream` warning as the one decisive log line, the slow path's
+  `new_text[len(prefix_text):]` slice, the `content`-vs-`arguments` comparison, the
+  `tokenizers >= 0.22.0` gate, and the client-side validate-and-repair workaround
+  (#14656, GLM-5.2 PD).
 - `arg-type-gate-unquoted-value.md` — the other, more common shape: a *string*
   argument streamed with no opening quote while the closing quote and `}` arrive.
   The `_is_string_type` gate (`glm4_moe_tool_parser.py:127-148`, only a top-level

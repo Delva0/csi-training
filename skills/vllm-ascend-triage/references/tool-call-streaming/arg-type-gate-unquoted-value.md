@@ -80,6 +80,45 @@ The recorded SSE delivered them as three argument chunks (`{"hvd": P`, `ura90`,
 `0"}`) because one chunk can carry several token steps. The counterfactual row is
 the proof that the gate, not the model, is the trigger.
 
+## Version correspondence: the gate is fixed by vllm v0.23.0
+
+Everything above is `vllm v0.20.2`. Re-read the gate before citing it, because the
+recorded #14656 shape (GLM-5.2, PD, `stream: true` only, "缺失首 `[`、文本重复、
+转义符异常") is the *same family* at a ref where the gate no longer fires. At
+`vllm v0.23.0` (`0fc695fc6d1d`), `vllm/tool_parsers/glm4_moe_tool_parser.py`:
+
+- `_is_string_type` (`:130-136`) now runs `extract_types_from_schema` and returns
+  `set(param_types) - {"null"} == {"string"}`, so a nullable
+  `anyOf: [string, null]` argument **is** a string and takes the quoted branch. The
+  #12261 trigger is gone at this ref, and the reporter's own workaround (declare a
+  plain `"type": "string"`) is obsolete there.
+- Complete string pairs render through `json.dumps(value, ensure_ascii=False)`
+  (`:348`), including the "don't strip, it must match the partial path" comment;
+  the partial string branch escapes with `_json_escape_string_content` (`:396`), the
+  non-string partial is still raw (`:399`).
+- The length-prefix delta is unchanged in kind: `_compute_args_diff` (`:409-417`)
+  returns `args_so_far[len(streamed_args_for_tool[index]):]`, so any step that
+  re-renders earlier characters still loses them. The remaining non-monotone
+  producer is the **non-string** path: `_deserialize(value.strip())` re-rendered by
+  `json.dumps` (`:350`) normalises spacing inside an `array`/`object` value, so a
+  value that streamed raw at `:399` gains characters after commas on completion.
+  For a *string*-typed argument the rebuild is monotone at this ref.
+- The frontend reconciliation is **gone**: `rg -n '_create_remaining_args_delta'
+  vllm/` and `rg -n 'streamed_args_for_tool|prev_tool_call_arr' vllm/entrypoints/`
+  return nothing at v0.23.0 (the field survives only inside the parsers,
+  `vllm/tool_parsers/abstract_tool_parser.py:70`). Consequence for ownership: the
+  Ascend patch's `OpenAIServingChat._create_remaining_args_delta = staticmethod(…)`
+  (`patch_glm_tool_call_streaming.py:140`) now assigns a method upstream never calls,
+  so that half is inert at this pairing while its
+  `chat_completion_stream_generator` wrapper still re-frames terminal chunks. Say
+  which half you excluded rather than excluding the file as a whole.
+
+So on a v0.23.0+ report with a **lost leading character**, the gate is not the
+mechanism: check the streamed text itself (`detokenizer-text-delta.md`, one grep for
+`resetting decode stream`) and the non-string rebuild above, and state the fix shape
+as "detect prefix divergence instead of trusting a length" — the same defect class,
+in the two places that still have it.
+
 ## Procedure (four checks, cheapest first)
 
 1. **Reassemble the deltas** — `scripts/sse-toolcall-audit.sh <raw-sse>`. Look for
@@ -132,7 +171,9 @@ even though it patches the same SSE generator.
 Adjacent code to read before proposing a frontend fix: `serving.py:1141-1163`
 (v0.20.2) computes a `remaining_call` suffix from
 `tool_parser.prev_tool_call_arr[index]["arguments"]` versus
-`streamed_args_for_tool[index]` and emits it as one more delta. Both fields are
+`streamed_args_for_tool[index]` and emits it as one more delta — at v0.23.0 that
+reconciliation no longer exists upstream (§Version correspondence), so do not carry
+this paragraph forward as if it were current. Where it does exist, both fields are
 written by `_compute_args_diff`, so this reconciliation repeats the same
 bookkeeping rather than repairing it — but it is *why* the answer should say
 "fix the diff, not the frontend re-send", and the terminal chunk in the reporter's

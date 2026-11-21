@@ -34,7 +34,7 @@ existed. Route now `../pd-disaggregation/plane-selection-a3-parameter-plane.md`.
 — the `method == "mtp"` gate missing `qwen3_5_mtp` — is refuted by upstream's
 `MTPModelTypes` → `"mtp"` rewrite (`vllm/config/speculative.py:520-524`); the
 artifact list plus ablation rows were the right deliverable, the ranking was not
-(`references/pd-disaggregation/hybrid-state-transfer.md` §3).
+(`../pd-disaggregation/hybrid-state-transfer.md` §3).
 
 **#5295** vllm-ascend v0.12.0rc1 (`42ceaf0`) / vllm v0.12.0 (`4fd9d6a`), GLM-4.5-W8A8
 on one 16-card 910B node: `--data-parallel-size 2 --tensor-parallel-size 8

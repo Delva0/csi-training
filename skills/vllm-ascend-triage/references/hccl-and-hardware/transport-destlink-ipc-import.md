@@ -28,6 +28,12 @@ Not this lane — same code family, different owner:
 - a *cascade*: one rank pasted a different, non-collective error (a client RPC, a
   weight update) and the rest fail to build links **to that rank** →
   `weight-sync-hccl-cascade.md`; count the ranks before reading the edge set.
+- a **refused local allocation** reported through the same sentence:
+  `EI0007 … Failed to allocate resource[qp] … Reason: Memory resources are
+  exhausted`, with a `DestLink` line for **every** peer and no
+  `halShmemOpenHandle` / `507899` line, at graph capture → the OOM-class budget
+  lane, `qp-resource-exhausted-at-graph-load.md`; the edge set is not the finding
+  there.
 
 ## Read the fields, then the edge set
 

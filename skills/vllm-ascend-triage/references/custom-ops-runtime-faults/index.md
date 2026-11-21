@@ -110,6 +110,13 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   names the chip's failure class, not a tiling defect in the named op (recorded #10829:
   the reporting rank printed `Device:0`, the dump named `chipId:4`). Route to
   `../hccl-and-hardware/index.md` and do not compute tiling for it.
+- **A custom op that faults only in varlen mode is a null-optional read before it is a
+  geometry bug.** When `507015` / `The MPU address access is invalid` names an FLA/GDN
+  op and the kwargs carry `cu_seqlens`, check whether the optional chunk-index buffer
+  the kernel dereferences was passed at all (Python `None` → binding optional →
+  `nullptr`), and compare against the sibling op that ran on the same null argument —
+  the one that survived does not read that buffer. Aligning the sequence lengths does
+  not remove a null read: `fla-chunk-varlen-null-chunk-offsets.md`.
 - Map the op name to its source tree first (`csrc/<op>/`), then to the tiling mode table in
   `op_host/<op>_tiling.cpp`: the same kernel entry runs several very different kernels
   (tiling key dispatch), so "the kernel" is ambiguous until you know the mode.
@@ -139,6 +146,12 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   decides they are reached at all, the CANN 8.3-vs-8.5 operator-availability axis,
   and why the "please validate DP/TP at start-up" request resolves to three
   specific gates rather than a layout matrix.
+- `fla-chunk-varlen-null-chunk-offsets.md` — `507015` (`MPU address access is
+  invalid`) from `chunk_fwd_o` in the chunked GDN prefill at v0.20.2rc1: the two
+  candidate mechanisms and the sibling-op decider, the null `chunk_offsets` chain
+  (`chunk.py:95` → binding → `nullptr` → scheduler), the Python-gate gap, the fix
+  ladder with the `prepare_chunk_indices` route, and why a shape-only nightly op test
+  reports PASSED while the kernel faults (plus the `[N,H,V,K]` vs `[N,H,K,V]` oracle trap).
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
   each line does/does not pin down.
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend

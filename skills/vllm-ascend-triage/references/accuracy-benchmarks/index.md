@@ -13,7 +13,7 @@ se), then by `finish_reason`. A report that pastes only a response body — thin
 `content`, `reasoning`/`reasoning_content` missing, `reasoning_tokens: 0` — is also this
 topic: the answer is the serve flag's presence, not a kernel.
 
-Six entry shapes leave this topic immediately and are not accuracy questions at all:
+Seven entry shapes leave this topic immediately and are not accuracy questions at all:
 
 - Wrong or alternating answers in a **PD/EPD** deployment on a hybrid
   linear-attention model (GDN/Mamba: Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) — the
@@ -36,6 +36,12 @@ Six entry shapes leave this topic immediately and are not accuracy questions at 
   `，，，`) with "and it is very slow", on a VL model — that is not a score
   question and not the text-corruption profile: the downstream vision tower owns
   it, and one env var decides it. Go to `vl-vision-tower-degeneracy.md`.
+- A **VL or OCR** checkpoint on **310P / Atlas 300I** answers garbage while a text
+  model on the same box is fine: the support verdict and the layout → recognise
+  *pipeline* come first, because the VLM alone is one stage of a document-parsing
+  product and its Atlas-300 support is a per-model doc statement, not a matrix
+  column. Go to `../soc-platform-paths/310p-vl-ocr-garbage-output.md`; the rope
+  branch there is one probe (`scripts/310p-rope-branch.py`), not a walk.
 - The comparison is between **embedding vectors** (cosine, `/v1/embeddings`,
   `--runner pooling`, `--task embed|score|classify`) rather than between answers:
   no text is generated, so `finish_reason` and extraction play no part and the
@@ -63,6 +69,15 @@ Six entry shapes leave this topic immediately and are not accuracy questions at 
   owners are the text-only-multimodal `is_multimodal_model` drift and the
   first-request state that `enable_sleep_mode=True` exposes.
   Go to `first-generate-degenerate.md` before any kernel read.
+- A **tiny** prompt (a handful of tokens) answered as *one token repeated* to
+  `finish_reason: length` at `temperature: 0` on a DeepSeek-V2-Lite serve (MLA,
+  `q_lora_rank: null`) is the model-scoped shape: the recorded #894 pairing bump
+  (vllm `f32fcd94` + vllm-ascend `f24375f`, incl. #905) did **not** fix it
+  (reporter-confirmed), so the nightly-vs-image stack question is answered — go to
+  `deepseek-v2-lite-mla-degeneracy.md`, take its checkpoint/prompt row first (the
+  validated row is `-Chat`, not the base model) and keep the two V2-Lite-only
+  branches (`q_proj` when `q_lora_rank is None`, the `global_num_experts == 256`
+  MoE gate) as labelled suspects rather than causes.
 - First question: **did both numbers come from the same server, weights and serve flags?**
   If yes, the engine produced identical logits for identical prompts, so the gap lives in
   prompt template, sampling, decoding budget, output routing, extraction or aggregation — not
@@ -171,6 +186,14 @@ Six entry shapes leave this topic immediately and are not accuracy questions at 
   `usage.prompt_tokens`, not the size of the pasted request, decides which of the two
   corruption pages you are in — and a **short** prompt with a tens-of-thousands-token
   completion that repeats sentences is neither: see `long-output-repetition.md`.
+- `deepseek-v2-lite-mla-degeneracy.md` — DeepSeek-V2-Lite (MLA, `q_lora_rank: null`)
+  at TP>1 answering a 4-token prompt with 50 copies of one token, nothing crashing:
+  the reporter-confirmed refutation of the stack-pairing hypothesis (#905 bundle did
+  not fix it), the checkpoint/prompt row that comes before any kernel read (validated
+  row is `-Chat`; the tutorial's own sample output is already malformed prose),
+  TP=1 / CPU-reference / torch_npu rows, the pin's forced `enforce_eager`
+  (`platform.py:124`) that removes the graph row, and the two V2-Lite-only code
+  surfaces with one grep each (#894, #374, #406).
 - `long-output-repetition.md` — a few responses in a long accuracy run come back with
   sentences repeated ("5 条响应的句子重复"), fluent and on-topic, on a documented model
   with PD + MTP + prefix caching and a large `max_tokens`. The identity row

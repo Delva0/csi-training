@@ -6,8 +6,9 @@ The executable half of `SKILL.md` procedure step 3: for each lane and track, the
 checks to take **before** any source archaeology, each ending at the topical page
 that owns the rule. `scripts-catalogue.md` is the same material one level down:
 the flag synopsis and expected reading of every re-runnable script the two pages
-name. It is consulted per report — place the report with the
-classification table in `SKILL.md`, then read only the entry for that track.
+name. It is consulted per report — place the report with the signature index
+(`signature-routes.md`) or `SKILL.md`'s topic-entry table, then read only the entry
+for that track.
 `SKILL.md` keeps the Lane A/B/C ordering, the attribution rule and the delivery
 gates; this topic keeps the per-track detail that used to sit beside them.
 
@@ -20,14 +21,18 @@ gates; this topic keeps the per-track detail that used to sit beside them.
 - One axis per launch when you propose an ablation, cheapest first.
 - A named script under `scripts/` is the check — run it rather than re-deriving
   its arithmetic by eye.
-- Links on the content page are skill-root relative (`references/<topic>/…`),
-  exactly as they appear in `SKILL.md`; prepend `<skill_root>` when running a
-  script from them.
+- Links are either relative to the file that carries them
+  (`../<topic>/<page>.md`) or skill-root relative (`references/<topic>/…`, as in
+  `SKILL.md`); prepend `<skill_root>` when running a script.
 - If no entry matches, fall back to `SKILL.md`'s general sequence: version
   correspondence, one `history/` grep, then the owning code path.
 
 ## Routes
 
+- `signature-routes.md` — the 111-row classification index (log fragment →
+  track A/B/C/D → owning page), moved out of `SKILL.md`. Its scope defines the four
+  tracks; open it when the signature is specific, and read the middle cell before
+  following the link, since it carries the decisive local rule.
 - `scripts-catalogue.md` — every script under `scripts/`, with its arguments and
   what its output decides. Open it when a track or topical page names a script;
   the script's own header repeats the flags and is authoritative.

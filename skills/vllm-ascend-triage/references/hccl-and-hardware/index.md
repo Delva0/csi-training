@@ -68,6 +68,16 @@ convention and the rank-parity checks are in
 `dp_rank`/pad-target/`num_tokens` printed on **every** rank before touching the
 device lanes.
 
+If instead the **traffic shape** is the trigger — one request at a time hangs at
+graph replay and ends in the bare `TimeoutError: RPC call to execute_model timed
+out`, while several concurrent requests are served normally, on `-dp N -tp M` with
+ACL graph on — the idle ranks are on `execute_dummy_batch() -> _dummy_run(1)` and
+the pad target is *not* the suspect (the dummy path joins the same DP all_reduce
+first). `dp-aclgraph-single-request-hang.md` has the verified split, the pad map
+that says which bucket a single request replays, and the four-row ablation; one
+call: `bash <skill_root>/scripts/dp-single-request-bucket.sh --capture-sizes 8,1
+--dp 8 --tp 2`.
+
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
 bound`, check the record's date first (rule 13) and the number second: a port above
@@ -95,6 +105,20 @@ same-card vs cross-card against the `npu-smi` Bus-Ids, and all-cross-card with e
 card-local edge up puts it on the host driver/CANN pairing and the container's device
 passthrough, not on the model. `transport-destlink-ipc-import.md` (#4148, #486, and the
 #5236 driver-update precedent).
+
+**Then separate a *refused resource allocation* from that link-creation failure.**
+The two share the `[Create][DestLink]Create Dest error!` sentence, so read the
+**first** code and its reason. `EI0007 … Failed to allocate resource[qp] … Reason:
+Memory resources are exhausted` (plus `Possible Cause: …Notify register…`) is a
+local device comm-resource refusal: the DestLink block then prints **every** peer
+in the same millisecond, and the owning phase is graph capture
+(`compile_or_warm_up_model` → `capture_model` → `_compile_torchair_graph` →
+`LoadGraph failed, error code:1343225857` / `ERR03005 GRAPH internal error`). That
+is the OOM-class budget lane — KV cache is already resident because
+`initialize_from_config` allocates it before `compile_or_warm_up_model` — not an
+edge, a GE build or a card fault: `qp-resource-exhausted-at-graph-load.md`
+(#2754, maintainer-classified OOM; the `send_cq_depth` field is a request, not a
+knob).
 
 **Then separate a cascade from the primary, and count the ranks.** When a paste
 carries two error families and one of them comes from exactly **one** process, that
@@ -155,12 +179,17 @@ debugging" caveat.
 2. `transport-destlink-ipc-import.md` — `DestLink` / IPC-import failure at link
    creation: the edge-set read, the generic `507899`, why equal `localIpAddr` text is not
    a duplicate `device_ip`, and the driver-pairing ladder.
-3. `weight-sync-hccl-cascade.md` — RL weight-sync channel failures across a trainer and
+3. `qp-resource-exhausted-at-graph-load.md` — `EI0007` +
+   `Failed to allocate resource[qp]` at graph load: why a DestLink line for every
+   peer means the *local* resource pool refused, the GE cascade that carries it, the
+   `[1, max_num_seqs]` graph-count arithmetic, and the budget ladder (gmu,
+   `HCCL_BUFFSIZE`, graph mode off) before any driver theory.
+4. `weight-sync-hccl-cascade.md` — RL weight-sync channel failures across a trainer and
    a `vllm serve` rollout process: which rank owns the primary (the singleton), what
    `pyhccl.py`'s init already proves, why "not found specific resource" is CANN's own
    text for code 6, the standalone two-process broadcast with value comparison, and the
    release-scope caveat (no aliasing, no validated RL sync path at v0.10.2rc1).
-4. `collective-error-chain.md` — restore error attribution (the Python frame in
+5. `collective-error-chain.md` — restore error attribution (the Python frame in
    the traceback is usually a later synchronization point), read the plog, and
    stop attributing the defect to whichever op the traceback names. That page
    also covers the compile-phase case: fusion-pattern registration runs sample
@@ -173,7 +202,7 @@ debugging" caveat.
    tracks batch composition instead of hardware, the named op *is* the owner's evidence —
    the caller's index tensor. See `../dsa-sparse-attention/indexer-cache-scatter-fault.md`
    (#4296) before asking for device health.
-5. `device-health-checks.md` — check every device's health, correlate the
+6. `device-health-checks.md` — check every device's health, correlate the
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards.
 

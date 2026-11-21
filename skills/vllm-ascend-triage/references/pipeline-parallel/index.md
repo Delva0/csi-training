@@ -8,7 +8,7 @@ for a collective error on a PP cluster (that is `../hccl-and-hardware/index.md`)
 and not the lane for one-sided PP sizing/卡数 arithmetic
 (`../deploy-sizing/index.md`).
 
-Inherit the rules in SKILL.md. Three that decide this topic:
+Inherit the rules in SKILL.md. Four that decide this topic:
 
 1. **Read the docs' own PP statements before any code: they disagree, and the
    older one is the useful one.** One call —
@@ -37,8 +37,27 @@ Inherit the rules in SKILL.md. Three that decide this topic:
    model file is exonerated (upstream's own body returns `IntermediateTensors` for
    a non-last rank — e.g. `vllm/model_executor/models/qwen2.py:359-365`).
 
+4. **A single layer index in an error is an arithmetic fingerprint; compute it
+   before reading the executor.** `get_pp_indices` (`vllm/distributed/utils.py:95-141`)
+   gives the `layers % pp` remainder to partitions `[-2], [-3], …` — never the last
+   — so the naive `layers//pp` boundary is wrong for most layer counts (61 layers,
+   PP=4 → `[15,15,16,15]`, starts `0,15,30,46`). A worker that read a *sibling
+   stage's* per-worker kv-cache config can only name that stage's first layer, so
+   one `scripts/pp-layer-partition.sh` call decides the whole family; reading the
+   executor to "see whether the sort happens" cannot, and it is where the turns go.
+
 Conditional routes:
 
+- Kv-cache init (after weight loading, before any request) dies with
+  `KeyError: '<...>.layers.<N>.self_attn.attn'` raised in
+  `get_layers_from_vllm_config` behind `initialize_kv_cache →
+  initialize_attn_backend → get_attn_backends_for_group`, on a Ray launch with
+  `--pipeline-parallel-size` > 1 → `kv-config-rank-mismatch.md` first: this is the
+  per-worker `KVCacheConfig` index (`worker_base.py initialize_from_config` uses the
+  creation-time `global_rank` while Ray re-sorts the workers), not the offloading
+  connector's layer-type gap, and one fingerprint call
+  (`scripts/pp-layer-partition.sh --layers N --pp P --key-layer K`) separates it from
+  a genuine registration gap.
 - First request on a non-last PP rank dies with a bare `AssertionError`
   (`assert isinstance(output, IntermediateTensors)`) immediately after
   `acl_graph.py … Replaying aclgraph`, while the engine started cleanly → the

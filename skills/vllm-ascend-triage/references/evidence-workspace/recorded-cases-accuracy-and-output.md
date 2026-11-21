@@ -197,6 +197,21 @@ what it marks version-specific is the fix. The reporter's only later activity on
 thread is a failed attachment (`Failed to upload "repeated_responses.txt"`), which is
 why the page asks for the samples inline.
 
+**#14085** vllm-ascend v0.23.0rc1 (`f4a08bd`) + vllm v0.23.0 (`0fc695f`): GLM-5.2-w4a8c8
+across 8×910B (A2) PD disaggregation — `MooncakeConnectorV1`, both C8 sparse flags `true`,
+`--decode-context-parallel-size 8` + `--cp-kv-cache-interleave-size 128`, P `--enforce-eager`
+and D `FULL_DECODE_ONLY` with MTP 3, `--max-model-len 200000`; `opencode` against the proxy
+reports "偶现乱码，或重复说话" with no log at all. The run shipped a complete ranked answer
+inside ~10 assistant turns and its cap landed only in the closing scope paragraph: the C8
+lane first (the A2 8-node block of the same tutorial sets both flags `false`, `:1059-1060`,
+`:1142-1143`, while the reporter carried the 1M block's lattice verbatim, `:1365`/`:1436`),
+then the C8 write path, then MTP + graph, with the capture-size `298` lane closed by the
+upstream round-up. Two lessons are now on the pages: the reporter's later comment gave the
+evidence the report lacked — **one fixed prompt, 29 repeats in 193 runs (~15 %)** — so a
+two- or three-run clean check certifies nothing and the count belongs in the first answer's
+ask (`../accuracy-benchmarks/long-output-repetition.md`); and a per-block recipe lattice
+match beats a flag-by-flag delta (`../pd-disaggregation/recipe-contract-diff.md`).
+
 **#13002** v0.23.0 on A2, Kimi-K2.6 W4A8, 1P1D `MooncakeConnectorV1` + eagle3,
 ≥16 concurrent / ≥23K-token prompts: `</think>` leaking into `content`, repetition
 collapse, 乱码 in 6-10 % of requests, both serve commands pasted. **Shipped no

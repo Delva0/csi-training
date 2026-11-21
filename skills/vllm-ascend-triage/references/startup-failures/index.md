@@ -263,13 +263,18 @@ Inherit the rules in SKILL.md. Conditional routes:
   tensors into a dense model, behind the bare `Engine core initialization
   failed` (#2015). Ask for the per-rank traceback and the `quantization=` /
   `--quantization ascend` flag before ranking causes.
-- The loader raises `KeyError: '<prefix>.weight_scale'` (also `.scale` pre-remap)
-  at `param = params_dict[name]`, on every rank but with a **different layer** each
+- The loader raises `KeyError: '<prefix>.weight_scale'` (also `.scale` pre-remap,
+  and the whole `…mlp.experts….weight_offset` family of a W8A8 export) at
+  `param = params_dict[name]`, on every rank but with a **different layer** each
   time, drawn from a few module families (`self_attn.wkv`,
-  `self_attn.indexer.wq_b`, `self_attn.compressor.wkv`) →
+  `self_attn.indexer.wq_b`, `self_attn.compressor.wkv`, or `mlp.experts`) →
   `weight-scale-keyerror-quant-variant.md` first: this is the *mirror* of the
-  quantization gate below/above — the checkpoint owns a scale the engine built no
-  parameter for. Census the checkpoint's scale keys **before** reading
+  quantization gate below/above — the checkpoint owns a quant aux tensor the engine
+  built no parameter for. Two readings there for the offset form: an index-free
+  `experts.w2_weight_offset` is upstream's substring remap of a per-expert
+  checkpoint key (not a fused export), and at v0.8.5rc1 only `W8A8_DYNAMIC` allocates
+  MoE offsets at all, so a load-phase offset miss means that family resolved to
+  `FLOAT` (recorded #986). Census the checkpoint's scale keys **before** reading
   `modelslim_config.py` (`../../scripts/checkpoint-key-prefix.py --scales <dir>`),
   and get the serve command: scales confined to a handful of sub-projections with
   nothing declaring a quantisation mean a full-precision release served instead of
@@ -364,6 +369,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   insufficient available streams` sentence there is canned wrapper text printed
   for every capture exception, and the capture-size set may already be the
   computed maximum.
+- The appended inner error is `capture_begin: … AclmdlRICaptureBegin(capture_stream_,
+  capture_mode), error code is 207005` with `[SqCqManage]Alloc sq cq fail,
+  stream_id=1984, retCode=0x7020023` under it, and above it CANN's
+  `[Error]: Failed to apply for memory.` / `Check the remaining storage space in the
+  hardware environment` (= `207005` `ACL_ERROR_RT_RESOURCE_ALLOC_FAIL`; that sentence is
+  canned text, not disk or HBM) → `capture-stream-table-exhaustion.md` first: the device
+  stream table ran out at capture, A3's default AICPU HCCL unfolding is where the
+  formula under-counts, FAQ #18 is the project's own mitigation, and
+  `scripts/aclgraph-size-budget.sh` prices the set for the reporter's layer count. Not
+  `acl-graph-capture.md`'s `insufficient available streams` family, and not an
+  `NPU out of memory`.
 - The appended inner error is a **stream synchronize refusal** —
   `AclrtSynchronizeStreamWithTimeout(copy_stream), error code is 107027`, `EE9999 …
   Not allow to synchronize captured-stream, stream_id=N [FUNC:StreamSynchronize]`,

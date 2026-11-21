@@ -32,7 +32,7 @@ different faults. Tell them apart **before** any version reasoning:
 | What the line means | The decisive read |
 |---|---|
 | the artefact is on an index pip was never given (mirror-only build, extra index that lived in `requirements.txt` options) | does the wheel's `Requires-Dist` pin point at a `.dev`/`.post`/`rc` build, and are the `--extra-index-url`/`--pre` lines still in the **tree** but absent from the **metadata**? |
-| the pin set is genuinely unsatisfiable (two torch lines in one graph) | the `torch` / `torch-npu` / `torchvision` pins on both sides — `scripts/pip-pairing-check.sh` prints them and the contradictions |
+| the pin set is genuinely unsatisfiable (two torch lines in one graph) | the `torch` / `torch-npu` / `torchvision` pins on both sides — `scripts/pip-pairing-check.sh` prints them and the contradictions. **Not** every "conflicting dependencies" error is this row: a conflict that only names a `+cpu` local label is section C, and the two specs are compatible by PEP 440 |
 | pip cannot reach any index at all (air-gapped pod, image pip.conf pointing at a public mirror) | `pip config list` in that container, plus whether the same install ever reached an index |
 
 Only the middle row is a packaging defect; the first row is a missing index on the
@@ -175,6 +175,42 @@ fix is a wheel carried in, not a different pandas. Ladder:
    `--tokenizer /local/tokenizer` when that machine is also offline.
 5. Only then the upstream-facing point: the image could either ship `vllm[bench]` or
    document the offline wheel path; that is a packaging decision for the maintainers.
+
+## C. `Cannot install <a> and <b> because these package versions have conflicting dependencies` — the `+cpu` local label
+
+Recorded: **#7089**, `pip install vllm-ascend==0.15.0rc1 torch-npu==2.9.0` →
+`ERROR: Cannot install vllm-ascend and vllm-ascend==0.15.0rc1 because these package
+versions have conflicting dependencies.` / `The user requested torch==2.9.0` /
+`torch-npu 2.9.0 depends on torch==2.9.0+cpu`. Precedent one torch line earlier:
+**#4621** (`v0.11.0rc1`) with `torch-npu==2.7.1` / `torch==2.7.1` and
+`ResolutionImpossible`.
+
+pip's own advice ("loosen the range of package versions") points at the compatibility
+row; PEP 440 says this is the **visibility** row. Two rules, one probe:
+
+- a specifier with **no** local label ignores a candidate's local label, so `==2.9.0`
+  *accepts* `2.9.0+cpu`;
+- a specifier **with** a local label requires it, so `==2.9.0+cpu` *rejects* plain
+  `2.9.0`.
+
+So the two requirements in #7089 are satisfiable together and no version needs changing:
+pip failed because no index it was given served a `+cpu`-labelled torch. That label is
+built per machine upstream — `Ascend/pytorch` `setup.py:626` is
+`['torch==2.8.0+cpu' if platform.machine() == 'x86_64' else 'torch==2.8.0']` (`:625` on
+the 2.7.1 line) — and only `download.pytorch.org/whl/cpu` serves it. At `v0.15.0rc1`
+(`3d43ed9`) the tree pins `torch==2.9.0` (`requirements.txt:27`) beside
+`torch-npu==2.9.0` (`:42`), and the documented way to make it visible is
+`pip config set global.extra-index-url "https://download.pytorch.org/whl/cpu/"`
+(`docs/source/installation.md:135-139`) marked **[Optional]** and scoped to x86 — so a
+non-x86 reader skips it and hits this error. The reverse direction is why a hand-installed
+plain `torch` breaks `torch_npu` afterwards, and why the working environments' own dumps
+print `torch==2.9.0+cpu` (#6509, #6842).
+
+Probe it instead of asserting it:
+`uv run --no-project python <skill_root>/scripts/pep440-local-check.py '==2.9.0' '==2.9.0+cpu'`.
+`import packaging` fails in the no-project environment and `uv run --no-project --with
+packaging` needs the network, which is closed; the script falls back to
+`pip._vendor.packaging`, which is installed.
 
 ## Common rules
 

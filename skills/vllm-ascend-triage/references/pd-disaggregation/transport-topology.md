@@ -5,6 +5,14 @@ Scope: the transport-identity family — no KV pool in the deployment. When an
 `503900` block is usually the store segment size, not the rank table: take step 0
 below and `kv-pool-store-segments.md` first.
 
+Sibling for the **Mooncake** flavour: a `MooncakeConnectorV1` paste whose lines are
+`ascend_direct_transport.cpp:820 Failed to connect to target … 103900` +
+`Mooncake transfer failed, ret: -1` (not `HIXL Connect failed`) →
+`mooncake-adxl-connect-103900.md`. Same rank-table family, but the deliverable there
+is the D-side plog first, and `hostNetwork: true` — the recommendation in §3 below —
+only works for two Pods of **one** machine; cross-node P/D keeps `server_count = 2`
+and needs a valid `device_ip` instead.
+
 Worked case: #14506 — single node, 8×910B3, **no RoCE** (all `hccn_tool -i N
 -link -g` → DOWN, `-optical -g` → not present), k8s 1.36, 1P1D in two Pods with
 `hostNetwork: false`, `LMCacheAscendConnector` with `transfer_channel: "hixl"`,
@@ -120,7 +128,11 @@ test while every NIC stayed DOWN. That is the observation that distinguishes
 - **Same server_id, supported way**: `hostNetwork: true` for both Pods (or
   `docker --net=host`) keeps every other isolation property. That is the
   configuration in which the reporter does not see the failure: both sides then
-  advertise one address and `server_count` converges to 1.
+  advertise one address and `server_count` converges to 1. This is the
+  **single-machine** answer; across two machines the table stays `server_count = 2`
+  and the requirement is a `device_ip` per device (`hccn_tool -i N -ip -g`, A3
+  `-vnic -g`) — `mooncake-adxl-connect-103900.md` §3 and
+  `plane-selection-a3-parameter-plane.md` §1.
 - **Sibling channel as an experiment**: LMCache-Ascend's `hcomm_onesided`
   channel builds its own rank table and takes `server_id` from
   `socket.gethostname()`, with `device_ip` optional

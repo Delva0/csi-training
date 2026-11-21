@@ -27,9 +27,24 @@ output, or did no request ever reach a decode engine?**
   correctly`, `get dev list error:serverId[...]`, P/D pairs that only work with
   `hostNetwork: true`, `--net=host`, or one shared IP →
   `transport-topology.md`.
+- The same *no-pool* failure with the **Mooncake** connector instead of HIXL:
+  `E … ascend_direct_transport.cpp:820] Failed to connect to target: <P ip>:<port>,
+  status: 103900` + `:581] Failed to connect to segment` + `mooncake_connector.py:410]
+  Mooncake transfer failed … ret: -1`, first proxied request, every TP rank within
+  milliseconds, while both sides answer their own `/v1/completions`. Ask for the
+  decode node's plog **before** any `ss`/`nc`/`hostNetwork` test (a cross-node P/D is
+  multi-server by construction, so `hostNetwork` cannot collapse it) and do not let
+  an "add `use_ascend_direct`" hint spend a round — at `v0.11.0rc2` it already
+  defaults `True` → `mooncake-adxl-connect-103900.md`.
 - Connected, but the answer is corrupt/empty/alternating, or the decode node's
   first token is wrong, on a **hybrid linear-attention (GDN/Mamba)** model —
   Qwen3.5/Qwen3.6, DeepSeek-V4 — under PD → `hybrid-state-transfer.md`.
+- Connected, and an **image** request returns a fluent but unrelated short answer on a
+  **VL/OCR** model (Qwen2.5-VL family, DotsOCR, olmOCR) — while a single-instance serve
+  of the same body, image and flags answers it — is not a transport case: the control
+  run, `usage.prompt_tokens` on a good and a bad run, and the `--no-enable-prefix-caching`
+  flag the 1P1D recipe pins on both sides are the checks →
+  `../accuracy-benchmarks/vl-vision-tower-degeneracy.md` §*PD/EPD split*.
 - Connected, and the decode node **repeats** the same token or phrase to the model
   cap (`finish_reason: length`, e.g. `1 + 1 = 2.` ×2048) or otherwise answers wrong
   text on a **DSA/MLA sparse** model — GLM-5/5.2 (DSA), DeepSeek-V3.x (MLA), which are
@@ -225,6 +240,18 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   `None == None` trap of a hand-edited A3 table, the `hccn_tool` ping block plus the
   minimal 1P1D ladder, and why `cann/hccl`, `cann/hcomm` and the Mooncake export
   cannot answer the rest. Worked for #3959 (v0.11.0rc0).
+- `mooncake-adxl-connect-103900.md` — a Mooncake (`MooncakeConnectorV1`, no pool)
+  deployment that serves on both sides but fails the **first** KV pull with
+  `ascend_direct_transport.cpp:820 Failed to connect to target … 103900` and
+  `Mooncake transfer failed, ret: -1`: what the paste already fixes (handshake
+  reached, nothing timed out, 103900 is a compute-stack id, not an errno), the
+  D-side plog grep that decides (recorded #4866: `'device_ip' is not set correctly`
+  → `HcclCommInitClusterInfo failed, rankNum[0], server[]` → no segment port bound),
+  why cross-node `server_count = 2` makes `device_ip`/`hccn_tool` the fix and
+  `hostNetwork` the wrong instrument, the `use_ascend_direct` gate at `:905-911`
+  (default `True`, engine-name only, extra-config placement a no-op at that pin),
+  the ranked causes and the evidence limits (Mooncake's ascend transport absent from
+  the export; #4866 left open).
 - `transport-topology.md` — P/D has two Pod IPs on one node and the transport
   will not connect: how the engine id becomes HCCL's `server_id`, the plog grep
   set and rank-table decision, `HCCL_INTRA_ROCE_ENABLE` / `HCCL_INTRA_PCIE_ENABLE`

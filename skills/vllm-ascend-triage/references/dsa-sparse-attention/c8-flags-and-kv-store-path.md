@@ -83,18 +83,34 @@ or network fault, and asking for network evidence first costs the session.
 
 ## Rule 3: quote the pinned recipe for the reporter's *weights*
 
-`docs/source/tutorials/models/GLM5.2.md` at the pin ships two different C8
-combinations, and they are not interchangeable:
+`docs/source/tutorials/models/GLM5.2.md` ships four different C8 combinations across
+its layouts, and they are not interchangeable:
 
 | recipe | lines | flags |
 |---|---|---|
 | 5.1.2 multi-node, "A3 series", **GLM-5.2-w4a8c8**, 2 nodes | `:211`, `:261` | `enable_sparse_sfa_c8: false`, `enable_sparse_li_c8: true`, `c8_enable_reshape_optim: false` |
 | 5.1.3.1 "Deployment on 4 Atlas 800 A3", **GLM-5.2-w8a8c8**, TP16 × PP2, `max-model-len 202752` | `:505`, `:579` | all three `true` |
+| at v0.23.0rc1 `f4a08bd`, the **8-node Atlas 800 A2 (910B)** PD block, "Deployment on 8 Atlas 800 A2" | `:982-1212`; flags `:1059-1060` (P), `:1142-1143` (D); prose `:984` | **both** `enable_sparse_sfa_c8: false`, `enable_sparse_li_c8: false`, and **no DCP**; connector `MooncakeConnector` + `kv_connector_module_path` (`:1040,1121`), decode `DP8 TP4`, P/D MTP `1`/`3`, mml `115168`/`135168` |
+| at the same pin, the **1M PD** block (A3-class context) | `:1365` (P), `:1436` (D) | both C8 flags `true`; `enable_flashcomm1`/`enable_dsa_cp` true on P and false on D, `recompute_scheduler_enable` false on P and true on D |
 
-Support matrix (`:1817-1818`): `enable_sparse_sfa_c8` is *experimental in v0.23.0*,
-combinable with DCP on **w8a8c8** weights, while on **w4a8c8** "enabling both together
-has known issues and is not recommended"; `enable_sparse_li_c8` is documented as
-independent of it. Release notes at the pin: DCP must be enabled on P and D or on
+**The C8 flags are a per-SoC, per-topology recipe row, not a project default.** The
+same model's tutorial carries `false/false` for the 910B 8-node layout and
+`true/true` for the A3 4-node and 1M layouts, so "both sides match" is not the
+check: match the reporter's whole `--additional-config` key lattice against each
+block (the recorded #14085 deployment — 910B, `max-model-len 200000` — carried the
+1M block's lattice verbatim, C8 `true` and DCP 8 included). Say which block the
+command was copied from, then rank the deviating rows. A hand-written
+`cudagraph_capture_sizes` entry that is not a multiple of `num_speculative_tokens + 1`
+is not one of them (round-up, `../pd-disaggregation/recipe-contract-diff.md`).
+
+Support matrix at the **v0.26.0rc1** pin (`:1817-1818`): `enable_sparse_sfa_c8` is
+*experimental in v0.23.0*, combinable with DCP on **w8a8c8** weights, while on
+**w4a8c8** "enabling both together has known issues and is not recommended";
+`enable_sparse_li_c8` is documented as independent of it. That row is **absent from
+the v0.23.0rc1 matrix** (checked for #14085: `rg -n 'enable_sparse_sfa_c8'
+docs/source/user_guide/support_matrix/supported_models.md` returns nothing at
+`f4a08bd`), so on the rc1 pin quote the tutorial blocks and the precedents rather than
+this matrix — and say which pin each statement came from. Release notes at the pin: DCP must be enabled on P and D or on
 neither, asymmetric DCP causes accuracy issues (`:260`, #14322); GLM-5.2 DCP ×
 `enable_sparse_sfa_c8` has "known issues, including performance degradation, and is not
 recommended" (`:262`, #14011); GLM-5.1 sfa_c8+li_c8 64K/1K regression (`:268`, #14329).

@@ -880,3 +880,43 @@ does not exist at v0.18.0); after the follow-up it wrote the reversal in one sen
 spent the whole 8 192-token second segment on the MC2 source walk, so its last turn carried no
 message and the lane it had already named never got its ladder. Page:
 `../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md` (new).
+
+**#3172** vllm-ascend v0.9.1 (`0740d10`) + vllm v0.9.1 (`b6553be`), 8×910B3, torch_npu
+2.5.1.post1, CANN 8.2.RC1, `VLLM_USE_V1=1`: "multi-card, sleep model A, load a new
+instance running model B → HCCL resources occupied, B fails to start". The only evidence
+was a screenshot (`attachments/screenshot-*.ocr.txt`): `hcclCommInitRootInfoConfig(...)
+error code is 7` + `ERR02200 DIST call hccl api failed` + `EJ0001 ... Failed to
+initialize the HCCP process. Reason: Maybe the last training process is running.`, in a
+`VllmWorker` on the **new** instance's first `all_reduce(embedding)` of the TP group.
+Track: communicator creation, not OOM, not the fabric. The run classified and ranked
+correctly (sleep returns only the pluggable allocator's blocks; comms registered for
+release at process exit; `7 = HCCL_E_UNAVAIL` from `third_party/hccl/.../hccl_types.h:38`)
+but spent ~5 of its 10 tool rounds inside `ProcessGroupHCCL`/`HCCLUtils` C++ that bought
+nothing, and was cut at the 16 384-token cap inside its evidence table — the ranked
+causes, ladder and scope never shipped. What it never tried, and what decides the case in
+one call: the CANN error table, which names the code `HCCP_Process_Initialization_Failure`
+and gives the vendor's own fix, *"Wait for 10s after killing the last training process and
+try again."* Page: `../runtime-memory/sleep-mode-multi-instance.md` (new),
+`../hccl-and-hardware/comm-create-errors.md` §code 7.
+
+**#7015** image `quay.io/ascend/vllm-ascend:v0.14.0rc1` (pin v0.14.0rc1 `52d4acf` ↔
+vllm v0.14.1 `d7de043`), 2×A2 (8 dies each), DeepSeek-V3.2-W8A8, DP2 × TP8 + EP16,
+`deepseek_mtp` n=2, `FULL_DECODE_ONLY` with `cudagraph_capture_sizes [3..48]`,
+`HCCL_OP_EXPANSION_MODE=AIV`: "probability TimeoutError" whose whole paste is the
+EngineCore's bare `TimeoutError` from `shm_broadcast.acquire_read` → `EngineDeadError`.
+Track: the RPC watchdog reporting a worker that never returned, phase = the **first
+prefill step** (`step_counter=0`, `num_computed_tokens=0`, 37 scheduled tokens,
+`scheduled_spec_decode_tokens={}`). Two reusable derivations the run got right: the
+watchdog deadline is `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` 300 s, and the A2+EP branch
+sends that 37-token step over cross-node MC2 because capacity = `max_cudagraph_capture_size`
+= 48 (the reporter's own list) while `world_size_across_dp/pp = DP2 × TP8 = 16` sits
+exactly on the `>= 16` gate — and it corrected its own DP-asymmetry hypothesis by reading
+`_sync_metadata_across_dp` (pad to the DP max). The coverage fact it shipped: the pin's
+only dual-node DSv3.2-W8A8 nightly is **A3** (`npn 16`); the A2 recipe does not exist,
+and the A3 command differs from the reporter's in `--additional-config
+'{"layer_sharding": ["q_b_proj","o_proj"]}'`, `VLLM_ASCEND_ENABLE_FLASHCOMM1`,
+`HCCL_BUFFSIZE`, `--no-enable-prefix-caching` and `--max-num-seqs`. Pages:
+`../hccl-and-hardware/rpc-watchdog-timeouts.md`,
+`../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md`,
+`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`.
+

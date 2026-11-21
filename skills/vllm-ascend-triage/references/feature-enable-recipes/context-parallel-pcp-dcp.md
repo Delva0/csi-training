@@ -155,8 +155,8 @@ connector/pool pages (`../pd-disaggregation/index.md`).
   ~64K (A3) with `507015` at the SFA indexer select; the closest thing to an A2
   datapoint and it is a failure report.
 - #8579 v0.18.0rc1 — accuracy degradation with PCP enabled and
-  `--no-enable-expert-parallel`; treat `--enable-expert-parallel` as part of the
-  recipe for MoE models.
+  `--no-enable-expert-parallel`: the coverage verdict, the one flag that swaps the whole
+  MoE path, and the ladder are §4b, not a source walk.
 - #8578 v0.18.0rc1 — `AttributeError: 'PCPManager' object has no attribute
   'mtp_slot_pad'` for PCP + MTP on short inputs; in the pinned tree
   `mtp_slot_pad` is still assigned only inside a `decode_threshold > 2 and not
@@ -174,7 +174,60 @@ connector/pool pages (`../pd-disaggregation/index.md`).
   PCP+MTP report carries that sentence, do not spend a launch on the MTP-only
   row; ask for the four source lines and the mixed-step numbers instead.
 
+## 4b. Accuracy degradation with PCP on and EP off (no crash)
+
+Worked for #8579 — DeepSeek-V3.2-W8A8, `--nnodes 2 --tensor-parallel-size 8
+--data-parallel-size 1 --prefill-context-parallel-size 2 --decode-context-parallel-size 1
+--no-enable-expert-parallel --cp-kv-cache-interleave-size 128 --max-num-seqs 4
+--no-enable-prefix-caching --max-model-len 64k --max-num-batched-tokens 8192`,
+FULL_DECODE_ONLY, v0.18.0rc1 (`99e1ea0f`). The deliverable is a **coverage** statement plus
+one flag. The recorded replay spent 26 assistant turns and 2.0 M prompt tokens inside
+`prepare_finalize.py` / `moe_comm_method.py` / `fused_moe.py` and emitted **no answer text
+at all** — the turn it matched this page's precedent was the turn the verdict was owed.
+
+- **One flag swaps the MoE communication strategy, so name which phase differs.**
+  `vllm_ascend/ascend_forward_context.py:237-238`:
+  `if not vllm_config.parallel_config.enable_expert_parallel or get_ep_group().world_size == 1:
+  moe_comm_type = MoECommType.ALLGATHER`, and only then do the SoC branches (A2, A3, A5,
+  310P) run. On A2 with EP on the choice is `MC2` when `num_experts // ep_world_size <= 24
+  and ep_world_size >= 16 and num_tokens <= mc2_tokens_capacity` (`:239-248`, condition at
+  `:245`), else `ALLGATHER`. For #8579's TP8 × 2 nodes and a 256-expert config (verify
+  `num_experts` in the reporter's `config.json`), ep_world_size is 16, so that means **decode took
+  `PrepareAndFinalizeWithMC2` with EP on and `PrepareAndFinalizeWithAllGather` with EP
+  off**, while prefill was AllGather either way — so the phase to compare is decode, and a
+  defect that also predicts a prefill difference is not it.
+- **PCP is handled in only one of the two AllGather halves.** `prepare_finalize.py:397-413`
+  pads to `_EXTRA_CTX.max_tokens_across_pcp` and `get_pcp_group().all_gather(...)`s both
+  tensors; `:469-470` reduce-scatters back. Both sit in
+  `_prepare_with_dp_group`/`_finalize_with_dp_group`, taken when `enable_sp()` /
+  `enable_sp_by_pass()` are false — SP is `VLLM_ASCEND_ENABLE_FLASHCOMM1` /
+  `VLLM_ASCEND_ENABLE_FLASHCOMM` (`utils.py:772-784`), **not** EP, so a launch that sets
+  neither keeps the PCP-aware branch. The sibling `_prepare_with_ep_group` has no PCP
+  gather at all.
+- **One code asymmetry is worth one check, labelled a hypothesis.** The PCP branch records
+  `self.num_tokens_pcp` (`:399`) and never slices it back, while the DP branch slices
+  `[: self.num_tokens]` on return (`:436-437`): with differing per-rank PCP token counts
+  the pad rows stay in the reduced output. Ask for `max_tokens_across_pcp` beside the local
+  count, or run one launch with `--max-num-batched-tokens` a multiple of `pcp`. It predicts
+  a *batch-shape-dependent* degradation, so a metric that is stable at one shape and worse
+  at another supports it and a uniform shift does not.
+- **Coverage, quotable, never the cause:** every variant of the tree's own CP-vs-TP
+  accuracy test sets `enable_expert_parallel: True`
+  (`tests/e2e/multicard/4-cards/long_sequence/test_accuracy.py:53,59,113,123,152,159,188,195,234,241`),
+  and the multi-node CP tutorial says CP is A3-only at this pin
+  (`docs/source/tutorials/features/long_sequence_context_parallel_multi_node.md:6`). If the
+  box is A2 while the reporter's EP-on run is clean, the reporter's own control outranks the
+  doc's scope line.
+- Ladder: `--enable-expert-parallel` alone (their clean row, as the expected control) →
+  `--prefill-context-parallel-size 1` on the same command (isolates PCP) →
+  `--decode-context-parallel-size 1` as well (serial baseline) → the token-count check
+  above. Ask for the metric **and its harness**: `--max-num-seqs 4`, no prefix caching and a
+  64K window make a batch-shape or long-context effect read as a numeric one.
+
 ## 5. Staged experiment to hand back (one axis per launch)
+
+When the report compares EP-on with EP-off, rung 0 is `--enable-expert-parallel` with
+nothing else changed (§4b).
 
 1. DCP only, co-located, short input: `--tensor-parallel-size 8
    --decode-context-parallel-size 2 --max-model-len 8192 --enforce-eager` — no

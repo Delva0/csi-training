@@ -10,6 +10,27 @@ overhead. Routes: `../runtime-memory/index.md`, `../performance-throughput/index
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#2099** vllm-ascend v0.9.1rc1 (`c30ddb83`) + vllm v0.9.1 (`b6553be1`), torch_npu 2.5.1,
+CANN 8.1.RC1, one 910B3, a ~1B Qwen-VL-class model ("mineru") served over `/v1/chat/completions`
+with a base64 image and "Document Parsing:". The body has a client snippet and one screenshot whose
+OCR is the only log evidence: every 5 s a `[metrics.py:417]` block with `Swapped` / `Pending` /
+`CPU KV cache usage`, prefill 518.9 tok/s in one window then decode steady at 27.9-28.5 tok/s,
+`Running: 1 / Pending: 0 / GPU KV cache usage 0.2-0.3 %`, AICore 0-10 % on `npu-smi`. That field
+set is the **V0** logger (`vllm/engine/metrics.py:418` at v0.9.1; V1 prints `Waiting` and no
+`Swapped`, `vllm/v1/metrics/loggers.py:120-124`), and the reason is upstream, not Ascend: the
+`_is_v1_supported_oracle` non-CUDA branch (`arg_utils.py:1443-1450`) calls `_warn_or_fallback`,
+which at INFO logs `npu is experimental on VLLM_USE_V1=1. Falling back to V0 Engine.` and returns
+`True` whenever `VLLM_USE_V1` is unset (`:1645-1657`). Verified at the pin that V1 is both
+available and the recommended engine — Ascend `supports_v1()` → `True` (`platform.py:254-258`),
+worker class by env (`:186-187`), the `PIECEWISE … ACL Graph` / `Compilation disabled` banners
+(`:161-181`), `release_notes.md:52` ("V0 Engine is frozen … set `VLLM_USE_V1=1`"), and the
+singlecard CI running `test_multimodal` on `Qwen/Qwen2.5-VL-3B-Instruct`
+(`.github/workflows/vllm_ascend_test.yaml`, `tests/e2e/singlecard/test_offline_inference.py:39,87`)
+under `VLLM_USE_V1: 1`. V0 also disables chunked prefill for multimodal
+(`arg_utils.py:1455-1464`). The run reached all of this but wrote no user-visible text for ~8
+turns and emitted the ranked answer last, cut inside cause 2. Route:
+`../performance-throughput/pre-graph-mode-eager-era.md` §Step 3b.
+
 **#8940** vllm-ascend v0.15.0rc1 (`3d43ed99`) + vllm v0.15.0 (`f176443`), Qwen3.5-0.8B on
 910B4, no log: "为什么 Qwen3.5 的 linear attention 在 Ascend 上不能像 CUDA 一样融合成一个更大的
 算子" — design intent (platform limit vs engineering tradeoff) plus "any plan to fuse". The

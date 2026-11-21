@@ -48,7 +48,13 @@ at request time. The shapes:
   call acl api failed` + `EZ9999 … When layout is TND, queryT(16) must be equal to
   the last element of actualSequenceLengthQ(4)` (`CheckFASeqlenDataInTND`,
   `fused_infer_attention_score.cpp`), on MTP + `FULL_DECODE_ONLY`, often with
-  `--data-parallel-size > 1` and EP (`fia-tnd-seqlen-mismatch.md`).
+  `--data-parallel-size > 1` and EP — or the same refusal from the other direction,
+  `queryT(16)` vs `actualSequenceLengthQ(13)` behind
+  `call aclnnFusedInferAttentionScoreV3 failed, error code is 561002`, on **`ngram` +
+  `cudagraph_mode: FULL`** (recorded #9088, v0.19.1rc1). The two launches are
+  different lanes of the same file: at a v0.19+ ref the pair alone derives the
+  in-flight request count (`r = N/(1+K)`) and the branch, so read that first
+  (`fia-tnd-seqlen-mismatch.md`, Lane A vs Lane B).
 - or it dies at **request time** with `aclnnFusedInferAttentionScoreV3 failed,
   error code is 107030` + `the key/value's actual sequence lengths(K) is N, it should
   be in range [0, KV_S(M)]` + `FusedInferAttentionScore do tiling failed, ret is -1`,
@@ -170,7 +176,14 @@ from the acceptance numbers.
   both readings with the one log line that separates them (`Running: <n>`), and
   put `PIECEWISE`/`--enforce-eager` in the first paragraph. Recorded #6598 spent
   its whole 16 K output budget re-deriving which of two padding branches produced
-  the pair and shipped no answer (`fia-tnd-seqlen-mismatch.md`).
+  the pair and shipped no answer (`fia-tnd-seqlen-mismatch.md`). From v0.19 that
+  derivation is unnecessary: one helper pads both numbers
+  (`_pad_query_start_loc_for_fia`), its FULL-mode else-branch always writes
+  `last = queryT`, so a refusal means the *uniform* branch ran and therefore
+  `queryT == r × (1+K)` — which pins the request count and, when the reporter's own
+  ablation says "each feature alone is fine", names the branch condition rather than
+  the kernel. Quote the invariant from the helper's own docstring before any source
+  walk. Recorded #9088 (`ngram` + FULL, v0.19.1rc1) is that shape.
 
 - **Three tracebacks from a spec-decode deployment are usually one provenance.**
   Read them bottom-up: the worker exception is causal, the EngineCore `None`

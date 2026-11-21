@@ -206,9 +206,11 @@ after that keeps the header, not this text.
   call: the capture-size list that launch resolves to (upstream default
   `[1,2,4] + 8..min(max,255) step 8 + 256..max step 16`, max =
   `min(max_num_seqs × (1+K) × 2, 512)` clipped by `max_num_batched_tokens`),
-  whether `queryT` is one of those buckets, every request/token decomposition of
-  `last(actualSequenceLengthQ)`, the drafter-vs-target and DP-max readings, and
-  the ordered ablations (#6598).
+  whether `queryT` is one of those buckets, the request count and accepted-draft
+  count implied by the pair under the v0.19 helper's branch rule
+  (`r = N/(1+K)`, `M − r` drafts, with the `M == r` ambiguity stated instead of
+  resolved), every Lane A request/token decomposition, the drafter-vs-target and
+  DP-max readings, and the ordered ablations (#6598 v0.14, #9088 v0.19.1rc1).
 - `scripts/working-set-arithmetic.sh --growth 80GiB --days 7 --rps 20-40
   [--tokens N] | --samples <paste|->` — the container-memory lane: bytes/request
   and bytes/decode-step from the slope, or the rss-vs-cache split (#16563).
@@ -309,13 +311,22 @@ after that keeps the header, not this text.
   `lora_ops`) with its SoC / `max_lora_rank` predicate, every `has_lora`
   producer split into live-batch vs config-constant, whether the capture loop's
   per-case `activate_lora` is ever consumed, and upstream's guard / `lora_cases`
-  / `cudagraph_specialize_lora` default (#6279, #1812).
+  / `cudagraph_specialize_lora` default (#6279, #1812; the same audit succeeds at
+  v0.14.0rc1 + vllm v0.14.0, #7150). Its reading block also spells out what does
+  **not** work — `cudagraph_specialize_lora: false` turns the request-time crash
+  into a capture-time `Aclgraph runtime mode mismatch at dummy_run` — alongside the
+  rungs that keep graphs.
 - `scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` — the install-time
   pin arithmetic behind "could not find a version that satisfies" / "unmatched torch
   version": reads both trees' `torch` / `torch-npu` / `torchvision` pins, flags the
   metadata-vs-tree split for `--pre` / `--extra-index-url`, and names each
   contradiction (a torch-npu line off the torch line, a torchvision cap that excludes
   the vllm pin) (#1796, #4737).
+- `scripts/pep440-local-check.py '<spec>' '<spec>' [--candidates v1,v2]` — PEP 440 local-label
+  matching for a `Cannot install X and Y … conflicting dependencies` paste: prints which concrete
+  versions satisfy every spec, so `==2.9.0` vs `==2.9.0+cpu` is read as compatible (a missing
+  index) instead of unsatisfiable. Falls back to `pip._vendor.packaging` when `packaging` is
+  absent and the network is closed (#7089, #4621).
 - `scripts/abi-symbol-check.sh <paste|->` — the `std::string`-ABI split in a
   bundled wheel (#1144).
 - `scripts/image-arch-matrix.sh <vllm-ascend-root> [--soc 310p|a2|a3|a5]` — which
@@ -401,3 +412,19 @@ after that keeps the header, not this text.
   in the image's object collective, a clean run puts the logits path back in play.
   Page: `../startup-failures/profile-run-logits-gather-eof.md`.
 
+- `scripts/cann-error-lookup.sh <CODE|NUMBER> [<CODE> …] [--root DIR]` — the vendor's
+  own meaning for a CANN/HCCL code, in one call. An `E`-code (`EJ0001`, `EI0006`,
+  `EL0004`, `EI0017` …) prints whichever table the snapshot exports —
+  `cann/metadef/error_manager/error_code.json` and
+  `cann/hcomm/src/common/error_code/error_code.cc` — with `errClass`, `errTitle`,
+  `ErrMessage` and the **`Possible Cause` / `Solution` text**; a number prints the
+  `HcclResult` enum name from any exported `hccl_types.h` (`7` → `HCCL_E_UNAVAIL
+  resource unavailable`). `--root` defaults to `/workspace/repos`; scope it to
+  `/workspace/repos/<issue>`. Exit 0 when every argument resolved, 1 otherwise, 2 on bad
+  usage. When no table is exported it says so instead of implying absence (the
+  v0.9.1-era `cann/` export holds only `catlass` — #3172). Quote the printed Solution as
+  the vendor's statement, then keep the cause open until the code is matched to the line
+  that produced it: `EJ0001` ("wait for 10s after killing the last training process") is
+  the sleep-mode/second-engine lane (`../runtime-memory/sleep-mode-multi-instance.md`),
+  and `EI0006`'s solution names `HCCL_CONNECT_TIMEOUT` before any link theory
+  (`../hccl-and-hardware/link-establish-timeout.md`).

@@ -8,7 +8,7 @@ almost never the model: `vllm_ascend/_310p/**` carries hand-copied siblings of c
 in `vllm_ascend/ops/**`, and a copy can carry the *caller* without the *callee*.
 Deliverable: which class, which name, where the definition that the copy lost lives,
 and the one-file fix. Not this topic: an `ImportError`/`AttributeError` at import time
-(`../startup-failures/plugin-load-module-missing.md`), a `check_ascend_device_type()`
+(`../image-dependency-faults/plugin-load-module-missing.md`), a `check_ascend_device_type()`
 assertion before load (`device-type-build-vs-runtime.md`), or a forbidden family on
 this SoC with no traceback (`atlas-300i-310p.md`).
 

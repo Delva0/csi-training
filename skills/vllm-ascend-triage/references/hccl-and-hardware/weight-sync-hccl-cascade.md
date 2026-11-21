@@ -19,6 +19,12 @@ the **wrong lane here**: that page's hardware/driver ladder applies when the fai
 edge set is a device or passthrough fault. In this shape the training side is
 collateral.
 
+Not this page either: a reload that raises a **host-side**
+`AssertionError: param_data.shape == loaded_weight.shape` / `Attempted to load weight
+… into parameter …` before any collective — that is a parameter whose storage the
+post-load processing emptied (`dispose_layer`), not a transport fault:
+`../code-change-requests/live-weight-reload-vs-disposal.md`.
+
 ## Step 1 — rank the errors by how many ranks report them
 
 The fault belongs to the **singleton**: one process pastes a weight-update error

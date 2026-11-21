@@ -2,6 +2,11 @@
 
 ## Scope
 
+Sibling code, different table: a `207005` refusal inside
+`AclmdlRICaptureBegin` (`[SqCqManage]Alloc sq cq fail, stream_id=1984`) is the
+**stream** table at startup capture, not this event table —
+`../startup-failures/capture-stream-table-exhaustion.md`.
+
 The engine started, served traffic, and then one worker dies on a runtime
 **event-table** refusal — reported as a resource leak (泄漏) because it appears
 after a while:

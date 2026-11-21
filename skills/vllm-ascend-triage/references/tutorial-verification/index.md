@@ -48,7 +48,9 @@ Inherit the rules in SKILL.md, plus these:
    recorded run confirmed several real doc bugs and then kept auditing until the
    session ended, shipping nothing (`community-test-report.md`), and #11759
    repeated it a batch later with the defects in hand by turn 7, #11771 with the
-   graded defect table still unwritten at the cap. If the 任务书
+   graded defect table still unwritten at the cap, and #16954 spent the whole
+   budget re-deriving an upstream `Literal` for a version-line finding it had
+   already located (`docs-version-space-and-image-tag.md` §4). If the 任务书
    names a section of the page, resolve that section name against the **whole**
    docs tree before grading it missing — the two cases grade differently. The same
    resolution applies to the **page name itself**: a path that does not exist at the
@@ -66,7 +68,9 @@ Inherit the rules in SKILL.md, plus these:
 Conditional routes:
 
 - The task shape, the deliverable skeleton and the staged-emission protocol for
-  a community-test report → `community-test-report.md`.
+  a community-test report, and the recurring 已知问题 "容器内无法使用 postman"
+  (host-side `--net=host` postman, python `requests` as the guaranteed in-image
+  client, `curl` absent from the Dockerfile) → `community-test-report.md`.
 - The report asks for *added* guidance or a cross-link, or reviews the
   contributor/developer path (mount, `set_env.sh`, `format.sh ci`, image tag):
   existence + reachability + parity greps, the `.po`-is-not-the-document rule,
@@ -80,7 +84,10 @@ Conditional routes:
   `pip install <pkg>==<ver>` against the image's own requirements pins) plus the
   ready-made Qwen3-32B-W4A4, Qwen3.5-397B-A17B-§5.6, Qwen3.5-27B (community
   row 15: page-name absence, DP1/TP2-only serve line, the dropped
-  `max_completion_tokens`, the nightly yaml as the in-tree gate) and
+  `max_completion_tokens`, the nightly yaml as the in-tree gate; plus the same
+  page graded on a 4-card row — which findings transfer, the `--device` comment
+  that re-tiers the device-list defect, the TP2-vs-TP4 choice, the unmounted
+  weights cache) and
   Qwen3-VL-30B-A3B (row 6: the `requires 1 Atlas … node` sentence against the
   page's own two-device map, and a sample body carrying a request-side
   `reasoning_content`) defect tables, check 12 (the printed sample body against
@@ -90,6 +97,13 @@ Conditional routes:
   swapped-proxy defect of #15389; a missing `bash proxy.sh` is check 3) →
   `tutorial-command-audit.md`; the mechanism behind a wrong architecture prefix
   is `../pooling-embedding/seq-cls-arch-routing.md`.
+- The defect is a **version disagreement** — the page prints an image tag the
+  pasted command fails on, the report quotes a `…/en/latest/…` URL, or the doc
+  names an older release than the flag it shows: `latest` is the build of main
+  and each release lives at `/en/vX.Y.Z/`, the printed tag is a build-time
+  substitution from `mkdocs.yml extra.*`, and the answer is the version gate
+  plus the correction site — `docs-version-space-and-image-tag.md` (recorded
+  #16954, main-only `--kv-cache-dtype int8` pair beside a stale `0.23.0` tag).
 - The doc's log/flag claims override the doc rather than the code:
   `../observability-and-logs/request-output-logging-flags.md`.
 - The doc's accuracy or performance numbers look anomalous: check the precedent

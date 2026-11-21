@@ -31,7 +31,13 @@ was launched: a **group** creation was refused. `1` there is not a network code 
 (`init external input error` / `init environment config error` / `load comm config
 failed` / `nRanks…`), so read the HCCL `ERROR` line, then diff the two nodes' serve
 scripts, and only then ask whether the recipe exists at the pin for that model and
-node count. `comm-create-errors.md`.
+node count. `comm-create-errors.md`. **Code `7` (`HCCL_E_UNAVAIL`) beside an `EJ0001`
+line is not a script problem**: the vendor's table names it
+`HCCP_Process_Initialization_Failure` and its fix is "wait for 10s after killing the
+last training process", i.e. a **previous process of the same box is still alive** —
+sleep mode, an RL engine that never exited, a crashed leader whose HCCP stays up
+(`../runtime-memory/sleep-mode-multi-instance.md`). Any bare `<E-code>` in a paste is
+one call: `bash <skill_root>/scripts/cann-error-lookup.sh <code>`.
 
 Order matters more than depth here:
 

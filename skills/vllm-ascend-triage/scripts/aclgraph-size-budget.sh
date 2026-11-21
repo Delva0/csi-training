@@ -12,6 +12,8 @@
 # Implementation sources (verified, re-read before trusting on another release):
 #   v0.11.0rc0 00ba071 vllm_ascend/utils.py:286-390, platform.py:237
 #   v0.20.2rc1 367b8e6 vllm_ascend/utils.py:567-690, platform.py:425
+#   v0.18.0rc1 99e1ea0 vllm_ascend/utils.py:456-560, platform.py:370 (same era as 0.20:
+#     CP subtraction + MTP draft layers already present; --era 0.18 == --era 0.20)
 set -u
 
 uv run --no-project python - "$@" <<'PY'
@@ -36,13 +38,14 @@ ap.add_argument('--max-num-batched-tokens', type=int, default=None,
                 help='upstream filters sizes above this value')
 ap.add_argument('--sizes', default=None,
                 help="explicit cudagraph_capture_sizes, e.g. '1,2,4,8,16,32'")
-ap.add_argument('--era', choices=['0.11', '0.20'], default='0.20',
-                help='formula era: 0.11 has no CP subtraction, 0.20 subtracts 100 per CP>1')
+ap.add_argument('--era', choices=['0.11', '0.18', '0.20'], default='0.20',
+                help='formula era: 0.11 has no CP subtraction and no MTP draft term; 0.18 and 0.20 are'
+                     ' identical (both present at v0.18.0rc1 99e1ea0)')
 a = ap.parse_args()
 
 MAX_CAPTURE_SIZE = 1800          # 2048 streams, 248 kept as buffer
 resources_per_graph = a.layers + 1
-if a.era == '0.20' and a.draft_layers:
+if a.era != '0.11' and a.draft_layers:
     resources_per_graph += a.draft_layers + 1
 num_comm_groups = sum(size > 1 for size in (a.dp, a.tp))
 
@@ -54,15 +57,24 @@ if a.sizes:
     origin = f'explicit --cudagraph-capture-sizes ({len(original)} sizes)'
 else:
     cap = min(a.max_num_seqs * 2, 512)
-    original = [1, 2, 4] + list(range(8, cap + 1, 8))
+    if a.era == '0.11':
+        # vllm v0.11.0rc3 config/__init__.py:551-612
+        original = [1, 2, 4] + list(range(8, cap + 1, 8))
+    else:
+        # vllm v0.13.0 config/vllm.py:1101-1110 (also current at 0.18/0.20):
+        # step 8 below 256, step 16 above it -> 51 sizes at cap 512, not 67
+        original = [1, 2, 4] + list(range(8, min(cap + 1, 256), 8))
+        if cap >= 256:
+            original += list(range(256, cap + 1, 16))
     if a.max_num_batched_tokens is not None:
         original = [s for s in original if s <= a.max_num_batched_tokens]
     original = sorted(set(original), reverse=True)
     filt = ('no max_num_batched_tokens filter'
             if a.max_num_batched_tokens is None
             else f'filtered by max_num_batched_tokens={a.max_num_batched_tokens}')
+    steps = ('step 8' if a.era == '0.11' else 'step 8 <256, then step 16')
     origin = (f'upstream default: cuda_graph_sizes=[min({a.max_num_seqs}*2,512)]='
-              f'[{cap}] -> [1,2,4]+range(8,{cap}+1,8), {filt}')
+              f'[{cap}] -> [1,2,4] + ({steps}), {filt}')
 
 print(f'layers={a.layers} tp={a.tp} dp={a.dp} pcp={a.pcp} dcp={a.dcp} '
       f'ep={a.ep} moe={a.moe} aiv={a.aiv} era={a.era}')
@@ -82,7 +94,7 @@ if a.aiv:
     print(f'  floor({budget} / {resources_per_graph} / {factor})')
     max_sizes = math.floor(budget / resources_per_graph / factor)
 else:
-    if a.era == '0.20':
+    if a.era != '0.11':
         for cp in ('pcp', 'dcp'):
             if getattr(a, cp) > 1:
                 budget -= 100

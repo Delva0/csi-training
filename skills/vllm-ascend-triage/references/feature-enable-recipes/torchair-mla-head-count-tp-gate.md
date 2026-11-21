@@ -45,7 +45,13 @@ same ratio reached a different way.
    (`vllm_ascend/ascend_config.py:129-140`, `RuntimeError: Can't enable graph mode
    and eager mode at the same time`). `ascend_scheduler_config` may stay. Eager
    decode takes `torch_npu._npu_paged_attention_mla` (`mla_v1.py:1007`) instead of
-   the graph path's `torch_npu.npu_fused_infer_attention_score` (`:988`).
+   the graph path's `torch_npu.npu_fused_infer_attention_score` (`:988`). If the
+   reporter's own attempt was `export ENFORCE_EAGER=1`, say in the same paragraph
+   that no process reads that name (0 `rg` hits in either tree at this pair; the gate
+   reads `model_config.enforce_eager`, `platform.py:151`): the missing log line
+   `Compilation disabled, using eager mode by default` (`platform.py:163-165`) is the
+   whole diagnosis, and the doc gap that invited the guess belongs in the answer
+   (`../startup-failures/graph-mode-not-applied.md`, recorded #1456).
 2. **Keep graph mode, lower TP:** TP ≤ 4 with PP/DP absorbing the remaining cards.
    Say what is validated: the only graph e2e case at that pin is
    `vllm-ascend/DeepSeek-V3-Pruning`, `tensor_parallel_size=4`, `mp`, **no PP, no
@@ -68,7 +74,7 @@ same ratio reached a different way.
 | heads per rank | `models/deepseek_v2.py:359-362`; `num_kv_heads=1` at `:430-434` |
 | eager vs graph decode op | `mla_v1.py:1007` vs `:988` |
 | the project's own statement of the rule | `docs/source/faqs.md:118` (and the kernel text at `:124`) |
-| documented gap | `docs/source/user_guide/graph_mode.md:40-51` tells DeepSeek users to enable torchair and states only the chunked-prefill caveat — the head constraint lives **only** in the FAQ, so the recommended path is where people meet it |
+| documented gap | `docs/source/user_guide/graph_mode.md:40-51` tells DeepSeek users to enable torchair and states only the chunked-prefill caveat — the head constraint lives **only** in the FAQ, so the recommended path is where people meet it. Two more defects on that page, both worth naming in a `[Doc]` answer: `:10` gives only the Python `enforce_eager=True` form (the CLI `--enforce-eager` appears just in a Qwen example at `:82`, and nothing says no env var exists), and the TorchAirGraph "online example" at `:58` serves `Qwen/Qwen2-7B-Instruct`, contradicting `:14` ("only DeepSeek series models are supported") and `ascend_config.py:143-147` ("Torchair graph mode only works with deepseek model") — a copy-paste defect (#1456) |
 
 ## Version scope: the Python gate was deleted, the rule was not
 

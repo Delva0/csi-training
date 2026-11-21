@@ -64,6 +64,33 @@ own 0.7.3 command, one line per removed/renamed switch, plus the two log lines
 that say which lane actually ran: `PIECEWISE compilation enabled on NPU`
 vs `Compilation disabled, using eager mode by default`.
 
+## Step 2b — the mirror case: a lever that became **default-on** in the new image
+
+A version comparison can also be hurt by something the new image turned *on* without
+the script changing. The recorded lever is **CPU binding**: it became default on ARM
+hosts at v0.18.0rc1 (`release_notes.md:273` "**CPU Binding Enabled by Default** …
+global-slicing A3 policy, improving inference throughput in hostbound scenarios"
+#6686; design doc `docs/source/developer_guide/Design_Documents/cpu_binding.md:5-8`),
+and at v0.22.1rc1 it is read as `additional_config.get("enable_cpu_binding", True)`
+(`vllm_ascend/ascend_config.py:142`) and executed once per worker after warmup
+(`vllm_ascend/worker/worker.py:780-786` → `bind_cpus(self.local_rank)`,
+`vllm_ascend/cpu_binding.py:606`). The pool it binds to is derived from
+`npu-smi info` / its process table filtered by `ASCEND_RT_VISIBLE_DEVICES`
+(`cpu_binding.py:106-190`), so a **multi-instance or PD host** (several engine
+processes, or cards hidden from the process view) can bind two instances onto
+overlapping CPU ranges — the bug class of release notes `:486`/`:515` ("Avoid A2 CPU
+binding overlap from hidden NPUs", #8792) and `:455` ("Defer CPU binding until worker
+warmup", #7829), and of history **#8600** "A2 相同亲和性的 NPU 分别执行单卡推理时绑核范围
+重合导致性能下降".
+
+Cheapest one-launch A/B on the **new** image, no code read: add
+`--additional-config '{"enable_cpu_binding": false}'` and compare per-token time
+(`index.md`'s `gen tok/s ÷ Running`), or compare `taskset -cp <worker pid>` across the
+two versions. On a **PD** host that runs more than one engine process this is a
+hypothesis, not a finding: pin it with the A/B or the affinity dump before ranking it
+above the removed-switch checklist above, and keep it separate from the pid-level
+`OMP_PROC_BIND`/`OMP_NUM_THREADS` axis (`pre-graph-mode-eager-era.md`).
+
 ## Step 3 — the old number may include an accelerator that no longer exists
 
 At v0.7.3 the release notes name the accelerator **for exactly the family these

@@ -45,10 +45,17 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `，，，`) with "and it is very slow", **or** a VL/OCR answer that is merely
   *wrong* — one coarse element, boxes without text, unreadable OCR — only when the
   serve is multi-card while the single-card run of the same request is correct
-  (two screenshots, no log) — that is not a score question and not the
-  text-corruption profile: the downstream vision tower owns it, and one flag
-  (`--mm-encoder-tp-mode`, v0.17.0rc1) or one env var decides it. Go to
-  `vl-vision-tower-degeneracy.md`.
+  (two screenshots, no log), **or** the deployment is 1P1D/EPD and a single-instance
+  serve of the same body, image and flags answers it, **or** a vision request whose
+  answer is fluent but stops after a word or two (`"The"`, `completion_tokens: 2`,
+  `finish_reason: stop`, no `length` — #6909) — that is not a score question and not
+  the text-corruption profile: the downstream vision tower (or the split itself) owns
+  it, and one flag (`--mm-encoder-tp-mode`, v0.17.0rc1) or one env var decides it. Go
+  to `vl-vision-tower-degeneracy.md` **first** (§*PD/EPD split* for the PD row),
+  before the early-EOS page: an image in the request plus an absurdly short answer is
+  graded by `usage.prompt_tokens` against the model tutorial's own sample response
+  (that page's grading bullets), and that comparison — not the `stop_reason` lane — is
+  what names the subject.
 - A **VL or OCR** checkpoint on **310P / Atlas 300I** answers garbage while a text
   model on the same box is fine: the support verdict and the layout → recognise
   *pipeline* come first, because the VLM alone is one stage of a document-parsing
@@ -64,6 +71,15 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 
 ## Rules
 
+- **Only `temperature>0` corrupts and greedy is byte-identical** — `<pad>` / token id
+  0, one rare id, repeats spliced into otherwise exact text, the rate rising with
+  concurrency, clean under `--enforce-eager` / `--no-async-scheduling` — is the
+  sampler's side-stream `q`, not a kernel and not a model: rank the allocator
+  *lifetime* (`record_stream`) above the "missing stream sync" story such reports
+  usually tell, because `wait_stream` already orders the fill before the read. Take
+  `VLLM_BATCH_INVARIANT=1` on the same canary as the one-env-var probe →
+  `sampler-side-stream-corruption.md`. A **greedy** body that differs is the sibling
+  page, `repeated-run-nondeterminism.md`.
 - A corruption report whose "clean" and failing commands differ by a **scheduling**
   knob — `--block-size`, `--enable-prefix-caching`, `--mamba-cache-mode`,
   `--enforce-eager` — on a **hybrid linear-attention** model (Qwen3.5/Qwen3.6 GDN and
@@ -252,7 +268,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   **third pin** (v0.17.0rc1) where the tower is weight-sharded by default: the
   `--mm-encoder-tp-mode data` row, its `supports_encoder_tp_data` gate, the
   `AscendMMEncoderAttention` consumer, and the two-screenshot reading of the
-  TP=1-vs-TP=2 shape (#7680).
+  TP=1-vs-TP=2 shape (#7680), and the **PD/EPD split** variant: the pinned 1P1D recipe
+  (`pd_disaggregation_mooncake_single_node.md`) is Qwen2.5-VL-7B, so the entry point is
+  the single-instance control, `usage.prompt_tokens` on a good and a bad run, and the
+  prefix-caching flag the recipe disables on both sides — not the connector.
 - `early-eos-short-output.md` — "only tens of tokens / 输出被截断, worked before I added a
   flag": `finish_reason` decides the lane (length = budget, stop = early stop), an
   integer `stop_reason` names the *declared* stop id that ended it (and not why the
@@ -296,13 +315,19 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (`platform.py:124`) that removes the graph row, and the two V2-Lite-only code
   surfaces with one grep each (#894, #374, #406).
 - `long-output-repetition.md` — a few responses in a long accuracy run come back with
-  sentences repeated ("5 条响应的句子重复"), fluent and on-topic, on a documented model
-  with PD + MTP + prefix caching and a large `max_tokens`. The identity row
-  (`--max-num-seqs 1`, `temperature: 0`, same request 3×) comes first, then the tutorial
-  P/D diff for the decode side, the three traps in reading that diff
-  (`--enable-prefix-caching` is default-on at vllm v0.23.0; a Mooncake
+  sentences repeated ("5 条响应的句子重复", "偶现重复说话"), fluent and on-topic, on a
+  documented model with PD + MTP + prefix caching and a large `max_tokens`. It starts
+  with the reporter's own trial count when there is one: a rate (recorded #14085:
+  29 repeats in 193 runs of **one** prompt) sizes the identity rerun as `N ≈ 3/p` and
+  makes a two- or three-run clean check worthless, so ask for the count in the first
+  answer. Then the identity row (`--max-num-seqs 1`, `temperature: 0`, same request
+  `N` times), the tutorial P/D diff for the decode side, the three traps in reading
+  that diff (`--enable-prefix-caching` is default-on at vllm v0.23.0; a Mooncake
   `VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT` hit is a log line, not a generation bound; the
-  block-verify gate is off by default there), and the recorded #13719 diff table.
+  block-verify gate is off by default there), and the recorded #13719 diff table. A body
+  that also says `repetition_penalty` 没有效果 under `--async-scheduling` gets its own
+  one-grep check there: on an image older than v0.19.1rc1 the ids the processor reads are
+  CPU placeholders, so the penalty was never applied (#7769).
 - `batch-invariant-coverage.md` — the same request returns different text only when
   concurrency changes, with `VLLM_BATCH_INVARIANT=1` exported and a normally serving
   engine (recorded #14884: Qwen3-VL-30B-A3B, TP4 + `--enable-expert-parallel`, greedy,
@@ -324,6 +349,17 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   fusion with `VLLM_BATCH_INVARIANT=1` as its only kill switch, VL preprocessing), and
   `scripts/logprob-bucket-fit.py` for the flat-`mean|Δ log p|/(1-p)` test that decides
   "one mechanism" against "this bucket needs a `top_logprobs` dump".
+- `sampler-side-stream-corruption.md` — `temperature>0` output carrying `<pad>` /
+  token id 0 / repeated or garbage tokens while greedy is byte-identical and the rate
+  tracks concurrency: `random_sample()`'s `q` on `global_stream()`
+  (`sample/sampler.py:18-41` at v0.20.2rc1 `367b8e6`), why `wait_stream` **does**
+  order the fill before `div_` so the uncovered invariant is `q`'s cross-stream
+  lifetime (precedent #13673; no `record_stream` anywhere in `vllm_ascend/`), what the
+  `enable_async_exponential` row does and does not prove (it removes `random_sample()`
+  from the path; zero cost belongs to pre-generating `q`, not to a host sync inside
+  the sampler), the `VLLM_BATCH_INVARIANT=1` probe, the `test_sampler.py` coverage
+  gap (no temperature>0 case on the default path), and the RFC #5304 → PR #6089
+  attribution.
 - `repeated-run-nondeterminism.md` — the engine compared with itself: the same prompt
   or body run 3–5×, lengths or contents differing, typically NPU "差异大" against a
   stable NV-GPU baseline at `temperature: 0`. The reporter's own control refutes any

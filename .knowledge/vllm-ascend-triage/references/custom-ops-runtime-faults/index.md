@@ -79,7 +79,7 @@ downstream code and the owner is the launch site's arguments —
   same answer, on 310P most often for a torch_npu *built-in* (`aclnnIsNegInf` on a
   VL/vision path, recorded #6082) — where the Python caller is in no pinned tree, so
   one `rg` is the whole budget before the standalone op probe on that page.
-  **Four pre-launch wordings, four owners — and the one with an `integral key`
+  **Five pre-launch wordings, five owners — and the one with an `integral key`
   is the dtype axis.** `EZ1001 … does not support opType` = no registry entry for
   the SoC (`op-not-registered-for-soc.md`); `EZ9999 … does not has any binary` /
   `Parse dynamic kernel config fail` = no kernel for the op at all on this SoC
@@ -91,8 +91,11 @@ downstream code and the owner is the launch site's arguments —
   `cannot-find-bin-integral-key.md`, recorded #2387; and a bare **`setup failed!`**
   (no op name, no code) is the caller's own mask/size argument, read at the deepest
   `vllm_ascend` frame — `setup-failed-call-site.md` (recorded #393; the `<Op>Operation
-  setup failed!` forms route to their own pages from there). None of the four ran a
-  kernel, so `561000` / `ERR00100` / `EZ9999` is a wrapper and a grep on it alone
+  setup failed!` forms route to their own pages from there); and **`aclnn<Op> or
+  aclnn<Op>GetWorkspaceSize not in libopapi.so`** is the *dlsym* root: the symbol was
+  not in the vendored `libcust_opapi.so` nor in the toolkit's `libopapi.so`, so the
+  container's custom-op package is the first suspect and the CANN release the last —
+  `opapi-symbol-absent.md`. None of the five ran a kernel, so `561000` / `ERR00100` / `EZ9999` is a wrapper and a grep on it alone
   lands in the MC2/HCCL rows.
 - **A garbled MoE output or an AI-Core invalid-GM-address under
   `enable_fused_mc2=1` is a workspace/stride question inside one of three op variants,
@@ -244,6 +247,13 @@ downstream code and the owner is the launch site's arguments —
   degenerate op test (`n = k = 1024`, `randint(0, 1)` scales) and the single A3 config
   that enables the feature, plus the review checklist for a self-diagnosed report
   (recorded #16561).
+- `opapi-symbol-absent.md` — `aclnn<Op> or aclnn<Op>GetWorkspaceSize not in
+  libopapi.so` from a `torch.ops._C_ascend.<op>` call (recorded #16379: DeepSeek-V4-Flash
+  `hc_pre` on A3 at `profile_run`): the `EXEC_NPU_CMD` three-root dlsym search, the
+  in-tree `hc_pre_def.cpp`/`build_aclnn.sh` evidence that A3 **is** a build target (so a
+  vendor table listing the op A5-only is CANN's fallback copy), the two texts that split
+  "extension absent" from "vendor package without the op", and the checks that replace a
+  CANN `version.cfg` diff.
 - `triton-jit-kernel-device-fault.md` — the plog names a downstream `@triton.jit`
   kernel (`fault kernel_name=token_bin_counts_and_mask_kernel_0` with `aivec error`,
   `The DDR address of the MTE instruction is out of range`, `isSmmuFault is 1`,
@@ -276,10 +286,15 @@ downstream code and the owner is the launch site's arguments —
   DSA-CP slicing, SP gather), the five-line shape-dump spy, the framework-free `torch_npu`
   sweep, and how to answer when the op owner returns the case as a "调度问题".
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
-  each line does/does not pin down.
+  each line does/does not pin down, plus the **built-in CANN kernel** lane where there is no
+  `csrc/<op>/` to open (`fault kernel_name=unpad_flashattention_…`, `FlashAttentionScore…`):
+  the V1 `Dumping scheduler output … SchedulerOutput(...)` disaster dump read field by field
+  (`scheduled_encoder_inputs` ⇒ vision tower vs LM, `num_computed_tokens > 0` ⇒ continuation
+  chunk, `num_common_prefix_blocks` ⇒ *not* a cache hit), and recorded #3810 (v0.11.0rc0,
+  Qwen3-VL-8B image request, fixed by the v0.13.0rc0 image).
 - `cannot-find-bin-integral-key.md` — `EZ9999 … Cannot find bin of op <Op>,
   integral key <dtype/format list>` + `Kernel Run failed. opType: N` (#2387,
-  v0.10.0rc1): the four pre-launch wordings and their owners, how to read the key
+  v0.10.0rc1): its pre-launch wording table and their owners, how to read the key
   against the engine's `dtype=` line, the fused-W8A8 caller chain that puts the
   model dtype into `aclnnAddRmsNormQuant` (`qwen3.py:47-57` → `layernorm.py:49-54` →
   `w8a8.py:60-64,125-135`), the bf16 re-serve plus the two-dtype `torch_npu` probe,

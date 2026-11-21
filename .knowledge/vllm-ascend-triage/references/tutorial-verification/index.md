@@ -42,7 +42,7 @@ Inherit the rules in SKILL.md, plus these:
    explicit slot plus the one command that fills it on the host. A report that
    presents a doc baseline as this environment's measurement is a fabricated
    result; a report with empty labelled slots is a usable template.
-3. **Audit in a fixed, finite order and stop.** The checklist has eleven items
+3. **Audit in a fixed, finite order and stop.** The checklist has twelve items
    (`tutorial-command-audit.md`); after 3-5 concrete defects plus the corrected
    deploy command and a three-item FAQ you have the deliverable. #11739's
    recorded run confirmed several real doc bugs and then kept auditing until the
@@ -72,15 +72,19 @@ Conditional routes:
   existence + reachability + parity greps, the `.po`-is-not-the-document rule,
   and the verified #14423 / #17718 defect tables →
   `missing-guidance-and-contributor-docs.md`.
-- The eleven-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
+- The twelve-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
   v0.18.0 and v0.19.1rc1 examples (dead `--swap-space` / `--disable-log-request`,
   `--random-input` vs `--random-input-len`, image WORKDIR vs doc relative path,
   `limit_mm_per_prompt` and remote-media defaults, boilerplate TP sentence vs
   sibling docs, stale baseline release, CI config as the known-good command,
   `pip install <pkg>==<ver>` against the image's own requirements pins) plus the
-  ready-made Qwen3-32B-W4A4, Qwen3.5-397B-A17B-§5.6 and Qwen3.5-27B (community
+  ready-made Qwen3-32B-W4A4, Qwen3.5-397B-A17B-§5.6, Qwen3.5-27B (community
   row 15: page-name absence, DP1/TP2-only serve line, the dropped
-  `max_completion_tokens`, the nightly yaml as the in-tree gate) defect tables, the
+  `max_completion_tokens`, the nightly yaml as the in-tree gate) and
+  Qwen3-VL-30B-A3B (row 6: the `requires 1 Atlas … node` sentence against the
+  page's own two-device map, and a sample body carrying a request-side
+  `reasoning_content`) defect tables, check 12 (the printed sample body against
+  the pinned protocol models), the
   `--hf_overrides` architecture string check added after #14817, and check 11
   (a tab-set's block against its own prose **and** its own `kv_connector` — the
   swapped-proxy defect of #15389; a missing `bash proxy.sh` is check 3) →

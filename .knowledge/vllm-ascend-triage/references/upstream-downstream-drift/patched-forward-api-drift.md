@@ -4,6 +4,12 @@ Issue vllm-ascend #11661, image `quay.io/ascend/vllm-ascend:v0.22.1rc1`,
 model DeepSeek-OCR-2. Reporter's question was literally "please confirm whether
 this problem exists" — a yes/no plus the owner, not a patch.
 
+**Filed twice on the same image**: #11926 (2026-07-13) reaches the identical line
+with the identical message at the same `v0.22.1rc1`, so this is reproducible on
+that image rather than one host's accident — and that second run is also the
+delivery lesson below: it had the decisive rule doc by its 29th turn and shipped
+no answer at all.
+
 ## Symptom
 
 ```
@@ -65,6 +71,38 @@ PY
 A `False` for the attribute settles mechanism (b); `True` means the layer list in
 the image is built differently from the pinned source (`runtime_commit_verified:
 false`) and the question moves to which build the reporter actually runs.
+
+## The reporter's follow-up: "按着文档 0.16.0 版本就可以支持 ocr2 模型启动了"
+
+That is the pinned tree's own claim, so quote it and hand the disagreement back
+rather than explaining it away: `docs/source/tutorials/models/DeepSeekOCR2.md:7`
+— "first supported in `vllm-ascend:v0.16.0` and can stably run in v0.16.0 and
+later version" — in the same tree whose `qwen2_decoder.py:233` raises on
+v0.22.1rc1. Also diff their launch against that tutorial's serve block
+(`DeepSeekOCR2.md:134-158`, `vllm serve` at `:144`): #11926's command is the block
+**verbatim** except
+`--async-scheduling` and a model path of `/root/.cache/` where the tutorial
+writes `/root/.cache/DeepSeek-OCR-2`, so the flags are not the lever and telling
+them to follow the tutorial wastes their time.
+
+Coverage, quotable as coverage and never as cause: at the pin no test references
+`qwen2_decoder`/`CustomQwen2Decoder` (`rg -ln 'CustomQwen2Decoder|qwen2_decoder'
+tests/` returns nothing) and no e2e config names DeepSeek-OCR-2, so no CI path runs
+this copy's mask loop — the two reports are the only exercise it gets.
+
+## Delivery: the repair form is not worth a turn
+
+Two forms exist and the export cannot rank them (`modeling_qwen2.py` is absent, so
+whether `Qwen2Config` defaults `layer_types` is unverified): the TRF011 form
+`causal_mask_mapping[self.config.layer_types[i]]`, and a local fallback
+`causal_mask_mapping[getattr(decoder_layer, "attention_type", None) or "full_attention"]`
+— exact only if the config has no sliding layers, because the wrapper that calls
+this forward passes a one-key `{"full_attention": …}` mapping
+(`qwen2_decoder.py:90-95`) while the forward itself can add a `sliding_attention`
+key (`:222-223`). Ship both with the probe above as the decider. The recorded
+#11926 run spent its last turn — and its whole remaining output budget — weighing
+them, emitted no text and no tool call, and was cut: the choice is one line of
+the ladder, not the verdict.
 
 ## Still open in the recorded case
 

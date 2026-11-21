@@ -76,3 +76,51 @@ minimal fix).
 The recorded #133 run is the shape to copy: 12 tool calls, one message per turn, the
 answer at turn 12 — no walk through `qwen2.py`, the model file that only appears in
 the stack because it calls `self.attn`.
+
+## The inverse: the `raise` is upstream and the subclass only inherits it
+
+Same deliverable, opposite owner. Verified at vllm-ascend v0.22.1rc1
+(`5f6faa0cb883`) + vllm v0.22.1 (`0decac0d96c4`), issue #14453: a GLM-4.6V (MoE
+VLM, M-RoPE) target served with `--spec-method draft_model --spec-model
+GLM-4.6V-Flash` dies at `WorkerProc initialization failed` with
+`NotImplementedError: Speculative Decoding with draft models or parallel drafting
+does not support M-RoPE yet`. Here no vllm-ascend code refuses anything: the gate
+is upstream and the fork reaches it through `super().__init__`, so no patch, kernel,
+CANN knob, `--enforce-eager` or plog can move it.
+
+- The gate is `SpecDecodeBaseProposer._raise_if_mrope`
+  (`vllm/v1/spec_decode/llm_base_proposer.py:309-314`), called from `__init__` at
+  `:195-198` next to two siblings: `_raise_if_padded_drafter_batch_disabled`
+  (`:292-298`) and `_warn_if_multimodal` (`:300-307`). All three are gated on
+  `needs_extra_input_slots` (`:101`), which is why `draft_model` trips it while
+  eagle/MTP (their proposers pass `pass_hidden_states_to_model=True`) usually do
+  not.
+- **Read which object each gate inspects before promising a workaround.**
+  `_raise_if_mrope` tests `self.draft_model_config.uses_mrope` — the **draft's**
+  config — while `_warn_if_multimodal` tests the target and only warns
+  ("Proceeding with text-only speculative decoding"), and `_set_positions`
+  (`:349-359`) already collapses target-M-RoPE → 1-D for a text-only draft. So the
+  supported cell is **M-RoPE target + non-M-RoPE draft** and the refused cell is
+  an M-RoPE **draft**; a workaround built on the opposite reading is wrong.
+- Downstream inheritance: `vllm_ascend/spec_decode/llm_base_proposer.py:133-137`
+  (`AscendSpecDecodeBaseProposer(SpecDecodeBaseProposer)` → `super().__init__`)
+  reached from `draft_proposer.py:7-17`; the fork does not override
+  `_raise_if_mrope`, so upstream file/line numbers in the traceback are expected.
+- Ladder: `--spec-method ngram` or `suffix` with no `--spec-model` (downstream
+  `spec_decode/__init__.py:33-49` routes both to the n-gram/suffix proposers, which
+  are not `SpecDecodeBaseProposer` subclasses, so the gate cannot be reached), then
+  a text-only drafter with the target's vocab size, then the upstream fix —
+  labelled as the real fix, not a local override.
+- **A paste whose symbols do not exist at the pin is a version finding, not
+  "absent code".** #14453's report quoted
+  `target_model_config.get_mrope_mode() != MropeMode.NONE`; neither
+  `get_mrope_mode` nor `MropeMode` occurs anywhere in vllm v0.22.1, so the
+  reporter's build is newer/patched (or the snippet is recalled) — name the variant
+  you verified and hand over the probe
+  (`sed -n '300,320p' $(python -c "import vllm,os;print(os.path.dirname(vllm.__file__))")/v1/spec_decode/llm_base_proposer.py`)
+  instead of concluding the guard lives elsewhere. An empty `rg` for a pasted
+  symbol is rule 5's version check, not a data gap.
+
+Recorded #14453 shipped this verdict in 16 turns with the ranked ladder, but
+emitted **no message text until the final turn** — carry the verdict line with each
+probe, because the cut can land anywhere.

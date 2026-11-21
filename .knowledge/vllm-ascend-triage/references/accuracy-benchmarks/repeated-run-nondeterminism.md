@@ -83,7 +83,11 @@ logits.
    ```
 
    Quote it as the project's own statement; it is SoC-agnostic and versioned with the
-   tree. Only then offer batch invariance (`VLLM_BATCH_INVARIANT=1`), which is the
+   tree — but check each variable is **live at that ref** before promising it: the two
+   `ATB_*` vars bind only to the ATB calls the release still makes
+   (`torch_npu.atb.npu_paged_cache_load`, the one-shot `_warm_up_atb` matmul at
+   v0.20.2rc1), so a release whose matmuls are all aclnn/AscendC gets nothing from them
+   (`cross-platform-logprob-parity.md` Step 1 carries the sites and the grep key). Only then offer batch invariance (`VLLM_BATCH_INVARIANT=1`), which is the
    broader/later answer and carries gates the FAQ does not:
    - **Status/hardware:** beta, tracking issue #5487; *"currently requires Ascend
      NPUs for 910B"*; requires a custom operator library

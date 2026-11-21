@@ -117,7 +117,10 @@ collective or device fault whose sync point is **not** the drafter's count copy
 frame proves the launch shape and the ablations are spec-decode rows), wrong or alternating
 answers on a **PD** pair where the decode node received the state
 (`../pd-disaggregation/hybrid-state-transfer.md`), and a "does this plan fit on N
-cards" question (`../deploy-sizing/index.md`). A **tool call** whose JSON the
+cards" question (`../deploy-sizing/index.md`). A **performance** complaint where spec decode is
+switched on and the engine is healthy with acceptance visibly non-zero ("开 MTP 反而慢了",
+two benchmark tables, no traceback) is the token-per-step arithmetic track:
+`../performance-throughput/spec-decode-gain-accounting.md`. A **tool call** whose JSON the
 client cannot parse (`Unterminated string`, 格式错误, 参数被截断) while the text
 itself is fine is also not here: the open question is whether the stream or the
 assembly lost the tail, so start at `../tool-call-streaming/index.md`. When its
@@ -210,7 +213,9 @@ from the acceptance numbers.
   reasoning routing, the restart reproduction, the sibling-tutorial diff
   (`Qwen3.5-27B.md`) and the capture-size arithmetic, reading the emitted token id,
   the two padding stories (scheduler rows refuted; the MTP proposer's padded
-  drafter batch live and switchable at `eagle_proposer.py:136-142`), the
+  drafter batch live and switchable at `eagle_proposer.py:136-142`, and why
+  `--async-scheduling` makes a reporter's draft-side `enforce_eager` A/B a single
+  path run twice), the
   draft-side `enforce_eager` / `disable_padded_drafter_batch` ablation rows, the
   `min_tokens` mitigation, and the worked #9355 row (v0.18.0).
 - `drafter-count-copy-device-fault.md` — a device dump surfacing at the drafter's

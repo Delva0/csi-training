@@ -44,6 +44,75 @@ A VL or OCR checkpoint that **serves and answers garbage** on this SoC is the
 other shape of the same platform question — support is a per-model doc statement
 and document parsing is a pipeline: `310p-vl-ocr-garbage-output.md`.
 
+## A capability question at an old pin: "does `v0.9.1rc1-310p` do 300I Duo + MRoPE (Qwen2.5-VL)?"
+
+Verified at vllm-ascend **v0.9.1rc1** (`c30ddb8`) + vllm **v0.9.1** (`b6553be`),
+recorded for #1684 (`vllm-ascend:v0.9.1rc1-310p`, Atlas 300I Duo, Qwen2.5-VL-7B
+and -32B, no log — a pure status question). The reporter has no traceback, so the
+verdict comes from the docs at that pin and from one code fact, not from a walk of
+the rope implementation. Deliver it first: **no statement at this pin validates a
+VL model on 300I, and the 32B does not fit one Duo card** — then the two
+ablation-sized facts below.
+
+At a v0.9.x pin **the docs tree has a different shape**, and grepping the layout
+you remember wastes calls: `docs/source/tutorials/` is flat (`single_npu.md`,
+`single_npu_multimodal.md`, `single_node_300i.md`, `multi_node.md`, …) with no
+`models/` and no `hardwares/`; the support matrix is
+`docs/source/user_guide/supported_models.md` with no `support_matrix/` directory;
+and `vllm_ascend/` has **no `_310p/` subpackage**. Locate by a *content* token, not
+a filename — `rg -l 'Qwen2.5-VL|qwen2_5_vl' docs/source` — because the filename of
+the multimodal tutorial is `single_npu_multimodal.md` and
+`rg --files docs/source | rg -i 'vl|vision|ocr'` returns only logo images.
+
+The three status statements at that one pin, and they disagree:
+
+| Statement | Anchor |
+|---|---|
+| 300I is "experimental supported in this release … this feature **will NOT be included in v0.9.1-dev branch** … We will improve this from 0.9.2rc1 and later" | `docs/source/user_guide/release_notes.md:3,9` |
+| "Currently, **ONLY Atlas A2 series** … are supported … Below series are NOT supported yet: Atlas 300I Duo、Atlas 300I Pro (Ascend-cann-kernels-310p) might be supported on 2025.Q2" | `docs/source/faqs.md:12,17-18` |
+| the multimodal matrix has **no hardware column at all** — `\| Model \| Supported \| Note \|` with `Qwen2-VL`/`Qwen2.5-VL` ✅, so the ✅ is a project-wide claim, not a 300I claim | `docs/source/user_guide/supported_models.md:39-42` |
+
+The closest documented VL recipe is **not** the 300I page:
+`docs/source/tutorials/single_npu_multimodal.md:1` is "Single NPU (Qwen2.5-VL
+7B)", `:147` serves it with `--dtype bfloat16 --max-model-len 16384
+--max-num-batched-tokens 16384`, and `:151` says only that the value depends on
+the NPU series' HBM. The file names no SoC, while
+`docs/source/tutorials/single_node_300i.md:46` lists what that channel validated —
+Qwen3-0.6B 1 card, Qwen2.5-7B-Instruct 2 cards, Pangu-Pro-MoE-72B 8 cards, all
+`--enforce-eager --dtype float16` — and `rg -n -i 'vl|vision|multimodal'` on it
+returns nothing. So hand the tester that page plus the two deltas 300I forces
+(fp16, eager), labelled as derived.
+
+**Why it can still start (the code fact, not a kiss-off).** There is no 310P MRoPE
+path to be missing at this pin: `rg -n 'MRotaryEmbedding|AscendMRotary'
+vllm_ascend/` returns only the host-side position helpers
+(`worker/model_runner_v1.py:45,486,797`, `worker/model_runner.py:45,724,879`), and
+the one rope patch is `RotaryEmbedding.forward_oot = rope_forward_oot`
+(`ops/rotary_embedding.py:277`), whose kernel branch is gated
+`… and not is_310p()` (`:52`). Upstream `MRotaryEmbedding`
+(`vllm/model_executor/layers/rotary_embedding.py:985`) overrides **`forward`**
+itself (`:1009`), so the ascend patch never applies to it, and `_apply_rotary_emb`
+takes the `_apply_rotary_emb_torch` branch off CUDA (`:84-88`). Consequence:
+MRoPE runs a plain torch path and is *not refused* — "能跑起来但精度有问题"
+(#118 is the same report on main) is the expected shape, and `qwen2_5_vl.py` is
+registered unconditionally at this pin (`vllm_ascend/models/__init__.py:11-13,
+23-31`, padded and without-padding variants). Grade the pair **unvalidated**, not
+unsupported-by-code, and say which of the two you mean.
+
+**Sizing decides the 32B before any rope question.** 7B at bf16 is ~15 GB and the
+pin's own 300I tutorial serves Qwen2.5-7B-Instruct on **2 cards**; 32B at bf16 is
+~64 GB, i.e. ~4× that footprint, so it needs several times that card count — a
+memory verdict plus `--max-model-len` arithmetic (`scripts/card-budget.sh`,
+`../startup-failures/max-model-len-budget.md`). Take the per-card HBM from the
+reporter's `npu-smi info`, not from a datasheet this snapshot cannot check, and
+state the arithmetic with the number you were given.
+
+The one grep that would change the answer is on a *later* pin, so name it as the
+recheck: a later `-310p` image carries the `_310p/` package (its gate list is in
+this page) and its rope override answers a different question
+(`310p-vl-ocr-garbage-output.md` §4), so "MRoPE is unpatched" is a version fact,
+not a permanent one — re-grep before reusing this block.
+
 ## An image that carries triton-ascend cannot import the worker at all
 
 Verified at vllm-ascend **v0.14.0rc1** (`52d4acfa` — the release whose notes say

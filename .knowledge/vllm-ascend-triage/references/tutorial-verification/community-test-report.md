@@ -154,6 +154,39 @@ the heredoc; a 2.8 K block did the same for §2-3), and the write order put the 
 section last. Convert the draft block into the heredoc in the turn that produces it,
 and let the table go first.
 
+## #11741, the fifth run: the protocol held, and the verified defect set
+
+Same shape and same image (row 6, `hjh3-Qwen3-VL-30B-A3B-Instruct`, 2×Atlas 800I
+A2, HDK 25.5.0.B078, page `docs/source/tutorials/models/Qwen3-VL-30B-A3B-Instruct.md`,
+207 lines). This is the run that followed the protocol: one page read, then 19
+shell calls in 14 assistant turns (headings, the e2e yaml, the flag greps, the
+model's identity in the chat protocol, history titles), the report file in two
+appends (3.9 K then 5.3 K characters), and a final message carrying verdict,
+path, three scores, five defects and the slots the tester must fill — 15 546 of
+16 384 completion tokens, `completed`. Two of its
+five findings are new species, now generalised as checklist items 5 and 12:
+the `requires 1 Atlas 800I A2 (64G × 8) node` sentence (`:18`) contradicted by
+the page's own two-device map (`:42-43`), its `--tensor-parallel-size 2` (`:87`)
+and the in-tree gate `tests/e2e/models/configs/Qwen3-VL-30B-A3B-Instruct.yaml`
+(A2, TP2, EP, `max_model_len: 128000`, `gpu_memory_utilization: 0.7`,
+mmmu_val `0.58`), and the sample body's `"reasoning_content": null` (`:130`,
+`:192`), which vllm v0.18.0's `ChatMessage` cannot emit.
+
+| Tier | Finding | Evidence |
+|---|---|---|
+| wrong requirement | the node sentence (above) — 2 cards is the validated recipe | page `:18` vs `:42-43`, `:87`; e2e yaml `:2,10` |
+| completeness | no Accuracy / Performance section and no CANN/HDK requirement, while the deliverable demands aisbench config + 性能截图 and the sibling page has both (`Qwen-VL-Dense.md:468`, `:543`) | page headings end at `:205 ### Offline Inference`; bench route `developer_guide/performance_and_debug/performance_benchmark.md` §3.2.4 `:168` |
+| cosmetic (sample) | `reasoning_content` in the printed body is a request-side key at this pin | `vllm/entrypoints/openai/chat_completion/protocol.py:54-64`; `entrypoints/chat_utils.py:329` |
+| cosmetic (link) | the Offline Inference section links an absolute `…/en/latest/…` URL (`:207`) instead of the relative page; the anchor itself resolves (`Qwen-VL-Dense.md:117`) | page `:207` |
+| cross-page | a tester who goes on to benchmark hits `performance_benchmark.md:42` `cd /workspace/vllm-ascend`, but the image's `WORKDIR` is `/workspace` and the source is at `/vllm-workspace/vllm-ascend` | `Dockerfile:30,32` |
+| pass (say so) | `max_completion_tokens` on the **chat** endpoint is honoured (`protocol.py:164`, `entrypoints/openai/engine/serving.py:758-761`), `--limit-mm-per-prompt.video 0`, `--enable-expert-parallel` and `--allowed-local-media-path` all resolve; only `modelscope` is installed, so no dependency-pin conflict | page `:87-90`, `:123` |
+
+Scores it gave: 完整性 3/5 · 易用性 4/5 · 正确性 3/5, each tied to a row above.
+The reusable part is the ordering, not the count: page + headings, then the
+device map and the e2e yaml (which pin the card count without arithmetic), then
+the flag greps, then history titles for the FAQ — and the file opened before the
+fifth defect was checked.
+
 ## What the report must not do
 
 - Present doc numbers as measurements of this environment, or fill a slot with

@@ -52,7 +52,13 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    into `vllm.envs.environment_variables`. Three or four calls: name the emitter
    and the process prefix, give `env | grep -i vllm_ascend` (or
    `/proc/<pid>/environ`), and split the answer into "benign for you" plus "the
-   merge belongs in `AscendPlatform.pre_register_and_update`". Do not accept "it is
+   merge belongs in `AscendPlatform.pre_register_and_update`". Then branch on the
+   name before advising anything: if it appears in the pin's own *Migration Guide*
+   table (`docs/source/user_guide/configuration/additional_config.md:6-24` at
+   v0.22.1rc1) it is a knob being retired, so the deliverable is its
+   `--additional-config` key and the reporter keeps their value — `unset` is the
+   wrong answer (`VLLM_ASCEND_ENABLE_NZ` → `{"weight_nz_mode": 0}`, #11624
+   reporter-confirmed). Do not accept "it is
    not in my `collect_env.py`" as proof it is unset: `collect_env.py:304-316`
    prints only upstream-registered names plus the `TORCH`/`PYTORCH`/`ASCEND_`/`ATB_`
    prefixes.
@@ -64,8 +70,10 @@ Conditional routes:
   `chat_completion_*_generator` is live in the installed tree →
   `request-output-logging-flags.md`.
 - `Unknown vLLM environment variable detected: VLLM_ASCEND_*` — why it fires, which
-  process printed it, why `collect_env.py` never shows the variable, and where the
-  downstream fix belongs: `env-var-validation-warning.md`.
+  process printed it, why `collect_env.py` never shows the variable, where the
+  downstream registry fix belongs, and whether the name is instead a deprecated
+  knob whose `--additional-config` replacement is the deliverable:
+  `env-var-validation-warning.md`.
 - The number came out of an *external* profiler rather than out of a vLLM flag —
   `msprof`/MindStudio operator counts, "NPU 空闲时间 95%", an NPU-vs-GPU operator
   compare: that is not this topic's route and not vLLM's `/start_profile`, it is

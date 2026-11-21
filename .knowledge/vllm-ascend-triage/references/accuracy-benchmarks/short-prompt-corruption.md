@@ -22,6 +22,20 @@ and #894 already refuted the stack-pairing answer — go to
   `reasoning` means the **model** emitted those tokens and the parser routed
   them; it is not a routing bug (`reasoning-output-routing.md` covers the routing
   end). Removing `--reasoning-parser` once shows the same tokens in `content`.
+- **Two things to check in the same read before ranking any mechanism: the budget
+  and the subject.** If `completion_tokens == max_tokens` the sample is a budget
+  truncation, not an accuracy measurement — one resend with a large `max_tokens`
+  replaces it (recorded #15939, DeepSeek-V4-Flash w4a8 1P1D: the "verification"
+  curl sends `max_tokens: 128` against `你好，请做自我介绍` and the pasted body is
+  `content: null`, `finish_reason: "length"`, 128 completion tokens, all of it
+  `reasoning`). And if that `reasoning`/`content` answers a *different* question
+  than the request — #15939's text works through formalising `∀n (n + 0 = n)`,
+  which is not the prompt — stop: whose response this is decides the lane before
+  any sampler or quantization theory. Ask for the request whose `id` matches
+  (`chatcmpl-…`), one request at a time direct to the engine port (no
+  load-balancing proxy, no concurrent traffic), and only then read the text as
+  the engine's output. Do not spend an ablation ladder on a body that may belong
+  to another in-flight request.
 - Degenerate from the first tokens and never recovering — repeated function
   words, one token cluster looping — is corruption. Truncation, a stop-string
   mismatch or a budget limit produce short or empty output, not fluent nonsense.

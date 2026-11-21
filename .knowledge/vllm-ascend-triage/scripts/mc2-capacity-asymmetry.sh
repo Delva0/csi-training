@@ -12,9 +12,18 @@
 #   scripts/mc2-capacity-asymmetry.sh --capture-a 'default' --capture-b 'default' \
 #       --tp 8 --dp 2 --max-num-seqs 16            # both nodes omit --compilation-config
 #
+# It also runs the *within-engine* half of the same arithmetic (recorded #9887,
+# reporter-confirmed): selection is per batch AND per rank, so if the largest
+# batch one rank can be handed -- `max_num_seqs x (1 + num_spec)` for a decode
+# step, `--max-num-batched-tokens` for an extend/MTP step -- exceeds the derived
+# capacity, some DP ranks fall to the fallback dispatcher while their peers stay
+# on MC2, and the fallback branch's own int32 histogram all-gather has no peer.
+# That case is symmetric across nodes and still fails, so a SYMMETRIC verdict
+# does not close the capacity lane.
+#
 # What it does NOT do: it does not prove the hang. It prints the per-rank
-# arithmetic so the symmetry check is a numbers statement, and it says which lane
-# to take when the numbers agree.
+# arithmetic so the checks are numbers statements, and it says which lane to
+# take when the numbers agree.
 #
 # Implementation sources (re-read before trusting on another release):
 #   vllm-ascend v0.18.0rc1 99e1ea0  ascend_forward_context.py:170-182
@@ -110,6 +119,50 @@ print()
 
 cap_a, cap_b = nodes[0]['capacity'], nodes[1]['capacity']
 gb_a, gb_b = nodes[0]['global_bs'], nodes[1]['global_bs']
+
+print('branch split inside one engine (same step, different DP ranks)')
+split_risk = []
+for n in nodes:
+    ceilings = [('decode step', a.max_num_seqs * (1 + a.num_spec),
+                 f'max_num_seqs {a.max_num_seqs} x (1 + num_spec {a.num_spec})')]
+    if a.max_num_batched_tokens is not None:
+        ceilings.append(('extend/MTP step', a.max_num_batched_tokens,
+                         '--max-num-batched-tokens'))
+    for phase, size, origin in ceilings:
+        if size > n['capacity']:
+            mark = 'capacity lies below this ceiling: the axis can cross capacity'
+            split_risk.append((n['label'], phase, size, n['capacity']))
+        else:
+            mark = 'ceiling at or below capacity: no crossing on this axis'
+        print(f"  {n['label']}: {phase} {origin} = {size} vs capacity {n['capacity']}"
+              f" -> {mark}")
+if split_risk:
+    for label, phase, size, capacity in split_risk:
+        print(f'  OPEN: {label} {phase} can reach {size} tokens with capacity {capacity}.')
+    print('  A crossing alone is not a bug: a step in which every rank is on the same side of')
+    print('  capacity is consistent, and an extend/prefill step above capacity normally runs')
+    print('  the fallback method on every rank. The failure needs the per-rank counts to')
+    print('  DIFFER inside one step and straddle capacity (uneven DP batches, MTP/draft')
+    print('  tokens, balance scheduling) - then select_moe_comm_method(num_tokens, ...) gives')
+    print('  MC2 on some ranks and the fallback on others. The fallback branch issues its own')
+    print('  int32 all-gather of the per-expert histogram over ep_group, which the MC2 ranks')
+    print('  never join -> AIV retCode=0x30 timeout there, device fault reported elsewhere.')
+    print('  Ask for the per-rank num_tokens of the failing step before ranking it.')
+    print('  Reporter workaround (#9887):')
+    print('  --max-num-batched-tokens = max_num_seqs x 3 (their 3 = 1 + num_spec) and a')
+    print('  multiple of 32, i.e. keep the per-rank batch at or below capacity so every rank')
+    print('  picks the same method; raising max_cudagraph_capture_size does the same.')
+    print('  Status: mechanism reporter-confirmed (#9887, vllm-ascend v0.18.0 GLM-5.1-w8a8,')
+    print('  max_num_batched_tokens 272 vs capacity 104 = ceil(102/4)*4 at TP4); the fallback')
+    print('  method per SoC/version is the part to re-grep (A2 lost its ALLTOALL row after')
+    print('  v0.12: ALLGATHER is the fallback at v0.13+).')
+else:
+    print('  no ceiling reaches capacity: no rank can cross it on this arithmetic, so the')
+    print('  branch split is not available here. Still ask for the per-rank num_tokens line')
+    print('  before closing it, since an MTP/draft batch is not bounded by max_num_seqs x')
+    print('  (1 + num_spec) at every ref.')
+
+print()
 print('verdict')
 mc2_eligible = ep_world >= 16 and (a.experts is None or a.experts / ep_world <= 24)
 if not mc2_eligible:
@@ -131,7 +184,8 @@ if cap_a != cap_b or gb_a != gb_b:
           ' at v0.18.0rc1 :226 and :279), or drop --compilation-config on both.')
 else:
     print(f'  SYMMETRIC: both nodes declare capacity {cap_a} / global_bs {gb_a}.')
-    print('  This check is closed - do not blame the capture sizes. Next lanes, in order:')
+    print('  The *cross-node declaration* check is closed. It does not close the capacity')
+    print('  lane: see the branch-split section above (per rank, per step). Next lanes:')
     print('  the headless node\'s own log (a rank that never entered the dispatch), a 16-rank hccl_test')
     print('  plus hccn_tool -i <id> -link -g and a device-IP ping, then the image-CANN vs host-driver')
     print('  pairing (cat /usr/local/Ascend/driver/version.info on both nodes).')

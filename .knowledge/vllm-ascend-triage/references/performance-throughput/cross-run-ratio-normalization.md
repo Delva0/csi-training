@@ -27,7 +27,7 @@ ones get transposed (`4094` → `4994`, `100` → `199`, `0.1046` → `0.1946` i
 One call:
 
 ```bash
-bash <skill_root>/scripts/benchmark-table-normalize.py \
+uv run --no-project python <skill_root>/scripts/benchmark-table-normalize.py \
   --run 'Ascend 57.6811 27.7387 16 8' --total-tok-s Ascend=2419.29 --ttft Ascend=3.2645 \
   --run 'H800   116.712 140.621  16 8' --total-tok-s H800=348.944  --ttft H800=2.0687 \
   --compare Ascend H800
@@ -78,7 +78,10 @@ change:
    as counters `rate(vllm:spec_decode_num_accepted_tokens_total) /
    rate(vllm:spec_decode_num_draft_tokens_total)` (`:124-136`). `Mean acceptance
    length` *is* the tokens-per-step multiplier: read it on both builds before any
-   source walk (`../spec-decode-mtp/acceptance-collapse.md`).
+   source walk (`../spec-decode-mtp/acceptance-collapse.md`). When the reporter has no
+   log and pastes the tables instead, `tokens per step ≈ ITL_p50 / TPOT_p50` gives the
+   same multiplier, and the step-cost ratio against it is the break-even
+   (`spec-decode-gain-accounting.md`).
 
 A fixed per-request offset instead (TTFT up ~8 s while tokens/s is unchanged) moves
 the question to the PD transport / first-token path

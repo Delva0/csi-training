@@ -121,6 +121,17 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 - Recompute aggregates from the reported numbers before comparing them: micro (sample
   weighted) vs macro (subset mean) can differ by a point or more on MMLU-Pro, and the two
   averages are often printed side by side. Show the arithmetic.
+- A reference from **another platform** — an H100/H200 golden scored against the fixed
+  token sequence with `prompt_logprobs`, deviation deterministic, **no signed bias**,
+  concentrated where the golden's own confidence is low, unaffected by
+  `--enforce-eager`/graph mode and by the torch_npu precision switches — is neither a
+  harness question nor repeat-run noise. The answer is the pin-scoped switch inventory,
+  the topology match and the bucket arithmetic: `cross-platform-logprob-parity.md`.
+  Before quoting the FAQ determinism recipe, check each variable is still live at that
+  ref: the two `ATB_*` vars bind only to the ATB calls the release still makes
+  (`torch_npu.atb.npu_paged_cache_load`, the one-shot `_warm_up_atb` matmul) and the
+  served matmuls are aclnn/AscendC — and the grep key for that is `torch_npu.atb`, not
+  `import atb`, which returns nothing and supports a claim that is false.
 - A score comparison **across two quantized formats of the same model family**
   (`w8a8c8` vs `w4a8c8`, `w4a8` vs `w8a8`) is not a quant-width test: the two formats
   ship *different* documented `--additional-config` sparse-C8 recipes and usually a
@@ -262,7 +273,11 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   physical→logical block split), the five-row matrix whose prefix-caching row decides
   align-mode state block vs attention-side split, and the stop rule that cost #13853
   its session. Recorded case #13853 (Qwen3.5-0.8B, 2048 vs 512 + eager).
-- `short-prompt-corruption.md` — the same symptom on a few-thousand-token prompt: test the
+- `short-prompt-corruption.md` — the same symptom on a few-thousand-token prompt: read the
+  pasted body's `max_tokens`/`completion_tokens` and whether its text answers the *sent*
+  prompt before ranking anything (a sample cut at a 128-token `max_tokens` measures
+  nothing, and a `reasoning` that works a different question is a request↔response
+  pairing question — #15939); then test the
   trigger claim in the paste first (identical ids on both input routes refute an id-driven
   mechanism, and `Using max model len N` is the checkpoint's own number, so a mismatch
   points at the local `config.json` before any kernel — #8590), then the
@@ -300,6 +315,15 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (`test_batch_invariant.py:160` has `enable_expert_parallel` commented out), the
   three causes a reviewer will otherwise pick (HCCL timing, sampler, custom-op
   fusion — all refuted) and the one-axis-per-launch matrix.
+- `cross-platform-logprob-parity.md` — per-token logprobs (or logit deltas) differ from
+  an H100/H200 golden on Ascend, deterministically and without signed bias: the
+  pin-scoped reading of the FAQ determinism recipe and why its two `ATB_*` vars cannot
+  move served numerics, the fp32 `log_softmax` parity that retires the logprob-math lane
+  (`vllm/v1/sample/sampler.py:291-292` vs `vllm_ascend/sample/sampler.py:144,157`), the
+  ranked causes with one check each (TP/topology first, prefill chunking, default-on
+  fusion with `VLLM_BATCH_INVARIANT=1` as its only kill switch, VL preprocessing), and
+  `scripts/logprob-bucket-fit.py` for the flat-`mean|Δ log p|/(1-p)` test that decides
+  "one mechanism" against "this bucket needs a `top_logprobs` dump".
 - `repeated-run-nondeterminism.md` — the engine compared with itself: the same prompt
   or body run 3–5×, lengths or contents differing, typically NPU "差异大" against a
   stable NV-GPU baseline at `temperature: 0`. The reporter's own control refutes any

@@ -44,6 +44,13 @@ axis before ranking anything: `cross-run-ratio-normalization.md`, one script cal
 path — the perf complaint and the garbled-output complaint are one decision:
 `moe-comm-path-when-ep-off.md`.
 
+**And this topic:** the two runs differ by one `--speculative-config` and the direction
+is **negative** ("开启 mtp 性能下降 30 %", while a sibling model on the same release
+improves). Acceptance is healthy there, so this is the token-per-step arithmetic, not
+the acceptance-collapse lane: derive tokens per step from `ITL_p50 / TPOT_p50`, compare
+it with the step-cost ratio, then price the per-step weight term to decide whether the
+model class can gain at all — `spec-decode-gain-accounting.md`.
+
 **And this topic:** a profiler table with a *missing column* — `Input Shapes: N/A`,
 `Block Dim: 0`, `OP State: N/A` for one custom op while its neighbours carry shapes,
 usually attached to a self-diagnosed `OpCommand::SetCustomHandler` /
@@ -118,7 +125,10 @@ Not this topic, leave immediately:
   --max-model-len 32768 --gpu-memory-utilization 0.8 --max-num-batched-tokens 4096
   --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'`).
 - Never read `npu-smi` AICore%/power from an idle paste as load evidence: those
-  numbers were taken while no request was running.
+  numbers were taken while no request was running. Nor as a host-vs-device
+  discriminator: `0 %` is also what a rank waiting inside a collective shows, frozen
+  on the same operator count as its peers
+  (`../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md`).
 - **A step change at a concurrency number is a fixed-size structure, and the
   paste's own `GPU KV cache usage` at that step says which one.** Near 100 % at the
   stepping concurrency, with `Running` plateauing below the offered count, is the
@@ -183,7 +193,7 @@ Not this topic, leave immediately:
   quantity the reporter thinks it is: totals mix input and output lengths, wall clock
   moves with the token count, and the small columns of a screenshot table get
   transposed. One call —
-  `bash <skill_root>/scripts/benchmark-table-normalize.py --run … --compare A B` —
+  `uv run --no-project python <skill_root>/scripts/benchmark-table-normalize.py --run … --compare A B` —
   gives per-request token counts, the decode step, the prefill cost per input token
   and which axis actually moved; rank causes on that axis only. Two recorded shapes:
   a cross-platform table whose per-request lengths differed 4 K/100 vs 2 K/1024, and a
@@ -282,6 +292,15 @@ Not this topic, leave immediately:
   the `1 + num_speculative_tokens` budget with `Mean acceptance length` as the
   logged multiplier), the missing-control list, and the version-absent-from-snapshot
   diff command.
+- `spec-decode-gain-accounting.md` — "MTP on is slower" with acceptance fine
+  (#8967, Qwen3.5-35B-A3B w8a8 on one 910B3, `qwen3_5_mtp` K=3, vllm 0.18.rc1):
+  tokens/step ≈ `ITL_p50 / TPOT_p50` = 53.8/16.2 ≈ 3.3 of a 4-token budget, step
+  3.62× against 3.32× tokens (per-token +9 %, the "30 %" is E2EL and TTFT), why a
+  14.8 ms step against a ~2 ms weight read is dispatch-bound so the verify tokens cost
+  ~additive, the slope experiment (`num_speculative_tokens` 3→2→1→0) and concurrency
+  row, the two one-grep refutations (`MTPModelTypes` → `"mtp"` normalization;
+  spec-scoped `enforce_eager` touching only the drafter graph), and the
+  dense-sibling-recipe provenance check.
 - `moe-comm-path-when-ep-off.md` — a DP×TP MoE perf report whose command has
   `--enable-expert-parallel` missing or asymmetric (#2833, GLM-4.5 on 2×8×910B2 at
   v0.10.1rc1): the `ep_size`/`_get_fused_moe_state` table (`1` → AllGather,

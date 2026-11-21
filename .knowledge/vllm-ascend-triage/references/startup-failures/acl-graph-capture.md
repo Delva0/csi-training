@@ -67,7 +67,10 @@ side (host→device), `kind = 2` is a device→host **readback** — `.to("cpu")
 `FULL_DECODE_ONLY` (`../soc-platform-paths/310p-mtp-graph-splitfuse-mask.md`). Recorded family: #6002 (v0.11.0, DS-V3.1-w8a8, `deepseek_mtp` +
 `FULL_DECODE_ONLY`), #4208 (also `107033 AclmdlRICaptureTaskUpdateEnd`), #8502
 (reporter-confirmed: `multistream_overlap_shared_expert: true` and serving fails,
-"关闭多流后正常"), #10700 (v0.21.0rc1 and v0.22.1rc1, GLM-5.1 on 2×A2, DP2×TP8,
+"关闭多流后正常" — and at v0.19.1rc1 the *tutorial* is the side that sets it
+`true` while `tests/e2e/nightly/.../GLM-5.yaml:34` sets `false`, so "I used the
+documented command" refutes nothing: `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`
+§7, recorded #9263), #10700 (v0.21.0rc1 and v0.22.1rc1, GLM-5.1 on 2×A2, DP2×TP8,
 `deepseek_mtp` + `FULL_DECODE_ONLY` + `npugraph_ex`: the record lands in engine
 init, the report surfaces 27 min (v0.21.0rc1) or 101 min (v0.22.1rc1) later at
 `execute_dummy_batch` ->

@@ -248,3 +248,46 @@ identical.
   recheck (`rg -n 'Non-MoE models do not support external data parallel'` in the
   installed `vllm`), and do not let the doc citation pull the answer into a
   version-archaeology detour before the launch fix is stated.
+
+## A parser / tokenizer-mode name is a registry lookup, and the registry is version-gated
+
+Signature: `invalid tool call parser: <name>` / `KeyError: "Reasoning parser '<name>' not
+found. Available parsers: …"` / a report in prose — "设置成 deepseek-v4 会报错，显示没有
+deepseek-v4 这个选项, 是需要拉取新的镜像吗" — with no traceback, because the engine refused
+the flag value at validation. Track: **capability/version**, not image corruption and not a
+code defect. Four checks, in this order, and the first one is usually already in the paste:
+
+1. **The error's own list is the authority for that image.** Both messages enumerate the
+   registered names; an argparse refusal prints the whole `choices` set. Read it and compare
+   against the value in the title before any source read — a valid-choice list is the
+   complete answer for "which value should I pass on my build".
+2. **Registry keys are lowercase-underscore.** `deepseek_v3`, `deepseek_v31`,
+   `deepseek_v32`, `qwen3_coder`, `minimax_m2` — so a hyphenated form from the title
+   (`deepseek-v4`, `deepseek-r1`) is rejected *even on a release that registers the
+   underscore name*. That is a one-character fix and belongs in the first sentence, beside
+   the version verdict, not instead of it.
+3. **Then decide whether the name exists at the pin — and quote the other pin if it does.**
+   Verified pair: `vllm/tool_parsers/__init__.py` registers only `deepseek_v3` / `_v31` /
+   `_v32` and `vllm/reasoning/__init__.py` only `deepseek_r1` / `deepseek_v3` at vllm
+   **v0.13.0** (`72506c9`, the tree inside the `vllm-ascend:v0.13.0rc3` image), whose own
+   `docs/source/tutorials/DeepSeek-V4.md` passes **no** parser flags at all — `deepseek_v4`
+   there is only the `--served-model-name` (`:190`, `:359`, `:430`, `:501`). At vllm
+   **v0.23.0** (`0fc695f`) `vllm/reasoning/__init__.py:31` and
+   `vllm/tool_parsers/__init__.py:37` both register `deepseek_v4`, with registry assertions
+   in `tests/reasoning/test_deepseekv3_reasoning_parser.py:37-38` and
+   `tests/tool_parsers/test_deepseekv4_tool_parser.py:123`, and vllm-ascend's A2 block passes
+   `--tokenizer-mode deepseek_v4 --tool-call-parser deepseek_v4 --reasoning-parser deepseek_v4`
+   (`docs/source/tutorials/models/DeepSeek-V4-Flash.md:209-212`). So on an rc3-era image the
+   **newer image is rung 1** and the snapshot already carries the proof; do not send the
+   reporter to a hand-applied patch on that evidence alone.
+4. **A patch-apply failure is not evidence of patch-only delivery.** A precedent whose paste
+   is `git apply` output with hunks into `vllm/reasoning/__init__.py` and
+   `vllm/tool_parsers/__init__.py` (`#8727`, same `v0.13.0rc3` image, `patch does not apply`)
+   shows what *any* registration change looks like as a diff; it does not establish that a
+   name ships only as an out-of-tree patch. The recorded #8875 run read it that way and
+   demoted the upgrade to rung 3 behind a synthesized `deepseek_v32`/`deepseek_v3` pairing —
+   answer the version question first, then offer the nearest in-image name as the interim.
+
+Related, different owner: `--tokenizer-mode` reads a third registry (same underscore
+spelling), and a `reasoning`-vs-`content` routing complaint is the parser *flag being absent*,
+not a bad name (`../accuracy-benchmarks/reasoning-output-routing.md`).

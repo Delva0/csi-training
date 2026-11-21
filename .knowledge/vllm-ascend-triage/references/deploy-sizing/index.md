@@ -4,7 +4,10 @@ Scope: the report is a *plan*, not a crash — "the GPU docs do a 2-device
 stage-based deploy, mine does not work on 2 NPUs", "the bundled `platforms.npu`
 yaml has three stages and I only have two cards", "does model M fit on 2×64 GB",
 "how do I pin stage 1 to one card". Nothing has crashed yet, or the crash text is
-an allocation failure that the layout predicts.
+an allocation failure that the layout predicts. The same topic owns the *KV* half
+of a plan — a measured per-token footprint several times the reporter's own
+calculation, or "is there a path to 512K/1M context on this card in this release"
+(`dsv4-kv-footprint-terms.md`).
 
 Leave this topic when there is a real startup traceback with a lane
 (`../startup-failures/index.md`), a collective/device error
@@ -38,10 +41,18 @@ Inherit the rules in SKILL.md, plus these:
    `docs/source/`). A command copied from a GPU page therefore exposes **all**
    cards to **every** process, which looks exactly like a stage-collision bug.
 3. **A sibling project's config that the snapshot does not carry is a gap, not a
-   hypothesis.** vllm-omni's stage CLI, `qwen3_omni_moe.yaml` and the
-   `platforms.<vendor>` merge are not in `SOURCES.json`; you cannot verify their
-   parsing. Say what is unverifiable, answer what the arithmetic and the pinned
-   vllm-ascend docs do settle, and ask for the yaml plus the failing log.
+   hypothesis — but ship what reporters already established.** vllm-omni itself is
+   in no `SOURCES.json`, so its parsing is unverifiable. What is known without the
+   source, and belongs in the first answer: the NPU stage configs are
+   `vllm_omni/platforms/npu/stage_configs/<model>.yaml`, they are overridable with
+   `--stage-configs-path` (not `--deploy-config`), each stage carries its own
+   `devices`, and copying the file, editing every stage's `devices` and exporting
+   `ASCEND_RT_VISIBLE_DEVICES` brought the three-stage 30B-A3B omni up on **two**
+   cards (#8068, reporter-confirmed). Do not answer "you need a third card" or
+   "the 2-NPU layout is infeasible" before reading the reporter's yaml: the
+   per-stage `gpu_memory_utilization` values are the number that decides, and
+   that recipe contradicts the guess. Ask only for the still-open pieces (the
+   edited yaml, one log line per stage).
    Precedent: #9336 files this exact absence as a `[Doc]` gap ("Missing NPU
    device allocation strategy for multi-NPU deployments") and asks for the NPU
    equivalent of `CUDA_VISIBLE_DEVICES` — so "the docs do not answer this" is a
@@ -123,8 +134,23 @@ Inherit the rules in SKILL.md, plus these:
    preference the tutorial's own Ray section does not support — say which path
    your recipe uses and why, then correct the line they already have.
 
+8. **A per-token KV number is a term list, not one formula.** On a later-generation
+   MoE with sparse attention the serve allocates several KV cache kinds (latent/rope,
+   indexer K, indexer scale, a sliding-window cache, compressor state), each with its
+   own dtype gate and its own padded page size — and two of those gates flip by SoC
+   (`float8_e4m3fn` on A5, `bfloat16`/`int8`/`float16` otherwise), so a footprint
+   computed from "the fp8 layout" under-counts by construction and a report that
+   measures 3-5× it is describing the layout, not a defect. Reconcile the reporter's
+   division against those terms before ranking any promotion hypothesis, and answer
+   the context question from the pinned tutorial's per-SoC envelope rather than from
+   the arithmetic alone: `dsv4-kv-footprint-terms.md`.
+
 Conditional routes:
 
+- The report prices KV per token from the checkpoint layout, or asks for a 512K/1M
+  context on a 64 GB card → `dsv4-kv-footprint-terms.md` (the cache-kind term list,
+  the A5-vs-else dtype gates, the DCP indexer replication factor, and the DSV4-Flash
+  A2 envelope 133120/135000 against 1M being an A3/950DT row).
 - The OOM line is inside model construction (`get_model` → `create_weights` →
   `quantization/methods/w4a16.py:get_weight` → `torch.empty`) on a 384-512-expert
   MoE with `--enable-expert-parallel` and a `--data-parallel-size` in the launch
@@ -141,9 +167,10 @@ Conditional routes:
   (#6572 for the post-sizing shape, #4474 for the pool-loop shape, where
   `already allocated > gmu × total` is expected and the number to check is
   `#tensors × page_size × num_blocks` against the `Available memory:` line).
-- The worked #9335 case: the 30B-A3B Omni model on 2×64 GB 910B, the three-stage
-  NPU yaml, why the 2-NPU squeeze is infeasible, the evidence table and the
-  answer shape → `card-budget-and-device-visibility.md`.
+- The worked #9335/#8068 case: the 30B-A3B Omni model on 2×64 GB 910B, the
+  three-stage NPU yaml, the reporter-confirmed `--stage-configs-path` override
+  that runs it on two cards, the `ASCEND_RT_VISIBLE_DEVICES` traps, the card
+  arithmetic and the answer shape → `card-budget-and-device-visibility.md`.
 - The model's own documented envelope and CI config (which TP the project
   actually runs) → `../startup-failures/max-model-len-budget.md` and
   `../tutorial-verification/tutorial-command-audit.md` (checklist item 5).

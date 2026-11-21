@@ -16,7 +16,7 @@ are reuse and draft bookkeeping, not the sparse-attention / DCP math below.
 
 | Observed | Class | First owner to suspect |
 |---|---|---|
-| only the first request after start is garbled, later ones clean | warm-up / init | connector, graph capture, c8 reshape buffers — precedent #12905 |
+| only the first request after start is garbled, a **different-prompt** later one clean | warm-up / init | connector, graph capture, c8 reshape buffers — precedent #12905 |
 | every request at long length, same prompt | length-dependent corruption | sparse-attention indexer / DCP block remap / interleave math |
 | fluent but wrong or looping | decode/reuse defect | prefix cache, KV offload/eviction, MTP draft — for long *outputs* see `long-output-repetition.md` |
 | empty, `null` or cut mid-sentence | budget/truncation | `max_model_len`, `max_tokens`, `reasoning-output-routing.md` |
@@ -25,6 +25,18 @@ are reuse and draft bookkeeping, not the sparse-attention / DCP math below.
 Ask which one it is; the four have different owning code. A one-line repro with
 `temperature=0` and `max_tokens` well inside `max_model_len` removes the sampling
 and truncation rows cheaply.
+
+**A repeated identical prompt is not the warm-up control — it is a cache probe.** Every
+"首次请求乱码 / 第二次 curl 正常" report must be re-sent with a **fresh prompt** (or a
+nonce appended), because with prefix caching on (the default) or a KV pool attached
+(`AscendStoreConnector`/memcache, `MooncakeConnectorV1` + `AscendStoreConnector` in a
+`MultiConnector`) the identical second request can be served from a hit and never re-run
+the prefill/write path that produced the corruption. Recorded #12905 filed this shape
+without saying whether the second curl used a different prompt, set no
+`--no-enable-prefix-caching`, and had memcache attached — both confounds are unresolved
+by the report, which is why the control must be run deliberately. So the first row of the
+ladder is "new prompt, nothing else changed" — if that one is garbled too, the warm-up/init
+row above is refuted before any source read.
 
 ## First move when both serve commands are pasted: diff them against the model tutorial
 

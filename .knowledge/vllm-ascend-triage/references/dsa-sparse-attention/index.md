@@ -8,6 +8,10 @@ Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deeps
   dump names a scatter/gather kernel — `indexer-cache-scatter-fault.md`;
 - "服务崩溃 / 崩溃" under concurrency or high load **with no error text pasted** —
   `concurrency-crash-with-no-log.md`;
+- a DCP (`--decode-context-parallel-size` > 1) × C8 deployment whose **first real
+  request** dies with `MTE accesses an invalid GM address` (`0x800000`) in a
+  KV-reading kernel under `FULL_DECODE_ONLY`, and a benchmark client that only
+  reports `ConnectionResetError` afterwards — `dcp-c8-kv-address-fault.md`;
 - a `npu_kv_rmsnorm_rope_cache` `cos or sin shape is invalid` /
   `do tiling failed, ret is -1` after a healthy run, i.e. the op's attribute check refusing
   the rows this batch handed it (graph bucket, DSA-CP slice, chunked-prefill chunk) —
@@ -62,6 +66,16 @@ is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
   `torch.ops._C_ascend.store_kv_block` to `npu_scatter_nd_update_`, which is what makes it
   the one-variable ablation; say that instead of walking the KV connector
   (`c8-flags-and-kv-store-path.md`).
+- **A fault in a KV-reading kernel under DCP is an index-space question, and the
+  recipe row is checked first.** With `--decode-context-parallel-size` > 1 the
+  metadata handed to the attention op is a *derived* view
+  (`sfa_cp.py` `local × dcp + rank`), which no code compares against the KV cache's
+  capacity; #14320 is reporter-confirmed for `LightningIndexerQuant`, and the same
+  class faults the SFA C8 kernel (#15906). Before the mechanism, match the serve
+  command against the pinned recipe row and its validation statements — the 1M
+  block is A3-only (`release_notes.md:259`) — one launch at a smaller
+  `--max-model-len`, then `enable_sparse_sfa_c8: false`, then DCP off
+  (`dcp-c8-kv-address-fault.md`).
 - **`--enforce-eager` plus `ASCEND_LAUNCH_BLOCKING=1` strengthens attribution but
   does not move ownership.** Both were already set in the #4296 deployment and the
   answer was still a host-side slicing bug at the caller.
@@ -91,6 +105,12 @@ is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
   communicates. Warn the reporter that the same doc block's `--async-scheduling`
   is a separate axis (spec-decode bookkeeping), so it goes on after the serve
   starts.
+- **A per-token KV footprint on this family is a sizing question, not a dtype
+  theory.** When the measured bytes/token/card are several times the reporter's own
+  arithmetic from the compressed latent layout, the missing terms are the indexer K
+  and indexer-scale caches and the SWA/compressor pages — each with a dtype that
+  flips by SoC — plus a DCP replication factor, and the context target is answered
+  by the tutorial's per-SoC envelope: `../deploy-sizing/dsv4-kv-footprint-terms.md`.
 - **A model-family concurrency crash without a paste is a config-diff answer,** not
   a mechanism hunt: deliver the differences against the project's own validated
   command at the pinned commit, the 1-2 cheapest A/Bs, and the known-family list,

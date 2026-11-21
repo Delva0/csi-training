@@ -49,7 +49,11 @@ The alternative mechanism for the same dump is the *value* range rather than the
 count: a slot index beyond `kv_cache[2]`'s `num_blocks × block_size` rows would also
 raise an MTE DDR error. It is separable in one print — `slot_mapping.max()` against
 `kv_cache[2].shape[0] * kv_cache[2].shape[1]` — and the row-count mismatch above is the
-one this tree actually contains.
+one this tree contains at v0.11. On a v0.26-line tree that alternative is the **primary**
+reading for a DCP deployment: `sfa_cp.py` builds the ids as `local × dcp + rank` with no
+capacity check, #14320 confirmed it for `LightningIndexerQuant`, and the SFA C8 kernel
+faults the same way — `dcp-c8-kv-address-fault.md`. Check the serve command for
+`--decode-context-parallel-size` before choosing between the two.
 
 Consequences for ranking, all cheap to state:
 - a pure-decode batch (`num_prefill_tokens == 0`) and a pure-prefill batch

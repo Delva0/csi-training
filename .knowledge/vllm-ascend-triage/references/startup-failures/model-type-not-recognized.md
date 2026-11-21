@@ -118,8 +118,34 @@ walk beyond the registries.
    `requirements/common.txt:10` = `transformers >= 4.56.0, < 5`, so no 5.x-only
    architecture can load there; vllm-ascend `v0.22.1rc1` `requirements.txt:38` =
    `transformers==5.5.4` with vllm `v0.22.1` `requirements/common.txt:10` =
-   `>= 4.56.0` excluding `5.0.*`–`5.5.0`. A `< 5` cap alone settles the answer;
-   quote both lines.
+   `>= 4.56.0` excluding `5.0.*`–`5.5.0`. A `< 5` cap settles "is this architecture
+   loadable with the image's own stack" (`v0.18.0rc1`: `requirements.txt:38`
+   `transformers>=4.57.4`; vllm `requirements/common.txt:10` `< 5`) — quote both lines.
+
+   **It does not settle "is the reporter's off-pin transformers the bug".** Ask that
+   second question before ranking, because a family the release documents can *require*
+   the version the cap excludes, and a report that volunteers its `transformers` number
+   is often quoting an install the project itself told it to make. The pinned tree's own
+   `docs/source/user_guide/release_notes.md` `### Known Issue` block is the one read
+   (`rg -n -i 'requires|known issue' <pin>/docs/source/user_guide/release_notes.md`):
+   at vllm-ascend `v0.18.0rc1` (`99e1ea0f`) `release_notes.md:52`, under `## v0.17.0rc1`,
+   says "GLM5 requires transformers==5.2.0, and this will resolved by
+   vllm-project/vllm#30566, will not included in v0.17.0" — so on that release a GLM-5
+   launch on `transformers` 5.2.0 is the **documented** pairing and "restore the image's
+   4.57.x" would break the model, not fix it. Corroborating code read: vllm v0.18.0
+   `vllm/transformers_utils/config.py:380` branches on
+   `Version(version("transformers")) < Version("5.0.0")` ("Transformers v4 installed,
+   legacy config fields …", the comment above says the patching is needed "for both
+   Transformers v4 and v5"), so the `requirements` cap is a support statement, not a
+   runtime refusal, and 5.x has a code path at that pin.
+
+   Two things to say in the answer, never assume: whether the bulletin row still applies
+   to the reporter's *own* release (fixes land by PR id, and `#30566` is unreadable here),
+   and that the release-notes section for the reporter's release may not exist yet — at
+   `99e1ea0f` the newest section is `## v0.17.0rc1` (`:3`), so absence of a row for
+   `v0.18.0rc1` is docs lag, not a clean bill. The check that discriminates instead is
+   the traceback: with 5.2.0 installed the failing frame names the code that broke, and
+   the same launch on the image's own `transformers` is the one-variable ablation.
 2. **vllm has a config fallback for that `model_type`.**
    `vllm/transformers_utils/config.py:67` `_CONFIG_REGISTRY` (lazy names such as
    `qwen3_next="Qwen3NextConfig"`, implementation in

@@ -181,6 +181,63 @@ that a pre-validator renames (`:429-446`). Advice to read
 `choices[0].message.reasoning_content` is right for older releases and wrong for
 this one; name the field the pinned version emits.
 
+## `think 混乱` and "关闭思考就返回空 list" on a Qwen3.5 serve: two serve flags, not a cache walk (#8350)
+
+Recorded #8350 (vllm-ascend v0.18.0rc1 `99e1ea0` / vllm v0.18.0 `bcf2be9`, Qwen3.5-122B-A10B
+TP8+EP on 8x910B2, `--enable-prefix-caching --block-size 128`, and **no `--reasoning-parser`**
+at all): the CoT, its tags and the answer arrive together in `message.content` ("thinking
+混乱"), and the reporter's attempts to switch thinking off come back as an empty content/list.
+Both halves are upstream OpenAI-frontend configuration, and the reporter confirmed the
+resolution afterwards on the same issue (2026-04-21): `--reasoning-parser qwen3` while thinking
+is on, and `--default-chat-template-kwargs '{"enable_thinking": false}'` to turn it off —
+"在新版本中请求时可通过传 `--default-chat-template-kwargs '{"enable_thinking": t/f}'` 控制是否使用think".
+
+| claim | anchor at vllm v0.18.0 (`bcf2be9`) |
+|---|---|
+| `--default-chat-template-kwargs` is a real serve flag, `json.loads`-parsed | `vllm/entrypoints/openai/cli_args.py:96,173-174` |
+| server defaults merge **under** per-request kwargs (`defaults \| request`) | `vllm/entrypoints/openai/engine/serving.py:815-824` |
+| the parser is rebuilt per request from the merged kwargs | `chat_completion/serving.py:107,121,180,229-236` |
+| `thinking_enabled = chat_kwargs.get("enable_thinking", True)` | `vllm/reasoning/qwen3_reasoning_parser.py:39-42` |
+| no `</think>` + enabled ⇒ `(model_output, None)`; disabled ⇒ `(None, model_output)` | `qwen3_reasoning_parser.py:81-87` |
+| the chat field is `message.reasoning`, `include_reasoning` default `True` (no `reasoning_content`) | `chat_completion/protocol.py:64,183` |
+| `reasoning_effort: "none"` forces `include_reasoning = False` | `chat_completion/protocol.py:784-786` |
+
+So the answer is owed before any source read, in four short rows:
+
+1. **Add `--reasoning-parser qwen3`** — for Qwen3/3.5/3.6 it is the flag that splits CoT from
+   answer; without a parser `content` is the whole text with the tags in it, which is exactly
+   the "混乱" reading.
+2. **Turn thinking off server-side**, not client-side: `--default-chat-template-kwargs
+   '{"enable_thinking": false}'`. A per-request `chat_template_kwargs: {"enable_thinking":
+   false}` only helps clients that send it, and `{"thinking": false}` is the wrong key for this
+   parser (kwarg-name trap below) — that is why "关不掉" persists across callers. With the
+   default set, the pin's template prefills `<think>\n\n</think>\n\n` and the serving layer
+   routes deltas as content without calling the streaming parser
+   (`qwen3_reasoning_parser.py:16-46` docstring, `:26-31` above).
+3. **Name the field the pin emits.** At v0.18.0 it is `message.reasoning`; a client or harness
+   that reads `reasoning_content` shows nothing however correct the routing is — one of the
+   ways "返回空 list" is produced. (At v0.22.1 `reasoning_content` survives only as a deprecated
+   **input** alias, `protocol.py:429-446`.)
+4. **`include_reasoning: false` (or `reasoning_effort: "none"`) drops `reasoning` on purpose.**
+   When the completion ends inside the thinking block and the request also asked for no
+   reasoning, the visible response is empty by construction — that is the parser's documented
+   truncation branch, not a thinking-switch bug.
+
+**Do not route this shape into the hybrid KV-cache lane.** #8350's command carries
+`--enable-prefix-caching --block-size 128` and `hybrid-block-size-corruption.md` is the nearby
+page, but that page's Step 0 grades a *works-vs-fails pair* differing by a scheduling knob.
+#8350 has one serve command and a thinking-toggle complaint, so there is nothing to grade: the
+recorded session spent turns 36-50 on `mamba_cache_mode`, `refresh_block_size` and
+`release_notes.md`, never typed the two flags, and hit the cap with 185 characters of message
+text. The cache knobs become a hypothesis only once the reporter reports corruption that a
+thinking-off run on the same serve does *not* reproduce.
+
+Open items, stated rather than filled: the reporter's screenshot was too large to attach, so
+which "空 list" they saw — empty `content`, empty `choices`, or a client-side list built from
+`reasoning_content` — is unknown. Ask for one raw body (`content`, `reasoning`,
+`finish_reason`, `completion_tokens`) and label the flags as reporter-confirmed while leaving
+the mechanism behind their empty list open.
+
 ## The thinking is in the wrong language ("回答中英混杂", "the answer came back in English")
 
 **Correctness first, then language.** If the text *after* `</think>` is right and only its

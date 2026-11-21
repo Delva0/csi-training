@@ -74,6 +74,12 @@ Not this topic, leave immediately:
   speculative decoding, `../spec-decode-mtp/acceptance-collapse.md`.
 - The service dies, OOMs or leaks after a while, or a rank dies under load →
   `../runtime-memory/index.md` / `../dsa-sparse-attention/concurrency-crash-with-no-log.md`.
+- The benchmark client itself throws — `ConnectionResetError: [Errno 104]`,
+  `ClientOSError`, `ConnectionRefusedError`, an `evalscope perf` row of
+  `Total / Success / Failed n / k / m` with everything after the first batch failing —
+  while the serve log has a device dump: that is **not** a measurement track report.
+  The client is reporting a dead worker; go to the serve log's first `ERROR` block
+  (`../dsa-sparse-attention/dcp-c8-kv-address-fault.md` Rule 1).
 - The reporter is planning a deployment, not measuring one → `../deploy-sizing/index.md`.
 - Nothing answers at all after one oversized prompt — `Running` 0 while `Waiting`
   stays non-zero and KV usage ≈ 0, recovery only by restart → that is an admission

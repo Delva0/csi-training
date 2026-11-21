@@ -15,8 +15,11 @@ It also owns the **wrong-but-not-repeated** vision answer — a document/OCR run
 TP=2 reply collapses to one trivial element (`[{"bbox":[0,0,307,307],"category":
 "Picture"}]`, no text) while TP=1 returns the full box+text list. Same owner (what
 the vision tower produced), different surface: the answer is present and plausible,
-just poorer. Either way the presence of an **image** is what selects this page; a
-**text-only** serve whose whole answer is one repeated token (`AAAA…`, `!!!!`) is
+just poorer, and this page also owns the **mis-structured** answer (结构化内容错乱,
+the returned HTML/JSON layout garbled) that an *older image tag* of the same serve
+structured correctly (§*Fifth pin*). Either way the presence of an **image** is what
+selects this page; a **text-only** serve whose whole answer is one repeated token
+(`AAAA…`, `!!!!`) is
 `constant-token-degeneracy.md` (word salad on a text prompt stays
 `short-prompt-corruption.md`).
 
@@ -340,10 +343,56 @@ instead of a video (clean ⇒ the video branch, `temporal_patch_size=2` / `grid_
 (4) `--tensor-parallel-size 1`; (5) `--enforce-eager` **with its own banner line** in the
 paste, otherwise the ablation proves nothing (SKILL rule 15).
 
+## Fifth pin: v0.11.0rc1 — the *newer* image is the broken one, and the delta survives to rc3
+
+Verified on #4730 (pin vllm-ascend v0.11.0rc3 `b6d63bbd` ↔ vllm v0.11.0 `b8b302cde434`;
+reported image `v0.11.0rc1`, control `v0.11.0rc0`): Qwen2.5-VL-3B on one card
+(`ASCEND_RT_VISIBLE_DEVICES=7`, TP=1), `vllm serve /workspace --port 9301
+--gpu_memory_utilization 0.8 --max_model_len 8192 --served-model-name "gie_3.0v"
+--mm_processor_kwargs '{"max_pixels": 2038400}' --limit_mm_per_prompt '{"image": 3}'`.
+The same weights and command structured the answer correctly on rc0; on rc1 "返回的html结构
+都错乱". The reporter's later public comment (2025-12-05) adds that **rc2 and rc3 fail the
+same way** and that they now suspect 精度 — so this is not a one-rc regression that a later
+tag repairs.
+
+- **The `USE_OPTIMIZED_MODEL` gate *is* live here** (unlike the Qwen3-VL fourth pin):
+  `vllm_ascend/models/__init__.py:21-34` registers `Qwen2_5_VLForConditionalGeneration`
+  to `qwen2_5_vl:AscendQwen2_5_VLForConditionalGeneration` when
+  `envs_ascend.USE_OPTIMIZED_MODEL` (default `'1'`, `vllm_ascend/envs.py:96-97`), else to
+  `qwen2_5_vl_without_padding:…_Without_Padding`. The padded branch itself:
+  `MIN_PAD_SIZE = 64` / `MAX_PAD_SIZE = 128` (`models/qwen2_5_vl.py:48-49`), `enable_pad`
+  for head_dim in the **open** interval (`:221-227`), `_npu_flash_attention_unpad`
+  (`:116`) — one restart, live at rc0 and rc3 alike.
+- **The request is outside the validated image envelope**: the pin's own single-card
+  Qwen2.5-VL sample passes `max_pixels: 1280 * 28 * 28` = 1 003 520
+  (`docs/source/tutorials/single_npu_multimodal.md:75`) while 2 038 400 is 2 600
+  patches/image at 28 px; with `--limit-mm-per-prompt {"image": 3}` that is ≈7 800 image
+  tokens against `--max_model_len 8192`. So `finish_reason: "length"` and
+  `usage.prompt_tokens` from one raw body are the zero-restart check that separates
+  "the HTML tail was cut" from "precision".
+- **Coverage cannot refute it** (coverage, never cause): the 3B single-card test asserts
+  only non-empty output (`tests/e2e/singlecard/test_vlm.py:51-55`, `max_model_len=4096`,
+  `max_tokens=64`, a photo), and the wired accuracy row is the 7B
+  `mmmu_val acc 0.51` (`tests/e2e/models/configs/Qwen2.5-VL-7B-Instruct.yaml`) — an
+  aggregate score and a non-emptiness assert both pass a document-structure regression.
+- **Read the direction.** This is the mirror of the fourth pin: here "re-run on the
+  current image" and "the next rc fixes it" are already answered, so neither is a rung.
+  Enumerate the stack delta and keep the within-image rows —
+  `harness-vs-engine-attribution.md` §*When the older image is the good one*.
+
+Ladder for this shape: (0) `finish_reason` / `usage.prompt_tokens` / `completion_tokens`
+from one raw body; (1) `USE_OPTIMIZED_MODEL=0` on the failing image (the padding branch is
+the one downstream numeric path that differs from GPU, and it is selected by weight
+*name*); (2) `--enforce-eager` with its own banner line in the paste; (3) a text-only
+request on the same serve (clean ⇒ the vision path owns it); (4) the checkpoint's
+`config.json` `torch_dtype` against the engine's `dtype=` line before calling anything a
+precision problem — do not assume bf16 from memory.
+
 ## Recheck conditions
 
 `MIN_PAD_SIZE` / `MAX_PAD_SIZE`, the two registrations, the `USE_OPTIMIZED_MODEL`
-default, the `mm_encoder_tp_mode` default and the `is_vit_use_data_parallel()` /
+default, the tutorial's `max_pixels` line (the documented image-token envelope moves
+between releases), the `mm_encoder_tp_mode` default and the `is_vit_use_data_parallel()` /
 `supports_encoder_tp_data` pair, and the padding call sites all move between releases. Re-grep
 `MIN_PAD_SIZE|enable_pad|USE_OPTIMIZED_MODEL` at the pinned commit before quoting
 any of them; on a release where the class is gone, say the path does not exist

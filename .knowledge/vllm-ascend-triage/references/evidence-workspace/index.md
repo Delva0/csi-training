@@ -89,6 +89,17 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
 - Attachments are multi-modal OCR text: line order, labels and table rows get scrambled.
   Treat a number as trustworthy only when a log line, caption or arithmetic cross-check
   confirms it; otherwise state the OCR caveat next to the claim.
+- **Read a screenshot OCR whole (or `tail -80`), not its head.** These files are a few
+  KB, and a terminal screenshot puts the *deepest traceback frame* at the **end** —
+  the head is model-loading progress and the first lines of an `ERROR` burst repeated
+  once per rank. Recorded #1087 read `sed -n '1,120p'` of a 6 K OCR, saw only
+  `Loading model weights took …` and 40 identical `ERROR … [engine.py:448]` lines, and
+  spent the next 14 turns guessing which upstream `["audio"]` lookup raised
+  `KeyError: 'audio'`; lines 120-400 held the answer verbatim
+  (`vllm/model_executor/models/ultravox.py:578 get_input_embeddings →
+  attn_metadata.multimodal_placeholder_index_maps["audio"]`). One `cat` would have
+  classified the case. A scrambled *numeric* claim still needs a cross-check; the
+  *stack* is ordered and can be quoted with the OCR caveat.
 - **A `user-attachments` link names the first artefact — open the file, not its
   manifest.** `/workspace/attachments/<issue>/` holds what the issue linked:
   `ATTACHMENTS.txt` is a manifest (file name | kind | source SHA256) and carries

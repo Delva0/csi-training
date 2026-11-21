@@ -10,6 +10,25 @@ and embedding outputs. Routes: `../accuracy-benchmarks/index.md`,
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#5725** vllm 0.13.0 + vllm-ascend v0.13.0rc1 (`72506c9834` / `1b5d5abf865f`) pinned,
+reporter on the same pair, 910B4 x1, Qwen3-Embedding-0.6B `--task embed` with
+`--max-model-len 32000 --max-num-seqs 20 --tensor-parallel-size 1
+--gpu-memory-utilization 0.5`: one ~1.2 K-character Chinese string embedded repeatedly
+returns `cos 0.9997` against the reference on call 1, `0.5855`/`0.5815` on call 2, and
+calls 3-5 bit-identical to call 2 — filed as a numeric 误差. The recorded run classified
+it as a cache/reuse signature on its third turn and delivered the ranked answer at its
+21st, with `--no-enable-prefix-caching` as rung 1 and the pooling attention branch
+(`actual_seq_kvlen = actual_seq_lengths_q`) as the source-verified mechanism; the reporter
+later confirmed that **disabling prefix caching removed the issue** (2026-03-23), after
+reproducing it on v0.14.0rc1 and v0.15.0rc1. What it cost: ~18 turns of source walking
+after the discrimination was already in hand (a repeat that freezes is a cache signature,
+so the ablation was the answer on turn 3), one wrong rung
+(`usage.prompt_tokens_details.cached_tokens`, which the embeddings response never fills —
+`../pooling-embedding/prefix-cache-hit-embedding-drift.md` §*A check that looks cheap*),
+and no ask for the serve command's caching flags, which would have made the first message
+decisive. The page now carries the reporter-confirmed workaround, the nonce-suffix
+confirmation and both pins' line numbers.
+
 **#15939** vllm-ascend v0.26.0rc1 (`f2f74a16`) pinned, reporter on the same rc,
 DeepSeek-V4-Flash-073-w4a8 on A2 1P1D (P: TP4/DP1, spec commented out; D: TP1/DP4,
 `--speculative-config {"method": "dspark", "num_speculative_tokens": 7}` plus
@@ -156,6 +175,24 @@ tree's own `docs/source/tutorials/models/GLM5.md` single-node w4a8 blocks
 them, so the tutorial diff is the first artefact for this class. Also verified
 there: `[tool_call:Name]{…}` appears in no source file of either tree, i.e. that
 notation is the reporter's client rendering, not engine output.
+
+**#4730** image `quay.io/ascend/vllm-ascend:v0.11.0rc1` (pin v0.11.0rc3 `b6d63bbd` ↔
+vllm v0.11.0 `b8b302cde434`), Qwen2.5-VL-3B, one card (`ASCEND_RT_VISIBLE_DEVICES=7`,
+TP=1), `--max_model_len 8192 --mm_processor_kwargs '{"max_pixels": 2038400}'
+--limit_mm_per_prompt '{"image": 3}'`, the screenshot upload failed: the same serve
+structured the answer correctly on `v0.11.0rc0` and "返回的html结构都错乱" on rc1. The
+recorded run classified it right and shipped a ranked ladder (truncation at ~7 800 image
+tokens vs an 8192 context; `USE_OPTIMIZED_MODEL=0` for the head-dim-padded tower;
+`--enforce-eager`; text-only; rc0 re-run) plus the honest limits (single-commit export, no
+rc0→rc1 diff, no attachments) — but framed the answer as "a regression inside the rc0→rc1
+delta" and never asked for the stack dump **inside each image**, which is the only way to
+attribute a whole-tag delta. The reporter's later public comment (2025-12-05) says **rc2
+and rc3 also fail**, same garbled structure, now suspected as 精度 — so the delta was not
+a one-rc regression that a later tag repairs, and the tag rung was inverted for this
+report. What it cost: the leading frame could not survive the reporter's next message —
+`../accuracy-benchmarks/vl-vision-tower-degeneracy.md` §*Fifth pin*,
+`../accuracy-benchmarks/harness-vs-engine-attribution.md` §*When the older image is the
+good one*.
 
 **#4057** v0.11.0rc0 Qwen3-Next-80B-A3B, "问到数字相关问题时精度较差" on a 19-token
 prompt with no serve command in the report: the run found the downstream fp32
@@ -940,3 +977,48 @@ shape vs deployment, weight re-send vs physical slots, unseeded fallback, suppor
 surface) with a 4-rung ladder and the screenshot gap stated; no reporter
 confirmation. Route: an RL/weight-reload accuracy report is a *deployment-shape* audit
 first, and the OCR of a screenshot is not evidence when it is garbled.
+
+**#2934** vllm-ascend v0.9.1 (`0740d10211fc`) + vllm v0.9.1 (`b6553be1bc75`), Qwen3-8B
+offline `LLM`, `SamplingParams(temperature=0.8, top_p=0.95, logprobs=20, n=2)`, body a
+screenshot only: "输出中存在较多 logprob=-inf 的情况，gpu上不会出现类似的问题，对采样得到的效果
+影响比较大". The attachment OCR is the evidence and the recorded run decoded it correctly:
+the `-inf` entries are the vocabulary's lowest ids in ascending order (`!`, `"`, `#`,
+`$`, `%`, `&`, … — ids 0,1,2,…), filling exactly the slots the finite entries left, which
+is `torch.topk` over a row that was already masked. It then verified the two facts that
+matter (upstream `raw_logprobs` is computed before the filters, `sampler.py:37-39`; the
+downstream in-place `apply_top_k_top_p` is gated by `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE`,
+default off) — and spent the remaining budget on how a mask could reach `raw_logprobs`,
+ending at the 16 384-token cap with an **empty** final message and ~0.9 K characters of
+text against ~44 K of reasoning. The reporter's later public comment
+(2026-06-29) restates the cross-platform control and the rank observation and closes
+"我再试试吧，时间蛮久了" — i.e. the session's owed deliverable was the two-launch ladder
+(env echo, `top_p=1.0`), which costs the reporter one run.
+Page: `../accuracy-benchmarks/topk-logprob-negative-inf.md` (new).
+
+**#8350** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`), Qwen3.5-122B-A10B
+TP8+EP on 8×910B2, `--enable-prefix-caching --block-size 128`, **no `--reasoning-parser`**:
+"think 混乱且不可关闭，关闭就返回空list". Reporter-confirmed afterwards on the issue
+(2026-04-21): `--reasoning-parser qwen3` for thinking on, `--default-chat-template-kwargs
+'{"enable_thinking": false}'` for thinking off (served defaults merge under request kwargs,
+`entrypoints/openai/engine/serving.py:815-824`; parser key `enable_thinking`,
+`qwen3_reasoning_parser.py:39-42`), and at this pin the response field is `message.reasoning`
+— a client reading `reasoning_content` shows an empty list. The recorded run had both flags
+by turn 3 but then took the reporter's `--block-size 128` / prefix-caching flags as a
+hybrid-KV-cache confound (turns 36-50 on `mamba_cache_mode`, `refresh_block_size`,
+`release_notes.md`) and shipped **no answer**: 16 assistant turns, ~44 K characters of
+reasoning, 185 characters of message text. The guard: one serve command and no
+works-vs-fails control means there is no confound to grade — `hybrid-block-size-corruption.md`
+applies only once the reporter has two commands differing by a scheduling knob.
+Page: `../accuracy-benchmarks/reasoning-output-routing.md` (#8350 section).
+
+**#5760** vllm-ascend v0.11.0 (`2f1aed98ccdb`, image `v0.11.0-openeuler`) + vllm v0.13.0
+(`72506c9`), Qwen3-VL-8B-Instruct: `max_tokens: 1024` prints the answer, `max_tokens: 4096`
+"waits until completion and receives empty" on the terminal, while `> response.json` has
+content. Client-side display/transport: the reporter's own file redirect is the control that
+proves the 200 OK body was complete, and the deliverable is `curl -w 'code=%{http_code}
+bytes=%{size_download}'` plus `"stream": true` with `-N`. The run answered inside the gates
+(verdict + ladder on its 3rd assistant turn, one correction after) and that correction is the
+durable fact: the paste's `skip this step for we receive the data from remote disaggregate
+prefill node` looks like PD and is not — it is guarded by `not has_kv_transfer_group()`
+(`vllm_ascend/worker/model_runner_v1.py:1929-1936`), i.e. "no tokens scheduled this step".
+Route: `../observability-and-logs/index.md` rule 4.

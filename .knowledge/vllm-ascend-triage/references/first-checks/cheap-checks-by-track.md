@@ -135,7 +135,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   both sides' `torch`/`torch-npu`/`torchvision` pins, and the `--pre` /
   `--extra-index-url` lines the wheel metadata drops. Decide mirror-only pin vs
   unsatisfiable pin set vs unreachable index **before** any version survey
-  (`../image-dependency-faults/pip-index-visibility.md`, #1796, #4737).
+  (`../image-dependency-faults/pip-index-visibility.md`, #1796, #4737). When the same
+  call is asked as a **dependency bump** ("能否把 torch-npu 升级为 2.8.0", no pip error),
+  the same script's matrix block is the answer, not a version survey
+  (`../image-dependency-faults/dependency-pin-bump-request.md`, #3266).
 - `pip install` **from source** in a pod with no public network (the custom-op
   step "pulls dependencies from the public network", `fetch failed`, or a cmake
   `Downloading …` line): name the fetch legs instead of opening `csrc/<op>/` —

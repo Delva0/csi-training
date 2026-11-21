@@ -10,6 +10,18 @@ overhead. Routes: `../runtime-memory/index.md`, `../performance-throughput/index
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#6862** vllm 0.14.1 + vllm-ascend v0.14.0rc1 (`d7de043` / `52d4acfa`), 910B3 x8
+idle, Qwen3-32B-W8A8 dense, CANN 8.5.0, torch_npu 2.9.0: "根据Qwen3-Dense文档，开发
+FLASHCOMM1后采集prof，显示的仍然是allreduce算子" — a capability report with no launch line,
+no profile table and no traceback. The recorded run read the per-forward gate from the
+tree and the pinned doc (`num_tokens > 1000` for a dense target) and shipped a complete
+ranked answer in eight assistant turns, which is the shape this track should keep: the
+verdict is "expected, not a bug", the deciding launch is one profile of a >1000-token
+schedule, and the second-tier explanation is a branch that claims the layer before
+`enable_sp()`. No reporter confirmation came back, so the gate and the branch order are
+source-verified (`../feature-enable-recipes/sequence-parallel-flashcomm.md` §*other entry
+shape*), not reporter-confirmed.
+
 **#2099** vllm-ascend v0.9.1rc1 (`c30ddb83`) + vllm v0.9.1 (`b6553be1`), torch_npu 2.5.1,
 CANN 8.1.RC1, one 910B3, a ~1B Qwen-VL-class model ("mineru") served over `/v1/chat/completions`
 with a base64 image and "Document Parsing:". The body has a client snippet and one screenshot whose

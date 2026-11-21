@@ -94,9 +94,14 @@ TXT
   exit 0
 fi
 UT="$ROOT/vllm_ascend/utils.py"
+MODE_AT_REF=0
+HAVE_GATE=0
 if [ -f "$UT" ]; then
   grep -nE 'def is_enable_nz|def _should_trans_nz|def maybe_trans_nz|torch\.float32|torch\.float16|torch\.bfloat16' "$UT" \
     | grep -iE 'nz|float' | head -12 | sed 's/^/  utils.py:/'
+  if grep -qE 'def is_enable_nz|def _should_trans_nz|def maybe_trans_nz' "$UT"; then
+    HAVE_GATE=1
+  fi
   if grep -q 'FP32 cannot use NZ' "$UT"; then
     echo "  VERDICT: this ref never converts fp32 -> NZ; an fp32-head weight-layout"
     echo "           crash cannot come from this gate."
@@ -104,23 +109,44 @@ if [ -f "$UT" ]; then
     echo "  VERDICT: is_enable_nz excludes only fp16/bf16 => an fp32 weight IS cast to"
     echo "           NZ; the fp32 pooling head is a candidate owner."
   fi
-  if sed -n '/def _should_trans_nz/,/^def /p' "$UT" | grep -qE 'shape\[[01]\]|numel\(\)|\.dim\(\)'; then
-    echo "  SHAPE GUARD: present in _should_trans_nz at this ref — a one-dimension"
-    echo "               weight is left ND, so the shape family is already fixed here."
+  if [ "$HAVE_GATE" = "1" ]; then
+    if sed -n '/def _should_trans_nz/,/^def /p' "$UT" | grep -qE 'shape\[[01]\]|numel\(\)|\.dim\(\)'; then
+      echo "  SHAPE GUARD: present in _should_trans_nz at this ref — a one-dimension"
+      echo "               weight is left ND, so the shape family is already fixed here."
+    else
+      echo "  SHAPE GUARD: absent in _should_trans_nz at this ref — every converted"
+      echo "               weight with a 1-length dimension reaches aclnn and fails."
+    fi
   else
-    echo "  SHAPE GUARD: absent in _should_trans_nz at this ref — every converted"
-    echo "               weight with a 1-length dimension reaches aclnn and fails."
+    echo "  NO NZ GATE FUNCTION at this ref (no is_enable_nz / _should_trans_nz /"
+    echo "  maybe_trans_nz in utils.py): the layout is decided inline, so there is no"
+    echo "  gate and no shape guard to read. Grep the cast sites instead:"
+    echo "    rg -n 'npu_format_cast' $ROOT/vllm_ascend/ | head -20"
+    echo "    rg -n 'is_310p\(\)' $ROOT/vllm_ascend/       # polarity per site:"
+    echo "      'if not is_310p():' => cast runs on 910/A2/A3, skipped on 310P"
+    echo "      'if is_310p():'     => 310P-only"
+    echo "  Weight-layout capability answers at such a ref:"
+    echo "    references/feature-enable-recipes/weight-nz-layout-by-soc.md"
   fi
 fi
 EN="$ROOT/vllm_ascend/envs.py"
 if [ -f "$EN" ]; then
   grep -nA4 'VLLM_ASCEND_ENABLE_NZ' "$EN" | head -12 | sed 's/^/  envs.py:/'
+  grep -q 'VLLM_ASCEND_ENABLE_NZ' "$EN" && MODE_AT_REF=1
 fi
 AC="$ROOT/vllm_ascend/ascend_config.py"
 if [ -f "$AC" ]; then
   grep -nB2 -A6 'weight_nz_mode' "$AC" | head -18 | sed 's/^/  ascend_config.py:/'
+  grep -q 'weight_nz_mode' "$AC" && MODE_AT_REF=1
 fi
-echo "  escape for the reporter: weight_nz_mode 0 (or VLLM_ASCEND_ENABLE_NZ=0);"
-echo "  1 also works when the failing weight is bf16/fp16; 2 makes it certain."
+if [ "$MODE_AT_REF" = "1" ]; then
+  echo "  escape for the reporter: weight_nz_mode 0 (or VLLM_ASCEND_ENABLE_NZ=0);"
+  echo "  1 also works when the failing weight is bf16/fp16; 2 makes it certain."
+else
+  echo "  NO weight_nz_mode / VLLM_ASCEND_ENABLE_NZ at this ref — the layout is not a"
+  echo "  flag here, so 'set weight_nz_mode' is advice that does nothing. The answer is"
+  echo "  the per-path inventory (which weights are already NZ) plus a code change,"
+  echo "  not a switch: references/feature-enable-recipes/weight-nz-layout-by-soc.md"
+fi
 LIN="$ROOT/vllm_ascend/ops/linear.py"
 [ -f "$LIN" ] && grep -nE 'npu_format_cast|FRACTAL_NZ|is_enable_nz|maybe_trans_nz' "$LIN" | head -6 | sed 's/^/  ops\/linear.py:/'

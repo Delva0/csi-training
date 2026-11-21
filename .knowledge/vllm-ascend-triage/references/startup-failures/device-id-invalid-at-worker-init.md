@@ -36,12 +36,24 @@ unreached, and nothing about them can be blamed or exonerated from this log.
 | `AssertionError: Current device type … does not match the installed version's device type` / `RuntimeError: Can not support soc_version: <n>` | the SoC the runtime resolved vs the type baked into the wheel by `SOC_VERSION` | `../soc-platform-paths/device-type-build-vs-runtime.md` |
 | `SetPrecisionMode … 500001` + `PlatformInfoInit … SocVersion <name>` + `GEInitialize failed` | ACL/GE bring-up: in a container, the privilege/device set first (`--privileged=true`, reporter-confirmed #302), then the mounted driver/firmware × the image's CANN | `acl-init-500001-and-soc-version.md` |
 | `set default device id failed, ret: 107001` / `invalid device ID` / `reason=device id error` | **this page**: `aclrtSetDevice` rejected the id — the container/`ASCEND_RT_VISIBLE_DEVICES` device set | here |
+| the same `107001` in a **vllm-omni** serve (`--omni`), while the log above it prints `stage_init_utils.py … [stage_init] Stage-N set runtime devices: <ids>` and one of those ids is outside the visible set | the **stage config's `devices`**, not a missing card: copy `vllm_omni/platforms/npu/stage_configs/<model>.yaml`, edit every stage's `devices`, relaunch with `--stage-configs-path` (reporter-confirmed on 2 cards, #8068) — `../deploy-sizing/card-budget-and-device-visibility.md` |
 
 `107001 = ACL_ERROR_RT_INVALID_DEVICEID` (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h:22`;
 doc row `cann/runtime/docs/api_docs/aclError.md:98` "无效的 Device ID，请检查 Device ID 是否合法"),
 and `107002` is `ACL_ERROR_RT_CONTEXT_NULL` (`:23`, doc `:99`) — so the `ctx is NULL` /
 `context is a null pointer` / `InnerError … log-inner.cpp` lines are the cascade of the
 failed set-device, not a second fault.
+
+Two details of that text mislead on their own. `(PID: …, Device:0, RankID:-1)` is the
+**process default** device at the moment of the failed open — `check_ascend_device_type()`
+is the first statement of `Worker.__init__`, before any `set_device(local_rank)` — so every
+rank reports `Device:0` and the field never says which id was requested. What was requested
+is in the stage assignment: an omni launch prints
+`[stage_init] Stage-0 set runtime devices: 0,1`, `Stage-1 … : 2`, … per stage, and those ids
+are the stage config's own `devices` values (#8068: the shipped `qwen3_omni_moe.yaml` gives
+stages 1 and 2 a third device, which a two-card host does not have; the reporter fixed it by
+copying the yaml, editing all three `devices`, exporting `ASCEND_RT_VISIBLE_DEVICES=0,1` and
+launching with `--stage-configs-path` — `../deploy-sizing/card-budget-and-device-visibility.md`).
 
 ## Why an id can be "not valid" in a container
 
@@ -71,8 +83,15 @@ by itself *which* of the two cases a report hit; the checks below do.
    and an A2 code (220–225) means the device lane is fixed.
 3. **Fix by making env and mapping agree**: `--device /dev/davinci7` with
    `ASCEND_RT_VISIBLE_DEVICES=7`, or `ASCEND_RT_VISIBLE_DEVICES=0` with the
-   `davinci0` mapping. A card that exists but is busy shows in `npu-smi info`'s
-   process table (`docker ps` for a stale container on the same card).
+   `davinci0` mapping. The list must be **ascending** and indexes the driver's
+   devices (`ls /dev/davinci*`), not `npu-smi`'s NPU labels;
+   `ASCEND_VISIBLE_DEVICES` is parsed by nothing, and a descending list yields
+   `device_count() == 0` (`torch_npu/npu/__init__.py:341` and
+   `_device_count_ascend_hal()` at `:375` in the 2.7 pin / `:386` in the 2.8
+   pin) — the four source lines and the #8068 worked case are in
+   `../deploy-sizing/card-budget-and-device-visibility.md`. A card that exists
+   but is busy shows in `npu-smi info`'s process table (`docker ps` for a stale
+   container on the same card).
 4. **Only if `npu-smi info` inside the container is broken or empty** go to the
    driver × image-CANN pairing (`cat /usr/local/Ascend/driver/version.info`, image
    tag); `acl-init-500001-and-soc-version.md` has the four-file list. An `aclInit`

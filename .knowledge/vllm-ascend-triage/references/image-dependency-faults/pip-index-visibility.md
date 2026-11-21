@@ -32,7 +32,7 @@ different faults. Tell them apart **before** any version reasoning:
 | What the line means | The decisive read |
 |---|---|
 | the artefact is on an index pip was never given (mirror-only build, extra index that lived in `requirements.txt` options) | does the wheel's `Requires-Dist` pin point at a `.dev`/`.post`/`rc` build, and are the `--extra-index-url`/`--pre` lines still in the **tree** but absent from the **metadata**? |
-| the pin set is genuinely unsatisfiable (two torch lines in one graph) | the `torch` / `torch-npu` / `torchvision` pins on both sides — `scripts/pip-pairing-check.sh` prints them and the contradictions. **Not** every "conflicting dependencies" error is this row: a conflict that only names a `+cpu` local label is section C, and the two specs are compatible by PEP 440 |
+| the pin set is genuinely unsatisfiable (two torch lines in one graph) | the `torch` / `torch-npu` / `torchvision` pins on both sides — `scripts/pip-pairing-check.sh` prints them, the contradictions, and the release's own matrix row. When no pip error is quoted and the ask is a pin bump, that matrix row *is* the answer: `dependency-pin-bump-request.md`. **Not** every "conflicting dependencies" error is this row: a conflict that only names a `+cpu` local label is section C, and the two specs are compatible by PEP 440 |
 | pip cannot reach any index at all (air-gapped pod, image pip.conf pointing at a public mirror) | `pip config list` in that container, plus whether the same install ever reached an index |
 
 Only the middle row is a packaging defect; the first row is a missing index on the

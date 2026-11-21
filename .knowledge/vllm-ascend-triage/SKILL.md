@@ -156,8 +156,12 @@ version, gaps stated.
   has cards, "how do I pin stage 1 to one card" — **or** two serve commands that
   differ by one resource knob (`--tensor-parallel-size`, `--max-model-len`,
   `--gpu-memory-utilization`) where the smaller one comes up and the larger one OOMs
-  at engine start. Answer with per-card arithmetic plus the device-visibility
-  variable — `references/deploy-sizing/index.md`.
+  at engine start — **or** a KV number against the reporter's own arithmetic ("27
+  KB/token/card, I compute ~7.4 KB/token from the fp8 KV layout") and a context
+  target ("a path to ≥512K on A2?"). Answer with per-card arithmetic plus the
+  device-visibility variable, and for the KV half reconcile the cache-kind term list
+  and quote the tutorial's per-SoC envelope before accepting a dtype-promotion
+  hypothesis — `references/deploy-sizing/index.md`, `references/deploy-sizing/dsv4-kv-footprint-terms.md`.
 - **Community-test / doc-verification task** (`[Community Test]`, a 众测任务书 row
   with 蓝区镜像 / 权重链接 / 卡数 / 交付件 测试报告, or a `[Doc]` report that a
   tutorial step does not work as written): the deliverable is a *report about a
@@ -204,14 +208,18 @@ delivery pattern is rule 1.
    truncation: what decides the outcome is not how much evidence was gathered but
    whether the message exists. The runs that shipped **no answer at all** each had
    a usable lead in hand (#6784, #13853, #11454, #11095, #17991, #3107, #6266, #5571, #527,
-   #587, #11680, #1579, #11771, #7947, #7508, #10522, #1255, #5772 — the last two with the owning
-   line already in the paste (#1255's plog names the kernel and its owner is one grep away;
+   #587, #11680, #1579, #11771, #7947, #7508, #10522, #1255, #5772, #6488, #7996 — #1255 and
+   #5772 with the owning line already in the paste (#1255's plog names the kernel and its owner is one grep away;
    #5772's dumped `SchedulerOutput` carries the two counts, and the deciding fact is a
    model-directory log line); #2807 and #15394 held every verified fact of a complete
    ranked answer and spent the remainder on a host detail no local file settles, i.e. the
    `quant_mode`/`chunk_finish` arithmetic their own pages now replace with one print and one
    DEBUG line; per-run table `delivery-discipline.md`), while #4296
-   answered in ten turns from one traceback.
+   answered in ten turns from one traceback. The two thinnest are also the most recent:
+   #6488 wrote **81 characters** of message text over 21 turns / 39 tool calls against
+   40.6 K characters of reasoning, and #7996 1 540 characters over 11 turns against
+   48.9 K — each ending on a reasoning block with no accompanying message and no tool call,
+   i.e. the cap landed on reasoning that had the shape of the deliverable.
    Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
      reporter's literal question plus the track/lane classification. A pasted
@@ -285,7 +293,10 @@ delivery pattern is rule 1.
      paragraph now? — if yes, the tool call goes in a message that already carries it.
    - **A new hypothesis that needs a new code area is not this session's job.**
      Put it in the answer as an open question with the one command that decides
-     it; #14506 delivered only after a final block that took half the session. For
+     it; #14506 delivered only after a final block that took half the session, and
+     #2934 read the `-inf` id pattern that decides its own lane on turn 8, then spent the
+     rest of the budget on how a mask reaches the logprobs and shipped nothing
+     (`references/accuracy-benchmarks/topk-logprob-negative-inf.md`). For
      an accuracy/corruption or topology report, a ranked list plus an ablation
      matrix already *is* the full answer. The same applies to a **mechanism the
      paste cannot carry**: *which* scheduler step mixed decode with prefill, or
@@ -296,7 +307,12 @@ delivery pattern is rule 1.
      comments while it derived mixed-batch reachability (46 messages, 13 K- and
      19 K-character blocks), #5947's paste carried no Python frame and no
      `LoadGraph failed` block at all while it re-derived the MC2 capacity — and
-     neither shipped message text.
+     neither shipped message text. The same shape with a *confound the report
+     never carried*: #8350 held its two serve flags by turn 3 and then treated the
+     reporter's `--block-size 128 --enable-prefix-caching` as a hybrid KV-cache
+     experiment — one command, no works-vs-fails control, so there was nothing to
+     grade — and shipped 185 characters of text in 16 turns
+     (`references/accuracy-benchmarks/reasoning-output-routing.md`, #8350 section).
    - **A paste that stops in silence is answered, not investigated.** When the log
      simply ends (no traceback, last line inside init), the cause is decided by
      artefacts on the reporter's machine — process count, per-rank logs, device
@@ -362,7 +378,10 @@ delivery pattern is rule 1.
    - **Every assistant turn carries message text, not only a tool call.** A turn
      whose whole output is a tool call leaves nothing for a truncation to keep.
      #5295 emitted *zero* message text on all 16 turns and #16563 on all 20; #17797
-     and #5525 emitted only status notes and never a verdict. Both forwards of one
+     and #5525 emitted only status notes and never a verdict; #17616 ran 26 turns of
+     a three-question report (42.6 K characters of reasoning, 25 tool calls) and
+     shipped **79** characters of text on its first turn only, cut at the
+     16 384-token cap with every fact it needed already collected. Both forwards of one
      recorded minibatch repeated the shape: #2349 reasoned the entire ranked answer
      into a 6.3 K-character block and shipped 386 characters before the cap, and
      #6018 emitted nothing on its first 13 turns and wrote the answer on its last
@@ -465,6 +484,22 @@ delivery pattern is rule 1.
    *does* carry (the registration, the dead lever, the coverage absence) and say plainly
    that "is it fixed" cannot be answered from the snapshot.
 
+   **Read the direction of the comparison first — the tag rung above is one-directional.**
+   It applies when the **older** tag is the broken one. When the reporter's own control
+   runs the other way (old tag structures the document correctly, new tag garbles it, same
+   weights/card/command — #4730: `v0.11.0rc0` good, `v0.11.0rc1` "html结构都错乱"),
+   upgrading cannot help: they are already on the newer side. #4730's public follow-up
+   (2025-12-05) also has rc2 **and** rc3 failing, so "the next rc fixes it" is not a rung
+   either. Then the first message owes three things instead: the zero-restart request
+   arithmetic (`finish_reason` / `usage.prompt_tokens` against the tutorial's image-token
+   envelope), the one-command stack dump taken **inside each image** (a tag moves vllm /
+   torch_npu / CANN / transformers together, so the delta is not yet a vllm-ascend claim),
+   and the within-image one-restart rows (`USE_OPTIMIZED_MODEL=0`, `--enforce-eager`, a
+   text-only request, the checkpoint's dtype against the engine's) —
+   `references/accuracy-benchmarks/harness-vs-engine-attribution.md` §*When the older image
+   is the good one*, `references/accuracy-benchmarks/vl-vision-tower-degeneracy.md`
+   §*Fifth pin*.
+
    **A matching trio does not close the version lane when the pin is an rc and the
    trigger is a feature crossing that pin never tests.** An accuracy/numeric report
    whose own controls are "feature A off: fine, feature B off: fine" points at the
@@ -498,7 +533,14 @@ delivery pattern is rule 1.
      luck, blaming a "stale .po". **The tell is one short token spliced
      uniformly into every match across unrelated files**; re-run as
      `rg -n '<pat>' <dir>` before quoting any matched text. Recursion is implicit
-     on a directory: use `rg -n "pat" .` or `grep -rn`.
+     on a directory: use `rg -n "pat" .` or `grep -rn`. **An empty replacement is
+     the same flag with a worse tell:** a replace flag prints whole matching *lines*,
+     so `rg -n "30566" -r '' .` returned **63 KB** — one minified
+     `tests/models/fixtures/*.json` line, matched by accident inside a number — and
+     that run (#8036) ended output-truncated with no answer typed. A "hit" whose
+     result is a single gigantic line is this trap, not a finding: quote only the
+     `path:line` you asked for, with `-l` or `--no-messages -c` when you only need
+     to know whether it exists.
      An **empty pattern matches every line of every file**: a probe typed while
      unsure how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped
      65 KB into one recorded session (#6240, mid-investigation, buying nothing).
@@ -519,6 +561,14 @@ delivery pattern is rule 1.
      lines that read exactly like doc prose — and `.po` files are machine
      translations whose `#: ../../source/x.md:N` references lag the source, so
      neither their text nor their line numbers are citable.
+   - **A piped `sed -n 'A,Bp' file | rg -n '<pat>'` numbers the stream, not the file.**
+     `rg` counts its stdin from 1, so every match line is `A + n - 1` — an off-by-one
+     that lands as a wrong `path:line` in the answer. Either cross-check one match
+     against an absolute `rg -n '<pat>' file` before quoting the rest, or keep the
+     file's own numbers: `rg -n '<pat>' file | awk -F: '$1>=A && $1<=B'`. Recorded
+     #12905 re-derived a tutorial block's anchors twice (`sed | rg -n` then `1199 +
+     index`) before one absolute grep confirmed them; the window form would have
+     answered in the same call.
    - **Scope a grep to one repo.** A case view holds 20-40 exported trees under
      `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
      seconds and returns hits from unrelated products (torchair, metadef,
@@ -622,6 +672,13 @@ delivery pattern is rule 1.
     a *resource-alloc* refusal (`207005`), so read the `[SqCqManage]Alloc sq cq fail …`
     line under it before treating such a paste as an HBM, disk or container-size report
     (`references/startup-failures/capture-stream-table-exhaustion.md`).
+    The rule covers *advice* too: `Cannot run aclop operators during NPU graph capture …
+    please try to set torch.npu.config.allow_internal_format = False` is torch_npu's
+    capture guard quoting a suggestion, and vllm-ascend assigns that option `True` at
+    import (`worker/model_runner_v1.py:138` at v0.11.0rc0, `:154` at v0.18.0rc1), so it
+    cannot be applied from the launch shell; the op named in the message is the subject
+    and the FX trace beside it names the owner
+    (`references/startup-failures/aclop-op-during-graph-capture.md`).
 12. **A crash inside a native module the image installed is an environment
     question, and it is answerable without that module's source.** Three forms — a
     `python -c "import <pkg>"` glibc allocator abort, `std::logic_error` /
@@ -667,6 +724,13 @@ delivery pattern is rule 1.
     hardware scope is the project's position for that version (quote it, do not
     overturn it with an older issue), and a comment saying a sub-feature is unsupported
     is often a branch the code already takes (`sfa_cp.py` vs the table's MLAPO ✅).
+    A **weight-layout capability** report is the same shape with the premise inverted:
+    "910B3 是否支持权重 nd 到 nz 的转换，提高 matmul 的性能？0.11.0 的代码好像只支持 310P"
+    — `is_310p()` guards read both ways in this tree (`if not is_310p():` runs the NZ
+    cast on 910 and skips 310P), so classify the polarity per site and give the
+    per-path verdict before any patch, and grep `envs.py`/`ascend_config.py` at the
+    reported ref because `weight_nz_mode` does not exist before ~v0.20
+    (`references/feature-enable-recipes/weight-nz-layout-by-soc.md`).
     The same table settles the **"<model> 离线推理报错 / 跑不通"** shape when the
     release is named and the only evidence is screenshots: one `rg -n -i '<family>'
     docs/source/user_guide` (the matrix path moved — `support_matrix/supported_models.md`

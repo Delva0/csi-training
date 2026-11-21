@@ -42,6 +42,13 @@ walk:
   (`rg -n "only supported on Atlas|experimental|not supported" docs/`) — a
   statement in the pinned tree is the project's position *for that version*, so
   do not overturn it with an older issue; quote it and date it.
+- **A "the code only supports <other SoC>" premise is a guard-polarity question, not a
+  hardware one.** `is_310p()` appears both ways in this tree — `if not is_310p():` runs
+  the cast on 910 and skips 310P — so the reporter's own reading can be inverted, and the
+  per-path inventory (quantized Linear/MoE, unquantized MoE, unquantized dense Linear)
+  plus the versioned switch decide it. Weight ND→NZ layout is the worked case:
+  `weight-nz-layout-by-soc.md` (#3859 at v0.11.0rc0, where no `weight_nz_mode` exists and
+  only the dense unquantized cast is 310P-gated).
 - **For "F is simply absent from the plugin", the roadmap question is answered by
   the status ledger, not by release notes.** `docs/source/user_guide/support_matrix/
   supported_features.md` is the project's own feature table: its legend (`:30-34`
@@ -118,7 +125,13 @@ Rules for this topic:
    async-TP pass — plus the platform's VL/Omni guard **and the remedy that guard's own
    message names at the reporter's ref** (unset-only on the v0.14 family; the Inductor SP
    pass on the v0.15 family, whose support matrix makes it the VL+Dense route), before any
-   shape walk: `sequence-parallel-flashcomm.md`. On the v0.19.x hybrid families
+   shape walk: `sequence-parallel-flashcomm.md`. When **nothing crashes** and the
+   complaint is 「开启后无效」 (the profiler still shows allreduce, #6862), that page's
+   §*other entry shape* is the whole answer: the gate is per forward (`num_tokens > 1000`
+   for a dense target), so a decode-window profile is allreduce by construction and the
+   deciding launch is a profile of one >1000-token schedule — with the competing
+   explanation (`_get_row_parallel_op` returns before `enable_sp()` for finegrained-TP,
+   matmul-allreduce or FlashComm2) stated in the same reply. On the v0.19.x hybrid families
    (Qwen3.5/Qwen3-Next, `expected src to have a size equal to the slice of self`) that page's
    §*v0.19.x hybrid layers* separates layer 0's SP-sized buffer from its two writers and its two
    enable gates — use it instead of grepping `copy_`.
@@ -189,6 +202,13 @@ Rules for this topic:
 
 Pages:
 
+- `weight-nz-layout-by-soc.md` — "910B3 是否支持权重 ND→NZ 转换提升 matmul 性能？0.11.0
+  好像只支持 310P" (#3859): the `is_310p()` polarity rule, the v0.11.0rc0 per-path
+  inventory (`w8a8.py:139`, `w8a8_dynamic.py:104`, `w4a8_dynamic.py:396`,
+  `common_fused_moe.py:128`/`fused_moe.py:81` `not is_310p()`, and the single
+  `is_310p()` dense cast at `model_runner_v1.py:2633-2643` with `ACL_FORMAT` NZ only on
+  310P), the version boundary for `weight_nz_mode`/`VLLM_ASCEND_ENABLE_NZ`, and the
+  five-line `npu_format_cast(w, 29)` probe before any patch.
 - `per-soc-recipe-and-quantized-weights.md` — the model's only validated recipe and
   published weights are on another SoC (#16600: 910B2 + Qwen3.5-9B, "能否提供量化版本"):
   reading `support_matrix/supported_models.md` by tab (`A2/A3` at `:142` vs `Atlas 300I

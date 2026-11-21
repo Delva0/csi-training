@@ -107,6 +107,14 @@ output, or did no request ever reach a decode engine?**
   launches were handed the same cards — the external-DP launcher numbers them from 0 in
   every invocation. Intersect the two card sets (one `rg`, one line of arithmetic)
   before any HCCL or plog read → `same-host-pd-device-partition.md`.
+- A `LLMDataDistCMgrConnector` P/D that **never comes up at all** — "according to the
+  P/D example … it failed to run" / 起不来, a **hand-written `ranktable.json`**, one host
+  with 2+ cards or one Pod, and no log pasted: the table is read for two keys only, and
+  its `server_id` must string-equal the process's own `get_ip()` (Pod IP), while the
+  chip each engine opens comes from a *per-process* `ASCEND_RT_VISIBLE_DEVICES` (not
+  `ASCEND_VISIBLE_DEVICES`) and a shared `VLLM_LLMDD_RPC_PORT` collides — three checks
+  before any connector, transport or `kv_p2p/` read →
+  `llmdatadist-ranktable-startup.md`.
 - **No deployment yet**: the question is a capability verdict about the *transport
   plane* before any run — "Atlas 800T A3 双机 PD 分离，两台机器只能走参数面 RoCE，
   超平面不通、没有灵衢交换机，是否支持", usually with no log and no serve command →
@@ -394,3 +402,13 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   why `=600` makes it worse when queueing is the mechanism, and the D-side checks
   (single-thread `pull_blocks`, `query_register_mem_status` link loop) with the cause
   left open. Verified at v0.9.1 `0740d10` (#3062).
+- `llmdatadist-ranktable-startup.md` — the same connector **before** it serves: P/D that
+  "failed to run" with a hand-written rank table on one host or in one Pod, no log. The
+  two keys the reader actually consumes (`version`/`server_count`/`status` are never
+  validated), `server_id == get_ip()` and its `Can't read the target server_id … from
+  rank table` assert, the metadata-vs-opened-device split that puts both engines on one
+  chip unless `ASCEND_RT_VISIBLE_DEVICES` is set per process, the `VLLM_LLMDD_RPC_PORT`
+  default and the pin's own same-host 5559/6000 e2e control, the generator's
+  `hccn_tool`/`npu-smi` id namespace, and the two defects that break "follow the
+  example" at that pin (`toy_proxy_server.py` absent, `---max-num-batched-tokens`).
+  Verified at v0.10.0rc1 `4604882`; #2379's cause left open.

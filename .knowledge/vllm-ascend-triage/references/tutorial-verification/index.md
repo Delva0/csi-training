@@ -9,6 +9,11 @@ Scope: the task is to *judge a document*, not to explain a crash. Entry shapes:
 - a `[Doc]` / `[Usage]` issue reporting that a tutorial step, command or number
   does not work as written — including a command from the repo's own
   `examples/*.py` whose docstring/argparse block is the defect;
+- a `[Doc]` issue whose defect is an **absence**: the Quick Start should mention a
+  mirror/flag/section that already exists elsewhere, or the contributor docs
+  never state a prerequisite the image or `setup.py` demands — then the three
+  deciding greps are "does it exist", "does anything link to it", "do the sibling
+  pages already carry it" (`missing-guidance-and-contributor-docs.md`);
 - any "verify this recipe" request where the reporter's hardware is not
   available to you and the evidence is the **pinned tree**, not a run.
 
@@ -57,6 +62,11 @@ Conditional routes:
 
 - The task shape, the deliverable skeleton and the staged-emission protocol for
   a community-test report → `community-test-report.md`.
+- The report asks for *added* guidance or a cross-link, or reviews the
+  contributor/developer path (mount, `set_env.sh`, `format.sh ci`, image tag):
+  existence + reachability + parity greps, the `.po`-is-not-the-document rule,
+  and the verified #14423 / #17718 defect tables →
+  `missing-guidance-and-contributor-docs.md`.
 - The eleven-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
   v0.18.0 and v0.19.1rc1 examples (dead `--swap-space` / `--disable-log-request`,
   `--random-input` vs `--random-input-len`, image WORKDIR vs doc relative path,

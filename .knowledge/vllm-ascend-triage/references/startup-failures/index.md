@@ -40,6 +40,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   at the rendezvous forever instead of raising; count processes and compare
   `MASTER_ADDR`/`PORT` before any HCCL theory, and do not read one process's `npu:0`
   as the other ranks' device.
+- Every line is prefixed `(EngineCore_DP0 pid=…)`, `Connected to Ray cluster.`
+  printed, and the start dies in the same second with
+  `WARNING [ray_utils.py:…] The number of required NPUs exceeds the total number of
+  available NPUs in the placement group.` then
+  `ValueError: Current node has no NPU available. current_node_resource={… 'GPU': 8.0}`
+  (~`ray_utils.py:352/:368` on vllm 0.10.2) → the cluster advertises `GPU` while the
+  platform asks for `NPU` (`NPUPlatform.ray_device_key`, `platform.py:52`): read
+  `ray status`'s Resources block, then restart each raylet with
+  `--resources '{"NPU": 8}'` → `ray-npu-resource-label.md`. One turn decides it; there
+  is no card shortage to size and no driver fault behind it.
 - Every rank's last line is `Using OOT custom backend for compilation` (nothing
   raised, port refused, HBM resident) → `compile-backend-banner-then-silence.md`
   first: at v0.22.1rc1 that banner is printed **while the model object is built**
@@ -272,6 +282,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   insufficient available streams` sentence there is canned wrapper text printed
   for every capture exception, and the capture-size set may already be the
   computed maximum.
+- The appended inner error is a **stream synchronize refusal** —
+  `AclrtSynchronizeStreamWithTimeout(copy_stream), error code is 107027`, `EE9999 …
+  Not allow to synchronize captured-stream, stream_id=N [FUNC:StreamSynchronize]`,
+  wrapped in `ERR00100 PTA call acl api failed` → `captured-stream-host-sync.md`
+  first: the owner is a data-dependent host readback (`.item()`, `.cpu().numpy()`,
+  `bincount`) executing inside the capture window, so `ERR00100` is not a fabric
+  fault, and the cheapest discriminator is the **quantization axis** — same launch,
+  unquantized checkpoint or `--quantization None`.
 - The capture that failed is the **torchair** one —
   `Capturing torchair graph, this usually takes 1.0~3.0 mins.` followed by
   `Error executing method 'compile_or_warm_up_model'` and a
@@ -283,6 +301,18 @@ Inherit the rules in SKILL.md. Conditional routes:
   known issue are the two checks before any patch. On a full-precision 671 B MoE
   the per-rank KV budget on the paste's own `Available memory: <N>, total memory:
   <M>` line is a co-equal cause, not a footnote.
+- The engine dies at **weight load** on
+  `call aclnnMatmulWeightNz failed, error code is 161002` +
+  `AclNN_Parameter_Error(EZ1001): Not support mat2 n = 1 or k = 1 when format is
+  FRACTAL_NZ, mat2: [2048, 1]`, deepest frames `ops/linear.py` `unquantized_gemm` →
+  `F.linear`, often called from a MoE shared-expert gate
+  (`ReplicatedLinear(hidden, 1)`) inside `_validate_shared_expert_consistency` →
+  `nz-weight-format-refusal.md`: the NZ gate tests dtype/SoC/mode but never shape, so
+  a one-dimension weight cannot be stored in `FRACTAL_NZ`. The lever is
+  `weight_nz_mode` / `VLLM_ASCEND_ENABLE_NZ` (`0` off, `1` quantised-only default,
+  `2` bf16/fp16 too), and `2` is the wrong direction; `--enforce-eager` and the
+  compilation config cannot touch a load-phase raise. Its dtype sibling (fp32
+  pooling head) is `../pooling-embedding/fp32-head-nz-format-crash.md`.
 
 Common rules for this topic:
 

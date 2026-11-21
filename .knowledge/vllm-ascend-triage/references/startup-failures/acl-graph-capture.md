@@ -45,6 +45,12 @@ log gave no hint".
 - A Python-shaped exception (`AttributeError`, `TypeError`, allocation failure)
   that merely surfaced here → classify on the exception, not on the phase.
 
+- A **stream synchronize refusal** — `c10_npu::acl::AclrtSynchronizeStreamWithTimeout(copy_stream),
+  error code is 107027` + `EE9999 … Not allow to synchronize captured-stream,
+  stream_id=N [FUNC:StreamSynchronize][FILE:api_error.cc]`, under the generic
+  `ERR00100 PTA call acl api failed` — is a host readback issued while capture was
+  active, not a device fault: `captured-stream-host-sync.md`.
+
 Capture-mode copy family: `MemCopySync:Memory copy sync failed` +
 `rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this
 operation]` with `kind = 1` and a small `cnt` (72/456 bytes at #9183) is the

@@ -19,6 +19,7 @@ produced.
 |---|---|
 | Qwen3.5-397B-A17B | `MooncakeLayerwiseConnector` (`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:294,336-361`), with `--speculative-config '{"method": "qwen3_5_mtp", "num_speculative_tokens": 3, ...}'` on both sides, `recompute_scheduler_enable`, `enable_cpu_binding`, `enable_fused_mc2` (`:357, 437-442, 550-553`) |
 | DeepSeek-V4-Pro / V4-Flash (also hybrid) | `MooncakeHybridConnector` (`docs/source/tutorials/models/DeepSeek-V4-Pro.md:646,1178`; `DeepSeek-V4-Flash.md:465,853`) |
+| GLM-5.2 (**DSA/MLA + MTP, not hybrid**) | `MooncakeConnectorV1` with `use_ascend_direct` (`docs/source/tutorials/models/GLM5.2.md:694,763,831,899,1371,1442`; A2 variant `MooncakeConnector` `:1040,1121`), MTP on both sides, and **no** `--no-disable-hybrid-kv-cache-manager` anywhere in that tutorial — a reporter pairing `MooncakeHybridConnector` with that flag here has copied the DeepSeek-V4 recipe (`recipe-contract-diff.md`, #13381) |
 
 A `MultiConnector` of `MooncakeHybridConnector` **plus** `AscendStoreConnector`
 (the DeepSeek-V4 pool recipe) adds a second config surface that is easy to

@@ -21,6 +21,21 @@ per-rank AIV AllGather exceptions are consequences (some rank never returned), s
 do not answer with the RPC watchdog page or a NIC theory; the reporter usually
 still reaches `EngineCore` and dies during `profile_run`, i.e. no traffic yet.
 
+## When the whole matrix has already been run
+
+Recorded #8294 (v0.18.0rc1, 2×A2, GLM-4.7-W8A8, EP + DP2×TP8) came back on
+2026-04-17 with "I have tried all combinations of these 3 envs and it fails at the
+same phase (torch.compile). Even I unset the 3 envs, it fails too." Treat that as a
+**completed** ablation, not an invitation to re-run the matrix: the AIV/allocator
+lane is closed for that report, the phase word in the title is the reporter's own
+label (their traceback shows `profile_run`'s extra MC2 dummy run, not the compile
+step), and the next lanes are the per-node symmetry of the derived
+`global_bs`/`mc2_tokens_capacity` (`mc2-dispatch-profile-run-hang.md` Step 1b, one
+call: `scripts/mc2-capacity-asymmetry.sh`), the cross-node transport check, and the
+headless node's own log. Ask which three variables they mean instead of guessing, and
+do not offer "unset them all" as a further experiment — that is the run they already
+did.
+
 ## What the two knobs actually are (do not rank them equally)
 
 - `HCCL_OP_EXPANSION_MODE=AIV` switches the collectives to AI-vector-core

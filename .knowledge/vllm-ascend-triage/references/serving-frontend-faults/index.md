@@ -38,10 +38,22 @@ Not this topic, leave immediately:
   field), never as suspects. One `grep -rn "<symbol>" vllm_ascend/` that returns
   nothing is the positive form of that claim and belongs in the answer.
 - **Ask the pinned vLLM tree whether it already knows the message**:
-  `grep -rn "<exact message>" -g '*.py' vllm/`. A single hit that catches and
-  retries the exception is the cheapest ownership proof there is — it shows the
-  condition is expected upstream and names the one path that was protected. Do
-  not search the `vllm_ascend` tree first.
+  `grep -rn "<shortest clause of the message>" -g '*.py' vllm/`. A single hit that
+  catches and retries the exception is the cheapest ownership proof there is — it shows
+  the condition is expected upstream and names the one path that was protected. Do not
+  search the `vllm_ascend` tree first. Grep the **shortest distinctive clause**, never
+  the whole sentence: vLLM emits messages as adjacent literals split across source
+  lines, so a full-sentence grep finds nothing and reads as "not in this tree", and vLLM
+  also **re-raises its dependency's text verbatim**, so a `site-packages`/transformers
+  traceback is not proof the raise lives there (#6345 lost three calls to both traps on
+  `As of transformers v4.44, default chat template is no longer allowed …`).
+- **When the raise is about a chat template, the tokenizer mode is the first
+  question, not the checkpoint.** `As of transformers v4.44, default chat template is no
+  longer allowed …` is vLLM's own raise when template resolution comes back empty
+  (`chat_utils.py:1800,1816-1822` at vllm v0.13.0); the fix may be a serve flag
+  (`--tokenizer-mode deepseek_v32` for a family whose chat encoding is Python), and
+  quantization, SoC and model support are irrelevant to it. Follow the ladder in
+  `chat-template-missing-and-tokenizer-mode.md` before proposing `--chat-template`.
 - **Do not request plog, `npu-smi`, tiling or per-rank logs for this class.** The
   artefacts that decide it are the full serve command and its parser flags, the
   request body, the client concurrency, and whether *every* request fails or only
@@ -67,6 +79,16 @@ Not this topic, leave immediately:
 
 ## Pages
 
+- `chat-template-missing-and-tokenizer-mode.md` — the worked #6345 case
+  (vllm-ascend v0.13.0rc2 ↔ vllm v0.13.0, DeepSeek-V3.2-w8a8; no SoC stated): the exact
+  `ValueError: As of transformers v4.44, default chat template is no longer allowed …`
+  that is **vLLM's own** raise, the four-rung `resolve_hf_chat_template` ladder and the
+  fallback table with no DeepSeek-text entry, why `--tokenizer-mode auto` never selects
+  `deepseek_v32` (`tokenizers/registry.py:33,144-158`, `config/model.py:76`,
+  `serving_engine.py:1151`), the in-tree corroboration (the e2e W8A8 config passes the
+  flag at `:40,64`, the tutorial's four serve blocks do not), the `thinking` default, the
+  vLLM<0.13 error that separates a version problem, and the thin-checkpoint and DEBUG
+  checks.
 - `tokenizer-already-borrowed.md` — the worked #7197 case: `RuntimeError: Already
   borrowed` at `Hermes2ProToolParser.__init__` inside `_preprocess_chat`, the two
   threads that share one HF fast tokenizer in the API-server process, the single

@@ -80,6 +80,47 @@ this shape with the version survey the reporter asked for: at this pin
 `v0.14.0rc1-310p` is the image that reintroduced 310P, so "which tag supports
 310P" is the wrong question.
 
+## `the socversion <A> of bin package does not match the current device socverison <B>`
+
+Recorded #2725: `openEuler23.03 aarch64`, reported v0.10.0rc1, `vllm serve
+Qwen/Qwen2.5-7B-Instruct --tensor-parallel-size 1 --enforce-eager --dtype float16`
+(the `single_node_300i` command verbatim). The paste shows `Loading model weights took
+14.2488 GB`, then `the socversion Ascend910B1 of bin package does not match the
+current device socverison Ascend310P3. Please modify default socversion in run.sh or
+execute run.sh with socversion parameter.`
+
+Read it as an **artifact** mismatch, not a code bug: weights load because that is
+plain `torch_npu` copies, and the first AscendC/aclnn kernel out of the *bin package*
+refuses because the package was built for `Ascend910B1` while the live card is
+`Ascend310P3`. This is the kernel-package twin of
+`device-type-build-vs-runtime.md`'s Python-side assertion, and the two SoC strings keep
+the same direction rule: the **first** is the build, the **second** is the card.
+
+Navigation cost to avoid: **the message is in no pinned tree.** `rg -n "of bin
+package|socverison" /workspace/repos` returns nothing (checked at v0.9.1rc3
+`763ed69`), and the history titles do not carry it either — its own wording names a
+`run.sh` with a `socversion` parameter, i.e. the CANN custom-op build script that
+ships with the ops package. One grep at most, then stop: the owner is the artifact
+choice.
+
+Two owners, cheapest first:
+
+1. **Wrong image variant.** The generic and `openEuler` images are both the 910B line
+   — `Dockerfile.openEuler:19` is `FROM quay.io/ascend/cann:8.2.rc1-910b-openeuler22.03-py3.11`
+   — and `-310p` tags are separate builds. Fix: pull the `-310p` tag for the reported
+   version (`docker manifest inspect` first, and pick `--platform` explicitly on an
+   arm64 host), then confirm `npu-smi info` in the same container. #1905 runs 300I Duo
+   on `v0.9.2rc1-310p`; #1684 / #1812 show `-310p` tags exist for other rcs.
+2. **Self-built package with the default SoC.** `vllm_ascend/envs.py:58-61` defaults
+   `SOC_VERSION` to `"ASCEND910B1"` and `setup.py:168` passes it as `-DSOC_VERSION=`,
+   so a wheel or custom-op build made without `SOC_VERSION` is stamped 910B1 no matter
+   which card builds it (`device-type-build-vs-runtime.md` step 3 for the stamp).
+
+Quote the pinned support statement in the same answer: `docs/source/faqs.md:18` at
+v0.9.1rc3 lists `Atlas 300I Duo、Atlas 300I Pro (Ascend-cann-kernels-310p)` under
+"Below series are NOT supported yet … might be supported on 2025.Q2" — the separate
+`310p` kernel package is exactly why a generic bin package cannot match.
+
 ## The 310P gates that change behaviour
 
 | Gate | Code (v0.11.0rc3) | Consequence to check |
@@ -93,8 +134,16 @@ this shape with the version survey the reporter asked for: at this pin
 | Attention mask NZ | `vllm_ascend/attention/attention_v1.py:253-262` (`nd_to_nz_2d` / `nd_to_nz_spec` + `npu_format_cast`) and further `is_310p()` branches at `:72,347,403,531` | mask-shape/format errors on 310P belong to this branch, not to the model's attention code |
 | Separate 310P patch module | added later than this pin: at v0.18.0 `patch/platform/__init__.py:21-26` imports `patch_mamba_config_310` when `is_310p()` (the file does not exist at v0.11.0rc3) | a 310P-only patch can drift independently of the A2 one, and the gate list itself moves between releases — re-run the grep |
 
+`patch_mamba_config_310.py` is also the entry to the 310P **mamba-state lane**: it
+rewrites `mamba_block_size` for `align`/`all` cache modes, `patch_mamba_utils.py` swaps
+the Triton state copy and align postprocess for torch/numpy fallbacks on 310P, and the
+GDN op forces an fp16 SSM state — the mechanism map plus the MTP x prefix-cache coverage
+verdict is `../accuracy-benchmarks/mtp-prefix-cache-310p.md`.
+
 Two of these gates combine into the 310P LoRA answer: there is no graph mode
-to amortise small launches (300I is eager-only) **and** `PunicaWrapperNPU` binds
+to amortise small launches — readable as "300I is eager-only" in the ≤v0.12 doc,
+while the v0.18.0 doc below ships a `FULL_DECODE_ONLY` block with TP>1 capture
+limits, so re-check the pin before reusing this — **and** `PunicaWrapperNPU` binds
 the PyTorch `vllm.lora.ops.torch_ops` callables whenever the device type is
 310P — at v0.9.2rc1 unconditionally, at v0.13.0rc2 by that explicit predicate
 even though the AscendC `vllm_ascend/lora/lora_ops.py` exists in the same tree
@@ -121,7 +170,8 @@ end-to-end on an ID-card OCR pipeline):
   Qwen2.5-VL-3B-Instruct tab at `:120-131` whose serve line is
   `--tensor-parallel-size 1 --enforce-eager --dtype float16 --compilation-config
   '{"custom_ops":["none","+rms_norm","+rotary_embedding"]}'` verbatim) →
-  `docs/source/tutorials/hardwares/310p.md` (v0.22+). A paste that matches a tab
+  `docs/source/tutorials/hardwares/310p.md` (already at v0.18.0 — see the v0.18.0
+  block below; v0.12 spelled it `docs/source/tutorials/310p.md`). A paste that matches a tab
   byte-for-byte is the doc's own recipe, so "user error" leaves the ranking; the old
   path still exists only as `docs/source/locale/zh_CN/LC_MESSAGES/tutorials/single_node_300i.po`,
   which dates a paste that cites it.
@@ -148,15 +198,101 @@ end-to-end on an ID-card OCR pipeline):
   `Stage1: E2E workflow work` (310P CI runner, e2e, wheels — several unchecked) and
   **`Stage2: Performance improvement` with an empty body**. That empty heading is the
   citable statement that graph mode/quantization work on 300I has no committed scope
-  or date; the first *documented* 310P `FULL_DECODE_ONLY` is the v0.22+
-  `hardwares/310p.md` block below, and which release between v0.12 and v0.22 landed it
-  is unanswerable here (`one_commit_git` per repo — say so, do not guess). Roadmap
+  or date; a documented 310P `FULL_DECODE_ONLY` block is already in v0.18.0's
+  `docs/source/tutorials/hardwares/310p.md:7-11` (verified, see that block below), and
+  which release between v0.12 and v0.18.0 landed it is unanswerable here
+  (`one_commit_git` per repo — say so, do not guess). Roadmap
   issues #448 (Q2 2025) and #1168 (Q3 2025) carry a "Graph mode" line with no 310P
   date; find them with `scripts/history-titles.sh -i '300I|310P'`.
 - **Do not import the v0.22 mask trap backwards.** `attention/attention_v1.py` has
   **no** `_310P` branch at v0.12.0rc1 (`rg -c _310P` = 0), so the
   `O(max_model_len²)` fp16 mask allocation quoted for v0.22.1rc1 below cannot be
   attributed to a v0.12 paste.
+
+## At v0.18.0: the 310P doc is a Qwen3 tutorial, and Qwen3.5/3.6 are "preview … follow #7394"
+
+Verified at vllm-ascend **v0.18.0** (`e18643f8a4d5bd9990727654318ad069ea0b56e2`) with vllm
+**v0.18.0** (`bcf2be96120005e9aea171927f85055a6a5c0cf6`) while triaging #9376 (Atlas 300I Duo,
+`quay.io/ascend/vllm-ascend:v0.18.0-310p`, host CANN 9.0.0,
+`vllm serve /opt/models/Qwen3.5-4B --tensor-parallel-size 2 --max-model-len 4096
+--enforce-eager --dtype float16`, and the only log an external `user-attachments` URL the
+snapshot cannot fetch). Re-grep per release; the shape below — *the doc's own closing note is
+the support verdict* — is what does not move.
+
+- **The doc path moved before v0.22, and the v0.12 block above is wrong about it.** At
+  v0.18.0 the 310P document is already `docs/source/tutorials/hardwares/310p.md`, and
+  `docs/source/tutorials/single_node_300i.md` no longer exists. A paste citing the old name
+  dates the reporter's tag, not this release; `docs/source/tutorials/310p.md` is the
+  v0.12-era spelling.
+- **Quote these lines, in this order.** `:7-11` — `FULL_DECODE_ONLY` **is** supported on 300I
+  Duo, with the TP>1 capture-count limit ("Qwen3-32B can capture and replay 2 graphs", none at
+  TP=1), so "300I is eager-only" is a ≤v0.12 statement and not this pin's. `:13-21` — the card
+  "does not support `triton` or `triton-ascend`", with the uninstall line. `:26-40` — never omit
+  `--max-model-len` (`AttentionMaskBuilder310` builds the `[max_model_len, max_model_len]` fp16
+  causal mask, then converts to FRACTAL_NZ). `:94-205` — the validated set is
+  **Qwen3-{8B,14B,32B} w8a8s/w8a8sc only** (TP1/TP1/TP4, `--quantization ascend --dtype float16
+  --no-enable-prefix-caching`, `FULL_DECODE_ONLY`). `:207-209`, the closing note — "For early
+  access to Qwen3-MoE, Qwen3-VL, and **preview support for Qwen3.5 and Qwen3.6** with
+  performance acceleration, follow #7394 for updated deployment guidance."
+- **"Does vllm-ascend support <new family> on 310P, or only the POC image?" is answered by that
+  sentence, in the turn you read it.** The reporter's own later comment on #9376 is verbatim
+  that question (`是vllm-ascend不支持Qwen3.5-4B，只支持#7394中的POC镜像吗？`), asked after a
+  session that had the doc line by its 13th tool result and shipped no answer before the
+  output cap. #7394 is a *future*
+  issue here — `/repos/vllm-project/vllm-ascend/issues/7394` returns 404
+  `snapshot_unavailable` and it is not in `history/` — so the doc line is the entire local
+  evidence: quote it, say the referenced guidance is not retrievable at this pin, and ask the
+  reporter for the #7394 content instead of deriving a launcher from the code.
+- **Coverage at the same pin agrees with "preview".**
+  `tests/e2e/310p/singlecard/test_dense_model_singlecard.py:20-57` runs only `Qwen/Qwen3-8B`
+  (fp16) and `vllm-ascend/Qwen3-8B-W8A8` (`tensor_parallel_size=1, enforce_eager=True,
+  max_model_len=16384`), and `rg -l 'Qwen3\.5|Qwen3_5' tests/e2e/310p` is empty: no hybrid model
+  was validated on 310P at this release. Absence is quotable as coverage, never as the cause.
+
+### The triton-less hybrid trap (rank it, do not try to prove it)
+
+A GDN / linear-attention family on this SoC reaches a triton kernel that is not installed:
+
+- `vllm_ascend/patch/worker/__init__.py:18-22` imports `patch_triton` **only** `if HAS_TRITON`,
+  while `:38` imports `patch_qwen3_5` unconditionally; `patch_triton.py:1-10` is what rebinds
+  `causal_conv1d_update` / `causal_conv1d_fn` onto the upstream module.
+- `patch_qwen3_5.py:25` binds `causal_conv1d_update` **by name at import time** and calls it on
+  both decode paths (`:163` spec decodes, `:194-200` plain decodes); only the prefill branch
+  (`:181`) uses the AscendC `torch.ops._C_ascend.npu_causal_conv1d_custom`.
+- With triton absent that name is upstream's
+  `vllm/model_executor/layers/mamba/ops/causal_conv1d.py:1069`, whose body computes
+  `triton.next_power_of_2` / `triton.cdiv` and launches `_causal_conv1d_update_kernel[grid]`
+  (`:1189`). Upstream substitutes `TritonPlaceholder`
+  (`vllm/triton_utils/importing.py:72-93`), which defines only `jit/autotune/heuristics/Config/
+  language` — so the first decode step dies as a **Python** `AttributeError: 'TritonPlaceholder'
+  object has no attribute 'cdiv'` (or `next_power_of_2`), with no device op and no plog entry.
+- The 310P pytorch fallbacks exist but are **test-only at this pin**:
+  `vllm_ascend/_310p/ops/fla/{chunk_gated_delta_rule,fused_gdn_gating,
+  fused_recurrent_gated_delta_rule}.py` are imported by
+  `tests/ut/_310p/ops/test_chunk_gated_delta_rule_310.py:3` and the two nightly triton op tests,
+  and the `is_310p()` registry (`vllm_ascend/utils.py:661-673`) lists only
+  fused_moe / activation / conv / layernorm / mm_encoder_attention / rotary / vocab_parallel. A
+  pytorch path in the tree is not the same as a wired one.
+
+Labels: the family×SoC status is source-verified (doc line plus coverage); the AttributeError
+chain is source-verified code but **not confirmed** for #9376, whose log was never readable. Rank
+it first with "send the traceback's deepest frame" as its check, not as the answer.
+
+### Then the config defects in the paste (one paragraph, not a section)
+
+- `--compilation-config '{"custom_ops":["none","+rms_norm","+rotary_embeding"]}'` is the 300I
+  tutorial line with a typo. `+<name>` passes the only syntax check
+  (`vllm/config/compilation.py:889-896`), and `custom_op_log_check` (`:1099-1140`) then logs
+  **once**, at warning level, `Op 'rotary_embeding' doesn't exist (or wasn't imported/
+  registered), enabling with '+rotary_embeding' has no effect`. So it does not fail the launch;
+  it quietly leaves rope on the default path — and `+rotary_embedding` could not have moved rope
+  off ATB on 310P anyway (the `TransData` section below).
+- On 310P the user's list is still the only one in play at this pin
+  (`vllm_ascend/platform.py:447-449` overwrites `custom_ops = ["all"]` only for non-310P), so
+  the typo is the whole custom-op configuration — and `tests/ut/test_platform.py:635` pins that
+  behaviour.
+- `--tensor-parallel-size 2` on a 4B model and `--max-model-len 4096` are not errors here; TP>1
+  only brings in the capture-count limit above. Say so rather than ranking them as causes.
 
 ## At v0.22.1rc1: the `_310p/` subpackage, the doc's validated table, two traps
 

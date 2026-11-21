@@ -59,6 +59,16 @@ Two consequences for triage:
 - So attribution starts at *which replay* and *which argument*, and both are in
   the serve command (next section). It does not start at a source walk.
 
+**Version flip: on the v0.11 line the ordering guard is absent.** At v0.11.0rc1
+(`c5fe179`) the same file records update events (`event.record(update_stream)` at
+`:249` and `:307`) but has **no** `torch.npu.synchronize()` before
+`entry.aclgraph.replay()` (`:190`), and nothing consumes `graph_params.events`
+(`rg -n 'event\.wait' vllm_ascend/compilation/acl_graph.py
+vllm_ascend/worker/model_runner_v1.py` is empty). So there `--async-scheduling` is
+a live hazard and `--async-scheduling False` is a real ablation; at v0.13+ the
+`:189-196` synchronize is the repair and the same ablation tests something else.
+Re-grep the two symbols before reusing this either way.
+
 ## 4. Two discriminators, both read off the config
 
 - **Bucket.** `cudagraph_capture_sizes` against the concurrency at first
@@ -81,6 +91,12 @@ Two consequences for triage:
 - Corollary: when the serve command says `async_scheduling: false` and there is
   no PP, the ordering clause in the `:189-196` comment does not describe that
   run — downgrade the ordering story and keep the argument-mismatch story.
+- The opt-in condition itself is v0.13+ behaviour. At v0.11.0rc1 neither
+  `using_paged_attention` nor `pa_shape_list` exists anywhere in `vllm_ascend/`,
+  so there a non-MLA model takes the `_npu_paged_attention` update path with the
+  tree's own GQA workspace note (`compilation/acl_graph.py:216-224`) by default
+  and ranking it is legitimate — check which symbols the reporter's ref has
+  before applying the paragraph above.
 
 ## 5. Version before mechanism (rule 16 unchanged)
 
@@ -131,3 +147,21 @@ the FIA patch path with no `pa_shape_list`, and no async scheduling. The
 recorded run reached the per-replay patch family and the coverage verdict and
 delivered a ranked answer — but emitted **zero message text on its first 13
 turns** and wrote the whole answer on the 14th, its last.
+
+#4326 — title `Qwen3-moe FULL_DECODE_ONLY inference crash`, vllm-ascend
+v0.11.0rc1 (`c5fe179`) + vllm v0.11.0 (`b8b302c`), Qwen3-30B-A3B-W8A8, DP8×TP1 +
+`--enable-expert-parallel`, 32768 ctx, `--async-scheduling`,
+`VLLM_ASCEND_ENABLE_FLASHCOMM`. Two paste facts decide the shape before any
+mechanism: the body is only the OpenAI frontend re-raising `EngineDeadError … See
+stack trace (above)` once per queued streaming output (~15 times), so the death is
+at **concurrency**, not on the first request; and the attached plog is 44 minutes
+earlier, at interpreter teardown (`cann_kb_finalize`, `ConnectionRefused`), so no
+root-cause stack and no in-window plog exist in the report. Coverage at that pin:
+the only FULL-mode e2e for this model is `tests/e2e/multicard/test_full_graph_mode.py`
+(`Qwen3-30B-A3B`, TP2, `max_model_len=1024`, bf16) and **no** `.github/workflows`
+file references it — the wired graph runs are `singlecard/test_aclgraph.py` and
+`test_aclgraph_mem.py` (`_e2e_test.yaml:77,91-92`) — so DP+EP+W8A8+32K+async is
+outside everything that release ran. The recorded run reached this section's rungs
+and the coverage verdict and delivered a ranked answer on its 11th and last turn,
+after seven of its eleven turns carried no message text at all (rule 1: a
+truncation at that point would have kept nothing).

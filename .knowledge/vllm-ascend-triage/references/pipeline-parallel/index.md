@@ -68,6 +68,17 @@ Conditional routes:
   (**remove** the `torchair_graph_config` key — `check_ascend_config` refuses
   `--enforce-eager` beside it), then `--pipeline-parallel-size 1` with TP/DP
   absorbing the cards.
+- First request on a **non-first** PP rank dies with
+  `AttributeError: 'PPMissingLayer' object has no attribute 'self_attn'` out of
+  `vllm_ascend/attention/mla_v1.py` `build()` — or
+  its `sfa_v1.py` / `torchair_mla.py` / `torchair_sfa.py` twins — while weight
+  load and startup were clean and `--enforce-eager` may be on:
+  `pp-blind-first-layer-lookup.md`. That page carries the mechanism (the builder
+  caches RoPE tables from `model.model.layers[0]`, which is a `PPMissingLayer` on
+  every stage with `start_layer > 0`), the stage-aware fix, the one-run
+  `--pipeline-parallel-size 1` ablation, the grep trap (**`layers[0]` is
+  line-broken, so a single-line grep finds nothing**) and why the dense
+  Qwen3-0.6B PP e2e test cannot reach this builder.
 - First request on a non-last PP rank dies with a bare `AssertionError`
   (`assert isinstance(output, IntermediateTensors)`) immediately after
   `acl_graph.py … Replaying aclgraph`, while the engine started cleanly → the

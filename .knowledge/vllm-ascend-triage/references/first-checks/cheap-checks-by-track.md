@@ -3,7 +3,7 @@
 Moved out of `SKILL.md` procedure step 3, because that list is read per report
 and the always-on rules are not. Read `SKILL.md` steps 1-2 and the Lane A/B/C
 bullets first, place the report in a lane/track with the signature index
-(`signature-routes.md`), then find that track here and take its checks **before**
+(`signature-routes/index.md`), then find that track here and take its checks **before**
 source archaeology.
 Every entry ends at a topic page; open that page rather than re-deriving its
 rule. Entries are added here, not back into `SKILL.md`, so the always-on file
@@ -136,6 +136,15 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   (`../startup-failures/arg-validation-errors.md`, #8345). Do not walk
   `ParallelConfig` or the connector: in that version the extra-config numbers
   have no reader besides the check.
+- A `--distributed-executor-backend ray` start that dies in the same second as
+  `Connected to Ray cluster.` with `ValueError: Current node has no NPU available.
+  current_node_resource={… 'GPU': 8.0}` (and, just above it, `The number of
+  required NPUs exceeds the total number of available NPUs in the placement
+  group`): one `ray status` on each node decides it — the Resources block must list
+  `NPU`, and `GPU` means the raylets were started without
+  `--resources '{"NPU": 8}'`, which is the whole fix. No sizing arithmetic, no
+  driver read, and the world size already matches the card count
+  (`../startup-failures/ray-npu-resource-label.md`, #3114).
 - Custom op that aclnn refuses to *resolve* (`EZ1001`, `Get regInfo failed`,
   `does not support opType`, `binary_info_config.json of socVersion`): registry
   and install, before launch. Do not open `csrc/<op>/`: check the tree's
@@ -493,6 +502,18 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   reduced on one side) is the answer, and the MemCache pool is not the suspect
   (`../feature-enable-recipes/context-parallel-pcp-dcp.md` §3,
   reporter-confirmed #12677).
+- A **multi-node start** (two nodes, DP/EP across them) whose paste carries each
+  node's own command: put the two blocks side by side before ranking anything. Some
+  flags are *matched* inputs to a collective, not local tuning —
+  `cudagraph_capture_sizes` feeds `mc2_tokens_capacity = ceil(max_capture/tp)*tp` and
+  the MoE dispatch's `global_bs = ceil(max_capture/tp) * ep_world_size`, both derived
+  **per rank from that node's own value** — so a list that differs between the nodes
+  makes the two halves of the EP group declare different buffer sizes to one all-to-all
+  (recorded #8294: `[1..64]` vs `[1..512]` → capacity 64 vs 512, `global_bs` 128 vs
+  1024, `ep_world_size` 16). One call:
+  `scripts/mc2-capacity-asymmetry.sh --capture-a 1,2,4,8,16,32,64 --capture-b
+  1,2,4,8,16,32,64,128,256,512 --tp 8 --dp 2`; the mechanism and its open status are
+  `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` Step 1b.
 - A **long-run hang** in a multi-node or co-located deployment: `hccl fftsplus
   task timeout ... stuck notify num:1, timeout=<N>s` plus
   `[TaskExecStage][HeartbeatAbnormal] ... Heartbeat Lost Occurred`. Subtract
@@ -595,7 +616,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   (`../pooling-embedding/seq-cls-arch-routing.md`) and the NZ gate at the
   reporter's ref, `rg -n "def is_enable_nz|_should_trans_nz|maybe_trans_nz"
   vllm_ascend/utils.py`, whose fp32 policy decides whether the fp32 score head is
-  converted (`../pooling-embedding/fp32-head-nz-format-crash.md`). One
+  converted (`../pooling-embedding/fp32-head-nz-format-crash.md`). The same grep
+  also answers the decoder-shaped sibling — an `EZ1001` whose text is `Not support
+  mat2 n = 1 or k = 1 when format is FRACTAL_NZ` is the **shape** family, and the
+  lever is `weight_nz_mode` (`0`/`1` ok, `2` wrong) for a MoE shared-expert gate
+  (`../startup-failures/nz-weight-format-refusal.md`). One
   call each: `scripts/nz-format-gate-check.sh <paste> <vllm-ascend-root>` and
   `scripts/seq-cls-arch-check.sh <vllm-root> '<Arch>'`. The `EZ1001` code alone
   does not mean the custom-op package.

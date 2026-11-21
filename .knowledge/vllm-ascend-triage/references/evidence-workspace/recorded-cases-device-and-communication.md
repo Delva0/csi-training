@@ -9,6 +9,40 @@ mixed decode+prefill batch faults. Routes: `../custom-ops-runtime-faults/index.m
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#6243** vllm-ascend v0.12.0rc1 (reported ref, no commit named; pinned views at
+v0.13.0rc2 `a17059a2`), DeepSeek-V3.2 on two 800I A2 nodes: hundreds of requests served,
+then `call aclnnKvRmsNormRopeCache failed, error code is 561002`, `ERR00100 PTA call acl
+api failed`, `EZ9999 … cos or sin shape is invalid.[FUNC:GetShapeAttrsInfo][FILE:
+kv_rms_norm_rope_cache_base_tiling.cpp][LINE:291]` and `<Op> do tiling failed, ret is -1`
+with the `NnopbaseExecutor*` chain, at `sfa_v1.py:804 forward → :559 exec_kv`. The body's
+"做出如下修改：" is followed by nothing, i.e. the modification the reporter applied is not
+in the paste, and the later comments add the current `exec_kv` source and the operator
+owner's answer "算子侧认为为调度问题". Track: custom-op **attribute** rejection (nothing
+launched). The frame is the 1024-token-gated `exec_kv`, so MLAPO was off or the batch was
+a prefill chunk; `cos` is `[tokens,1,1,64]` from `rotary_embedding.py:107-119` and the
+rows can differ from the kv rows under graph buckets, the DSA-CP slice
+(`sfa_v1.py:205-236`) or the SP gather (`:790-796`). Same message family as #2732
+(DS-V3.1, torchair graph with `graph_batch_sizes:[32]`, DP2, `mla_v1.py` path) and, via
+`interleave_rope`, #2702. The recorded run had the reading right by turn 12 and shipped
+**no answer** — 15 turns, 50.7 K characters of reasoning against 67 characters of text,
+the last turn a 14.4 K block holding the whole ranked answer cut at the cap. Page:
+`../custom-ops-runtime-faults/tiling-attribute-rejection.md`.
+
+**#6529** vllm-ascend v0.14.0rc1, DeepSeek-V3.2 on the pinned 4-machine 1P1D recipe
+(2 P nodes `--enforce-eager`, 2 D nodes with `FULL_DECODE_ONLY` + `deepseek_mtp` +
+`--async-scheduling`, decode DP8 × TP4): the first `curl` takes **both** D nodes down with
+`AclrtSynchronizeDeviceWithTimeout … error code is 507015` plus
+`rtMemcpy … the current capture mode does not support this operation`, at
+`model_runner_v1.py:1905 _generate_dummy_run_hidden_states` → `acl_graph.__call__` →
+`acl_graph.py:199 torch.npu.synchronize()`, three workers on chip 7/die1, 6/die0, 0/die0
+at once. Track: the MTP + captured-FULL-decode-graph device-fault family (#10700 shapes,
+#6002/#5661 precedents), not a PD connector or a bad card; the sync point is only where
+the trap surfaces, and the DP groups that lost the request are the ones replaying the same
+bucket. First rung: `--enforce-eager` on the D nodes with MTP and PD kept. The run's
+environment check also cleared the stack (`torch==2.9.0` / `torch-npu==2.9.0` / CANN 8.5.0
+is what the pin requires; the release note's "torch-npu 2.8.0.post1" line is stale). It
+shipped a ranked answer from turn 6 — the only run of its batch that did.
+
 **#3128** vllm-ascend v0.10.2rc1 (`048bfd5`) + vllm v0.10.2rc1 (`e017120`), one node,
 Qwen3-235B-A22B at `-dp 8 -tp 2 --max-num-seqs 8 --no-enable-expert-parallel
 --max-model-len 66560 --compilation-config '{"cudagraph_capture_sizes": [8,1]}'` with
@@ -268,6 +302,7 @@ the KV-before-capture ordering right, then spent its whole output budget on an u
 mechanism hunt (`cann/hccl`, `cann/hcomm`, `cann/ge` are `unavailable` here) and was **cut inside the
 first sentence of the answer** — the delivery failure, not the diagnosis, is the lesson. Route:
 `../hccl-and-hardware/qp-resource-exhausted-at-graph-load.md`.
+
 **#4323** vllm-ascend v0.11.0rc1 (`c5fe179c`) + vllm v0.11.0 (`b8b302cd`), Qwen3-32B at
 `-tp 4` with an `AngelSlim/Qwen3-32B_eagle3` draft (`num_speculative_tokens: 4`,
 `draft_tensor_parallel_size: 1`, `--max-model-len 4096`): v0.11.0rc0 answered 乱码 and
@@ -289,6 +324,7 @@ incompatible with ASCEND_LAUNCH_BLOCKING=1`), and plog only repeats the same lin
 the attribution order is `--enforce-eager` **then** blocking. Lessons in
 `../spec-decode-mtp/atb-op-setup-failure-at-proposer.md`; delivery in
 `delivery-discipline.md`.
+
 **#7635** vllm-ascend v0.17.0rc1 (`e20f0b1`) + vllm v0.17.0 (`b31e9326`), two A2
 nodes / 16 cards, Qwen3.5-397B-A17B-w8a8, `--tensor-parallel-size 8
 --data-parallel-size 2 --enable-expert-parallel`: engine start dies in `profile_run`
@@ -310,3 +346,48 @@ switches this case to ALL GATHER — service up, load test normal, expected comm
 with per-card experts > 24 as the CANN memory-safety cap. Now
 `../feature-enable-recipes/moe-expert-parallel-with-dp.md` § Step 2b instead of a
 plog/HCCL hunt.
+
+**#4178** vllm-ascend v0.11.0rc1 (`c5fe179`) + vllm v0.11.0 (`b8b302c`), 8×910B4,
+`Qwen3-VL-8B-Instruct` TP8, `--max-num-seqs 16 --max-model-len 16384`, chunked prefill
++ prefix caching, `compilation_config={"cudagraph_mode": "FULL_DECODE_ONLY"}`, one
+image prompt; title extends the hang to Qwen2.5-VL-72B / Qwen2.5-72B. The paste is
+the full 290-line log: mode banner (`platform.py:220`), all eight ranks
+`Graph capturing finished in 6 secs`, then the first request never returns — four
+`shm_broadcast` 60 s lines, the `dump_input.py` dump, `TimeoutError: RPC call to
+execute_model timed out.`. Track: graph mode engaged + capture complete + request-path
+hang, i.e. the mode's own path (the general watchdog classification is
+`../hccl-and-hardware/rpc-watchdog-timeouts.md`). The recorded run never shipped an
+answer: 22 assistant turns, ~48 K characters of reasoning, one status line of message
+text, cut at the cap while still opening new code areas (`acl_graph.py` update
+stream, `platform.py` splitting ops, upstream dispatcher) — the mechanism it was
+hunting is not in the rc1 tree at all, because the reporter later reported the bug
+fixed on **0.11.0rc2** (later public observation on the same issue, not a reply to
+these investigators). What it did establish and should have delivered: `tests/e2e`
+validates `FULL_DECODE_ONLY` only in `multicard/test_full_graph_mode.py` (Qwen3-30B-A3B
+TP2, `max_model_len=1024`, `max_tokens=32`), no workflow invokes that file, the wired
+ACL-graph runs are PIECEWISE at 1024 context on Qwen3-0.6B / DeepSeek-V2-Lite, and the
+runner's only mode-specific provisioning at rc1 is the MLA `cos`/`sin` buffer
+(`model_runner_v1.py:374-377`). Route now:
+`../hccl-and-hardware/aclgraph-full-decode-runtime-hang.md`, SKILL.md rule 16.
+
+**#15985** vllm-ascend `v0.26.0rc1` (`f2f74a16`) + vllm `v0.26.0` (`568afb3a`), filed
+2026-09-08 as a maintainer **known-issues bulletin** (not a user report):
+`[Bug][v0.26.0rc1]: Known Issues for DeepSeek-V4-Flash/Pro service hang on A3`,
+tracking #15892 (decode node dies with `AclrtSynchronizeStreamWithTimeout` `507034`,
+fault kernel `MoeDistributeDispatchV2`) and #15930 (1M-context PD + DSpark,
+`IndexCheck_int64_high_performance_0` OOB `507035` then the same dispatch timeout).
+Both tracked ids are outside the history corpus (earlier-month issues only), so the
+`MISSING` files are coverage, not a failed search. The delivered answer treated it
+as a claim-check: the release's own `tests/vllm_ascend_v0.26.0rc1_test_conclusion.md:7`
+validates both models (Flash A3 4 nodes large DP 1P1D, Pro A3 2 nodes large EP
+1P1D) and its §3 table attaches `507034` to an unrelated #15268 Ascend-950
+`dsa_cp` start hang, so the code alone localizes nothing; the Pro run's 1M context
+is ~7.4× the tutorial's `--max-model-len 135000`
+(`docs/source/tutorials/models/DeepSeek-V4-Pro.md:408`, DSpark
+`{"num_speculative_tokens":5,"method":"dspark"}`). Output-truncated at the 16 K cap
+after 50 turns (1.1 M cumulative prompt tokens — its first block `cat`-ed a 25 KB
+`SOURCES.json` plus the history listing inside one 62 K-character tool result),
+verdict and both ranked lists shipped, the action ladder cut mid-item. Lane:
+runtime device fault (lane C) / PD decode MC2, plus a second int64-index write
+family — `../release-known-issues/index.md` (new topic), and rule 6 there on
+splitting a two-issue bulletin across messages.

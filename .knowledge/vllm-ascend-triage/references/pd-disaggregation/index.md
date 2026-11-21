@@ -2,10 +2,13 @@
 
 Scope: a P/D (or EPD) deployment whose *requests or KV* do not arrive: the peers
 cannot connect, they connect and the decode node produces wrong tokens, or the
-deployment never receives a request at all (proxy/serve wiring) — *not* the generic
-startup lane. Four failure families, decided by two questions: **is a KV pool in the
-deployment?** then **did the peers fail to connect, did they connect and the decode
-node then produce wrong output, or did no request ever reach a decode engine?**
+deployment never receives a request at all (proxy/serve wiring), or one side's
+EngineCore dies on its own connector/scheduler bookkeeping while the other keeps
+running — *not* the generic startup lane. The families below are first split by the
+pasted stack (transport, output corruption, request routing, or a bookkeeping assert
+on one side), then by two questions: **is a KV pool in the deployment?** and **did
+the peers fail to connect, did they connect and the decode node then produce wrong
+output, or did no request ever reach a decode engine?**
 
 - A KV pool (MemCache/Mooncake `AscendStoreConnector`) on a **single node, no PD**,
   or a store that initialises and then fails while saving: this topic's transport
@@ -77,6 +80,20 @@ node then produce wrong output, or did no request ever reach a decode engine?**
   walk → `../feature-enable-recipes/context-parallel-pcp-dcp.md` §3
   (reporter-confirmed #12677: "PD 需要同并行 dcp", the 1M recipe is `dcp=8` on
   both sides, and the MemCache pool is not the blocker).
+- The **P node's** EngineCore dies with a bare `AssertionError` in upstream
+  `vllm/v1/core/sched/scheduler.py` `_update_from_kv_xfer_finished`
+  (`assert req_id in self.requests`, `update_from_output` and
+  `step_with_batch_queue` above it), the APIServer then reports
+  `EngineDeadError` and D stays alive: a send-completion arrived for a request the
+  scheduler already freed. The stack is also a launch-flag fingerprint — a batch
+  queue means `--async-scheduling` (or PP>1) on the prefiller — and the assert
+  names no id, so the two DEBUG lines (`Delaying free …`, `Finished sending …`)
+  decide the branch → `prefill-scheduler-kv-xfer-assert.md`.
+- The **decode** worker dies before any byte moves when P and D use different TP
+  sizes (P `TP=8`, D `TP=2`) on an MLA (DeepSeek/Kimi) or DSA-sparse model:
+  `chosen_rank_list([…]) does not match num_group_pulls(…) and prefill pp size(1)`
+  — the group pull helper is the one pull-count derivation that skips the
+  MLA/sparse single-pull rule → `asymmetric-tp-pull-count.md`.
 - Nothing connects at all because the connector module itself fails to import —
   `ImportError: ascend_transport.so: cannot open shared object file` at
   `kv_p2p/mooncake_connector.py:24`, `No module named mooncake` — or the decode
@@ -168,6 +185,21 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   predicates) together with the refuted "our method name is not `mtp`" theory,
   and the ablation matrix to hand the reporter when the symptom is alternating
   good/bad output.
+- `prefill-scheduler-kv-xfer-assert.md` — the prefiller dies on
+  `assert req_id in self.requests` (upstream `v1/core/sched/scheduler.py`): how the
+  frame set identifies the scheduler instance and the version, why
+  `step_with_batch_queue` present means `--async-scheduling`/PP>1, the
+  `delay_free_blocks` path and the connector's exact `FINISHED_LENGTH_CAPPED` test,
+  why the assert carries no request id, and the two DEBUG lines that separate a
+  duplicate/late send report from an abort-status free. Verified at vllm v0.12.0
+  `4fd9d6a85c00` / vllm-ascend v0.12.0rc1 `42ceaf08`, cause left open (#6266).
+- `asymmetric-tp-pull-count.md` — P/D with different TP sizes on an MLA/DSA-sparse
+  model: `chosen_rank_list(…) does not match num_group_pulls(…)`, the three
+  derivations of the pull count and the one that omits the MLA/sparse rule, the
+  ambiguous `num_kv_heads` of a `UniformTypeKVCacheSpecs` group, which groups make
+  `_is_hma_required` true (and why turning Eagle3 off is not predicted to help),
+  and why the assertion is load-bearing. Verified at vllm-ascend v0.22.1rc1
+  `5f6faa0cb883` / vllm v0.22.1 `0decac0d96c4` (#11877).
 - `llmdatadist-done-signal-and-ttft.md` — `LLMDataDistCMgrConnector` serves but TTFT is
   slow and/or the prefiller logs `fail to receive KV Cache transfer done signal in 120s`
   (`VLLM_LLMDD_ABORT_REQUEST_TIMEOUT`, default 120): where the warning is emitted, the

@@ -21,6 +21,18 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   `anyOf: [string, null]` argument schema). That shape is the parser's
   per-token delta arithmetic, not a lost tail and not a model fault —
   `arg-type-gate-unquoted-value.md`.
+- the name parses but `arguments` is exactly `{}` (an empty JSON object, both
+  braces present, nothing truncated), typically on a GLM-family serve with
+  `--tool-call-parser glm47`: the GLM parser's literal output when a *complete*
+  region carried no `<arg_key>/<arg_value>` pair, and the `stream: false` A/B
+  splits a lost payload from an argument-format mismatch from a zero-argument
+  call — `empty-arguments-object.md` (#14731);
+- the assembled `arguments` are **only the closing punctuation** — `"}` with no
+  `{`, no key — while the same body with `stream: false` returns the complete
+  string, and every other chunk is `delta: {}` (#7682, GLM-5-w4a8,
+  `--tool-call-parser glm47`, MTP n=3, `--async-scheduling`). That is the
+  bookkeeping family's extreme form, not a lost tail and not the type gate:
+  `suffix-only-arguments.md`.
 - **no call at all**: `tool_calls` empty or missing with `finish_reason: "stop"`
   and ordinary prose in `content`, often conditional on non-thinking mode or
   "概率性" ("tool call empty", #12658 DeepSeek-V4-Flash-w8a8-mtp,
@@ -58,15 +70,22 @@ parser puts you back on rule 1.
    the assembled string, not the model.** Concatenate
    `choices[i].delta.tool_calls[j].function.arguments` in arrival order and ask
    what the concatenation is (`bash <skill_root>/scripts/sse-toolcall-audit.sh
-   <raw-sse-or-paste>`; it now labels the outcome itself — `balanced`,
+   <raw-sse-or-paste>`; it labels the outcome itself — `balanced`, `head-lost`,
    `quote-gap` = balanced braces with an odd quote count, `tail-lost`,
    `malformed` — so its verdict no longer has to be overridden by hand). Its
    outcomes have different owners:
    parses as JSON → the client's accumulation/framing; missing tail
    (unbalanced `{`/`"` at the end, `finish_reason` still `tool_calls`) → the
-   stream stopped short; **braces balanced but quotes odd, with the gap inside a
-   value** → the parser's incremental delta, decided by the argument's declared
-   JSON-Schema type (`arg-type-gate-unquoted-value.md`; run
+   stream stopped short; **`head-lost`: more closing than opening braces, so the
+   assembly starts inside the object** (`"}` for a complete
+   `{"todos": "…"}`) → only a suffix of the arguments was ever emitted, so the
+   delta bookkeeping (`_compute_args_diff` / `streamed_args_for_tool`, or the
+   frontend's `remaining_call`) was ahead of the bytes; one arithmetic decides it
+   — `assembled == non_stream_args[-len(assembled):]` — and this outcome must not
+   be sent to the schema-type gate (`suffix-only-arguments.md`); **braces balanced
+   but quotes odd, with the gap inside a value** → the parser's incremental delta,
+   decided by the argument's declared JSON-Schema type
+   (`arg-type-gate-unquoted-value.md`; run
    `scripts/tool-schema-type-audit.py` on the request body); **characters missing
    at the head of a value plus a fragment repeated a few characters later** → the
    streamed *text* was already damaged, and that has two owners: the incremental
@@ -142,9 +161,23 @@ parser puts you back on rule 1.
    `patch/__init__.py` carries one numbered comment block per patch with its
    `Why`/`How`/`Future Plan` and the upstream PR it backports; quote the branch
    condition that excludes it (see `arg-type-gate-unquoted-value.md`).
+   **Reconcile the parser name with the pinned tree before reading any parser:**
+   `--tool-call-parser <name>` is validated against that release's registry
+   (`rg -n '"<name>"' <vllm tree>/vllm/tool_parsers/__init__.py`), so a name the
+   pinned tree does not register means the export **predates the runtime** —
+   vllm v0.13.0 registers `glm45` only, and a serve line carrying `glm47` cannot
+   be that tree. Say that as the coverage gap in one line, argue from the nearest
+   documented ref, and do not conclude "unreachable here, so not this layer"
+   (`suffix-only-arguments.md`, §Before arguing the mechanism).
 
 ## Pages
 
+- `empty-arguments-object.md` — the `{}` shape: where
+  `glm4_moe_tool_parser.py` prints it (streaming `:401-402`, non-streaming
+  `:214` at vllm v0.23.0), why a JSON-bodied region yields *no call* in
+  non-streaming instead, the four-row `stream: false` discriminator, the
+  downstream patch 7b that makes zero-argument calls surface as `{}`, and the
+  #8130 / #8478 precedents, with #7682 as the neighbouring *suffix-only* row.
 - `streamed-arguments-audit.md` — the audit procedure: how to obtain the raw SSE,
   how to read the script's output and the outcomes (A, B, C, D1, D2), the ordered
   ablations
@@ -174,6 +207,13 @@ parser puts you back on rule 1.
   at `:408`, the length-prefix delta at `:424`, the arithmetic that reproduces the
   paste, why `stream: false` never reproduces, the two Ascend GLM patches and the
   condition that excludes each, the reporter's schema workaround.
+- `suffix-only-arguments.md` — the assembled string is *only* the object's
+  closing punctuation: the suffix arithmetic against `stream: false`, the two
+  bookkeeping sites (parser length diff, frontend finish-step `remaining_call`),
+  why the silent `delta: {}` chunks are a buffering parser behaving normally, the
+  `--tool-call-parser` registration witness that dates the export against the
+  runtime, the four reporter-side checks, and the #7682 case (reporter-confirmed
+  A/B; the recorded run shipped no answer).
 - `mtp-block-verify-acceptance.md` — what the `max_spec_len >= 3` branch does
   (cumulative-product acceptance over the whole draft block, recovered token,
   bonus token), which requests it cannot touch (greedy rows), why a wrongly

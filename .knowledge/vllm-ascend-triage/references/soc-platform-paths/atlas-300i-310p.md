@@ -38,6 +38,48 @@ A VL or OCR checkpoint that **serves and answers garbage** on this SoC is the
 other shape of the same platform question — support is a per-model doc statement
 and document parsing is a pipeline: `310p-vl-ocr-garbage-output.md`.
 
+## An image that carries triton-ascend cannot import the worker at all
+
+Verified at vllm-ascend **v0.14.0rc1** (`52d4acfa` — the release whose notes say
+"310P support is back now", `docs/source/user_guide/release_notes.md:9`, PR #5776)
+with vllm **v0.14.1** (`d7de043d`), image `…:v0.14.0rc1-310p`. A different pin
+from the rest of this page, because the 310P lane was re-opened there; re-grep
+for the next 310P release.
+
+Shape (#6309): `EngineCore failed to start` in the same second the worker class is
+resolved — before any config check and before any weight load:
+`resolve_obj_by_qualname` → `vllm_ascend/_310p/worker_310p.py:21` →
+`worker/model_runner_v1.py:96` → `patch/worker/__init__.py:20-21`
+(`if HAS_TRITON: import … patch_triton`) → `patch_triton.py:4` →
+`ops/triton/fla/chunk.py:15` → upstream
+`vllm/model_executor/layers/fla/ops/utils.py:141`, a **module-level**
+`device = "cuda" if … else get_available_device()` →
+`triton.runtime.driver.active.get_current_target()` →
+`triton/backends/ascend/driver.py:188,91` `get_arch()`, ending
+`SystemError: <built-in function get_arch> returned NULL without setting an exception`.
+
+Two facts make this a one-call answer:
+
+- The owner is the **triton-ascend build in the image**, not the model, not the
+  310P capability table: nothing model-specific has run yet, and `get_arch()`
+  returns NULL because that backend cannot map the SoC.
+- Upstream `get_available_device()` catches only `(RuntimeError, AttributeError)`
+  (`utils.py:118-123`), so `SystemError` escapes at import time — while the
+  listener on the vllm-ascend side is `HAS_TRITON`-gated and 310P is eager-only
+  (no Triton kernels), so removing triton removes the whole chain:
+  `pip uninstall -y triton triton-ascend`, then
+  `python -c "from vllm.triton_utils import HAS_TRITON; print(HAS_TRITON)"` must
+  print `False`. The same frame can be probed in one line without vLLM:
+  `python -c "import triton; print(triton.runtime.driver.active.get_current_target())"`.
+
+Labels: source-verified from the reporter's own traceback plus this pin. The
+`pip uninstall` action is **not** reporter-confirmed, and whether the shipped
+`-310p` image carries that triton build is a registry fact this snapshot cannot
+check — ask for `pip list | grep -i triton` before asserting it. Do not answer
+this shape with the version survey the reporter asked for: at this pin
+`v0.14.0rc1-310p` is the image that reintroduced 310P, so "which tag supports
+310P" is the wrong question.
+
 ## The 310P gates that change behaviour
 
 | Gate | Code (v0.11.0rc3) | Consequence to check |

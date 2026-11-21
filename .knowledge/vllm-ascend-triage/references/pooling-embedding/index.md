@@ -26,9 +26,18 @@ reading any code:
    `../../scripts/checkpoint-key-prefix.py <model dir>`).
 2. **The service dies under concurrency** (vllm-bench / max-num-seqs > ~32),
    single-request serving is fine, and the engine log ends in a Python exception
-   in the *batch bookkeeping* — `KeyError: <id>` / `KeyError: None` in
-   `reorder_batch_to_split_decodes_and_prefills`, then `EngineDeadError` and
-   `400 Bad Request` on everything after it → `batch-index-desync.md`.
+   in the *batch bookkeeping* — `KeyError: None` (or `KeyError: <id>`) raised by
+   `scheduler_output.num_scheduled_tokens[req_id]`, in
+   `reorder_batch_to_split_decodes_and_prefills` *or* in
+   `_prepare_inputs`' `tokens = [...]` (both are the same lookup; which frame
+   names it is version luck, and a reporter who prints in the reorder helper or
+   in `_update_states` legitimately sees nothing) — then `EngineDeadError` and
+   `400 Bad Request` on everything after it. The `None` is a hole inside
+   `InputBatch._req_ids`; reporter-confirmed shape on #5687,
+   `print(input_batch)` in the second batch: `[None,None,xxx,297]`, then
+   `[None,298,299,xx]` as requests are added → `batch-index-desync.md` (which also
+   carries the producer-side probe recipe: wrap `add_request` /
+   `remove_request` / `condense`, do not probe a consumer).
 3. **The vectors are wrong for long inputs** while short inputs match the
    reference to > 0.999, the corruption is deterministic inside one serve
    session, and `--no-enable-chunked-prefill` removes it →

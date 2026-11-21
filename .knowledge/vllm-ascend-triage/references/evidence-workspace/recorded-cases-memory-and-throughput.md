@@ -4,7 +4,8 @@ HBM growth and OOM after a healthy period, host RAM and the attention-mask
 allocation, container working set, KV-init and allocator unmap faults, queueing and
 throughput arithmetic, the capture-size cliff, TP scaling budgets and LoRA decode
 overhead. Routes: `../runtime-memory/index.md`, `../performance-throughput/index.md`,
-`../deploy-sizing/index.md`, `../lora-adapters/index.md`.
+`../scheduler-admission/index.md`, `../deploy-sizing/index.md`,
+`../lora-adapters/index.md`.
 
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
@@ -122,6 +123,22 @@ under its own TODO, against preallocated buffers at `:407,:452,:458,:564`) are a
 real asymmetry, priced out as this metric's owner by the arithmetic but still the
 MTP-off ablation row (`../runtime-memory/container-working-set-growth.md`).
 
+**#16365** reported vLLM 0.23.0 + a vllm-ascend `glm-5.3-flash` image (snapshot pins
+vllm-ascend v0.26.0rc1 / vllm v0.26.0), one Atlas 800 A2, TP8 + `--enable-expert-parallel`,
+GLM-5.3-Flash (no `Glm5*` class in the pinned registry — only `Glm4*`): identical
+~8K-token prompts served on build `26bc8ca3` and hanging on build `7f569517` the same
+day, then a 7-token probe unanswered for 12+ min while `/v1/models` answered and a
+sibling model on the same gateway stayed healthy. A same-reporter follow-up to
+#15984, which this corpus does not carry (history stops at 15419), so its "kpool
+compressor-state" numbers are unverifiable here. The run had the shape pinned by its
+middle turns — `scheduler_reserve_full_isl` default True (`vllm/config/scheduler.py:140`)
+passed as `full_sequence_must_fit` on waiting admission (`scheduler.py:944`) and the
+waiting loop's `break` on the `None` return (`:949-956`), plus the downstream admission
+cap and its #40863 comment (`vllm_ascend/core/single_type_kv_cache_manager.py:273-325`) —
+and then spent its whole remaining budget reasoning, so it shipped **no** answer and was
+cut at the output cap on its 20th turn. Route:
+`../scheduler-admission/waiting-queue-wedge.md`.
+
 **#4766** vllm-ascend `v0.11.0rc3` (`b6d63bb`) / vllm `v0.11.0` (`b8b302c`), 2×910B4-64G,
 Qwen3-VL-32B under an ais-bench textvqa loop: "显存一直异常增长，最后 OOM" with no serve
 log, no `npu-smi` sample and no crash tail (runtime-memory growth lane). Delivered at
@@ -235,3 +252,46 @@ capture-mode gates and hybrid-KV gates before the output cap landed inside the
 ranked list — no final answer. Page
 `../feature-enable-recipes/per-soc-recipe-and-quantized-weights.md`. Open: the
 reporter's token/s, TTFT and `Running`.
+
+**#1138** vllm-ascend v0.8.5rc1 (`ec27af3`) + vllm v0.8.5.post1, DeepSeek-R1-Distill-Qwen-32B
+(dense Qwen2) TP=4 on 4 of 8 910B, `--gpu-memory-utilization 0.98 --max-num-seqs 1024`,
+body = three screenshots (OCR) of the metrics block and two `npu-smi` pastes: "低 NPU
+利用率 (<15 % AI Core)、吞吐有限", asking for extra flags, what caps concurrency at 6, and
+profiling advice. The paste decides it: `Running: 6 reqs, Swapped: 0, Pending: 0, GPU KV
+cache usage: 0.2 %, CPU KV cache usage: 0.0 %` is the **V0** logger (`vllm/engine/metrics.py:489`),
+so 57 tok/s ÷ 6 = 9.5 tok/s per request with nothing queued — no server-side cap — and the pin
+hard-sets `enforce_eager = True` (`platform.py:124`) while graph mode is a V0-only
+`additional_config` opt-in that `supports_dynamo()`/`VLLM_USE_V1` can void (`:151-160`).
+The recorded run spent 12 assistant turns and the whole 16 K output budget on the V0/V1
+selection and the V0 runner and shipped **no answer text** (3 status notes). Page
+`../performance-throughput/pre-graph-mode-eager-era.md`. Open: the load driver's concurrency
+and whether `enable_graph_mode` was ever applied on the reporter's host.
+
+**#7351** vllm-ascend v0.13.0rc1 (`1b5d5ab`) + vllm v0.13.0 (`72506c9`), 2 cards
+(`ASCEND_RT_VISIBLE_DEVICES=0,1`, card model not stated), QwQ-32B-W8A8
+`--quantization ascend`, TP=2, `--max-model-len 131072`, `FULL_DECODE_ONLY` with
+capture sizes `[1,8,24,48,60]`, `--async-scheduling`: "单请求推理时
+`QuantBatchMatmulV3_ND` 被调用了 98 万次", evidence = one MindStudio op-statistics
+screenshot (OCR is the paste); the public follow-up turned it into a cross-stack
+claim, "msprof analyze compare: NPU 上 matmul 调用次数是 GPU 上的 50 倍", with a
+second screenshot that is **not** in the case view. Track: profiler-table evidence
+(`../performance-throughput/profiler-opcount-evidence.md`). The recorded run
+recovered the window exactly from the table's own ratios (`988224/192` =
+`329408/64` = `653669/127` = `334555/65` = 5147 steps, ≈256 matmuls/step, the same
+shape as upstream's 4 fused matmuls × 64 layers) and answered "cumulative
+per-request counts, not a bug", then read the 50× as a window ratio and asked for
+the compare columns; both attempts were otherwise sound. Its first turn was cut by
+the 16 K output cap **mid-derivation with no message text** (11 steps, arithmetic
+still in `reasoning_content`); the retry answered in 3 steps. The reporter's later
+public comment confirms the two load-bearing points and adds the one the run
+missed: on **v0.13.0-release** the collection *errored* because of a bug in the
+shipped `libruntime_v100.so` — a CANN runtime artefact (`cann/runtime`
+`cmake/package.cmake:271` installs the `runtime_v100` target), not vllm-ascend —
+and after replacing it the data still showed **NPU idle 95 %**, while the same
+requests ran at "性能几乎无差异" on 0.13.0rc1 vs 0.13.0. So: equal end-to-end
+performance plus an impossible idle reading means the *table* is the fault, which
+is why collection health is rule 1 on the page, ahead of the arithmetic. Side
+finding kept on the page: `VLLM_ASCEND_ENABLE_DENSE_OPTIMIZE` was removed by
+v0.13.0rc1 (`release_notes.md:35`, PR #5272) and
+`VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE` has no `vllm_ascend/` reader, so two exports in
+that launch command were silent no-ops.

@@ -73,6 +73,10 @@ otherwise runs the piecewise path — so a worker whose log lacks the success li
 6. State the version scope: the `level→mode` mapping, the platform's
    `{NONE, VLLM_COMPILE}` gate and the success message are all ref-specific.
 
+The complement of this page: when the success line **is** there and capture
+finished on every rank, the mode took effect and the request path is the question —
+`../hccl-and-hardware/aclgraph-full-decode-runtime-hang.md` (recorded #4178).
+
 Recorded case: #6972 (Qwen3-Omni-30B-A3B via `vllm serve --omni`, vllm-ascend
 v0.14.0rc1, 8×910) — the yaml route is explained by `level: 1` at this ref; the CLI
 route needs the per-stage line. The recorded session consumed the full output budget

@@ -16,6 +16,13 @@
 #
 # Tolerates HTML/Excel clipboard wrappers, `[...redacted...]` placeholders and
 # console prefixes such as "decoded ok: data: ...".
+#
+# Per-tool-call verdicts: balanced | quote-gap | head-lost | tail-lost | malformed.
+# `head-lost` (more closing braces than opening ones: the assembly starts *inside*
+# the object) is the shape where nothing but the last characters of the arguments
+# ever reached the client -- the delta bookkeeping advanced past characters it never
+# sent. It is NOT the schema-type gate and NOT a client bug; see
+# references/tool-call-streaming/suffix-only-arguments.md.
 set -u
 LC_ALL=C
 if [ "$#" -eq 0 ]; then
@@ -89,8 +96,10 @@ for n, p in enumerate(payloads, 1):
     obj = try_json(p)
     if obj is not None:
         parsed += 1
-        choices = obj.get("choices") or [{}]
-        ch = choices[0]
+        raw_choices = obj.get("choices")
+        if not raw_choices:
+            continue          # usage-only payload: no choice, nothing to audit
+        ch = raw_choices[0]
         delta = ch.get("delta") or {}
         tcs = delta.get("tool_calls") or []
         frags, name = [], None
@@ -102,13 +111,15 @@ for n, p in enumerate(payloads, 1):
             if a is not None:
                 acc.setdefault(i, []).append(a)
                 frags.append(a)
+        silent = (not tcs) and not (delta.get("content") or "")
         meta.append((n, ch.get("stop_reason"), ch.get("finish_reason"), name,
-                     len(frags), sum(1 for f in frags if f == "")))
+                     len(frags), sum(1 for f in frags if f == ""), silent))
     else:
         frags, sr, fr, name = heuristic(p)
         for i, a in frags:
             acc.setdefault(i, []).append(a)
-        meta.append((n, sr, fr, name, len(frags), sum(1 for f in frags if f == "")))
+        meta.append((n, sr, fr, name, len(frags), sum(1 for f in frags if f == ""),
+                     not frags))
 
 print(f"payloads: {len(payloads)}  (clean JSON: {parsed}, recovered from mangled text: "
       f"{len(payloads)-parsed})")
@@ -153,14 +164,29 @@ for i in sorted(acc):
         verdicts.append("balanced")
     else:
         print(f"  json.loads(assembled): FAIL -> {err}")
-        # Four outcomes, not two (tool-call-streaming/index.md rule 1). An open
-        # brace/bracket means the tail never arrived. BALANCED braces with an odd
-        # quote count is the other family: the closing `}` and a quote are there,
-        # the gap is the *opening* quote inside a value -- that is the parser's
-        # type-gated delta, not a lost tail, and it must not be routed to the
-        # engine. Anything else is unbalanced text in the middle.
+        # Five outcomes, not two (tool-call-streaming/index.md rule 1). An open
+        # brace/bracket means the tail never arrived. MORE closing braces than
+        # opening ones means the assembly starts inside the object: the head never
+        # arrived at all (nothing but a suffix of the arguments was ever sent) --
+        # that is the delta bookkeeping's length, not the type gate and not the
+        # client. BALANCED braces with an odd quote count is the third family: the
+        # closing `}` and a quote are there, the gap is the *opening* quote inside a
+        # value -- the parser's type-gated delta, not a lost tail, and it must not be
+        # routed to the engine. Anything else is unbalanced text in the middle.
         open_tail = (b['{'] > b['}']) or (b['['] > b[']'])
-        if open_tail:
+        lost_head = (((b['}'] > b['{']) or (b[']'] > b['[']))
+                     and not s.lstrip().startswith(("{", "[")))
+        if lost_head:
+            verdicts.append("head-lost")
+            print("  -> MORE closing braces than opening ones: the assembly starts")
+            print("     INSIDE the object, so the head (the `{`, the keys) never")
+            print("     arrived -- only a suffix of the arguments was ever sent. Do")
+            print("     NOT run tool-schema-type-audit.py: this is not the type gate.")
+            print("     diff it against `stream: false`'s message.tool_calls[0].")
+            print("     function.arguments: a strict suffix means the delta")
+            print("     bookkeeping advanced past characters it never emitted")
+            print("     (references/tool-call-streaming/suffix-only-arguments.md).")
+        elif open_tail:
             verdicts.append("tail-lost")
         elif b['"'] % 2:
             verdicts.append("quote-gap")
@@ -182,12 +208,31 @@ print(f"finish_reason chunks: {fin or 'none'}   last non-empty argument chunk: #
 empty_tail = [m[0] for m in meta if m[4] and m[5] == m[4]]
 if empty_tail:
     print(f"chunks whose arguments fragment is the EMPTY string: {empty_tail}")
+silent = [m[0] for m in meta if m[6]]
+if silent:
+    print(f"chunks carrying NEITHER content nor tool_calls: {len(silent)} of "
+          f"{len(meta)} (first #{silent[0]}, last #{silent[-1]}) -> the model's "
+          f"output text for those steps reached no client field; a buffering tool "
+          f"parser emits exactly this while it walks the model's XML")
 
 if all(v == "balanced" for v in verdicts):
     print("\nVERDICT: every assembled tool call is valid JSON. The failure is in the "
           "client's own accumulation/framing (or it parsed a single chunk instead of "
           "the concatenation). Ask for the client version and its parser; the server "
           "stream is not the owner.")
+elif "head-lost" in verdicts:
+    print("\nVERDICT: at least one assembled tool call starts INSIDE the object (more")
+    print("closing braces than opening ones): the client received only a suffix of the")
+    print("arguments, so the head was never sent. That is the same delta-bookkeeping")
+    print("layer as quote-gap, in its extreme form -- the parser's")
+    print("`_compute_args_diff` / `streamed_args_for_tool` length, or the frontend's")
+    print("`remaining_call` suffix, was already ahead of what it had emitted. Not the")
+    print("model, not the tokenizer, not the client. One arithmetic decides it: take")
+    print("`message.tool_calls[0].function.arguments` from the SAME body with")
+    print("`stream: false` and test `assembled == args[-len(assembled):]`; a strict")
+    print("suffix means only the tail was ever emitted. Ask for `return_token_ids:")
+    print("true` on the streaming body to show the engine's own text is complete")
+    print("(references/tool-call-streaming/suffix-only-arguments.md).")
 elif "quote-gap" in verdicts and "tail-lost" not in verdicts:
     print("\nVERDICT: at least one assembled tool call has BALANCED braces/brackets with")
     print("an odd quote count -> the missing quote sits inside a value, so the tail did")

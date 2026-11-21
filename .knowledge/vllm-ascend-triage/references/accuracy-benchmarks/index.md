@@ -12,6 +12,11 @@ decided by the same first question (is anything being compared, or is the engine
 se), then by `finish_reason`. A report that pastes only a response body — thinking text in
 `content`, `reasoning`/`reasoning_content` missing, `reasoning_tokens: 0` — is also this
 topic: the answer is the serve flag's presence, not a kernel.
+One shape here compares the engine **with itself** rather than against a reference —
+the same prompt or body run several times, with lengths or contents differing
+("nv 卡多次一致，npu 多次不一致", "`temperature=0` 结果不确定"). That is
+reproducibility, not accuracy: `repeated-run-nondeterminism.md` owns it, and the
+request body plus the *pattern* of which runs differ decide it.
 
 Seven entry shapes leave this topic immediately and are not accuracy questions at all:
 
@@ -79,10 +84,13 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   branches (`q_proj` when `q_lora_rank is None`, the `global_num_experts == 256`
   MoE gate) as labelled suspects rather than causes.
 - First question: **did both numbers come from the same server, weights and serve flags?**
-  If yes, the engine produced identical logits for identical prompts, so the gap lives in
-  prompt template, sampling, decoding budget, output routing, extraction or aggregation — not
-  in the kernel. If no, nothing is attributable until the serve flags are matched; list them
-  as candidates instead of choosing a culprit.
+  If yes, sampling, decoding budget, output routing, extraction and aggregation are the
+  attributable knobs — but **"same server" does not mean identical logits on Ascend**: on a
+  non-batch-invariant path the same prompt can produce different logits run to run
+  (a single-sample comparison then differs by luck), so before drawing a score conclusion
+  from one run per side, check the repeat-run pattern
+  (`repeated-run-nondeterminism.md`). If no, nothing is attributable until the serve flags
+  are matched; list them as candidates instead of choosing a culprit.
 - Compare the *pattern*, not only the mean. Bidirectional or subset-specific gaps (some
   subsets up, others down several points) are characteristic of harness-level effects
   (truncation, answer extraction, thinking output routing). A uniform drop accompanied by
@@ -202,6 +210,18 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (`--enable-prefix-caching` is default-on at vllm v0.23.0; a Mooncake
   `VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT` hit is a log line, not a generation bound; the
   block-verify gate is off by default there), and the recorded #13719 diff table.
+- `repeated-run-nondeterminism.md` — the engine compared with itself: the same prompt
+  or body run 3–5×, lengths or contents differing, typically NPU "差异大" against a
+  stable NV-GPU baseline at `temperature: 0`. The reporter's own control refutes any
+  platform-independent mechanism, so "没有 seed / 采样没钉死" cannot lead when the
+  control is stable — recorded #7180 ranked it first and the reporter's next comment
+  pasted a greedy body (`temperature: 0, top_p: 1, top_k: 1, repetition_penalty: 1.1,
+  max_tokens: 65536`, prompt ≈8782 tokens). Then the pattern of which runs differ
+  (cold vs cache-warm prefill, all-runs, `finish_reason: length`), the documented
+  determinism recipe at `docs/source/faqs.md:167-203` (FAQ #16, four env vars) before
+  the beta `VLLM_BATCH_INVARIANT=1` program with its 910B/custom-op/coverage gates, and
+  the amplification rule for long-CoT checkpoints (one flipped greedy token forks
+  `max_tokens: 65536`). Precedents #9373, #5725, #221.
 - `qwen3-next-gdn-numeric-path.md` — the hybrid linear-attention (Gated-DeltaNet) shape:
   a 19-token to few-hundred-token prompt on Qwen3-Next-80B-A3B answered as a digit run or a
   phrase loop while ordinary chat is fine. What vllm-ascend replaces on that path at

@@ -58,6 +58,16 @@ Conditional routes:
   connector's layer-type gap, and one fingerprint call
   (`scripts/pp-layer-partition.sh --layers N --pp P --key-layer K`) separates it from
   a genuine registration gap.
+- Capture — not the first request — fails with a Python compile error on a
+  `ray` launch that also sets `torchair_graph_config.enabled`:
+  `torch._dynamo.exc.Unsupported: call_function DelayGraphBreakVariable() …
+  dispose_tensor / x.set_` → `../startup-failures/torchair-dynamo-compile-unsupported.md`.
+  This is the shape of the known-issue line in rule 1 (both recorded reports ran
+  PP=4 + ray + torchair; the CI torchair test is `tensor_parallel_size=2` + `mp` with no PP), but the traceback names
+  the callee, not PP, so the ablation order matters: graph off first
+  (**remove** the `torchair_graph_config` key — `check_ascend_config` refuses
+  `--enforce-eager` beside it), then `--pipeline-parallel-size 1` with TP/DP
+  absorbing the cards.
 - First request on a non-last PP rank dies with a bare `AssertionError`
   (`assert isinstance(output, IntermediateTensors)`) immediately after
   `acl_graph.py … Replaying aclgraph`, while the engine started cleanly → the

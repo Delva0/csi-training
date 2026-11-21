@@ -43,6 +43,39 @@ Reporter-confirmed on #7352 (v0.17.0rc1, Mooncake PD, 910B4, both pods under a
   image regressed"; it only proves the two pods were started with different
   effective environments. Compare launch commands before comparing images.
 
+## When the image recipe itself is the source
+
+Ask for the `~/.bashrc` grep before blaming the reporter's launcher: vllm-ascend's own
+`Dockerfile*` writes the jemalloc preload and the `/usr/local/lib` append **into
+`~/.bashrc`**, in every variant present at the pin — `Dockerfile:81-82`,
+`Dockerfile.a3:80-81`, `Dockerfile.openEuler:78-79`, `Dockerfile.310p:63-64`,
+`Dockerfile.a3.openEuler:78-79`, `Dockerfile.310p.openEuler:59-60` (v0.16.0rc1
+`a78a00e`; the same pair is at `:75-76`-ish in the v0.19.1rc2 tree of #12059, so this
+spans versions). Consequences to state, each checkable in one grep:
+
+- **The image's own default start never gets them.** `CMD ["/bin/bash"]`
+  (`Dockerfile:84` and its siblings) without a TTY is non-interactive, so bash skips
+  `.bashrc`; `docker run <image>`, k8s and CI are all in that state. The advertised
+  default is broken by the same mechanism as `--entrypoint`.
+- **The values are frozen at build time.** Both lines are `RUN echo "…$VAR…" >>
+  ~/.bashrc`, executed by `/bin/sh -c`, so `$LD_LIBRARY_PATH` is whatever the base
+  image's `ENV` held (`FROM quay.io/ascend/cann:…`, `Dockerfile:18`; there is no
+  `ENV LD_*` in the recipe) and `$LD_PRELOAD` expands empty — the visible artifact is
+  the trailing colon in `…libjemalloc.so.2:`. A later CANN switch or `set_env.sh`
+  cannot be added by this mechanism.
+- **The Dockerfile-native channel is `ENV`, not an entrypoint wrapper.** `ENV
+  LD_PRELOAD=…` + `ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH` reaches
+  `ENTRYPOINT`/`CMD`, k8s `command:`/`args:` and `python -m` alike; delete the
+  `.bashrc` writes instead of keeping both (double preload). `Dockerfile.310p`
+  carries an `entrypoint.sh` pattern as the belt-and-braces variant.
+- **Verify from the running process**, never from `docker exec -it … echo $LD_PRELOAD`:
+  `tr '\0' '\n' < /proc/1/environ | grep -E 'LD_PRELOAD|LD_LIBRARY_PATH'`.
+- Do not convert this into a Mooncake claim. #12059's title ties the defect to
+  Mooncake and the mechanism is plausible (`/usr/local/lib` for mooncake's `.so`), but
+  the durable statement is *"the image's documented allocator/`.so` defaults do not
+  reach non-interactive processes"*; a specific transfer failure needs a run without
+  the workaround to show it.
+
 ## Procedure
 
 1. **Ask for the launch artifact**: the pod spec / `args:` block / compose

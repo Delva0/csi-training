@@ -78,6 +78,17 @@ that says which bucket a single request replays, and the four-row ablation; one
 call: `bash <skill_root>/scripts/dp-single-request-bucket.sh --capture-sizes 8,1
 --dp 8 --tp 2`.
 
+**But when the graph mode printed its banner and finished capturing, the mode's own
+request path owns the stall.** `FULL_DECODE_ONLY compilation enabled on NPU` (or
+`PIECEWISE`) plus a per-rank `Graph capturing finished in N secs`, then the bare
+`TimeoutError: RPC call to execute_model timed out` on the *first* request at DP=1 —
+that is neither the capture lane nor a dropped setting, and on a release candidate it
+is usually a version answer before it is a mechanism one: which models the pinned
+tree validates for that mode, whether the reporter has a working control, and the
+mode-specific handling (or its absence) for their family. `aclgraph-full-decode-runtime-hang.md`
+has the four paste lines that settle the lanes, the two checks to run first, and the
+recorded #4178 case.
+
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
 bound`, check the record's date first (rule 13) and the number second: a port above
@@ -205,6 +216,11 @@ debugging" caveat.
 6. `device-health-checks.md` — check every device's health, correlate the
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards.
+7. `aclgraph-full-decode-runtime-hang.md` — the graph mode's banner printed, its
+   capture finished on every rank, and the **first request** then stalls into the
+   watchdog: which two lanes the paste already closes, the two coverage checks to run
+   before any source read, and why an rc-only hang is a version verdict (recorded
+   #4178; 310P variant #12985).
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server

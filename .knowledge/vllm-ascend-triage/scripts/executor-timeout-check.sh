@@ -45,6 +45,22 @@ for f in "$@"; do
   chain=$(count 'direct cause of the following exception' "$src")
   hccl=$(grep -oE 'hccl[A-Za-z]*[^ ]* ?(timeout|Timeout)|HCCL[^ ]* (timeout|Timeout)|EI[0-9]{4}|Execute timeout' "$src" 2>/dev/null | sort -u | head -5)
 
+  # Graph-mode evidence: a mode that printed its banner and finished capture is not
+  # the capture lane nor a dropped setting, whatever the watchdog says after it.
+  gmode=$(grep -oE '(FULL_DECODE_ONLY|FULL_AND_PIECEWISE|PIECEWISE) compilation enabled on NPU' "$src" 2>/dev/null | sort -u | head -1)
+  gcap=$(grep -oE 'Starting to capture ACL graphs for cases: [^,]*, mode: [A-Z]+' "$src" 2>/dev/null | sort -u | head -1)
+  gdone=$(count 'Graph capturing finished in [0-9]+ secs' "$src")
+  gdump=$(grep -oE '"cudagraph_mode":[ ]?\[[0-9]+,[ ]?[0-9]+\]|"cudagraph_mode":[ ]?"?[A-Z_]+"?' "$src" 2>/dev/null | sort -u | head -2)
+  gnew=$(count 'scheduled_new_reqs=\[NewRequestData' "$src")
+  gtok=$(grep -oE 'total_num_scheduled_tokens=[0-9]+' "$src" 2>/dev/null | sort -u | head -2)
+  geager=$(grep -oE 'enforce_eager=(True|False)' "$src" 2>/dev/null | sort -u | head -1)
+  gname=""
+  case "$gdump" in
+    *'[2, 0]'*|*'[2,0]'*) gname='FULL_DECODE_ONLY = (FULL, NONE)' ;;
+    *'[2, 1]'*|*'[2,1]'*) gname='FULL_AND_PIECEWISE = (FULL, PIECEWISE)' ;;
+    *FULL_DECODE_ONLY*) gname='FULL_DECODE_ONLY' ;;
+  esac
+
   echo "  evidence:"
   [ -n "$rpc" ] && echo "    - watchdog raise: $rpc"
   [ "$rd" -gt 0 ] && echo "    - shm_broadcast acquire_read frame(s): $rd  (EngineCore waiting for a worker reply)"
@@ -54,6 +70,13 @@ for f in "$@"; do
   [ "$chain" -gt 0 ] && echo "    - 'direct cause of the following exception': $chain  (RuntimeError/TimeoutError wrap)"
   [ -n "$bound" ] && echo "    - configured bound: $bound"
   [ -n "$hccl" ] && printf '    - collective-side timeout text: %s\n' "$hccl"
+  [ -n "$gmode" ] && echo "    - graph mode banner: $gmode"
+  [ -n "$gcap" ] && echo "    - capture start line: $gcap"
+  [ "${gdone:-0}" -gt 0 ] && echo "    - 'Graph capturing finished' rank line(s): $gdone  (capture completed)"
+  [ -n "$gdump" ] && echo "    - dumped cudagraph_mode: $gdump${gname:+  ($gname, vllm/config/compilation.py:39-43)}"
+  [ -n "$geager" ] && echo "    - dumped config: $geager"
+  [ "${gnew:-0}" -gt 0 ] && echo "    - dump carries scheduled_new_reqs: $gnew  (the stalled step is a FIRST/new-request step)"
+  [ -n "$gtok" ] && printf '    - hung-step token count: %s\n' "$gtok"
 
   echo "  verdict:"
   if [ -n "$rpc" ] || [ "$rd" -gt 0 ] || [ "$wr" -gt 0 ] || [ "${ring:-0}" -gt 0 ]; then
@@ -68,6 +91,15 @@ for f in "$@"; do
     else
       echo "    The message names no rank, op or error code: the fault is in the worker"
       echo "    that stopped replying, and this paste does not contain it."
+    fi
+    if [ -n "$gmode" ] || [ "${gdone:-0}" -gt 0 ]; then
+      echo "    graph mode engaged AND its capture finished, so neither the capture lane"
+      echo "    nor a dropped setting explains this: the stall is on the mode's request path."
+      echo "    Settle coverage BEFORE any source read - which models the pinned tests/e2e"
+      echo "    validate for that mode, and whether .github/workflows actually runs that test"
+      echo "    file. An rc-only hang is a version verdict plus a fallback mode, because the"
+      echo "    fix is not in the pinned tree."
+      echo "    see references/hccl-and-hardware/aclgraph-full-decode-runtime-hang.md"
     fi
     echo "    next: per-rank worker log around the last successful step, plog for the"
     echo "    same window, npu-smi info taken while the process is still hung, then a"

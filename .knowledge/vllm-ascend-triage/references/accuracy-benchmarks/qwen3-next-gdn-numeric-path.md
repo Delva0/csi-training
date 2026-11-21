@@ -96,7 +96,8 @@ should be in the first answer as the reporter's next step.
 - Recheck conditions: the patch list, the `repeat_interleave(2)` expansion and the
   per-sequence prefill loop are v0.11.0rc0 facts. Re-grep
   `patch_triton.py`, `ops/fla.py` and `models/qwen3_next.py` at any later pin — the
-  same three sites moved in later releases.
+  same three sites moved in later releases (answered for v0.12.0rc1 in the next
+  section).
 - The `patch_common/` directory in the row above is itself version-specific: at
   v0.11.0 (`2f1aed9`) and v0.11.0rc2 (`a2e4c3f`) the file is
   `vllm_ascend/patch/worker/patch_triton.py` with the same five rebinds at
@@ -104,3 +105,52 @@ should be in the first answer as the reporter's next step.
   `torch_chunk_gated_delta_rule` is defined at `vllm_ascend/ops/fla.py:205` with
   `chunk_size=64`, calling into `vllm_ascend/ops/sigmoid_gating.py:45-46` for the
   decode kernel. Cite the path you grepped, not this one.
+
+## v0.12.0rc1: the same path, one release later, on triton-ascend
+
+Verified at vllm-ascend v0.12.0rc1 (`42ceaf08a1ef`) + vllm v0.12.0 (`4fd9d6a8`),
+worked case #5065. The mechanism map above does **not** carry forward — the fp32
+torch reference is gone:
+
+- `vllm_ascend/patch/worker/patch_triton.py:2-16` now rebinds the same five
+  upstream symbols to `vllm_ascend/ops/triton/fla/*` (`chunk_gated_delta_rule`,
+  `LayerNormFn`, `fused_recurrent_gated_delta_rule_fwd_kernel`, `causal_conv1d_fn`,
+  `causal_conv1d_update_npu`). So from v0.12 the divergence to explain is
+  *triton-ascend kernel vs training kernel*, not *fp32 reference vs training
+  kernel*; re-derive from `ops/triton/fla/`, not from `ops/fla.py`. The self
+  maintained modelling file is also gone (Upgrade Note, `release_notes.md:37`), so
+  the model body is upstream vllm's.
+- **Quote the release's own statements before arguing from a passing test.** At
+  this pin `docs/source/user_guide/release_notes.md` carries
+  `:42` Known Issue "DeepSeek 3/3.1 and Qwen3 doesn't work with FULL_DECODE_ONLY
+  graph mode. We'll fix it in next release. [#4990]";
+  `:46` "bf16/fp16 model doesn't perform well, it's mainly because that
+  `VLLM_ASCEND_ENABLE_NZ` is enabled by default. Please set
+  `VLLM_ASCEND_ENABLE_NZ=0`"; `:38` Upgrade Note "CANN is upgraded to 8.3.RC2,
+  Pytorch and torch-npu are upgraded to 2.8.0" (a host still on CANN 8.2.RC1 is
+  outside the release's contract — say so, do not call it the cause). The
+  Qwen3-Next graph case exists (`tests/e2e/multicard/test_qwen3_next.py:46-61`,
+  `FULL_DECODE_ONLY`, capture sizes `[1,8,24,48,60]`) but it only runs
+  `generate_greedy(..., 5)` with no correctness assertion, so "CI has the test"
+  does not refute an accuracy report.
+- **What the project says it did not verify at this ref**: `:109`
+  `# TODO: will conduct accuracy verification after the subsequent version becomes
+  stable` on the W8A8 Qwen3-Next case (TP4 + EP + `HCCL_BUFFSIZE=1024`,
+  `max_tokens=5`), and `:64` `# TODO: Fix the accuary of batch chunked prefill`. A
+  W8A8 accuracy report at v0.12-v0.13 therefore sits inside an explicitly
+  unverified path: cite both lines and put a bf16 run of the same prompt as the
+  first discriminator.
+- **NZ is not a bf16-only lever**: `quantization/w8a8.py:196-198` casts the int8
+  weight to `ACL_FORMAT_FRACTAL_NZ` under `is_enable_nz()`, and `:386-391` does the
+  same for the MoE `w13_weight`/`w2_weight`; the default is `1`
+  (`envs.py:127-128`) and `worker/worker_v1.py:161` prints "FRACTAL_NZ mode is
+  enabled. This may cause model parameter precision issues". The release note names
+  bf16/fp16 only, so label the W8A8 consequence *mechanism-verified, default-on*,
+  not *stated defect*.
+- The GDN `in_proj` is quantized through a per-model fusion map
+  (`quantization/quant_config.py:223-230`, `in_proj: ["in_proj_qkvz",
+  "in_proj_ba"]`), so a bad fused packing surfaces as fluent semantic drift
+  (#5065: `who are you?` answered as a paraphrase task, a Chinese prompt answered
+  with an English essay) rather than as digit soup. Grade it with the same
+  ablation matrix above plus one extra row first: same prompt on the bf16
+  checkpoint, which separates the quantized path from the triton GDN path.

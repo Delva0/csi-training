@@ -171,6 +171,19 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
    fix" in one call, and the answer is a backport request, not a code walk.
    Behaviour page: `../accuracy-benchmarks/first-generate-degenerate.md`.
 
+11. **An attribute assigned unconditionally in the upstream `__init__` cannot be
+   "missing" — the constructor was interrupted.** When the message is
+   `AttributeError: '<Ascend…>' object has no attribute '<x>'`, downstream calls
+   `super().__init__()` and the pinned upstream `__init__` binds `<x>` on every
+   path (even to `None`), do not look for a rename or a capability gap: check the
+   `with <wrapper>():` around the `super()` call for a `@contextmanager` whose
+   `try:` encloses the `yield` and whose `except Exception:` returns — that
+   suppresses the first exception and leaves the half-built object. The message
+   itself separates the two neighbours: a mere `None` gives `AssertionError` from
+   the next `assert`, not `AttributeError`. Two greps decide it; the reporter's
+   fix is a `raise` in that branch to recover the real error
+   (`swallowed-init-exception.md`, recorded #5571 `mm_budget`).
+
 ## Pages
 
 - `kv-offloading-layer-coverage.md` — worked case vllm-ascend #7971 (v0.17.0rc1,
@@ -229,3 +242,13 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
   attribute 'select_experts'`, raised inside an upstream file. The name-keyed
   OOT registry, why the missing upstream file is version evidence, where the
   vllm↔vllm-ascend pair is actually recorded, and the checks that settle it.
+- `swallowed-init-exception.md` — worked case vllm-ascend #5571
+  (v0.13.0rc1 `1b5d5ab` / vllm v0.13.0 `72506c9`, multimodal): upstream binds
+  `self.mm_budget` unconditionally at `gpu_model_runner.py:565-573` and the
+  `profile_run` read at `:4434` raises `AttributeError`, because
+  `_torch_cuda_wrapper` (`model_runner_v1.py:3453-3488`) wraps the
+  `super().__init__()` call (`:191-193`) in a `try/except Exception` around its
+  `yield` and contextlib suppresses the exception. The 6-line proof that such a
+  wrapper swallows, the `MultiModalBudget` construction as the prime raise site,
+  `--skip-mm-profiling` as a smoke test that is not a fix, and the v2
+  `try/finally` wrapper as the discriminator.

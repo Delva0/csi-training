@@ -45,6 +45,14 @@ output, or did no request ever reach a decode engine?**
   multi-server by construction, so `hostNetwork` cannot collapse it) and do not let
   an "add `use_ascend_direct`" hint spend a round — at `v0.11.0rc2` it already
   defaults `True` → `mooncake-adxl-connect-103900.md`.
+- The same **Mooncake** connect failure on **one machine, two cards** — `Failed to
+  connect to target: <P ip>:2002x, status: 103905` (any `1039xx`) **without** the
+  `, errmsg:` suffix, `mooncake_connector.py` line numbers below the tag's, plus
+  `unhashable type: 'list'` and a garbled `200 OK` answer: two version tells
+  (`errmsg` suffix; `invalid_block_ids.update(local_block_ids[0])` at
+  `v0.23.0rc1`) and the ADXL **port band** (`base_port` 20000 + physical device ×
+  100 ⇒ `20022` is P on physical card 0) are the cheap checks, and the cross-node
+  `device_ip`/plog ladder does not apply → `adxl-connect-status-same-host.md`.
 - Connected, but the answer is corrupt/empty/alternating, or the decode node's
   first token is wrong, on a **hybrid linear-attention (GDN/Mamba)** model —
   Qwen3.5/Qwen3.6, DeepSeek-V4 — under PD → `hybrid-state-transfer.md`.
@@ -420,6 +428,19 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   (default `True`, engine-name only, extra-config placement a no-op at that pin),
   the ranked causes and the evidence limits (Mooncake's ascend transport absent from
   the export; #4866 left open).
+- `adxl-connect-status-same-host.md` — the **single-host two-card** variant of the
+  Mooncake connect failure: `status: 1039xx` from `ascend_direct_transport.cpp` with
+  no `errmsg:` field, `unhashable type: 'list'` beside it, and a `200 OK` answer made
+  of `1 1 1`. What the paste already fixes (handshake reached, nothing timed out,
+  1039xx not decodable without `cann/hixl`, the garble is the missing KV and
+  `External prefix cache hit rate: 100.0%`), the two one-grep version tests (the
+  pinned line prints `, errmsg: <aclGetRecentErrMsg()>` from
+  `transfer_executor_base.cpp:263`; the tag's `_mark_failed_recv_request` indexes
+  `local_block_ids[0]`, so the mask is *fixed* at `v0.23.0rc1`), the port-band
+  arithmetic (`kPortRange = 100`, default `base_port_ = 20000`,
+  `aclrtGetPhyDevIdByLogicDevId`) that names the physical card P bound on,
+  `HCCL_INTRA_ROCE_ENABLE=1` → `roce_mode_` on one host, and the first message the
+  recorded #13175 session owed and never sent.
 - `connector-name-registry-collision.md` — the engine dies at KV-cache registration
   inside **upstream's** `mooncake_connector.py` (`AttributeError: 'tuple' object has no
   attribute 'shape'`) although the config names a connector + `kv_connector_module_path`:

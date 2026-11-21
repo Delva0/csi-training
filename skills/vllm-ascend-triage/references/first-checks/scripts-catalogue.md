@@ -337,6 +337,19 @@ after that keeps the header, not this text.
   serve whose two commands are identical is not closed too early: some DP ranks can
   cross capacity in one step and take the fallback MoE method while their peers stay
   on MC2 (#9887); that section also says when a crossing is *not* a bug.
+- `scripts/mc2-dispatch-bs-check.sh --tp N [--dp --pp --max-num-batched-tokens
+  --max-num-seqs --num-spec --experts --enforce-eager --pin 0.10.1rc1|0.22.1rc1]` — the
+  **token-dim** A2 MC2 dispatch tiling refusal (`batchsize is invalid`, `…A2TilingFuncImpl`
+  `CheckShapeAndSetTiling`, #2858): from a serve line it prints the EP world size (and
+  therefore whether this op can be reached at all — `ep_size < 16` forces
+  `allgathercommimpl`), `mc2_tokens_capacity` for the chosen pin, and the per-rank **bs**
+  the op would be handed for one extend chunk and for a decode step
+  (`bs = ceil(tokens/tp)`), marked *uniform* or *per-rank*: `--enforce-eager` skips the DP
+  all-reduce, and at v0.10.1rc1 the op is called in uniform mode on A2 (`global_bs=0`, no
+  `x_active_mask`), so unequal counts are the first lane. It also prints the per-card
+  expert count against the `<= 24` gate of Step 2b. It cannot print the op's own
+  acceptance limit — the CANN op source is not in the snapshot
+  (`../feature-enable-recipes/moe-expert-parallel-with-dp.md` §Step 2c).
 - `scripts/hccl-stuck-timeline.sh <log-file> [more files …] | -` — the **silent**
   whole-service hang (#8975): per file it prints the group's `[Load] comm config`
   (loaded `bufferSize` in bytes **and** MiB, `execTimeOut`), the
@@ -500,3 +513,14 @@ after that keeps the header, not this text.
   the sleep-mode/second-engine lane (`../runtime-memory/sleep-mode-multi-instance.md`),
   and `EI0006`'s solution names `HCCL_CONNECT_TIMEOUT` before any link theory
   (`../hccl-and-hardware/link-establish-timeout.md`).
+
+- `scripts/dep-range-check.sh <package> <reported-version> <tree-root>...` — one
+  dependency line from an env dump against the ranges the pinned trees declare:
+  prints every `path:line` that constrains the package (exact name, so
+  `sentence-transformers` is not `transformers`), then a per-file verdict
+  (`INSIDE`/`OUTSIDE`) with an exit code. Use it when a version string looks wrong
+  but no install ever failed — a floor-only downstream pin beside an upstream cap
+  (`transformers>=4.57.4` in vllm-ascend vs `>= 4.56.0, < 5` in vllm) installs
+  cleanly and then breaks the layer that trusts the newer major (#7876). The torch /
+  torch-npu / torchvision trio and the release compatibility matrix stay in
+  `pip-pairing-check.sh`; this one is for any other package.

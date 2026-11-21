@@ -54,6 +54,37 @@ on output tokens with only verdict + ladder head typed (825 characters of messag
 `../soc-platform-paths/310p-mtp-graph-splitfuse-mask.md`,
 `../startup-failures/captured-stream-host-sync.md`.
 
+**#15536** image `0.23.0RC1-310P`, 8x 300I Duo, Qwen3.6-27B, serve line copying the
+300I DUO tab (`qwen3_5_mtp` + `FULL_DECODE_ONLY` + `enable_npugraph_ex:false`): a block
+carrying **both** `copy_between_host_and_device_opapi … aclrtMemcpy … 107030` and
+`EE9999 … Not allow to synchronize captured-stream, stream_id=35` /
+`synchronize stream failed, runtime result = 107027`, deepest frames
+`_310p/attention/attention_v1.py:293` → `attention_mask.py:90` — the #11308 lane, same
+refusal reported twice (copy, then the stream sync). Pin read vllm-ascend v0.23.0
+(`5cb98ca`): the *qlens* readback is now precomputed (`attention_v1.py:253` +
+`:257-262` capture guard + `metadata_builder.py:128-131`) but the fallback **mask** still
+reads back (`attention_mask.py:90,93`), so rc1→final is not a fix rung; the capture gate
+is `_spec_dummy_capture` with no `method == "mtp"` term (`model_runner_310p.py:631-637`);
+and the tutorial's own 300I DUO serve line (`docs/source/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.md:377-379,407-409`)
+is the failing combination, with the `n*(num_speculative_tokens+1)` capture-size rule at
+`:427` (a `[2,4]` paste is valid) and `enable_npugraph_ex` force-off at
+`ascend_config.py:643-649`. Routes:
+`../soc-platform-paths/310p-mtp-graph-splitfuse-mask.md` (v0.23 section).
+
+**#6271** image `quay.io/ascend/vllm-ascend:v0.13.0rc2-openeuler` (tag named by the
+reporter afterwards), Qwen3-VL-8B on one card: `vllm serve` reaches
+`determine_available_memory → profile_run → _dummy_run` and dies on
+`RuntimeError: Failed to compile /tmp/tmpXXXX/launcher_cxx11abi1.cxx` with
+`AclOpCompileInterface.h:146: use of undeclared identifier 'aclOpExecutor'` — a host
+C++ compile of triton-ascend's ABI-probe TU, i.e. the #6429 header-guard collision, not
+the model or vllm-ascend Python. The decisive pairing fact is the image's own recipe:
+`Dockerfile.openEuler:18` `cann:8.5.0-910b-openeuler24.03-py3.11` + `:75`
+`'torch-npu==2.8.0.post1'`, against `requirements.txt:31` `torch-npu==2.8.0` — so the
+reported post1 is the *shipped* pairing and "use the release image" is not a rung. The
+run got there (log grep → skill page → header facts → recipe), then finished at the
+16 384-token cap with the tail of its Chinese answer cut. Route:
+`../image-dependency-faults/host-cxx-compile-header-conflict.md`.
+
 **#6082** vllm-ascend v0.10.0rc1 (`4604882a3e2c`) + vllm v0.10.0 (`6d8d0a24c02b`),
 `quay.io/ascend/vllm-ascend:v0.10.0rc1-310p`, 300I Duo ×8 (driver 25.2.0, firmware
 7.7.0.6.236), OpenGVLab/InternVL3-8B, `--dtype float16 --enforce-eager --trust-remote-code`:
@@ -739,3 +770,23 @@ spent four turns on head-count arithmetic (`vllm/model_executor/models/gemma3.py
 the reporter's "其他错误：" with **four more** failure screenshots — the shape of an
 unvalidated model path, and what the answer should have pre-empted. Page (new):
 `../feature-enable-recipes/unsupported-model-row.md`.
+
+**#8201** image `vllm-omni:v0.18.0` (`FROM quay.io/ascend/vllm-ascend:v0.18.0rc1`),
+vllm-ascend v0.18.0rc1 (`99e1ea0f`) + vllm v0.18.0 (`bcf2be96`), `qwen-image-edit`:
+the vllm-omni request path raises a pydantic `ValidationError` on `UsageInfo`
+(`type=model_type`) and the reporter had already localised it to
+`patch_minimax_usage_accounting.py`, whose `engine_protocol.UsageInfo = UsageInfo`
+assignment plus `_rebuild_model_field`/`model_rebuild(force=True)` replaces a public
+protocol **class** rather than wrapping a function. The recorded run read the patch,
+the upstream `engine/protocol.py:104-109` shape (no `CompletionTokenUsageInfo` in
+vllm v0.18.0), the unconditional import (`patch/platform/__init__.py:32`) and the
+apply site (`platform.py:138`), and ranked the stale-binding and cached-schema forms of
+the `model_type` failure, with the reporter's dict-passing workaround as the
+discriminator — then shipped the ownership split (root downstream, workaround in the
+consumer) and a no-NPU probe. **Public outcome (reporter, 2026-04-14, on the same
+issue):** a maintainer answered "It may be a bug in vllm-ascend … Could you please
+submit a PR to vllm-omni as a workaround?", and the reporter replied "done.
+https://github.com/vllm-project/vllm-omni/issues/2777" — i.e. the recorded ranking's
+ownership and repair split were right, and which of the two failure forms bit him is
+still open (his `loc`/`input_type` was never posted). Page (new):
+`../upstream-downstream-drift/protocol-model-class-swap.md`.

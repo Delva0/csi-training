@@ -34,6 +34,39 @@ same place ⇒ sampler/stop-token/engine-side condition. Ask for the two raw
 response bodies with `finish_reason` and `usage`; a screenshot of the text alone
 leaves both lanes open.
 
+### A report with no response body at all (chat-UI screenshots only)
+
+Sometimes every field above is missing: the body is a title, one sentence and two
+screenshots of a chat UI — no `finish_reason`, no `usage`, no serve command. Recorded
+#6050 (v0.13.0rc1, `vllm-ascend/Qwen3-235B-A22B-W8A8`, "思考过程没问题，输出结果以。或者笑脸结束",
+one screenshot showing a fluent Chinese CoT that concludes on its own, one showing two
+trivial prompts each `已深度思考（用时0.1秒）` with no visible answer). The deliverable is
+**one message**: this page's lane row, the `ignore_eos` probe, and two artefacts — the
+serve command and one raw response body per failing request. A fluent CoT refutes
+whole-tensor numerics corruption; it says nothing about what follows `</think>`, so do not
+open the model tutorial, the scheduler or the quant kernels before the body arrives (that
+run spent its full 16 384-token output budget in reasoning blocks and shipped no message
+text at all).
+
+When the model id is a **published quantized artifact** (`vllm-ascend/<model>-W8A8` on
+ModelScope), three facts belong in that first message:
+
+- the project's own recipe is the baseline to diff against: at v0.13.0rc1 the W8A8 serve is
+  TP8 + `--quantization ascend` + `--max-model-len 133000` + a yarn `--hf-overrides`, and it
+  already carries `--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'` and
+  `--async-scheduling` (`docs/source/tutorials/Qwen3-235B-A22B.md:107-123`; quantized
+  weights need the flag, `:91`);
+- `VLLM_ASCEND_ENABLE_FUSED_MC2` is that tutorial's own experimental switch — W8A8 on A3
+  only, "if you encounter any problems … disable it by setting 0" (`:350`, `:395`) — so it
+  is an ablation row on the quant path, not a theory;
+- every curl in that tutorial pins `"max_tokens": 50` (`:269`), i.e. the recipe never
+  exercises the default budget — ask for the request body instead of assuming one.
+
+The quantized deployment is the reporter's deliberate configuration, not a mistake to argue
+away: #6050's reporter answered a MindIE suggestion with
+`没有用mindie而且跑的是量化的版本` (2026-01-21). "Use another engine" or "use the unquantized
+weights" is not an answer on this shape; stay on the quantized path with the rows above.
+
 ### `stop_reason` names the token that stopped generation, not the cause
 
 Under `finish_reason: stop` there are two different stoppers, and the field tells

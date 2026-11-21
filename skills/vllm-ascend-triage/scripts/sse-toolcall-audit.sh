@@ -17,7 +17,11 @@
 # Tolerates HTML/Excel clipboard wrappers, `[...redacted...]` placeholders and
 # console prefixes such as "decoded ok: data: ...".
 #
-# Per-tool-call verdicts: balanced | quote-gap | head-lost | tail-lost | malformed.
+# Per-tool-call verdicts: balanced | quote-gap | head-lost | tail-lost |
+# extra-tail-brace | malformed. `extra-tail-brace` (head present, more closing braces
+# than opening ones -- `{"a": 1}}`) is the synthesizing parser's double close or a
+# stray character in the last numeric parameter, NOT "corrupted text in the middle";
+# see references/tool-call-streaming/extra-tail-brace-synthesized-args.md.
 # `head-lost` (more closing braces than opening ones: the assembly starts *inside*
 # the object) is the shape where nothing but the last characters of the arguments
 # ever reached the client -- the delta bookkeeping advanced past characters it never
@@ -176,6 +180,15 @@ for i in sorted(acc):
         open_tail = (b['{'] > b['}']) or (b['['] > b[']'])
         lost_head = (((b['}'] > b['{']) or (b[']'] > b['[']))
                      and not s.lstrip().startswith(("{", "[")))
+        # The sixth outcome: the head IS there (the assembly starts with `{`), the
+        # only imbalance is MORE closing braces than opening ones -- one or more
+        # extra `}` appended after the last value, e.g. `{"similarity": 0.5}}`. A
+        # parser that SYNTHESIZES the JSON from XML tags writes that closing brace
+        # itself, so this is the close-brace bookkeeping lane (or a stray character
+        # inside the last numeric parameter, passed through unquoted), not the
+        # head-lost delta arithmetic and not "corrupted text in the middle".
+        extra_tail = (((b['}'] > b['{']) or (b[']'] > b['[']))
+                      and s.lstrip().startswith(("{", "[")))
         if lost_head:
             verdicts.append("head-lost")
             print("  -> MORE closing braces than opening ones: the assembly starts")
@@ -188,6 +201,21 @@ for i in sorted(acc):
             print("     (references/tool-call-streaming/suffix-only-arguments.md).")
         elif open_tail:
             verdicts.append("tail-lost")
+        elif extra_tail:
+            verdicts.append("extra-tail-brace")
+            print("  -> MORE closing braces than opening ones while the head IS")
+            print("     present: one or more extra `}` sit after the last value. Do")
+            print("     NOT call this corrupt text and do NOT run")
+            print("     tool-schema-type-audit.py. A parser that synthesizes the")
+            print("     arguments JSON from XML tags (`qwen3_xml`, `qwen3_coder`,")
+            print("     `hermes`) emits the closing `}` itself, so rank (a) a")
+            print("     close brace emitted twice by the parser's fallback/guard")
+            print("     paths and (b) a stray character inside the last numeric")
+            print("     parameter passed through unquoted. Split them with")
+            print("     `stream: false` on the same body, a run with the parser")
+            print("     disabled, and a `--tool-call-parser qwen3_coder` A/B")
+            print("     (references/tool-call-streaming/")
+            print("     extra-tail-brace-synthesized-args.md).")
         elif b['"'] % 2:
             verdicts.append("quote-gap")
             print("  -> braces/brackets balance but a quote is missing: the gap is")
@@ -233,6 +261,20 @@ elif "head-lost" in verdicts:
     print("suffix means only the tail was ever emitted. Ask for `return_token_ids:")
     print("true` on the streaming body to show the engine's own text is complete")
     print("(references/tool-call-streaming/suffix-only-arguments.md).")
+elif "extra-tail-brace" in verdicts:
+    print("\nVERDICT: at least one assembled tool call carries MORE closing braces than")
+    print("opening ones while its head (the `{` and every key) is present -> a closing")
+    print("`}` was written one time too many. That owner is the tool parser that")
+    print("SYNTHESIZES the arguments JSON from the model's XML tags, or the model's own")
+    print("character inside the last numeric parameter passing through unquoted -- not")
+    print("the client, not a lost tail. Order the checks by cost: `stream: false` on")
+    print("the same body (one `}` there = the model's text / decoding, two = the")
+    print("parser), the same body with `--tool-call-parser` removed (is the extra `}`")
+    print("in the model's raw `<parameter=...>` value?), then")
+    print("`--tool-call-parser qwen3_coder` as an alternate implementation of the same")
+    print("markers. On an MTP serve, read the block-verify gate before blaming")
+    print("sampling (references/tool-call-streaming/")
+    print("extra-tail-brace-synthesized-args.md).")
 elif "quote-gap" in verdicts and "tail-lost" not in verdicts:
     print("\nVERDICT: at least one assembled tool call has BALANCED braces/brackets with")
     print("an odd quote count -> the missing quote sits inside a value, so the tail did")

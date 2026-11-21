@@ -1,4 +1,4 @@
-# Start hangs in silence on a multi-process launch (`external_launcher` / torchrun SPMD, TP>1)
+# Start hangs in silence on a multi-process launch (`external_launcher` / torchrun SPMD, TP>1; or a bare `python <script>.py` on the default `fork`)
 
 Verified at vllm-ascend **v0.8.5rc1** (`ec27af3`) with vllm **v0.8.5.post1**
 (`3015d563`); recorded for **#1496** (Qwen2.5-Math-1.5B, `tensor_parallel_size=4`,
@@ -96,6 +96,48 @@ box (`python -c "import vllm_ascend; print(vllm_ascend.__file__)"`, then grep th
 tree) and then the paste's line numbers are unciteable: report the divergence and ask
 for `pip show vllm-ascend`. Two recorded turns went into "which repo prints this
 string" before it was written down as a gap.
+
+## Second shape — no launcher at all: a bare `python <script>.py` on the default `fork`
+
+The same silence arrives from the opposite direction: an **offline example run
+directly** (`python prompt_embed_inference.py`), TP unset or 1, so arity and
+rendezvous cannot apply — and the report adds that the *same script ran on an older
+image*. Two cheap facts settle it:
+
+1. **The plugin ships its own ported copy of the upstream examples, and the port's
+   extra env lines are the fix.** `rg --files examples | rg -i '<example stem>'`, then
+   diff. Verified at vllm-ascend v0.11.0rc1 `c5fe179`:
+   `examples/prompt_embedding_inference.py:8-9` is upstream
+   `vllm/examples/offline_inference/prompt_embed_inference.py` (vllm v0.11.0
+   `b8b302c`) **plus** `os.environ["VLLM_USE_MODELSCOPE"] = "True"` and
+   `os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"`; every `.py` under
+   `examples/` that mentions the variable (12 files, `eplb/eplb_strategy.py`
+   included) sets it to `spawn` at that pin, and so does
+   `tests/e2e/conftest.py:99`. One call:
+   `rg -n 'VLLM_WORKER_MULTIPROC_METHOD' examples/ tests/`.
+2. **Why the upstream default is unsafe on this device.** vllm defaults to `fork`
+   (`vllm/envs.py:65`) and `_maybe_force_spawn()` (`vllm/utils/__init__.py:3014-3042`)
+   overrides it only for a Ray actor, an initialised CUDA or an initialised XPU —
+   there is **no NPU/ACL branch**, so the EngineCore child is forked after the parent
+   imported torch_npu and, in these examples, after `transformers` built a model and
+   its thread pools. `get_mp_context()` is the context that launch uses
+   (`v1/engine/utils.py:96`, `v1/executor/multiproc_executor.py:88,448`). The
+   reported shape fits: no traceback anywhere, HBM already taken, the parent waiting.
+
+Rung 1 is one environment variable in the launch line —
+`VLLM_WORKER_MULTIPROC_METHOD=spawn python <script>.py` — not a patch and not a
+device theory. Say that the older-image control is the reporter's premise (the
+snapshot carries no 0.9.x tree, so *why* it worked there is not answerable here), and
+ask for the one artefact that confirms the lane: `py-spy dump --pid <EngineCore
+child>` (parent in `join`/`recv`, child on a futex) plus the last log line before the
+silence. **Do not promise the run will then be correct**: this only starts the
+engine, and the feature the example exercises can be absent downstream at the same
+pin (`enable_prompt_embeds` has 0 hits in `vllm_ascend/` at v0.11.0rc1 although the
+example ships — status-ledger rule, `../feature-enable-recipes/index.md`, recorded
+#4505), so the second rung is that coverage statement, not another flag.
+
+Recheck: the variable and the `_maybe_force_spawn` branches are stable; the line
+numbers are vllm v0.11.x-specific, so re-grep before citing another release.
 
 ## Delivery
 

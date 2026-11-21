@@ -10,30 +10,23 @@ description: 'vLLM-Ascend issue triage; load alone, no shell beside'
 **Your first tool block holds exactly one call: `skill_view` on this skill, by name**
 (`skill_view(name='vllm-ascend-triage')`; a **filtered** `skills_list` returns `[]` even
 though the skill is installed, while the unfiltered call lists it — so an empty list is
-a tool quirk, not "no skill for this task"). Anything batched beside that call — `ls /workspace`, `ls
-/workspace/history`, `cat SOURCES.json` — executes before this body is in context, so no
-rule here can stop it, and its output is re-sent on every later turn: six recorded runs
-paid 39 KB / 14 KB (both forwards of one minibatch, #16365 among them), 54 KB / 28 KB
-(#14731, #12102), and 37 KB of directory names from `ls /workspace/history` batched beside
-this call in #16581 — which ended output-truncated at 1.1 M cumulative prompt
-tokens — and 4.5 KB in #13007, from `ls /workspace/repos` plus the first 100 lines
-of `SOURCES.json` batched beside this call (the line cap is the only reason it
-stayed that small). That is why the frontmatter description names the prohibition — "load
-alone, no shell beside" — instead of only the reading order: the description is the only
-text the agent reads *before* this body, so a "load alone first" that omits *what not to
-batch* is what the recorded runs above ignored. If something has to share it, let it be
+a tool quirk, not "no skill for this task"). Anything batched beside that call — `ls
+/workspace`, `cat SOURCES.json` — executes before this body is in context, so no rule
+here can stop it, and its output is re-sent on every later turn: six recorded runs paid
+14-54 KB that way, one ending output-truncated at 1.1 M cumulative prompt tokens, which
+is why the frontmatter description names the prohibition — "load alone, no shell
+beside" — instead of only the reading order. If something has to share it, let it be
 `bash <skill_root>/scripts/sources-summary.sh` (~10 lines). Then orient with
-`search_files (target='files')` on one level of
-`/workspace` plus that same summary and nothing
-else: never `cat /workspace/repos/SOURCES.json`, never enumerate a history directory,
-never `cat /workspace/history/*.md`. Search by token (`rg -l`,
-`scripts/history-titles.sh`), never by listing — a recursive `search_files
-(target='files')` glob is a listing too: `pattern='*Qwen3*'` over
-`/workspace/repos` returned 51 paths, nearly all of them vllm `tests/evals/gsm8k`
-configs, while the wanted page was one `rg --files -g '*Qwen3.5*'` run inside
-`docs/source/tutorials/models` of the plugin repo. **Attachments are the one exception**:
-open the specific files the issue links (`ATTACHMENTS.txt` lists names and SHA256s
-only, so a grep of it is not an existence test) — rule 7. Costs and traps: rule 7.
+`search_files (target='files')` on one level of `/workspace` plus that same summary and
+nothing else: never `cat /workspace/repos/SOURCES.json`, never enumerate a history
+directory, never `cat /workspace/history/*.md`. Search by token (`rg -l`,
+`scripts/history-titles.sh`), never by listing — a recursive `search_files` glob is a
+listing too: `pattern='*Qwen3*'` over `/workspace/repos` returned 51 paths, nearly all
+vllm `tests/evals/gsm8k` configs, while the wanted page was one `rg --files -g
+'*Qwen3.5*'` run inside `docs/source/tutorials/models`. **Attachments are the one
+exception**: open the specific files the issue links (`ATTACHMENTS.txt` lists names and
+SHA256s only, so a grep of it is not an existence test) — rule 7. Costs and traps:
+rule 7.
 
 ## Problem class this covers
 
@@ -248,16 +241,12 @@ delivery pattern is rule 1.
 1. **Say the answer in a message, early, and obey the delivery gates.** A long
    session can be cut off mid-sentence, so the deliverable has to survive
    truncation: what decides the outcome is not how much evidence was gathered but
-   whether the message exists. The runs that shipped **no answer at all** each had
-   a usable lead in hand (#6784, #13853, #11454, #11095, #17991, #3107, #6266, #5571, #527,
-   #587, #11680, #1579, #11771, #7947, #7508, #10522, #1255, #5772, #6488, #7996, #569 — #1255 and
-   #5772 with the owning line already in the paste (#1255's plog names the kernel and its owner is one grep away;
-   #5772's dumped `SchedulerOutput` carries the two counts, and the deciding fact is a
-   model-directory log line); #2807 and #15394 held every verified fact of a complete
-   ranked answer and spent the remainder on a host detail no local file settles, i.e. the
-   `quant_mode`/`chunk_finish` arithmetic their own pages now replace with one print and one
-   DEBUG line; per-run table `delivery-discipline.md`), while #4296
-   answered in ten turns from one traceback. The two thinnest are also the most recent:
+   whether the message exists. The 21 recorded runs that shipped **no answer at all**
+   each had a usable lead in hand (ids and per-run detail: `delivery-discipline.md`);
+   #1255 and #5772 with the owning line already in the paste; #2807 and #15394 held
+   every verified fact of a complete ranked answer and spent the remainder on a host
+   detail no local file settles; #4296 answered in ten turns from one traceback. The
+   two thinnest are also the most recent:
    #6488 wrote **81 characters** of message text over 21 turns / 39 tool calls against
    40.6 K characters of reasoning, and #7996 1 540 characters over 11 turns against
    48.9 K — each ending on a reasoning block with no accompanying message and no tool call,
@@ -270,7 +259,10 @@ delivery pattern is rule 1.
    - **G2 — 8th assistant turn:** the full ranked answer (each cause with its one
      check, cheapest action, version scope, missing artefacts). Afterwards a tool
      call is allowed only to confirm or correct a named claim: one per turn, a
-     couple of lines of reasoning.
+     couple of lines of reasoning. A turn whose text names a decisive fact and closes
+     with "one more confirmation read" is **not** G2: a recorded run wrote text on
+     all 13 turns that way (43 K characters of reasoning against 2.9 K of text) and
+     ended on an empty final message with the ladder never typed.
    - **G3 — 12th assistant turn:** answer text only; no reasoning, no tool call,
      no "one more thing".
    - **The gates cap cumulative output (~45-50 K characters of reasoning+text), and
@@ -283,6 +275,16 @@ delivery pattern is rule 1.
      a block that restates the verdict, numbers the fixes or lays out the evidence
      table *is* this turn's message: send it, then one tool call
      (`references/evidence-workspace/delivery-discipline.md`).
+   - **When the discriminator lives only on the reporter's machine, the ranking *is*
+     the deliverable.** If the check that separates your top two causes needs their
+     plog, their two serve commands, their `pip show`/`env`, or a re-run, nothing you
+     can read locally closes it — so the turn where you notice that is the turn to
+     send: verdict, ranked causes each with its one check, and the request list.
+     #13175 read the two pages that route its exact paste on turn 3, spent the other
+     18 turns on a transport/plog program only the reporter could run, and shipped
+     **zero** text. A page that answers your paste and then lists reporter-side
+     artefacts has already handed you the message: type it, do not go execute its
+     investigation (`delivery-discipline.md`, #13175 row).
    - **Reasoning is a scratchpad, a few lines per turn:** what the last result
      proved, the single next check, go. It spends the **same output budget** as the
      answer, before any of it becomes text (ids in `delivery-discipline.md`). If a
@@ -300,11 +302,23 @@ delivery pattern is rule 1.
      pair, then run the single check that separates them. The
      #14731/#12102 pair shows the arithmetic: 42.9 K and 39.4 K characters of
      reasoning against 1.3 K and 2.7 K characters of delivered answer, both cut at
-     the 16 384-token cap — the bigger run spent an 11.8 K character block deriving
-     a parser mid-session and then re-wrote the whole ranked answer in a 6.2 K block
-     before typing it. Both forwards of one later minibatch did it again with the
-     answer already in hand — #7150 at 51.8 K characters of reasoning against 756 of
-     text, #18754 at 59.1 K against 1.7 K, each ending on an **empty** final message.
+     the 16 384-token cap. #7150 (51.8 K of reasoning / 756 of text) and #18754
+     (59.1 K / 1.7 K) did it again with the answer already in hand, each ending on an
+     **empty** final message — and so did both forwards of the #3971/#8863 pair (10-11 assistant turns, 43-48 K
+     characters of reasoning against 1.2-4.9 K of message text, `output_truncated`).
+     That pair names the two tells that predict the cut. (a) **The reasoning block
+     starts laying out the answer** — "Now write the answer", "Shape:", "1. Verdict:",
+     "Verified facts (pinned …)". At that word the block *is* the message: typing the
+     skeleton as reasoning burns the artifact, and #3971's last block was cut inside
+     exactly that skeleton while its owner (`fla.py:58`), arithmetic (tokens × 8 >
+     65 535) and precedent were all correct. (b) **The message text is a provisional
+     verdict** — #8863 shipped "working verdict (draft, to be confirmed against
+     source)" and then spent four more turns confirming it. A draft/pending/TBC label on
+     a ranking that already names the owner is worse than no text: it turns the next
+     turn into a re-write instead of an append. Drop the label, keep the confidence tag
+     (`source-verified at <commit>` / `hypothesis`), and append each correction to the
+     text already delivered.
+
    - **Budget in characters per block, not turns** — the count-free form of the rule
      above. #13527 hit the cap with no draft at all: 16 turns, 26 `tool` results,
      **43.8 K characters of reasoning against 2.2 K of message text**, nine of its turns
@@ -316,14 +330,10 @@ delivery pattern is rule 1.
      **message text ≥ a third of the reasoning you have written so far**, and keep each
      reasoning block short (~1.5-4 K characters) — what the last result proved, the one
      next check, and this turn's answer section typed rather than "one more check".
-     That last ending is recorded twice more: #11680 held its decisive datum on turn 8
-     (the pinned tree's own `tests/e2e/weekly/single_node/configs/GLM-5_1-W8A8_A3_weekly.yaml`
-     matching the reporter's launch on every flag except `TP16/DP1` + `--async-scheduling`)
-     and wrote "One last check on the replay-ordering guard" instead of the answer; #587
-     had the owning line (`glm4.py:203` assign-a-tuple) on turn 4 and spent three more
-     turns re-deriving the corrected math. Once a message can name the discriminator, the
-     **next** message is the ranked answer built on it — a further read is a turn whose
-     text, if there is one, cannot carry the answer after a truncation.
+     Once a message can name the discriminator, the **next** message is the ranked
+     answer built on it — a further read is a turn whose text, if there is one,
+     cannot carry the answer after a truncation (#11680 and #587 each held the
+     decisive datum by turn 8 and kept reading).
    - **The paste can already contain the whole answer surface.** An argparse error
      prints the complete valid choice list; a log line can name its own thread and
      owner. When the evidence is one such line, the verdict is owed at G1 with no
@@ -340,26 +350,21 @@ delivery pattern is rule 1.
      last turn, cut mid-sentence. Test at every turn: could I write the first
      paragraph now? — if yes, the tool call goes in a message that already carries it.
    - **A new hypothesis that needs a new code area is not this session's job.**
-     Put it in the answer as an open question with the one command that decides
-     it; #14506 delivered only after a final block that took half the session, and
-     #2934 read the `-inf` id pattern that decides its own lane on turn 8, then spent the
-     rest of the budget on how a mask reaches the logprobs and shipped nothing
-     (`references/accuracy-benchmarks/topk-logprob-negative-inf.md`). For
-     an accuracy/corruption or topology report, a ranked list plus an ablation
-     matrix already *is* the full answer. The same applies to a **mechanism the
-     paste cannot carry**: *which* scheduler step mixed decode with prefill, or
-     *which* phase refused a communication resource, is a fact about the reporter's
-     run that local source reading cannot produce. Both forwards of one recorded
-     minibatch spent their entire budget there after the answer existed — #1369
-     held the pinned tree's own `only work without chunked-prefill` doc and CI
-     comments while it derived mixed-batch reachability (46 messages, 13 K- and
-     19 K-character blocks), #5947's paste carried no Python frame and no
-     `LoadGraph failed` block at all while it re-derived the MC2 capacity — and
-     neither shipped message text. The same shape with a *confound the report
-     never carried*: #8350 held its two serve flags by turn 3 and then treated the
-     reporter's `--block-size 128 --enable-prefix-caching` as a hybrid KV-cache
-     experiment — one command, no works-vs-fails control, so there was nothing to
-     grade — and shipped 185 characters of text in 16 turns
+     Put it in the answer as an open question with the one command that decides it;
+     #14506 delivered only after a final half-session block, and #2934 read the `-inf`
+     id pattern that decides its own lane on turn 8, then spent the rest on how a mask
+     reaches the logprobs and shipped nothing
+     (`references/accuracy-benchmarks/topk-logprob-negative-inf.md`). For an
+     accuracy/corruption or topology report, a ranked list plus an ablation matrix
+     already *is* the full answer. The same applies to a **mechanism the paste cannot
+     carry**: *which* scheduler step mixed decode with prefill, or *which* phase
+     refused a communication resource, is a fact about the reporter's run that local
+     source reading cannot produce — both forwards of one recorded minibatch spent
+     their whole budget there after the answer existed (#1369, #5947) and shipped no
+     message text. The same shape with a *confound the report never carried*: #8350
+     held its two serve flags by turn 3, treated `--block-size 128
+     --enable-prefix-caching` as a hybrid KV-cache experiment with no works-vs-fails
+     control, and shipped 185 characters in 16 turns
      (`references/accuracy-benchmarks/reasoning-output-routing.md`, #8350 section).
    - **A paste that stops in silence is answered, not investigated.** When the log
      simply ends (no traceback, last line inside init), the cause is decided by
@@ -397,25 +402,17 @@ delivery pattern is rule 1.
      environment block, a file absent from the pinned tree, a version the snapshot
      does not carry. State the gap, give the one command that closes it, stop.
    - **A byte count that "matches" is not the answer.** Re-deriving a mechanism from
-     an allocation size is the most expensive way to spend the budget, because the
-     decode needs inputs the report does not carry (a `config.json`, a group size,
-     an expert count). #7123 had 30 tool results, four assistant turns with **no
-     message text at all**, and died at the 16 384-token cap while re-deriving
-     upstream DP/EP group algebra to explain a 674 MiB request — the two log lines
-     that settle it (`[EP Rank r/N] … Local/global number of experts`,
-     `rank … in world size … assigned as … EP rank …`) were never asked for, and what
-     the reporter later published as the resolution was a serve line (the cross-node
-     `--data-parallel-*` flags + `gpu_memory_utilization`), not a mechanism. Ask for
-     the line; send the ranked answer
+     an allocation size needs inputs the report does not carry (a `config.json`, a
+     group size, an expert count). #7123 died at the cap re-deriving upstream DP/EP
+     group algebra for a 674 MiB request while the two log lines that settle it
+     (`[EP Rank r/N] … Local/global number of experts`) were never asked for, and the
+     reporter's own resolution was a serve line, not a mechanism — ask for the line
+     and send the ranked answer
      (`references/deploy-sizing/moe-load-oom-expert-shard.md`). **The same holds for a
      tensor shape quoted from a debugger** (`变量 x.shape [5040, 1, 1152]`): it is a
-     gap in the paste, not the failing allocation, and which line produces it is a
-     confirmation, not the answer. #7419 spent 19 tool turns (punica `bgmv`/`sgmv` and vision-attention
-     reads) to locate the producing `.unsqueeze(1)` and shipped **zero**
-     message text at the cap, while the two facts that *were* the answer — upstream
-     `vllm/lora/models.py:613-624` drops vision-tower adapters, and the middle `1` is
-     the Ascend VL tower's own batch axis — came from two greps
-     (`references/lora-adapters/multimodal-vit-lora-ignored.md`).
+     gap in the paste, not the failing allocation. #7419 spent 19 tool turns locating
+     the producing `.unsqueeze(1)` and shipped **zero** text, while the two answer
+     facts came from two greps (`references/lora-adapters/multimodal-vit-lora-ignored.md`).
    - **A refusal that quotes an argument value is answered by the contract, not by the
      producing line.** When the op error names the value it rejected — a mask shape, a
      seq-len list, a dtype, an out-of-range index — the deliverable is the contract, the
@@ -441,25 +438,15 @@ delivery pattern is rule 1.
      precedents as one line of `#id: fact`, 3-5 lines of scope (≈3-4 K characters);
      a fifth cause is an open question with its one command.
    - **Every assistant turn carries message text, not only a tool call.** A turn
-     whose whole output is a tool call leaves nothing for a truncation to keep.
-     #5295 emitted *zero* message text on all 16 turns and #16563 on all 20; #17797
-     and #5525 emitted only status notes and never a verdict; #17616 ran 26 turns of
-     a three-question report (42.6 K characters of reasoning, 25 tool calls) and
-     shipped **79** characters of text on its first turn only, cut at the
-     16 384-token cap with every fact it needed already collected. Both forwards of one
-     recorded minibatch repeated the shape: #2349 reasoned the entire ranked answer
-     into a 6.3 K-character block and shipped 386 characters before the cap, and
-     #6018 emitted nothing on its first 13 turns and wrote the answer on its last
-     one. Carry one or two sentences of the
-     current answer draft in the same message as every tool call — verdict line
-     first, then the evidence being checked — so G1/G2 need no special turn. A
-     *status note* is not a draft: the sentence must state the current verdict even
-     when the next call may overturn it. #8370 is the pure form: 14 turns, ~49.5 K
-     characters of reasoning, zero verdict text - every message a next-action
-     narration ("Now orienting with…", "Let me pin both sides", "Two source-verified
-     facts now…") while its last turn held the answer. The mechanical test at any
-     turn: no message text yet names a cause plus a `path:line` or `#id`, so nothing
-     has been drafted.
+     whose whole output is a tool call leaves nothing for a truncation to keep;
+     #5295 emitted *zero* text on all 16 turns, #16563 on all 20, #8370 narrated
+     next actions for 14 turns while its last turn held the answer. Carry one or
+     two sentences of the current answer draft in the same message as every tool
+     call — verdict line first, then the evidence being checked — so G1/G2 need no
+     special turn. A *status note* is not a draft: the sentence must state the
+     current verdict even when the next call may overturn it. The mechanical test
+     at any turn: no message text yet names a cause plus a `path:line` or `#id`,
+     so nothing has been drafted (`delivery-discipline.md` has the per-run table).
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C;
    for a runtime report, decide whether it is a device-op fault, an accuracy/score
    gap, a corruption report or a performance claim. The signature index
@@ -526,6 +513,32 @@ delivery pattern is rule 1.
    releases before attributing a symptom to vllm-ascend code, and keep the mechanism
    open when only the fix is confirmed
    (`references/runtime-memory/host-ram-and-per-rank-rss.md` §Step 0).
+   **The image recipe can override that pin, so an off-pin `torch_npu==` is not by
+   itself a mismatch.** At v0.13.0rc2 `requirements.txt:31` says `torch-npu==2.8.0`
+   while every recipe installs `'torch-npu==2.8.0.post1'` on a `cann:8.5.0-*` base
+   (`Dockerfile:76`, `Dockerfile.openEuler:75`, `Dockerfile.310p:61`,
+   `Dockerfile.a3:75`): a paste from that tag showing post1 is the image's own
+   pairing. One grep — `rg -n 'FROM |torch-npu' <repo>/Dockerfile*`, or
+   `scripts/image-recipe-inventory.sh <root> --soc <variant>` §1b — separates "the
+   tag ships this" from "the reporter changed the env", and the first reading rules
+   out both the hand-modified-env diagnosis and the "use the release image" rung
+   (#6271, image tag named by the reporter afterwards; the collision
+   `references/image-dependency-faults/host-cxx-compile-header-conflict.md` describes
+   ships in that tag).
+   **Any other dependency line in the env dump is checked the same way, from the
+   pin's own requirement files, before the consuming code is read.** The two trees
+   can disagree by shape: vllm v0.17.0 `requirements/common.txt:10` is
+   `transformers >= 4.56.0, < 5` while vllm-ascend v0.17.0rc1
+   `requirements.txt:37` is `transformers>=4.57.4` — floor only — so a
+   `transformers==5.5.0.dev0` install satisfies the plugin and violates upstream,
+   and the tree's per-model `tests/models/registry.py` `min_transformers_version`
+   (`:40`, GLM-5 `5.0.1` at `:283`, Kimi K2.5 none at `:845`) says whether the family
+   *needs* the newer line, with `release_notes.md:52` for the documented exception.
+   Recorded #7876 spent 25 turns and 1.2 M prompt tokens inside the model's
+   processor for an init-time tokenizer assertion whose answer was that range plus
+   the paste's own two `incorrect regex pattern … fix_mistral_regex=True` warnings,
+   and shipped no message text. One call:
+   `bash <skill_root>/scripts/dep-range-check.sh <pkg> <ver> <vllm-root> <ascend-root>`.
    **A self-built vllm beside an rc vllm-ascend is a version-contract defect even
    when the torch line matches.** #488 pasted `vllm: 0.7.2.dev` + `vllm_ascend:
    0.7.1rc1` (installed from an older page's manual-compile recipe) while the rc's
@@ -610,8 +623,13 @@ delivery pattern is rule 1.
 7. **Keep reads small and exact.** Use `rg -n -C2 <symbol>` and
    `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines. A
    20-40 KB full-file read of an AscendC kernel header buys one fact and costs
-   the budget for several conclusions. Two traps that each cost a recorded run
-   whole steps:
+   the budget for several conclusions. Traps that each cost a recorded run whole
+   steps:
+   - **`skill_view` with `file_path` returns the page *and the whole link
+     inventory*** (every reference, script and template path): 34.7 KB and 43.6 KB
+     for two page reads in one recorded run, re-sent on every later turn. Read pages
+     from the skill root instead —
+     `sed -n 'A,Bp' <skill_root>/references/<topic>/<page>.md`.
    - `rg -r` is `--replace`, not "recursive": in any short cluster whose first
      letter is `r`, the rest of the cluster is the replacement string, so `-rn`,
      `-rl` **and `-rln`** rewrite every match to `n` / `l` / `ln`. Output then

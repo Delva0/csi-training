@@ -37,6 +37,19 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
 
 ## Routes
 
+- A **hub id is served on an image that sets `VLLM_USE_MODELSCOPE`**, the weights
+  load, and the engine then dies with the hub's own
+  `modelscope.hub.errors.NotExistError: The model: <id> has no revision: main !`
+  from `modelscope/utils/hf_util.py` while building the multimodal dummy prompt
+  (`profile_run`). vllm patches the hub globally
+  (`vllm/transformers_utils/__init__.py:3-19`) and every download it makes itself
+  passes `revision`, but the **processor** load does not
+  (`processor.py:53-69,101-111`; `config.py:686-693` "ModelScope does not provide an
+  interface for image_processor"), so modelscope mints the HF default branch `main`
+  against a `master` repo. Rung 1 is the snapshot directory the log itself prints
+  (`Downloading Model to directory: /root/.cache/modelscope/hub/<id>`), not a flag:
+  `modelscope-hub-patch-processor-revision.md` (recorded #829, v0.7.3).
+
 - The follow-up is a **sourcing question**, not a new stack: "0.10.1 需要安装新的东西吗",
   "用相同环境把 vllm 从 0.10.x 改回 0.9.x 就能正常启动", "请问哪里可以看到你们镜像制作的
   依赖，我对比下", often with "只能访问 docker 容器，接触不到主机". The image's dependency
@@ -393,10 +406,14 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   torch_npu/CANN header: the two `acl_base.h` copies
   share the guard `INC_EXTERNAL_ACL_ACL_BASE_H_` while only torch_npu's typedefs
   `aclOpExecutor` (and newer CANN trees drop `acl_op_compiler.h` entirely), so the
-  first copy in the TU wins — verified two-sided at #6429 (v0.13.0rc2, torch_npu
-  2.8.0.post1, CANN 8.5.0), with the `--sources` check, the wheel/CANN pairing
-  question (`torch-npu==2.8.0` pin vs `2.8.0.post1` reported), the stale install-doc
-  body, and the "no precedent in the corpus" note.
+  first copy in the TU wins — verified two-sided at #6429 and refiled as #6271 on the
+  published `v0.13.0rc2-openeuler` image (reporter-confirmed). The `torch-npu==2.8.0`
+  pin vs the reported `2.8.0.post1` is **not** a reporter mismatch: `Dockerfile:76`,
+  `Dockerfile.openEuler:75`, `Dockerfile.310p:61` and `Dockerfile.a3:75` all install
+  post1 on a `cann:8.5.0-*` base, so the collision ships in the tag and "use the
+  release image" is not a rung. Page carries the `--sources` check, the recipe grep,
+  the in-container header hotfix, the stale install-doc body and the "no precedent in
+  the corpus" note.
 - `image-arch-and-tag-availability.md` — the artefact for this CPU architecture or
   SoC variant does not appear to exist: what the tag suffixes mean (`-310p`,
   `-310p-openeuler`, `-openeuler`, and the unsuffixed generic A2 tags including

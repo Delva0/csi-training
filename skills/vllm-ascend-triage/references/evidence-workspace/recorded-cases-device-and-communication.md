@@ -239,6 +239,22 @@ the repair in-tree at `:821/:845/:938`. The reporter's later comment on the same
 issue ("同时开启之前，已测过单独开启MTP，无报错") is the ablation the mechanism predicts —
 page `../mixed-batch-splits/pcp-schedule-index-units.md`.
 
+**#2822** vllm-ascend `v0.10.1rc1` (`7e16b4a`) + vllm `[NETWORK_ADDRESS_1]`,
+Phi-4-mini-instruct TP1, `lm_eval --tasks gsm8k --batch_size auto` (the paste is a CI
+action log, so its `attention_v1.py:379` is one line off the tag it names): serves
+1064/1319 samples, then `RuntimeError: shape '[255, 1, 3072]' is invalid for input of
+size 786432` at `_forward_decode_only`'s `self.sliding_window is not None` branch. The
+request count (`attn_metadata.seq_lens.shape[0]` = 255) met the ACL-graph-padded token
+count (`786432 / 3072` = 256, `pad_for_cudagraph` under `use_aclgraph`) — a host-side
+member of the mixed-batch unit family with no device frame, one division to classify
+(`../mixed-batch-splits/decode-pad-request-vs-token-count.md`). **Shipped no answer**:
+14 assistant turns, 16 384 output tokens spent almost entirely on reasoning and 51
+characters of message text (turn 1); the division `786432/3072 = 256` was in the
+opening reasoning and the rest went to `graph_pad_size`, DP-metadata sync and
+`sliding_window` plumbing. The reporter closed it the next day ("Fixed by
+…/pull/2830"), and the guard the pin lacks is visible at v0.14.0rc1
+(`seq_lens.shape[0] == query.size(0)`).
+
 **#18315** vllm-ascend `v0.26.0rc1` (`f2f74a1`) pinned, title says v0.27.1RC1, env
 block v0.26.0rc1; GLM-5.3-w8a8c8 on 4×A2 混部, `HCCL_OP_EXPANSION_MODE=AIV` +
 `PYTORCH_NPU_ALLOC_CONF=expandable_segments:True` → `aclnnMoeDistributeDispatchV4`

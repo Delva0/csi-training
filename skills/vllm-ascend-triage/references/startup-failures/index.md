@@ -35,6 +35,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   `--skip-mm-profiling` skips the block entirely and decides whether the encoder owns it;
   then cut the budget to the tree's own 310P recipe (2048/16384) and ask for `npu-smi`
   during the stall.
+- The start **does** raise, from the multimodal budget before any EngineCore or NPU
+  init — a stack through `input_processor.py` → `encoder_budget.py` →
+  `registry.py get_dummy_mm_inputs` → the model file's `get_dummy_mm_data` ending in
+  `AttributeError: '<HfProcessorClass>' object has no attribute '<x>'` →
+  `hf-processor-attribute-at-mm-budget.md` first (#13491: MiniCPM-V-4.6 on 310P,
+  `transformers==5.7.0` against the release's `==5.5.4` pin). The phase itself deletes
+  every device lane; the deliverable is the processor/version contract, one command that
+  prints the class module, and the support row.
 - The profiling window **does** raise, and the same error appears once per rank but the
   driver: `EOFError: Ran out of input`, bottom frame
   `torch_npu/distributed/distributed_c10d.py` `_gather` →
@@ -67,6 +75,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   at the rendezvous forever instead of raising; count processes and compare
   `MASTER_ADDR`/`PORT` before any HCCL theory, and do not read one process's `npu:0`
   as the other ranks' device.
+- Nothing raised on a **bare `python <example>.py`** (no launcher, TP=1, an upstream
+  example the plugin also ships under `examples/`), the body says the same script ran
+  on an older image, and HBM is already taken → `multiprocess-launch-hang.md` "second
+  shape": the port's extra env line is the fix (`VLLM_WORKER_MULTIPROC_METHOD=spawn`;
+  upstream defaults to `fork` and `_maybe_force_spawn()` has no NPU branch), and the
+  feature the example exercises may still be a coverage gap at that pin.
 - Nothing raised, the paste stops on the worker's **constructor** warning
   (`[utils.py:2522] Methods add_lora,cache_config,… not implemented in
   <vllm_ascend.worker.worker_v1.NPUWorker object>`, i.e.
@@ -163,6 +177,13 @@ Inherit the rules in SKILL.md. Conditional routes:
   contain (e.g. `vllm_ascend/models/<x>.py`) → `environment-correspondence.md`,
   its vendored-file section: the model code is the reporter's, the framework calls
   it makes are still citable.
+- `ImportError: cannot import name '<symbol>' from 'vllm…'` raised at a
+  `vllm_ascend/**` import while `vllm serve` is still building its parser (frames
+  `make_arg_parser` → `pre_register_and_update` → `adapt_patch` → a `patch/platform/`
+  module) → `environment-correspondence.md`, its `from vllm.utils import …` section:
+  count the unguarded importers of that symbol first (a one-line edit relocates the
+  error to worker start), read the monolith-vs-package path in the traceback as the
+  upstream generation, and take the symbol's new home from a newer vllm-ascend pin.
 - Failure at load/profile/graph-capture time on a machine with 64 GB cards, or a
   deployment command that omits `--max-model-len` → `max-model-len-budget.md`
   first. This is the reporter-confirmed answer for the recorded Qwen3-VL-30B-A3B

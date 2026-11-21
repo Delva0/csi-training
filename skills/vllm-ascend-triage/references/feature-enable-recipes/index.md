@@ -148,6 +148,13 @@ Rules for this topic:
    the two one-line ablations plus the value/`recompute_scheduler_enable` answers are
    `flashcomm2-o-shard-layer-sharding.md`. Do not read it as a bad
    `FLASHCOMM2_PARALLEL_SIZE` value or a PD/transport fault.
+   **FlashComm2's other failure arrives at request time, not while loading**: a worker
+   dying with `AssertionError: Batch_size(N) must be divisible by chunk_num(M)` at
+   `ops/linear_op.py otp_maybe_quant_comm` on an eagle/eagle3 launch is the same o_proj
+   all-to-all applied to the **draft** model, whose row count is normalised only by a
+   `pad_size` written once per forward context — never by the flag's value, which cannot
+   move `chunk_num` off the global TP size (`flashcomm2-draft-pad-token-divisibility.md`,
+   recorded #7809, reporter-confirmed).
 
 8. An **other-SoC** question — the model runs, and the report is "速度很慢" plus "能否提供
    量化版本 / 社区只看到 310P 的" where the model's tutorial, support-matrix row and
@@ -249,7 +256,11 @@ Pages:
   `PrepareAndFinalizeWithMC2` inherits the All2All `finalize` whose `dist.all_gather`
   is the pasted crash site, the refuted uneven-`tensor_split` theory, and the only
   EP+DP recipes the tree ships. Worked for #5295 (v0.12.0rc1, GLM-4.5-W8A8,
-  DP2×TP8 on one 910B node), whose recorded session shipped no answer.
+  DP2×TP8 on one 910B node), whose recorded session shipped no answer. Two A2
+  dispatch **tiling refusals** hang off it: §Step 2b the per-card expert cap
+  (`moeExpertNum … no more than 24`) and §Step 2c the token dim (`batchsize is
+  invalid` with `CheckShapeAndSetTiling`, #2858), where bs is derived
+  (`padded_num_tokens / tp`) rather than the reported batch.
 - `context-parallel-pcp-dcp.md` — PCP/DCP (context parallel), worked for #8984
   (DeepSeek-V3.2 QuaRot on A2, v0.19.1rc1): card arithmetic, the DCP divisibility
   and `cp_kv_cache_interleave_size` gates, the `VLLM_ASCEND_ENABLE_CONTEXT_PARALLEL`

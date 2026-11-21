@@ -638,3 +638,16 @@ dict parsed, so it is cosmetic) — `../startup-failures/graph-mode-not-applied.
 (`FULL` section).
 
 **#1364** vllm-ascend v0.8.5rc1 + vllm v0.8.5.post1, ray: `AsyncLLM.from_engine_args` hangs inside an RLHF server and the paste ends on the `utils.py:2522 … not implemented in <…NPUWorker object>` constructor warning. The named frame is only the waiter (`_wait_for_engine_startup` raises only when a core proc exits); the stall is worker init, and the recorded run shipped 0 characters of message text. `../startup-failures/ray-programmatic-init-hang.md` (new).
+
+**#4863** image `quay.io/ascend/vllm-ascend:v0.11.0rc3-openeuler`, `Qwen3-Reranker-8B`
+with `--task score`, vllm-ascend v0.11.0rc3 (`b6d63bbd5294`):
+`ImportError: cannot import name 'STR_DTYPE_TO_TORCH_DTYPE' from 'vllm.utils'` raised
+while `vllm serve` builds its parser (`make_arg_parser` → `pre_register_and_update` →
+`adapt_patch` → `patch/platform/patch_mamba_config.py:6`). The recorded run found the
+two facts that decide the shape: the same symbol is imported unguarded at two more
+sites (`worker/worker_v1.py:38`, `worker/model_runner_v1.py:72`), so an edit to line 6
+only relocates the error to worker start; and the traceback's `vllm/utils/__init__.py`
+(package) versus the pin's monolith `vllm/utils.py:174` names the upstream generation.
+No reporter follow-up in this snapshot. Page: `../startup-failures/environment-correspondence.md`
+(the `from vllm.utils import …` section, which also carries the newer pin's migrated
+form `from vllm.utils.torch_utils import STR_DTYPE_TO_TORCH_DTYPE`).

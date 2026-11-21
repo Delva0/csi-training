@@ -12,7 +12,12 @@ E1210 03:24:54.778062 2548307 ascend_direct_transport.cpp:581] Failed to connect
 (Worker_DP0_TP5 pid=2543213) ERROR mooncake_connector.py:329] Failed to transfer KV cache for request …: Mooncake transfer failed, ret: -1
 ```
 
-Not this page: a KV pool in the recipe (`AscendStoreConnector`, `MOONCAKE_CONFIG_PATH`)
+Not this page: **P and D on one machine, two cards**, `status: 103905` (or any
+`1039xx`) printed **without** an `, errmsg:` field and citing
+`ascend_direct_transport.cpp` → `adxl-connect-status-same-host.md` (the port band
+names the physical card, the mask line dates the tree, and the cross-node
+`device_ip` ladder does not apply). A KV pool in the recipe
+(`AscendStoreConnector`, `MOONCAKE_CONFIG_PATH`)
 → `kv-pool-store-segments.md` first; `HIXL Connect failed` under **LMCache-Ascend**
 → `transport-topology.md` (engine-id/`server_id` identity); a module/import failure
 → `../image-dependency-faults/launch-env-and-library-path.md`.
@@ -42,6 +47,10 @@ artifact is the reporter's later `grep -rn ERROR /root/ascend/log` from the deco
   transport surfaces when an internal HCCL call fails (the GE lines in the plog read
   `Call hccl api failed, ret: 0x1 … ErrorNo: 103900`). Do not translate it; read the
   plog.
+  The `1039xx` values are distinct `adxl::Status` members at the `Connect()` site
+  (`transfer_executor_base.cpp:261`), so 103905 is **not** 103900 relabelled — do not
+  carry this page's 103900 reading onto it, and keep the enum out of the answer
+  while `cann/hixl` is unexported.
 
 ## 2. The one artifact to request: the D-side plog
 
@@ -144,12 +153,19 @@ advice bites, and there it changes the engine name, i.e. the segment identity.
 
 ## 6. Evidence limits to state in the answer
 
-- The Mooncake pin (`v0.3.4.post2`, 322/340 files) has **no**
-  `mooncake-transfer-engine/src/transport/ascend_transport/`, and `cann/hixl` is in
-  `SOURCES.json`'s unavailable list. So "103900 = the transport's internal HCCL init
-  failed" rests on the plog lines co-timed in the same process, and the per-port roles
-  (`:820` target vs `:581` segment) on the message text alone. Recheck if an export
-  ever carries that directory.
+- The Mooncake pin used for #4866 (`v0.3.4.post2`, 322/340 files) had **no**
+  `mooncake-transfer-engine/src/transport/ascend_transport/`, so there
+  "103900 = the transport's internal HCCL init failed" rested on the plog lines
+  co-timed in the same process, and the per-port roles (`:820` target vs `:581`
+  segment) on the message text alone. **That limit is lifted for later releases**:
+  at `v0.3.11.post1` (`e9c610757200`) the directory is exported and both sites are
+  readable — `transfer_executor_base.cpp:256-265` (`Connect timeout to:` vs
+  `Failed to connect to target: …, status: …, errmsg: <aclGetRecentErrMsg()>`) and
+  `ascend_direct_transport.cpp:131-176` (band allocation, `ASCEND_BASE_PORT`,
+  `roce_mode_`). Two uses: the message text now dates the reporter's libmooncake
+  (no `, errmsg:` ⇒ older than that pin), and the listen-port arithmetic is a
+  device-identity check (`adxl-connect-status-same-host.md` §4). `cann/hixl` is
+  still in the unavailable list, so the **numeric** status values stay unreadable.
 - #4866's cause is **open**: the reporter's last message is the plog above, after the
   config move. Do not report `use_ascend_direct` or the DP=2 layout as the fix.
 - Version scope: the `:905-911` gate, the default and the metadata field names move

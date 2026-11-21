@@ -202,6 +202,102 @@ assigned with no log at all, `ascend_forward_context.py:70-72`, so the field can
 tell MC2 from ALLGATHER), and make the 24 a per-SoC/CANN value rather than a Python
 constant that silently disables MC2 for 512-expert layouts after a CANN bump.
 
+## Step 2c — the other A2 dispatch tiling refusal: `batchsize is invalid` (the token dim)
+
+Same *kind* as Step 2b — the op's tiling rejects an argument and returns in under a
+second, nothing launched — but a **different argument**, and the paste has a different
+shape (recorded #2858, v0.10.1rc1 `7e16b4a7`, 2×A2, Qwen3-235B-A22B; the
+paste's wrapped lines are re-flowed, the `FUNC:`/`FILE:`/`LINE:` text kept as printed):
+
+```text
+RuntimeError: npu_moe_distribute_dispatch_v2: … NPU function error:
+  call aclnnMoeDistributeDispatchV2 failed, error code is 561002
+EZ9999: [PID: 973] … batchsize is invalid.
+  [FUNC:MoeDistributeDispatchA2TilingFuncImpl][FILE:moe_distribute_dispatch_tiling.cc][LINE:729]
+op[MoeDistributeDispatch], MoeDistributeDispatchA2 CheckShapeAndSetTiling Failed
+MoeDistributeDispatch do tiling failed, ret is -1.
+Check NnopbaseExecutorDoTiling(executor) failed
+```
+
+Read the `FUNC:`/`FILE:` pair, not the aclnn name: here the aclnn entry carries `V2`
+while the tiling impl is the older `moe_distribute_dispatch_tiling.cc` /
+`…A2TilingFuncImpl`, and Step 2b's paste from a later CANN printed
+`moe_distribute_dispatch_v2_tiling.cpp` / `…CheckAttrAndSetTiling`. Two check functions,
+two arguments: `CheckAttrAndSetTiling` refused the **expert count** (Step 2b),
+`CheckShapeAndSetTiling` refused the **token dim** (`x.shape[0]`, this section).
+
+**What the op is handed — one arithmetic step, no theory.** bs is not the batch the
+scheduler reports, it is `padded_num_tokens / tp`:
+
+- the paste itself proves `--enable-expert-parallel` is on **with `ep_size >= 16`**:
+  below 16 the MoE layer is forced to `allgathercommimpl` and this op is never called
+  (`ops/common_fused_moe.py:487-488` at v0.10.1rc1), so the layout is TP8×DP2 (the
+  2-node tutorial recipe) or TP16 even when the report names no flags;
+- the selector is `num_tokens <= mc2_tokens_capacity` with
+  `mc2_tokens_capacity = 512 * tp` (`worker/model_runner_v1.py:369`, `:1623-1631`), and
+  at this pin it has **no `with_prefill` term**: an extend chunk up to `512*tp` tokens
+  runs MC2 too (`_get_fused_moe_state`'s All2All prefill row in
+  `ascend_forward_context.py:26-40` picks the *fusion* state, not the dispatch method);
+- `MC2CommImpl.prepare` pads to `forward_context.padded_num_tokens` and
+  `tensor_split`s by TP (`distributed/moe_comm_method.py:327-350`), and that target is
+  `ceil(max_tokens_across_dp / tp) * tp` (`ascend_forward_context.py:125-126`) — so
+  **bs = `ceil(max_tokens_across_dp/tp)`**: `--max-num-batched-tokens 1024` on TP8 is
+  bs 128, a 4096-token chunk is bs 512, a 10-request decode step is bs 2;
+- `max_tokens_across_dp` is DP-wide only while the DP all-reduce runs:
+  `_sync_metadata_across_dp` returns the rank's own count when
+  `dp_size == 1 or enforce_eager` (`model_runner_v1.py:596-599`, and `:1101` feeds that
+  same value to the selector), so under `--enforce-eager` with DP>1 each rank selects on
+  and dispatches its own count;
+- at this pin `global_bs` is hard-coded `0` and `x_active_mask`/`group_tp`/`tp_world_size`
+  are passed only when `is_ascend_a3` (`moe_comm_method.py:315`, `:396`, `:405-414`), so
+  on A2 the op is always told "uniform tokens, no mask": it can be told neither that rows
+  are padding nor that a peer carries a different count.
+  `scripts/mc2-dispatch-bs-check.sh --tp 8 --dp 2 --max-num-batched-tokens 1024
+  --max-num-seqs 10` prints the capacity, both bs values and whether the ranks can
+  disagree.
+
+**The later tree states that requirement out loud**, which is why the uniformity lane is
+worth closing before any "batch too large" theory: at v0.22.1rc1
+`ops/fused_moe/token_dispatcher.py:120-141` derives
+`global_bs = ceil(max_num_tokens/tp) * ep_world_size` and passes `x_active_mask` only
+when `global_bs == 0` (`:183-184`), and `utils.py:1083-1095` spells out the rule —
+"Skipping [the DP all-reduce] means each rank may have a different number of tokens, so
+MC2 needs a non-zero global_bs and must NOT receive mc2_mask". The v0.10.1rc1 tree has no
+such branch, so a step whose ranks carry unequal counts is a configuration *that pin*
+cannot express. Note also that bs cannot exceed 512 by construction there (the gate and
+the pad target read the same DP-max value), so the wording is not a "batch too large"
+statement unless the two counts came from different places.
+
+**The threshold itself is not in the snapshot.** `cann/ops-nn` and
+`cann/ops-transformer` are `unavailable` in the v0.10.1rc1 *and* the v0.22.1rc1
+`SOURCES.json`, so neither the cap's value nor whether bs must equal the peer's can be
+read here; 512 is the plugin's own per-rank constant, an inference, not a quoted op
+contract. Recorded cost of trying to recover it anyway: the #2858 session re-derived
+`bs = padded/tp` turn after turn while hunting the op's acceptance constant from memory,
+and was cut by the output budget with no answer written.
+
+**Deliverable — say what bs is, then rank in this order:**
+
+1. **unequal per-rank counts** (`--enforce-eager` present with DP>1, or anything else
+   that skips the DP all-reduce): ask for both `vllm serve` lines, re-run without the
+   flag, and separate "the MC2 path" from "the weights/model" with the single-DP control
+   (`--data-parallel-size 1`, ep world < 16 → ALLGATHER, op never reached).
+2. **the op's own tiling at the reporter's CANN/torch_npu pair.** When the two launch
+   lines are identical and bs is uniform, the remaining owner is the operator: hand over
+   the version triple and the complete `EZ9999`/`CheckShapeAndSetTiling` block (with any
+   number the check prints) rather than another plugin-side theory. No env knob
+   (`HCCL_BUFFSIZE`, `HCCL_OP_EXPANSION_MODE=AIV`, `PYTORCH_NPU_ALLOC_CONF`, the card) is
+   recorded as a lever for this wording.
+
+Ask for the DEBUG `num_tokens: N, moe_comm_method: mc2` line as well
+(`model_runner_v1.py:1635-1636`, global first rank only): it is the only log on this pin
+that names the method, and it prints exactly the number the gate compared.
+
+Recorded state of #2858 — v0.10.1rc1, 2×A2, Qwen3-235B-A22B, and nothing else: no launch
+line, no topology, no `npu-smi`, and the reporter's later comment (2025-09-11) is six
+screenshots with no text. So the launch lines plus the full tiling block are the missing
+artefacts, and asking for them is the first message, not a last resort.
+
 ## Step 3 — correct the premise: MC2 inherits the All2All finalize
 
 `PrepareAndFinalizeWithMC2(PrepareAndFinalizeWithAll2All)`
@@ -293,7 +389,8 @@ row 1 changes the outcome, the `additional_config` keys
 ## Scope
 
 Pins: vllm-ascend v0.12.0rc1 `42ceaf0`, vllm v0.12.0 `4fd9d6a`. Step 2b is pinned separately at vllm-ascend
-v0.17.0rc1 `e20f0b1` + vllm v0.17.0, where the selector has moved to
+v0.17.0rc1 `e20f0b1` + vllm v0.17.0 (Step 2c at v0.10.1rc1 `7e16b4a7` + vllm v0.10.1.1 `1da94e67`, its
+`global_bs` rule re-read at v0.22.1rc1 `5f6faa0c`), where the selector has moved to
 `ascend_forward_context.select_moe_comm_method:199-273` and the A2 row is at `:235-243`. The selector
 predicate, the capacity formula and the MC2/All2All inheritance are the parts to
 re-grep at another version (`_select_moe_comm_method`,

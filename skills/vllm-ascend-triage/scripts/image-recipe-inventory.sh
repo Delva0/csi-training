@@ -3,7 +3,8 @@
 # one call -- the answer to "你们的镜像里装了什么依赖 / where can I see the image's
 # dependency list, so I can compare with my own env".
 #
-#   bash image-recipe-inventory.sh <vllm-ascend-root> [--soc 910b|a3|310p|openeuler|a3-openeuler]
+#   bash image-recipe-inventory.sh <vllm-ascend-root>
+#        [--soc 910b|a3|310p|openeuler|a3-openeuler|310p-openeuler]
 #                                   [--image-tag vX.Y.ZrcN]
 #
 # Prints, per section:
@@ -13,6 +14,10 @@
 #      huaweicloud ascend index that serves `torch-npu`), the `pip uninstall -y
 #      triton` line, both `set_env.sh` sources, and the `devlib` LD_LIBRARY_PATH
 #      append that no doc reproduces;
+#   1b. whether the recipe's `torch-npu` install line agrees with `requirements.txt`'s
+#      pin or overrides it (at v0.13.0rc2 every recipe installs 2.8.0.post1 over the
+#      2.8.0 pin) -- the check that separates "the image ships this pairing" from "the
+#      reporter modified their env", before any version-mismatch advice;
 #   2. the `requirements.txt` pins (torch / torch-npu / the `--pre` +
 #      `--extra-index-url` hint lines) as the same list in file form;
 #   3. the docs' own component table and manual CANN/NNAL install block, i.e. the
@@ -28,7 +33,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --soc)       soc="${2:-910b}"; shift 2 ;;
     --image-tag) tag="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *) root="$1"; shift ;;
   esac
 done
@@ -57,6 +62,32 @@ if [ -f "$d" ]; then
     | sed "s|^|$df:|"
   echo "   (a base tag like 'cann:<ver>-<soc>-<os>-py<ver>' is what supplies CANN + NNAL/ATB; the vllm-ascend"
   echo "    steps only add python packages, so a hand-built env that skipped NNAL is short one component.)"
+fi
+
+echo
+echo "--- 1b. recipe vs requirements pin: does the image override torch-npu?"
+if [ -f "$d" ] && [ -f "$root/requirements.txt" ]; then
+  rec=$(grep -oE "torch[-_]npu==[^'\"[:space:]]+" "$d" | sed -E 's/.*==//' | sort -u | tr '\n' ' ')
+  req=$(grep -oE '^torch-npu==[^[:space:]]+' "$root/requirements.txt" | sed -E 's/.*==//' | sort -u | tr '\n' ' ')
+  rec=${rec% }; req=${req% }
+  echo "   $df installs torch-npu : ${rec:-<no explicit torch-npu install line>}"
+  echo "   requirements.txt pins   : ${req:-<no torch-npu pin>}"
+  if [ -z "$rec" ]; then
+    echo "   (the recipe adds no torch-npu of its own: a reported version that differs from the pin is not the image's.)"
+  elif [ -z "$req" ]; then
+    echo "   (nothing to compare against in requirements.txt; cite the recipe line.)"
+  else
+    case " $rec " in
+      *" $req "*)
+        echo "   (recipe and requirements agree; a reported version that differs from them is not the image's.)" ;;
+      *)
+        echo "   (the recipe installs a DIFFERENT torch-npu than requirements.txt pins: a paste from this tag showing that"
+        echo "    version is the SHIPPED pairing -- do not call the env hand-modified, and 'use the release image' is not a"
+        echo "    rung. Recorded #6271: the v0.13.0rc2 recipes install 2.8.0.post1 over the 2.8.0 pin.)" ;;
+    esac
+  fi
+else
+  echo "   (need both $df and requirements.txt)"
 fi
 
 echo

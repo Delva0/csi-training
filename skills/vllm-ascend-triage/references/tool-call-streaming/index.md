@@ -42,6 +42,15 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   `index`). The split is `stream: false` plus a field-by-field comparison against
   the client's schema, not another look at the delta arithmetic —
   `client-schema-invalid-arguments.md` (#9076, MiniMax-M2.7 + `minimax_m2`).
+- **one extra `content` delta that is only whitespace** (`"\n\n"`) between the
+  reasoning and the first call, with correct `tool_calls` and correct arguments:
+  the parser's pre-first-call text flush emits its buffer without a `strip()` test
+  while the *same file's* between-calls flush already has one, so this is a
+  consistency defect in upstream `qwen3xml_tool_parser.py`, not lost or damaged
+  arguments. Ownership is upstream (the image clones `VLLM_TAG`), the downstream CI
+  runs that test file *with* its `xfail_streaming` markers so it cannot gate the fix,
+  and rung 1 is to drop whitespace-only content deltas client-side →
+  `whitespace-content-before-tool-call.md` (#15911).
 - **no call at all**: `tool_calls` empty or missing with `finish_reason: "stop"`
   and ordinary prose in `content`, often conditional on non-thinking mode or
   "概率性" ("tool call empty", #12658 DeepSeek-V4-Flash-w8a8-mtp,
@@ -82,6 +91,30 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   (`tool_calls: list[DeltaToolCall] = Field(default_factory=list)`), so the frontend
   aborts the SSE generator and the client sees a truncated stream rather than a JSON
   error — `delta-message-none-field.md` (#10376).
+- **one or more extra closing `}` at the very end of the arguments**, head and every
+  key present, next to a clean call in the same response — `"similarity": 0.5}}` — on a
+  serve whose `--tool-call-parser` **synthesizes** the JSON from XML tags
+  (`qwen3_xml`, `qwen3_coder`, `hermes`). Two source-verified owners and four
+  zero-cost discriminators (`stream: false`, parser off, `qwen3_coder` A/B, and only
+  then sampling/spec-decode): `extra-tail-brace-synthesized-args.md` (#16001,
+  Qwen3.8-27B, 910B2, `qwen3_xml`, MTP n=3).
+
+- **the stream completes but the delta envelope is full of `null`s** —
+  `"content": null` beside `tool_calls` on every chunk, and
+  `"id": null, "type": null, "function": {"name": null, …}` on the continuation chunks —
+  and the reporter's client raises while assembling, so the questions are "what switch
+  disables it", "which tag is correct" and "is the model's own `<｜DSML｜>` syntax being
+  mis-converted". All four fields are nullable by declaration and the SSE writer dumps
+  with `exclude_unset=True`, so `null` / `""` / absent is decided by the **construction
+  site**: `null` = written explicitly, not a protocol violation and not a model fault —
+  `delta-null-envelope-fields.md` (#14501).
+- **one SSE chunk carries two tool-call boundaries** — `</tool_call><tool_call>` (or
+  several `<invoke>`/`<arg_value><arg_key>` markers) "because MTP returns two tokens in
+  one response", and the client's tool-call parse then fails. The chunk is one *engine
+  step*, so several markers per chunk is the transport contract; the split that matters
+  is whether the markers arrived in `content` (the parser never saw the start token) or
+  inside `arguments` (the parser re-serializes parsed JSON, so not it) —
+  `one-boundary-per-chunk.md` (#5596).
 
 Not this topic — leave with the linked route:
 
@@ -115,6 +148,7 @@ parser puts you back on rule 1.
    what the concatenation is (`bash <skill_root>/scripts/sse-toolcall-audit.sh
    <raw-sse-or-paste>`; it labels the outcome itself — `balanced`, `head-lost`,
    `quote-gap` = balanced braces with an odd quote count, `tail-lost`,
+   `extra-tail-brace` = more closing than opening braces with the head present,
    `malformed` — so its verdict no longer has to be overridden by hand). Its
    outcomes have different owners:
    parses as JSON → *not* a closed case: it clears the string lanes, and then a
@@ -128,7 +162,12 @@ parser puts you back on rule 1.
    delta bookkeeping (`_compute_args_diff` / `streamed_args_for_tool`, or the
    frontend's `remaining_call`) was ahead of the bytes; one arithmetic decides it
    — `assembled == non_stream_args[-len(assembled):]` — and this outcome must not
-   be sent to the schema-type gate (`suffix-only-arguments.md`); **braces balanced
+   be sent to the schema-type gate (`suffix-only-arguments.md`); **more closing than
+   opening braces while the head is present** (the script's `extra-tail-brace`:
+   `{"a": 1}}`) → a close brace emitted twice by a parser that writes the JSON itself,
+   or a stray character inside the last numeric parameter passed through unquoted —
+   `stream: false` plus a parser-disabled run splits those two
+   (`extra-tail-brace-synthesized-args.md`); **braces balanced
    but quotes odd, with the gap inside a value** → the parser's incremental delta,
    decided by the argument's declared JSON-Schema type
    (`arg-type-gate-unquoted-value.md`; run
@@ -144,7 +183,13 @@ parser puts you back on rule 1.
    `args_so_far` is valid but whose deltas are a length-prefix of it reproduces
    exactly this string (the recorded #12261 run recovered it from the two
    functions alone).
-   Do this before reading any parser, sampler or kernel. Two recorded
+   Do this before reading any parser, sampler or kernel, and **resolve the parser
+   name before opening an implementation**: at vllm v0.23.0 `0fc695f`
+   `--tool-call-parser <name>` is looked up in `vllm/tool_parsers/__init__.py`
+   (module + class), while a second copy of several parsers lives in the Rust crate
+   `rust/src/tool-parser/src/` behind the separate Rust frontend
+   (`VLLM_USE_RUST_FRONTEND`, `vllm/envs.py:143,550-559`) — reading the Rust file for
+   a Python-frontend report is a dead end (`extra-tail-brace-synthesized-args.md`). Two recorded
    calibrations: #7580's paste reassembles to `{"filePath":"/…/K8sYamlAgent.java`
    and `json.loads` reproduces the reporter's own `Unterminated string starting
    at: line 1 column 13 (char 12)`; #8122's pasted 97-chunk stream reassembles to
@@ -242,6 +287,16 @@ parser puts you back on rule 1.
    documented ref, and do not conclude "unreachable here, so not this layer"
    (`suffix-only-arguments.md`, §Before arguing the mechanism).
 
+7. **The frontend modules move between refs — grep the class, not the path.** One
+   tool-call analysis (recorded #14501) spent three calls on
+   `chat_completion/protocol.py` at vllm v0.22.1, where `DeltaMessage` is in
+   `entrypoints/openai/engine/protocol.py`; the serving module is
+   `entrypoints/openai/serving_chat.py` at v0.13.0 and
+   `entrypoints/openai/chat_completion/serving.py` from v0.17 on. One
+   `rg -ln 'class DeltaMessage' vllm/` (or `rg -n 'delta_text = output.text' vllm/`)
+   answers both, and the line numbers cited throughout this topic belong to their own
+   pin — re-grep before quoting.
+
 ## Pages
 
 - `empty-arguments-object.md` — the `{}` shape: where
@@ -307,9 +362,36 @@ parser puts you back on rule 1.
   `_extract_delta_tool_call` returning `None`), the `[]` fix and why the frontend's
   truthiness tests make it safe, the existing UT's blind spot (prose in a separate
   chunk) and the one-`_feed` regression test. Worked for #10376 at v0.20.2rc1.
+- `delta-null-envelope-fields.md` — the envelope is `null`-heavy but the stream is
+  healthy: the nullable declarations (`engine/protocol.py:242-252,267-271` at vllm
+  v0.22.1) plus `model_dump_json(exclude_unset=True)` (`chat_completion/serving.py:553,
+  589,940`) mean only *passed* fields appear, so the paste fingerprints its builder
+  (frontend `content: ""` first chunk `:520-524`, upstream `content=None` at
+  `deepseekv32_tool_parser.py:300`, downstream merge `id/type/name: null` at
+  `patch/platform/patch_deepseek_v4_tool_call_parser.py:408-448`), no env/`additional_config`
+  switch exists (`patch/platform/__init__.py:37`, no `getenv`), a rollback cannot remove
+  the upstream half, and the module-path map by ref (serving module and
+  `protocol.py` location) (#14501).
+- `one-boundary-per-chunk.md` — two markers in one chunk under MTP: the chunk is one
+  engine step (`serving_chat.py:746` at vllm v0.13.0) so multi-marker chunks are normal;
+  the discriminator is `content` vs `arguments`; the GLM extractor's first-`end_idx`
+  loop, `tool_calls[0]`, the parked `_buffer` and the missing finish-time flush
+  (`glm4_moe_tool_parser.py:136-200`, `serving_chat.py:1759-1782`), the `glm47`-absent
+  registry and the downstream name drift (#5596).
 - `mtp-block-verify-acceptance.md` — what the `max_spec_len >= 3` branch does
   (cumulative-product acceptance over the whole draft block, recovered token,
   bonus token), which requests it cannot touch (greedy rows), why a wrongly
   accepted draft token can end a tool call early, the `parse_output` placeholder
   filter that silently removes slots, the missing equivalence test, and the
   confidence labels.
+
+- `whitespace-content-before-tool-call.md` — the *cosmetic* shape: `content` carries
+  one whitespace-only delta before the first call, everything else correct. The three
+  `text_content_buffer` flush sites at vllm v0.23.0 (`:175`, `:260`, and the already
+  `strip()`-guarded `:954`), the reachability proof (`_should_skip_element` `:331-335`
+  + `_find_next_complete_element`), the two properties of the proposed hunk (nothing
+  is discarded because the buffer is kept; a whitespace-only tail is the one
+  behaviour change), why upstream owns it (byte-for-byte from the image's
+  `VLLM_TAG` clone; downstream `rg` hits only the CI test list), why neither the
+  pin's `xfail_streaming` entries nor the downstream CI can verify it, and the
+  client-side first rung. Worked for #15911.

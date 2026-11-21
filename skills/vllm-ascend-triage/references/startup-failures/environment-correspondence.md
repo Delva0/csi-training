@@ -179,7 +179,7 @@ the pair and the compatibility row are in
 `docs/source/community/` directory at all, which is itself the answer to "where is
 the matrix".
 
-## A `vllm_ascend/**` frame the pin does not contain: vendored file, not a gap
+## A `vllm_ascend/**` frame the pin does not contain: vendored file, or a relocated module
 
 The mirror of the rule above. There the missing file is a **snapshot** limitation
 and the finding is a data gap; here the missing file is **the reporter's own
@@ -193,7 +193,7 @@ code**, and the finding is that the release does not own the failing path.
 - Discrimination: an in-tree file whose *line numbers* shifted is version drift
   (re-grep, cite the pin); a file that does not exist at the pin while the same
   module is mentioned only in a comment or a config docstring is a **site-vendored
-  file**. Recorded #3107 at vllm-ascend v0.9.1rc2 (`b9f715d`): the log names
+  file** — after the relocation check at the end of this section has come back negative. Recorded #3107 at vllm-ascend v0.9.1rc2 (`b9f715d`): the log names
   `vllm_ascend/models/pangu_moe.py` at lines 526-877, the pin's
   `vllm_ascend/models/` has no `pangu_moe.py`, `models/__init__.py` registers no
   Pangu class, and the only in-tree mention of the family is the torchair comment
@@ -209,6 +209,33 @@ code**, and the finding is that the release does not own the failing path.
   reproduces with the release's own class. Do not reconstruct their module from
   the log's debug prints; the printed shapes and values are their instrumentation,
   not the framework's.
+
+**The other way a downstream file can be absent: the release moved it.** Before calling an
+absent `vllm_ascend/**` file a vendored port, ask whether a refactor removed or relocated
+it — the two answers send the reporter in opposite directions.
+
+- Two calls: `rg --files -g '*<file-stem>*' vllm_ascend/` (and `ls` the containing
+  directory) shows the relocation inside the tree; a **history body** shows the deletion.
+  Some issue bodies paste a factual `git diff --stat` table between two refs and name a
+  removal verbatim, which no source read can show once the only pin is the newer tree:
+  `scripts/history-titles.sh -i '<stem>'`, then
+  `scripts/history-body.sh <id> -g '<stem>|deleted|removed'`.
+- Recorded #18518 at v0.26.0rc1 (`f2f74a16`): the paste cites
+  `vllm_ascend/worker/pcp_utils.py:811` / `:958` and `model_runner_v1.py:2106`, the pin has
+  no `pcp_utils.py` at all (`rg --files -g '*pcp*' vllm_ascend/` → only
+  `worker/v2/pcp_manager.py`), and the corpus carries both halves of the proof — #13973's
+  table row `worker/pcp_utils.py | −2387 (deleted)` beside `worker/v2/pcp_manager.py | +107
+  (new)`, and #14320's sentence "the v0.26 PCP-removal refactor (#12592 'remove PCP from
+  MRV1')". So PCP was **upstreamed** (`vllm/v1/worker/gpu/pcp_manager.py`), and the
+  reporter's file belongs to ≤ v0.23.x — either an older tree or a `collect_env` that does
+  not describe `site-packages` (one existence check plus `pip show` decides, and it costs
+  the reporter nothing).
+- Absence is not yet the answer. The deliverable is the **current owner** and whether the
+  reported number still occurs there: at the #18518 pin the padding became
+  `max(per_rank_tokens) * pcp`, which reproduces the pasted `index value 8194 exceeds
+  bounds 8192` from the same `[6661, 1531]` schedule — so "0.26 moved it, so 0.26 is fine"
+  would have been wrong (`../mixed-batch-splits/pcp-padding-vs-token-budget.md`). Re-derive
+  the arithmetic at the new site before writing a verdict, and label it arithmetic, not a run.
 
 ## A `SyntaxError` the pin's own file cannot produce: file integrity, not a parser question
 
@@ -278,6 +305,44 @@ tag's number. Decide it from the reporter's own `file:line`s against the pinned 
 - If the snapshot holds no release near enough to match their lines, say the tree is
   **later than the pin** and label the exact release as inferred — then still give the
   pairing verdict, which does not depend on the label.
+
+## A `cannot import name` at `from vllm.utils import …`: count the importers, then read the newer pin
+
+The `patch/**` variant of the section above. Reported #4863: image
+`quay.io/ascend/vllm-ascend:v0.11.0rc3-openeuler`, `Qwen3-Reranker-8B`, `--task score`,
+`ImportError: cannot import name 'STR_DTYPE_TO_TORCH_DTYPE' from 'vllm.utils'` raised
+inside `make_arg_parser` → `pre_register_and_update` →
+`patch/platform/patch_mamba_config.py:6`. vllm-ascend `v0.11.0rc3` (`b6d63bbd5294`).
+
+1. **The reported line is one of three, so a one-line edit is not a repair.** At that
+   pin the symbol is imported unguarded at `patch/platform/patch_mamba_config.py:6`,
+   `worker/worker_v1.py:38` (used `:134`) and `worker/model_runner_v1.py:72` (used
+   `:301`), and only two files in the package use `vllm_version_is` at all
+   (`utils.py`, `models/layers/mla.py`). Fixing line 6 therefore relocates the identical
+   `ImportError` to worker start. One `rg -n '<symbol>' <vllm-ascend>/` before any
+   advice, and quote the count.
+2. **The module *shape* in the traceback names the upstream generation.** `vllm/utils.py`
+   is the monolith (vllm v0.9.1 `b6553be1bc75`: the dict at `utils.py:174`), while
+   `vllm/utils/__init__.py` is the split package — and in the package generation the
+   top-level name is **gone**: at vllm v0.18.0 (`bcf2be96`) the dict lives at
+   `vllm/utils/torch_utils.py:32` and `vllm/utils/__init__.py` has zero occurrences. So
+   "the import is stale against a *newer* vllm" and "the pair itself is inconsistent"
+   are the two live lanes, and the monolith/package path is the tell.
+3. **Read a newer vllm-ascend pin: it names the new home and often shows downstream has
+   already migrated.** At `v0.18.0rc1` the same file is
+   `patch/platform/patch_mamba_config.py:9 from vllm.utils.torch_utils import
+   STR_DTYPE_TO_TORCH_DTYPE, get_dtype_size` and `patch_mamba_config_310.py:11` /
+   `worker/worker.py:41` import it the same way. That converts "which import do I patch"
+   into a cite-able answer plus a bounded site list — and it is a check on the *pin the
+   case already holds*, not a search.
+4. **Check whether the patched body is even live for the reporter's model.** This file
+   rewrites `MambaModelConfig.verify_and_update_config`; a reranker/embedding head has no
+   mamba layers, so only its import line is on the failing path. Say that, then pair the
+   versions (`docs/source/community/versioning_policy.md:25` at that pin pairs
+   `v0.11.0rc0 | v0.11.0rc3`); do not ship a behaviour theory for a body that never runs.
+5. Conclusion state: no reporter follow-up on #4863 in this snapshot — items 1-4 are
+   source facts read at the two pins, and the pairing verdict stays labelled as inferred
+   where the snapshot holds no vllm of the reported generation.
 
 ## Check "is model X supported here" in the source, once
 

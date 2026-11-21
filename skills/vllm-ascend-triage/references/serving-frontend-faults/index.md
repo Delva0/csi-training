@@ -19,6 +19,14 @@ Not this topic, leave immediately:
 - A Python `AttributeError`/`TypeError` from an Ascend replacement of an upstream
   class, or raised inside an upstream file *on a class vllm-ascend replaces* →
   `../upstream-downstream-drift/index.md`.
+- A pydantic `ValidationError` whose text names a **vllm protocol model**
+  (`Input should be a valid dictionary or instance of UsageInfo [type=model_type]`,
+  or the same on `ChatCompletionResponse.usage`) although the value already *is* an
+  instance of that class — the frames are then all pydantic/vllm and the frontend has
+  no defect: a `patch/platform/` module replaced the class with a subclass, so a
+  consumer that bound the old name is rejected →
+  `../upstream-downstream-drift/protocol-model-class-swap.md` (#8201, vllm-omni over
+  v0.18.0rc1).
 - The symptom is log text (a flag that prints nothing, a missing stage, a `404`
   route) rather than an exception → `../observability-and-logs/index.md`.
 - The process aborts without a Python frame, or dies in a bundled native module

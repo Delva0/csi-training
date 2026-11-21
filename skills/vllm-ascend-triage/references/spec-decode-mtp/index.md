@@ -113,6 +113,16 @@ at request time. The shapes:
   `None` for that state (`dense-attn-state-gap.md`). The traceback may pass through
   `<eval_with_key>.N` / `unified_ascend_attention_with_output` — that is the graph
   wrapper around the same eager body, not a capture fault.
+- or it dies at **request time** with a bare `AssertionError: Batch_size(N) must be
+  divisible by chunk_num(M)` in `vllm_ascend/ops/linear_op.py otp_maybe_quant_comm`, the
+  stack passing `eagle_proposer._run_merged_draft` → `self.model(...)` → upstream
+  `llama.py o_proj`, on an eagle/eagle3 launch that exports
+  `VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE` > 0 with `num_speculative_tokens` ≥ 2: FlashComm2's
+  o_proj all-to-all reaches the **draft** model and its `pad_size` is written once per
+  forward context, so the multi-step loop runs on unpadded rows. `M` is the global TP size
+  for every legal flag value (the value is not the cause); `N` is rows after the pad, and
+  `num_speculative_tokens: 1` is the only FC2-preserving shape
+  (`../feature-enable-recipes/flashcomm2-draft-pad-token-divisibility.md`, #7809).
 - or it dies at **request time on every rank in the same second** with a **Python
   `AttributeError`** on a *dense* drafter whose capture succeeded:
   `'ForwardContext' object has no attribute 'draft_attn_metadatas'`, deepest frame
@@ -457,3 +467,8 @@ from the acceptance numbers.
   *second* feature on a **310P** hybrid model: MTP over an `align`-mode prefix cache
   (per-block SSM state, `num_speculative_blocks`, `accept_token_bias`, the fp16 state
   dtype, and the two 310P CI tests that cover each feature alone and never together).
+- `../feature-enable-recipes/flashcomm2-draft-pad-token-divisibility.md` — the FC2 ×
+  multi-step-draft collision: `chunk_num == global_tp_size` algebra (so the flag value is
+  never the answer), the single-writing-site `pad_size`, the missing draft gate on FC2
+  beside the present one on FC1, the K=1 early-exit discriminator, and the coverage fact
+  that no e2e combines FC2 with any `speculative_config`.

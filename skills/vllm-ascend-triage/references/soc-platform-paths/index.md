@@ -240,7 +240,10 @@ Conditional routes:
   `_310p/attention/attention_mask.py:90 get_splitfuse_mask`, while the same launch in eager mode
   works: the fallback mask does a host readback inside capture and the capture-safe branch is gated
   on two torch_npu `_npu_*` bindings, so no CANN/toolkit upgrade moves it →
-  `310p-mtp-graph-splitfuse-mask.md` (one `hasattr` line decides it).
+  `310p-mtp-graph-splitfuse-mask.md` (one `hasattr` line decides it). The same block may also carry
+  `Not allow to synchronize captured-stream` + `107027`; it is one refused readback, not the
+  `captured-stream-host-sync.md` lane. From v0.23.0 the host qlens half is precomputed while the
+  mask half still reads back, so "upgrade rc1 → final" fixes nothing there (#15536).
 - A **hybrid linear-attention** family (Qwen3.5/3.6-class GDN) fails on a `-310p` image at the
   first decode step with `AttributeError: 'TritonPlaceholder' object has no attribute 'cdiv'`
   (or `next_power_of_2`) → the image's own "does not support triton" rule meets a decode path

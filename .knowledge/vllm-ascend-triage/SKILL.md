@@ -164,6 +164,16 @@ version, gaps stated.
   with its own group ids — so diff the two `--speculative-config` blocks (a draft
   model on one side only adds a group) before any connector or transport read
   (`references/pd-disaggregation/kv-group-count-mismatch.md`, reporter-confirmed #16177).
+  The same one-sided-config class has a second decode-side face that never reaches the
+  connector: spec decoding **and** structured output on the same launch, the decode
+  EngineCore dying at the scheduler step on `AssertionError: (-1, '<req>', {'<req>':
+  [-1, -1, -1]})` at `vllm/v1/structured_output/__init__.py` right after xgrammar's
+  `Failed to advance FSM … for tokens -1`. The ids are seeded **placeholder** draft
+  slots (count = the decode node's `num_speculative_tokens`), so the parity diff is
+  row 1 *and* one launch rides with it — `recompute_scheduler_enable` off on both
+  nodes separates the recorded #6421 resolution (P/D parity) from the source-verified
+  seeder (`vllm_ascend/core/recompute_scheduler.py:107-111`) —
+  `references/pd-disaggregation/structured-output-draft-placeholder-assert.md`.
   If instead the pair **serves** and then individual *decode* ranks keep their
   requests `Running` while generation and completion counters stop — health 200, no
   traceback, one rank taking all the new work, affected ranks recovering hours
@@ -240,7 +250,7 @@ delivery pattern is rule 1.
    truncation: what decides the outcome is not how much evidence was gathered but
    whether the message exists. The runs that shipped **no answer at all** each had
    a usable lead in hand (#6784, #13853, #11454, #11095, #17991, #3107, #6266, #5571, #527,
-   #587, #11680, #1579, #11771, #7947, #7508, #10522, #1255, #5772, #6488, #7996 — #1255 and
+   #587, #11680, #1579, #11771, #7947, #7508, #10522, #1255, #5772, #6488, #7996, #569 — #1255 and
    #5772 with the owning line already in the paste (#1255's plog names the kernel and its owner is one grep away;
    #5772's dumped `SchedulerOutput` carries the two counts, and the deciding fact is a
    model-directory log line); #2807 and #15394 held every verified fact of a complete
@@ -625,7 +635,12 @@ delivery pattern is rule 1.
      file's own numbers: `rg -n '<pat>' file | awk -F: '$1>=A && $1<=B'`. Recorded
      #12905 re-derived a tutorial block's anchors twice (`sed | rg -n` then `1199 +
      index`) before one absolute grep confirmed them; the window form would have
-     answered in the same call.
+     answered in the same call. The same off-by-one arrives with no pipe at all:
+     a line number counted by eye inside a `sed -n 'A,Bp'` window. In a
+     doc-verification report the page anchor is the first thing a maintainer
+     re-checks, so quote it from an absolute `rg -n '<token>' <page>` — recorded
+     #11738 shipped `:113` for the page's `--served-model-name`, which is `:114`,
+     inside an otherwise source-verified answer.
    - **Scope a grep to one repo.** A case view holds 20-40 exported trees under
      `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
      seconds and returns hits from unrelated products (torchair, metadef,
@@ -700,7 +715,12 @@ delivery pattern is rule 1.
    (e.g. `src/framework/op_base/src/`, `src/algorithm/impl/operator/`,
    `src/platform/common/externalinput.cc` holds the env parsing), so grep there
    before calling a behaviour undocumented; `cann/hccl` itself is mostly headers,
-   examples and the API surface. The genuinely absent pieces are named in
+   examples and the API surface. One more exported tree settles device-open
+   pastes: **`cann/runtime`** — `src/platform/platform_info.cpp` is the FE code that prints
+   `RealPath:Path '…/data/platform_config' does not exist.` and holds
+   `PLATFORM_RELATIVE_PATH = "../data/platform_config"` relative to the loading `.so`'s own
+   directory, so a `Get ACL JitCompile default value failed` / `File path[] is not valid`
+   paste is two reads there, not a `cann/ge` hunt. The genuinely absent pieces are named in
    `SOURCES.json` under `unavailable` (commonly `cann/hixl`, `cann/opbase`,
    `cann/ge`, the ops-* repos). Even when a tree is exported, `.cc` files that
    emit a given error string may be missing (the rank-table checkers under
@@ -773,7 +793,16 @@ delivery pattern is rule 1.
     #302: 「已解决，加个--privileged=true即可」, driver unchanged, one variable); then the
     driver/firmware × image-CANN pairing, with the printed SoC name read against
     `npu-smi`. No precision/dtype flag is ever the cause →
-    `references/startup-failures/acl-init-500001-and-soc-version.md`.
+    `references/startup-failures/acl-init-500001-and-soc-version.md`. **The same phase *without* `500001` is a file
+    question, not a privilege or pairing one**: `RealPath:Path '<…>/<arch>-linux/lib64/
+    ../data/platform_config' does not exist.` + `InitializePlatformInfo:File path[] is not
+    valid.` ending `RuntimeError: Get ACL JitCompile default value failed.` names the FE `.so`'s
+    own directory plus a sibling `data/platform_config`
+    (`cann/runtime/src/platform/platform_info.cpp:27,955-981`), and `RealPath` prints that
+    sentence for *any* `realpath()` failure including EACCES — so check the directory as the
+    job's UID inside the worker container, and do not carry `--privileged`, the driver pairing
+    or a `lib64/data` symlink into it
+    (`references/startup-failures/platform-config-file-missing.md`).
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the title's sentence can be a day older than the
@@ -949,7 +978,11 @@ failing frames at all** — prose only, "installing vllm 0.9.1 prompted me to un
 source with `VLLM_TARGET_DEVICE=empty`, then the tree's mirror), not another pip command
 (`references/image-dependency-faults/pip-index-visibility.md` §A0). A `multiple
 definition` at the AscendC kernel relink is one source under two path spellings, not a
-kernel defect: `references/image-dependency-faults/custom-op-build-stage.md`. Then, when the signature is specific — a log
+kernel defect: `references/image-dependency-faults/custom-op-build-stage.md`. A build that dies
+**before** any CMake work with `__main__.py: error: unrecognized arguments: --cmake` is pybind11
+3.0's option rename against a bare `pybind11` build requirement — the pinned tree's `setup.py`
+already says `--cmakedir`, and a host-side downgrade is inert under build isolation:
+`references/image-dependency-faults/pybind11-cmake-option-rename.md`. Then, when the signature is specific — a log
 fragment, an error string, a flag that did nothing, a title that names a mechanism —
 the exact row in `references/first-checks/signature-routes/index.md` (five pages split by
 the shape's home track): each row carries the lane or track it
@@ -1011,12 +1044,23 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    the reported title is the end of a
    chain (`Failed to infer device type`, `Failed to load plugin ascend`), the owning
    line is two or three above it —
-   `references/image-dependency-faults/plugin-load-module-missing.md`.
+   `references/image-dependency-faults/plugin-load-module-missing.md`. Split the two
+   shapes from the paste's own lines: `plugin ascend loaded.` present **and** neither
+   `Failed to load plugin ascend` nor `Platform plugin ascend is activated` present
+   means the module imported and the hook `register()` raised into vLLM's `except Exception:
+   pass` — the traceback must be recovered with
+   `python -c "import vllm_ascend; print(vllm_ascend.register())"`, and the pin's
+   `release_notes.md` known-issue bullet that calls `No platform detected` /
+   `vllm._C` harmless is the pre-emption for the follow-up, not the verdict —
+   `references/image-dependency-faults/platform-plugin-register-raised.md`.
 
 3. Take the track's cheap checks before source archaeology:
    - Lane A/B: effective `max_model_len`, then the diff between the reporter's
      command/env and the matching tutorial or CI test
-     (`references/startup-failures/max-model-len-budget.md`).
+     (`references/startup-failures/max-model-len-budget.md`; an explicit
+     `No available memory for the cache blocks` with `Available memory: 0` is that
+     page's profiling-peak section — raising the ratio alone is not the lever, and a
+     stated long-context requirement forbids the shrink ladder).
    - Lane C: re-run with `--enforce-eager`, then `ASCEND_LAUNCH_BLOCKING=1` to
      restore error attribution; read the plog; only then judge whether the
      Python frame named in the traceback is the failing op
@@ -1037,6 +1081,15 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
      `AscendScheduler` fork for a default dense serve and overwrites an explicit
      `enabled: false`), so grep the config field in `vllm_ascend/platform.py`
      before asking which flags they passed (recorded #3979).
+   - Any track, when the paste is a **serve command on a 2×N 910B box at v0.10.x** (MoE
+     model, perf *or* accuracy symptom): classify the **graph lane** from the command before
+     ranking mechanisms — `--enforce-eager` present ⇒ `NO_COMPILATION`
+     (`platform.py:143-145`, log `Compilation disabled, using eager mode by default`), absent
+     with a `--data-parallel-size` + `--enable-expert-parallel` pair ⇒ `PIECEWISE` ACL graph,
+     which that release's Known Issues call broken for DP+EP (`release_notes.md:53`, #2229).
+     The same flag is a **cost** on a throttled decode (remove it) and a **cure** on a DP+EP
+     corruption report (add it) — one grep decides the direction, one launch confirms it
+     (`references/performance-throughput/graph-mode-from-the-serve-line.md`).
    - Then the per-track checks: `references/first-checks/index.md` routes to
      `cheap-checks-by-track.md`, the full list. Open the entry that matches your
      classification instead of reading the whole list, and take its named script

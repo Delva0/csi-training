@@ -15,7 +15,7 @@ Every branch guarded by one of those names is this topic's candidate owner, and
 and `vllm_ascend/attention/attention_v1.py` (attention routing, masks) are where
 they live.
 
-Eight symptom classes, different owners — decide which one the report is before
+Nine symptom classes, different owners — decide which one the report is before
 reading any code:
 
 1. **The service never becomes ready**: `EngineCore failed to start` at the first
@@ -94,6 +94,17 @@ reading any code:
    The `ACLgraph has insufficient available streams` block and the
    `allow_internal_format = False` advice in the same paste are both red herrings
    (the plugin assigns the option `True` at import).
+
+9. **The request never returns to the client while the server logs `200 OK`** — a
+   `/v1/embeddings` `curl`/`requests` call hangs to timeout, and the only server lines
+   are the torch_npu `torch.save with "_use_new_zipfile_serialization = False" is not
+   recommended for npu tensor` warning plus
+   `(APIServer pid=…) INFO: … "POST /v1/embeddings HTTP/1.1" 200 OK` → the warning is
+   the *success*-path notice, printed verbatim in this release's own embedding
+   tutorial (`docs/source/tutorials/single_npu_qwen3_embedding.md:96` at v0.11.0), and
+   the body is built in the API server before that 200 is written — so nothing here
+   failed and the missing bytes are between the pod and the client →
+   `client-hang-after-200-ok.md`. Not a serialization, dtype or prefix-cache lane.
 
 Not this topic: a score/MMLU gap between harnesses (`../accuracy-benchmarks/index.md`),
 garbled *text* from a generation model (`../accuracy-benchmarks/`), a device dump
@@ -247,3 +258,11 @@ Three scripts serve this topic's startup classes directly:
   sibling is `../startup-failures/nz-weight-format-refusal.md`), and the
   v0.23.0 gate rewrite (`_should_trans_nz`, "FP32 cannot use NZ") that makes the
   verdict ref-specific.
+- `client-hang-after-200-ok.md` — class 9. Recorded case vllm-ascend #6424
+  (v0.11.0 / vllm v0.11.0, bge-m3 on 910B, CANN 8.3.RC2, K8s): the two log lines the
+  report treats as cause and evidence, the tutorial `path:line` that makes the
+  torch_npu warning benign, the `serving_embedding.py:134` → `outputs.py:225-230`
+  path that builds the body *before* the 200 (so a completed response rules this code
+  out), the offline-only bge-m3 e2e coverage that makes "supported" a narrower claim
+  than it looks, and the three-rung transport ladder with the in-pod loopback curl as
+  the deciding check.

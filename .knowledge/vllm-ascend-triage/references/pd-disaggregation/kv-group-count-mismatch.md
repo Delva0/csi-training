@@ -65,6 +65,16 @@ Same asymmetry, different face: matching *counts* with differing *geometry* (oth
 decode output instead (`recipe-contract-diff.md` invariant 2,
 `hybrid-state-transfer.md` §3). Do not expect one symptom to cover both.
 
+A third face of the same one-sided-spec class does not touch the connector at all:
+on a launch with **structured output** as well, the decode node's EngineCore dies on
+`assert accepted` with `-1` scheduled draft ids (`FAILED to advance FSM … tokens -1`),
+and #6421 was closed by the same action — "inconsistent configuration between
+prefilling and decoding nodes", key not disclosed — while the pin also ships a
+source-verified seeder for those ids (`RecomputeScheduler.add_request`). If the paste
+is a grammar assert rather than a `_get_kernel_block_ids` `IndexError`, read
+`structured-output-draft-placeholder-assert.md`: the parity diff is still row 1, but
+one ablation (`recompute_scheduler_enable` off on both sides) has to come with it.
+
 ## Step 3 — ranked causes
 
 1. **`--speculative-config` present on one side only** (reporter-confirmed #16177).

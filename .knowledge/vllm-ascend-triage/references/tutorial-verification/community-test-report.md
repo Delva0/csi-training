@@ -91,6 +91,20 @@ it, and do not treat it as the task's root cause.
   "this page has no in-container python example" is a completeness defect with an
   in-tree sibling behind it.
 
+### When the 已知问题 field is a version gate, not a doc gap
+
+#11753's row says 「官方文档没有 vllm-ascend:v0.18.0 部署指导」. The page's own
+Introduction answers it: "The `InternVL3.5` model is first supported in
+`vllm-ascend:v0.20.2`" (`InternVL3.5.md:7` at v0.22.1rc1). A task image older
+than the page's first-supported release cannot deploy the model, and no missing
+section would fix that — so this is **not** a document defect and must not be
+graded as one (完整性 unchanged). The headline is the task book's 蓝区镜像 being
+below the gate: state the minimum tag, audit the page at the pin, and ask the task
+book to be corrected. One grep decides which reading applies —
+`rg -n 'first supported in' docs/source/tutorials/models/<page>.md` — and the
+version-space page supplies the drift rules when the page's own tag is the defect
+(`docs-version-space-and-image-tag.md` §5).
+
 ## Staged emission protocol
 
 The report is a file, so write it as the sections become true, and keep each
@@ -123,6 +137,11 @@ its 6-row defect table. So budget it explicitly:
 - file body **≤ ~8 K characters** in total, 2-2.5 K per write. A 15 K-character
   report is a "how to write it" document, not a "what I found" one — the defect
   set is 5-6 rows;
+- **size each write against what is *left*, not against what the section needs.**
+  #11753 wrote the graded §1 as one 4.4 K block early (it landed) and then put
+  §2 deploy + §3 curl + §4 bench into a single append: the cap cut that command
+  mid-argument, the tool never executed, and the run shipped no closing message.
+  A section that does not fit is a section to shorten, not to finish;
 - a few lines of reasoning per turn once a finding is already in the file; do
   not re-audit it there;
 - the last ~2.5 K characters of the session are the message, written in cut
@@ -216,6 +235,39 @@ The reusable part is the ordering, not the count: page + headings, then the
 device map and the e2e yaml (which pin the card count without arithmetic), then
 the flag greps, then history titles for the FAQ — and the file opened before the
 fifth defect was checked.
+
+## #11753, the sixth run: the graded table landed, the rest did not
+
+Row `hjh4-InternVL3.5-38B` (2×Atlas 800I A2, HDK 25.5.0.B078, weights
+`Eco-Tech/InternVL3_5-38B-w8a8`, page `docs/source/tutorials/models/InternVL3.5.md`,
+288 lines; pinned vllm-ascend v0.22.1rc1 `5f6faa0c` + vllm v0.22.1 `0decac0d`).
+It followed the front of the protocol — skill alone, one-level orient plus
+`sources-summary.sh`, the page outline, then the page — and put a 4.4 K-character
+资料验证 §1 into `/workspace/scratch/internvl35-report.md`; its verified defect set
+is tabulated in `tutorial-command-audit.md`, "Fifth worked page", so a future run
+on this row writes §1 on turn 2. Then the cap (16 384 completion tokens,
+1 024 044 cumulative prompt tokens, `output_truncated`) cut the single §2-4 append
+mid-argument: no deploy script, no curl/bench, no FAQ, and 443 characters of
+message text in total.
+
+Two bought-and-paid-for lessons:
+
+- **A settled cosmetic is not re-opened.** Six of its 24 tool calls carried the
+  `--random-input 200` question (`:285`): grepping `--random-input-len`'s definition, then
+  re-reading `FlexibleArgumentParser.__init__`, after a three-line argparse probe
+  had already returned `Namespace(random_input_len=200)`. The tier was recorded in
+  `tutorial-command-audit.md` check 2 and reachable from `index.md`; the second
+  pass cost exactly the margin §2 needed.
+- **The partial "Verdict forming" block was the right instinct, in the wrong
+  place.** Its 10th assistant turn emitted a 443-character content block naming the version gate
+  and the TP2-vs-8-card contradiction while still verifying. That block *is* the
+  message's first section — ship it as message text on the turn it becomes true,
+  then keep auditing for the file.
+
+Its new reusable species, beyond the version gate above: the page's own
+"Supported Features" link resolves to a matrix that has **no InternVL3.5 row** and
+marks the family row ❌ (`supported_models.md:116`), while the tutorial exists and
+the 8B sibling is CI-gated — check 8's failing form, one `rg -n -i '<family>'`.
 
 ## What the report must not do
 

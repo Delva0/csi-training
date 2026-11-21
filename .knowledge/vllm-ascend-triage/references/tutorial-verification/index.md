@@ -48,9 +48,12 @@ Inherit the rules in SKILL.md, plus these:
    recorded run confirmed several real doc bugs and then kept auditing until the
    session ended, shipping nothing (`community-test-report.md`), and #11759
    repeated it a batch later with the defects in hand by turn 7, #11771 with the
-   graded defect table still unwritten at the cap, and #16954 spent the whole
+   graded defect table still unwritten at the cap, #16954 spent the whole
    budget re-deriving an upstream `Literal` for a version-line finding it had
-   already located (`docs-version-space-and-image-tag.md` §4). If the 任务书
+   already located (`docs-version-space-and-image-tag.md` §4), and #11753 landed
+   the graded §1 (4.4 K characters) and then died inside one oversized §2-4
+   heredoc — the cap cut the command mid-argument, so §2-4 *and* the message never
+   existed. If the 任务书
    names a section of the page, resolve that section name against the **whole**
    docs tree before grading it missing — the two cases grade differently. The same
    resolution applies to the **page name itself**: a path that does not exist at the
@@ -71,6 +74,13 @@ Conditional routes:
   a community-test report, and the recurring 已知问题 "容器内无法使用 postman"
   (host-side `--net=host` postman, python `requests` as the guaranteed in-image
   client, `curl` absent from the Dockerfile) → `community-test-report.md`.
+- The report's own failing item is a **sample request** — `vllm bench serve` or a
+  curl body answering 404 (`The model X does not exist`) while the service is
+  healthy — or its slow item is a first start that "loads for hours": the
+  served-name contract (bench `--model` vs the page's `--served-model-name`, and
+  the `--model`-omitted form that adopts the server's own name) plus the weight
+  pre-download the page omits → `serve-contract-and-weight-predownload.md`
+  (recorded #11738, and the standalone `curl /v1/models` form).
 - The report asks for *added* guidance or a cross-link, or reviews the
   contributor/developer path (mount, `set_env.sh`, `format.sh ci`, image tag):
   existence + reachability + parity greps, the `.po`-is-not-the-document rule,
@@ -78,7 +88,10 @@ Conditional routes:
   `missing-guidance-and-contributor-docs.md`.
 - The twelve-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
   v0.18.0 and v0.19.1rc1 examples (dead `--swap-space` / `--disable-log-request`,
-  `--random-input` vs `--random-input-len`, image WORKDIR vs doc relative path,
+  `--random-input` vs `--random-input-len`, **which parses as an unambiguous
+  argparse prefix and is tier cosmetic — check 2's six-line probe settles it once,
+  it is not re-opened** (recorded #11753 spent six calls re-deriving this);
+  image WORKDIR vs doc relative path,
   `limit_mm_per_prompt` and remote-media defaults, boilerplate TP sentence vs
   sibling docs, stale baseline release, CI config as the known-good command,
   `pip install <pkg>==<ver>` against the image's own requirements pins) plus the
@@ -97,6 +110,21 @@ Conditional routes:
   swapped-proxy defect of #15389; a missing `bash proxy.sh` is check 3) →
   `tutorial-command-audit.md`; the mechanism behind a wrong architecture prefix
   is `../pooling-embedding/seq-cls-arch-routing.md`.
+- The question is **why one page shows the same command twice** ("文档中为什么创建两次容器",
+  "why two `docker run`s", "do I need both"): separate boilerplate from the page's own
+  example before grading anything. The `## Environment Preparation` → `### Installation`
+  block is the shared image/install container (`docker pull` + a `--net=host`, no `-p`,
+  `--name vllm-ascend-env` run), while the `## Deployment` → `### Run docker container`
+  block is the page's serving container (`--privileged=true`, `-p <port>`, fewer
+  `--device` lines matching its TP and serve port). One container is needed, not two;
+  the reportable defects are that neither block says so, the install block's
+  `In the [Run docker container] …` sentence points at the *other* container instead
+  of `installation.md`, and the deployment block's
+  `export IMAGE=…|vllm_ascend_version|` drops the `-a3` suffix its own Atlas A3 example
+  needs (recorded #9988 at v0.18.0: `Qwen3-Dense.md:65-96` vs `:126-146`, note `:117`).
+  Parity control: the A2/A3 tab pairs (`GLM5.md:53/96`, `Qwen2.5-7B.md:41/69`,
+  `DeepSeek-V3.2.md:44/87`) are parallel options, not a second container — 9 of 33
+  tutorial pages carry two `docker run` blocks.
 - The defect is a **version disagreement** — the page prints an image tag the
   pasted command fails on, the report quotes a `…/en/latest/…` URL, or the doc
   names an older release than the flag it shows: `latest` is the build of main

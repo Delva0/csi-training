@@ -25,7 +25,9 @@ found the fix and it worked.
 
 **This is not `quantization-method-gate.md` §C**, which owns a *named* layer key
 (`KeyError: 'model.layers.0.self_attn.q_proj.weight'`) raised from the same function
-on a foreign format renamed onto `ascend`. Same frame, opposite fact: there the
+on a foreign format renamed onto `ascend` (or, when the directory is the
+Ascend-native conversion and the reporter already runs it under MindIE, §C-ii's
+description-source question — same key, different owner). Same frame, opposite fact: there the
 checkpoint's description does not match the keys the engine asks for; here the engine
 asks for a key nobody could write. Route on whether the quoted key has a module path.
 

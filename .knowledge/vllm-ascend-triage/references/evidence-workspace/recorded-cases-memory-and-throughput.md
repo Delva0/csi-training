@@ -649,3 +649,20 @@ summary fields (wall time, output tok/s, request count, concurrency) were in the
 files it opened. Ask for the EvalScope summary text and one `SpecDecoding metrics:` line
 per K instead of decoding a screenshot —
 `../performance-throughput/spec-decode-gain-accounting.md` §Worked case.
+
+**#8285** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`), 8×910B3-64G,
+`[Usage]: 怎么查看当前HBM上kvcache的使用情况` plus "curl metrics 的接口中有相关的统计信息吗" — the
+paste is the env dump and `npu-smi` only (whole-card 61.6/65.5 GB, one 58.2 GB process
+row), no engine log. An **observability lookup**, not a defect: the answer is two startup
+lines (`Available KV cache memory`, `GPU KV cache size`/`Maximum concurrency`),
+`vllm:kv_cache_usage_perc` (a block-pool occupancy ratio, not HBM), the
+`vllm:cache_config_info` labels, and `--kv-cache-metrics` for per-block residency — while
+`npu-smi` cannot split KV out of the card (the componentized split is the open feature
+request #2662). The recorded run assembled all of it and kept the right honesty (it
+labelled the `vllm:gpu_cache_usage_perc` rename as recalled, and that name indeed occurs
+in no file of either export), but used 16 tool turns inside `vllm/v1/core` and
+`vllm_ascend/worker/`, emitted no message text until the final turn, and told the reporter
+that `--disable-log-stats` leaves `/metrics` usable — the route survives, the **gauge
+freezes** (`vllm/v1/core/sched/scheduler.py:1910-1911` returns no stats, and the gauge is
+set only from them, `vllm/v1/metrics/loggers.py:1045`). Page (new):
+`../observability-and-logs/kv-cache-capacity-and-usage-metrics.md`.

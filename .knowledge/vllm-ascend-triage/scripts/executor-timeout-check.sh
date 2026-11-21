@@ -13,6 +13,13 @@
 # "RPC call to <method> timed out." -- no rank, no op, no error code. So the
 # presence of that text is evidence of a stalled worker, not of a bad link:
 # the RCA needs the per-rank log / plog of the rank that stopped replying.
+#
+# One lane inverts that: a launch carrying a dump/profiler feature (msprobe
+# precision dump via --additional-config dump_config_path/dump_config,
+# --profiler-config) makes every step slow on purpose, so the same text means the
+# deadline is the finding and raising VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS is the
+# fix (vllm-ascend docs/tests raise it to 30000/3600000). This script reports that
+# lane when it sees such a feature instead of blaming a dead worker.
 set -u
 LC_ALL=C
 
@@ -44,6 +51,9 @@ for f in "$@"; do
   bound=$(grep -oE 'VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS[^0-9]*[0-9]+' "$src" 2>/dev/null | sort -u)
   chain=$(count 'direct cause of the following exception' "$src")
   hccl=$(grep -oE 'hccl[A-Za-z]*[^ ]* ?(timeout|Timeout)|HCCL[^ ]* (timeout|Timeout)|EI[0-9]{4}|Execute timeout' "$src" 2>/dev/null | sort -u | head -5)
+  # Deliberately-slow lane: a dump/profiler feature in the launch makes the step slow
+  # on purpose, so the watchdog is the finding and not a stalled worker.
+  slow=$(grep -oE 'dump_config_path|dump_config|PrecisionDebugger|msprobe|profiler-config|collect_detailed_traces' "$src" 2>/dev/null | sort -u | head -4)
 
   # Graph-mode evidence: a mode that printed its banner and finished capture is not
   # the capture lane nor a dropped setting, whatever the watchdog says after it.
@@ -69,6 +79,7 @@ for f in "$@"; do
   [ "${ring:-0}" -gt 0 ] && echo "    - ringbuffer starvation line(s): $ring  (same mailbox, DEBUG level)"
   [ "$chain" -gt 0 ] && echo "    - 'direct cause of the following exception': $chain  (RuntimeError/TimeoutError wrap)"
   [ -n "$bound" ] && echo "    - configured bound: $bound"
+  [ -n "$slow" ] && printf '    - debug/profiling feature in the launch: %s  (the step may be slow on purpose)\n' "$(echo $slow | tr '\n' ' ')"
   [ -n "$hccl" ] && printf '    - collective-side timeout text: %s\n' "$hccl"
   [ -n "$gmode" ] && echo "    - graph mode banner: $gmode"
   [ -n "$gcap" ] && echo "    - capture start line: $gcap"
@@ -81,7 +92,9 @@ for f in "$@"; do
   echo "  verdict:"
   if [ -n "$rpc" ] || [ "$rd" -gt 0 ] || [ "$wr" -gt 0 ] || [ "${ring:-0}" -gt 0 ]; then
     echo "    vLLM RPC/ringbuffer watchdog, NOT an HCCL or NIC timeout."
-    if [ "$rd" -gt 0 ] || [ -n "$rpc" ]; then
+    if [ -n "$slow" ]; then
+      : # a dump/profiler launch owns the direction: slow-step verdict below
+    elif [ "$rd" -gt 0 ] || [ -n "$rpc" ]; then
       echo "    The message names no rank, op or error code: the fault is in the worker"
       echo "    that stopped replying, and this paste does not contain it."
     elif [ "$wr" -gt 0 ]; then
@@ -101,10 +114,23 @@ for f in "$@"; do
       echo "    fix is not in the pinned tree."
       echo "    see references/hccl-and-hardware/aclgraph-full-decode-runtime-hang.md"
     fi
-    echo "    next: per-rank worker log around the last successful step, plog for the"
-    echo "    same window, npu-smi info taken while the process is still hung, then a"
-    echo "    re-run with --enforce-eager + ASCEND_LAUNCH_BLOCKING=1 to move attribution"
-    echo "    onto the failing op. Raising the bound only buys observation time."
+    if [ -n "$slow" ]; then
+      echo "    A debug/profiling feature is configured, so read this as a DELIBERATELY"
+      echo "    SLOW step, not a stalled worker: the ranks were answering and the bound"
+      echo "    is the finding. Raising VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS before the"
+      echo "    launch IS the fix for this lane (in-tree precedent: Kimi-K2.5.md:356"
+      echo "    =30000, nightly MTPX-DeepSeek-R1-0528-W8A8.yaml:10 =3600000). Three"
+      echo "    caveats: it only applies with TP>1 (vllm/envs.py:1424); the 10 s"
+      echo "    check_health RPC (multiproc_executor.py:470-471) is NOT covered by it;"
+      echo "    and 0 or empty means instant timeout, not disabled. Shrink the dump"
+      echo "    (level L0, a step range, async_dump, task=statistics) as well."
+      echo "    see references/hccl-and-hardware/rpc-watchdog-timeouts.md"
+    else
+      echo "    next: per-rank worker log around the last successful step, plog for the"
+      echo "    same window, npu-smi info taken while the process is still hung, then a"
+      echo "    re-run with --enforce-eager + ASCEND_LAUNCH_BLOCKING=1 to move attribution"
+      echo "    onto the failing op. Raising the bound only buys observation time."
+    fi
   elif [ -n "$hccl" ]; then
     echo "    collective/transport-side timeout text present -- this is a real HCCL"
     echo "    lane-C case; use references/hccl-and-hardware/collective-error-chain.md"

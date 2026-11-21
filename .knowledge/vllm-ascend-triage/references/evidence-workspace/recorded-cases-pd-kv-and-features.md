@@ -409,3 +409,20 @@ The run reached the double-registration reading only in its last two turns, kept
 5-8 K characters of reasoning per turn, and ended `output_truncated` at 16 384 output
 tokens: 15 assistant turns, 26 tool results, 48 K characters of reasoning, **zero**
 characters of message text.
+
+**#9579** vllm-ascend v0.19.1rc1 (`da421af`) + vllm v0.19.1 (`b1388b1`), Qwen3.5-27B:
+"[0.19.1rc1]Qwen3.5-27B use the prefix-cache function fail" — "if the server config
+includes prefix-cache, it will abnormal shut down", with **no traceback and no serve
+command**, and the linked tutorial is the **v0.18.0** build's merged
+`Qwen3.5-27B-Qwen3.6-27B` page, which exists in neither exported tree (both carry
+`docs/source/tutorials/models/Qwen3.5-27B.md`). Third report of the documented-but-untested
+`qwen3_5_mtp` + `--enable-prefix-caching` pair (#9003, #10326) and the existing page gave
+it the right verdict — but only after 21 tool turns with no message text: the
+upstream-frame history search returned **`0 hits`** (that corpus ends at #8849, so the
+cited ids cannot appear), which the run answered with two `github /search/issues` pages
+(both `total_count` 1, the issue it was reading) plus greps that re-derived the tutorial
+`:118`/`:137` and nightly `--no-enable-prefix-caching` anchors the page already carried;
+the ranked verdict shipped on the 22nd of 24 assistant turns. Durable correction: a 0-hit
+corpus is expected and is not a licence to escalate — the precedent ids are the page's own
+record, and a lexical search needs a lexical signature. Page:
+`../spec-decode-mtp/hybrid-mtp-prefix-cache-unvalidated.md`.

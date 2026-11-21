@@ -100,7 +100,7 @@ Python-literal dict for a dataclass-valued flag as "breaks the command"
 above is v0.11.0's; at a later ref the same tutorial key can be *undefined* in
 `CompilationConfig` (`extra="forbid"`), so the command raises a validation error at
 startup instead of printing the fallback — recorded #6972 at v0.14.0rc1
-(`../evidence-workspace/recorded-cases-startup-and-environment.md`). Which of the
+(`../evidence-workspace/recorded-cases-startup.md`). Which of the
 two shapes the paste carries is the ref, not a second defect.
 
 ## Procedure
@@ -165,4 +165,4 @@ finished on every rank, the mode took effect and the request path is the questio
 Recorded case: #6972 (Qwen3-Omni-30B-A3B via `vllm serve --omni`, vllm-ascend
 v0.14.0rc1, 8×910) — the yaml route is explained by `level: 1` at this ref; the CLI
 route needs the per-stage line. The recorded session consumed the full output budget
-with no answer emitted (see `../evidence-workspace/recorded-cases-startup-and-environment.md`).
+with no answer emitted (see `../evidence-workspace/recorded-cases-startup.md`).

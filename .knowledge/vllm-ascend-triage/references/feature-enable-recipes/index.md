@@ -131,7 +131,11 @@ Rules for this topic:
    for a dense target), so a decode-window profile is allreduce by construction and the
    deciding launch is a profile of one >1000-token schedule — with the competing
    explanation (`_get_row_parallel_op` returns before `enable_sp()` for finegrained-TP,
-   matmul-allreduce or FlashComm2) stated in the same reply. On the v0.19.x hybrid families
+   matmul-allreduce or FlashComm2) stated in the same reply. When nothing crashes and the
+   complaint is an **accepted-token collapse** after the env is enabled (TTFT improves as
+   promised, acceptance halves, no error, MTP drafter), that page's §*FC1 with a MoE MTP
+   drafter* refutes the usual `pad_size` / double-shard story from four reads at v0.18.0 and
+   asks for the per-position rate line. On the v0.19.x hybrid families
    (Qwen3.5/Qwen3-Next, `expected src to have a size equal to the slice of self`) that page's
    §*v0.19.x hybrid layers* separates layer 0's SP-sized buffer from its two writers and its two
    enable gates — use it instead of grepping `copy_`.

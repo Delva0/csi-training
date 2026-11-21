@@ -19,7 +19,11 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   upstream refactor that adds or renames a class leaves that class running
   upstream code, or because the patch is installed as an **import side effect**
   that never ran in that process. The owner is still downstream in both cases; do
-  not answer "upstream bug" (recorded #6784, #253);
+  not answer "upstream bug" (recorded #6784, #253). The same name-first resolution
+  applies to the KV-connector registry, where it is silent: `kv_connector` is looked
+  up in `KVConnectorFactory._registry` before `kv_connector_module_path` is read, so
+  a name that collides with an upstream registration runs upstream's class —
+  `../pd-disaggregation/connector-name-registry-collision.md` (#7864);
 - the named class subclasses a `transformers`/`vllm` class or is registered as a
   drop-in replacement for one (`PluggableLayer`, `ModelRegistry.register_model`,
   monkey-patched `forward`);

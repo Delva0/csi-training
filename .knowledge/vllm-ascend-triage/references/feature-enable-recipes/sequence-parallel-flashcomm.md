@@ -4,7 +4,9 @@ Scope: `VLLM_ASCEND_ENABLE_FLASHCOMM=1` / `VLLM_ASCEND_ENABLE_FLASHCOMM1=1` appe
 the report and the engine either refuses the combination up front, dies in the
 memory-profiling forward with a **shape** error, **or does nothing at all** — the serve
 is healthy and the reporter's profiler still shows allreduce (that lane is the §*other
-entry shape* below, and its answer is a per-forward token gate, not a bug). Verified at vllm-ascend v0.14.0rc1
+entry shape* below, and its answer is a per-forward token gate, not a bug), **or** the
+serve is fine and the *accepted-token* metrics fall when the env is turned on (§*FC1
+with a MoE MTP drafter*). Verified at vllm-ascend v0.14.0rc1
 (`52d4acfa`) + vllm v0.14.1 (`d7de043`), the #6261 pins, and the VL guard re-verified at
 v0.15.0rc1 (`3d43ed99`) + vllm v0.15.0 (`f176443`) for #6950: the guard, the env name, the
 predicate and the assertion texts are all ref-specific — re-grep at the reporter's ref, and
@@ -268,6 +270,62 @@ beside it — the family is older than the v0.19 regression reading.
 - A reporter's "works on v0.18.0rc1" is consistent with this layer-0 allocation being new or changed,
   and a `one_commit_git` snapshot cannot diff their release: give them the read,
   `sed -n '80,110p' vllm_ascend/patch/worker/patch_qwen3_5.py`, on their own tree.
+
+## FC1 with a MoE MTP drafter: acceptance drops, nothing crashes
+
+Recorded #10504 (vllm-ascend v0.18.0 `e18643f8` + vllm v0.18.0 `bcf2be96`, 2×A2 910B2,
+DeepSeek-V3.2 **w4a8**, `method: deepseek_mtp`, `VLLM_ASCEND_ENABLE_FLASHCOMM1=1`):
+TTFT improves as the feature promises (16.86→6.05 s at concurrency 1) while the
+accepted-token rate falls 62.5 %→30.8 %, 48.8 %→17.9 %, 57.8 %→14.4 % at
+concurrency 1/4/16 and output TPS drops at 1 and 4. No traceback, no device record,
+both models keep executing. The issue's own root-cause section blames
+`is_drafter_moe_model` letting the MTP drafter into the FC1 branch and a
+drafter-vs-main `pad_size` mismatch. The gate is real; the stated mechanism is not, and
+four reads at the pin settle it:
+
+- `ascend_forward_context.py:97-106`: the MoE-context branch is `enable_sp(vllm_config)
+  and num_tokens is not None` with **no** token threshold, and only a *dense* drafter is
+  forced to `False` (`:101-105`, comment "sp is redundant and is not compatible with dp
+  and graph"). `is_drafter_moe_model` (`utils.py:813-819`) is `_is_contain_expert` on the
+  draft's own `hf_text_config` with **no method special-case**, so "eagle3 is already
+  special-cased, MTP is not" is wrong at this ref — an eagle3 draft config that carries
+  expert keys takes the same branch, and a dense one takes the other. Read the draft
+  config, never the method string.
+- So the fix the issue proposes is a behaviour change to a path the tree exercises:
+  the DSV3.2 configs ship `VLLM_ASCEND_ENABLE_FLASHCOMM1: 1` **together with**
+  `method: deepseek_mtp` — `tests/e2e/nightly/single_node/models/configs/DeepSeek-V3.2-W8A8.yaml:15,40`,
+  `tests/e2e/nightly/multi_node/config/DeepSeek-V3_2-W8A8-EP.yaml:33,44`,
+  `.../DeepSeek-V3_2-W8A8-A3-dual-nodes.yaml:15,40` — though none of them carries an
+  acceptance threshold. The honest width is "in-tree nightly combination, never
+  acceptance-validated": neither "unsupported" nor "validated".
+- `pad_size` is taken from the same count as the rows being sharded, so the
+  drafter-vs-main mismatch is not available as stated: the drafter's context receives
+  `num_tokens=num_input_tokens`, the graph-padded value from
+  `cudagraph_dispatcher._bs_to_padded_graph_size` (`eagle_proposer.py:534`; context at
+  `:704-712` with `num_actual_tokens=num_tokens`), and
+  `pad_size = (tp_world_size - num_tokens % tp_world_size) % tp_world_size` uses that
+  same value (`ascend_forward_context.py:114-117`).
+- The scatter/gather pair is symmetric for `method == "mtp"`: the scatter gates on
+  `_EXTRA_CTX.flash_comm_v1_enabled` (`eagle_proposer.py:1624-1626`), the gather on
+  `self.enable_shared_expert_dp` (`:1641-1646`), which is `shared_expert_dp_enabled()` =
+  `enable_shared_expert_dp or enable_sp() or enable_sp_by_pass()` (`:102`,
+  `utils.py:796-797`) — FC1 on implies gather on. And the target's hidden states are
+  all-gathered to full length before the handoff (`model_runner_v1.py:1841`,
+  `_all_gather_hidden_states_and_aux` `:1758-1779`), so no double shard from that side.
+
+What remains is a per-draft-step row-shape question, and the reporter's own metrics hold
+the discriminator: ask for the `Per-position acceptance rate:` line with FC1 on **and**
+off. Read the shape before any source walk: a drop that appears only from position 2
+onward is K-dependent (the later draft steps), a uniform drop is not. Send it with
+`--enforce-eager` (removes graph padding, so `num_input_tokens == num_tokens`) and an
+FC1 on/off pair at `num_speculative_tokens: 1`. Which of the two this report is stays
+open — the reporter's later comment (2026-06-23) carries only `collect_env` output
+(v0.18.0, 910B2, CANN 8.5.1) and no resolution.
+
+Cost note: the answer is those four refutations plus the two-row ask, and it is
+deliverable before any MLA/proposer line walk. #10504 spent its entire 16 384-token
+output budget re-deriving `eagle_proposer.py` / `mla_v1.py` offsets over 11 turns and
+shipped no answer text before the cap.
 
 ## Procedure
 

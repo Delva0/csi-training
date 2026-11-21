@@ -57,6 +57,14 @@ Recorded #12562 upgraded this row to "破坏命令" and scored 正确性 2/5 on 
 "breaks the command" claim needs a second option sharing the prefix, or an
 `allow_abbrev=False` hit, and nothing else.
 
+**The bench's `model` field is a second, separate contract** — the argument
+*names* parse in check 2, but the name *it sends* must be the name the page's own
+serve line publishes: `--served-model-name` on the serve line makes every other
+sample command's `model` field a 404 unless bench is given that alias, and the
+page often already prints the working form in its Reproducing section. That
+graded defect, and the weight pre-download the deploy section usually omits, are
+`serve-contract-and-weight-predownload.md` (recorded #11738).
+
 ## 3. Does every relative path in the doc exist, with the image's own WORKDIR?
 
 ```bash
@@ -183,6 +191,15 @@ page documents TP=2 for the Thinking variant. Neither is wrong; say which
 variant, which card count and which context length each number belongs to, and
 flag any CANN/HDK requirement stated in the release notes but missing from the
 tutorial's environment section (that is a 完整性 item with a `path:line`).
+
+The failing form is one grep: **a page whose "Supported Features" link resolves to
+a matrix that does not list the model.** At v0.22.1rc1 `InternVL3.5.md:13` points
+at `supported_models.md`, whose only InternVL row is `InternVL2.0/2.5/3.0<br>
+InternVideo2.5/Mono-InternVL … ❌` (`:116`) — no InternVL3.5 row at all — so a
+tester following the page reads "not supported". Cross-page 正确性 defect, tiered
+on its own; the in-tree gate usually disagrees with the matrix as well
+(`InternVL3_5-8B-hf.yaml` is CI-gated while the 38B has no config). Command:
+`rg -n -i '<family>' docs/source/user_guide/support_matrix/supported_models.md`.
 
 ## 9. Does the page install a package version the image's own pins forbid?
 
@@ -408,6 +425,33 @@ copying the row-15 table:
   `/root/.cache` in advance" (`:43`) while the `docker run` mounts no
   `/root/.cache` (mounts end at `:70`, `-it $IMAGE bash` is `:71`), so a `--rm`
   restart re-downloads ~27 GB. Add `-v /root/.cache:/root/.cache`; tier 完整性.
+
+## Fifth worked page: InternVL3.5, community row `hjh4`, at v0.22.1rc1 (recorded #11753)
+
+Page `docs/source/tutorials/models/InternVL3.5.md` (288 lines), pinned vllm-ascend
+v0.22.1rc1 `5f6faa0c` + vllm v0.22.1 `0decac0d`. Row: 2×Atlas 800I A2, HDK
+25.5.0.B078, weights `Eco-Tech/InternVL3_5-38B-w8a8` (ModelScope), deliverable =
+资料验证 + 部署 + curl + `vllm bench`. The page's own version gate is
+`:7` "first supported in `vllm-ascend:v0.20.2`" — read it before grading anything
+(`community-test-report.md`, the 已知问题 version-gate paragraph). Verified
+findings, each `path:line`:
+
+| Tier | Finding | Evidence |
+|---|---|---|
+| wrong requirement | "require 1 Atlas 800I A2 (64G × 8) node or 1 Atlas 800 A3 (64G × 16) node" against the page's own two-card serve and the row's `卡数 2` | page `:21` vs `:124` (`--tensor-parallel-size 2`) |
+| breaks the command (container) | no 2-card recipe: the single-NPU tab maps `davinci0` alone with `--shm-size=1g`, the multi-NPU tab maps `davinci0..7` with `--shm-size=500g` | page `:45-46` (tab `:30-58`) and `:75-83` (tab `:62-95`) |
+| completeness / usability | the 38B serve block never passes `--trust-remote-code`, while the 241B block, the page's own lm_eval line and the in-tree gate all do — and the HF repo is `OpenGVLab/InternVL3_5-38B`, not the `-hf` conversion | page `:123-127` vs `:192`, `:266`; `InternVL3_5-8B-hf.yaml:10` |
+| 正确性 (cross-page) | "Supported Features" resolves to a matrix with no InternVL3.5 row whose InternVL family row is ❌ (check 8's failing form) | page `:13`; `supported_models.md:116` |
+| completeness | "…already within our CI monitoring scope, including:" is followed by an **empty** list; the prose evaluates `241B-A28B` (`:249`) while the command evaluates `38B` (`:262`); no baseline value anywhere, and the only in-tree gate is the 8B (`mmmu_val 0.58`, TP1, `max_model_len 40960`) | page `:247`,`:249`,`:262`; `tests/e2e/models/configs/InternVL3_5-8B-hf.yaml` |
+| completeness (the row's real workload) | the page documents BF16 HF weights only, while the row ships a w8a8 ModelScope checkpoint; the page's sample server log nonetheless shows a ModelScope download, contradicting its own HF weight link | page `:23-24` vs `:165` |
+| cosmetic | `--random-input 200` for `--random-input-len` (check 2 — prefix, tier cosmetic) | page `:285`; `vllm/benchmarks/datasets/datasets.py:1662` |
+| cosmetic (tabs copied) | the 38B tab's sample body prints `"reasoning_content": null` (the 241B one prints both keys) and its curl points at the **241B** repo's image, so the tab was copied from the sibling and never re-captured | page `:148`,`:158` vs `:225` (check 12) |
+| pass | `--max_model_len` (underscore) parses — the parser rewrites `_`→`-` at this pin too — and `--dtype bfloat16`, `--max-num-batched-tokens 16384` are valid; the model path is plain upstream (`rg -n -i internvl vllm_ascend/` → 0 hits) | parser (check 5); `vllm/model_executor/models/registry.py:427` (`InternVLChatModel` → `internvl`) |
+
+The perf command is `vllm bench serve --dataset-name random`, i.e. text-only
+prompts, so a VL model's throughput number there never exercises the vision tower
+and the page prints no result at all — say both (the row's 交付件 asks for a
+performance screenshot).
 
 ## What a finding must carry
 

@@ -72,6 +72,16 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   returned `tools_called=True` with zero calls and `content=None`
   (`deepseek-parser-silent-drop.md`). Both halves are the answer: the first
   shape is a missing parser, the second is a parse failure, not a fix.
+- **the stream itself dies server-side mid-request**, not at the client:
+  `Error in chat completion stream generator` then a traceback whose deepest
+  `vllm_ascend` frame is a `patch/**` tool-call parser returning `DeltaMessage(...)`,
+  ending in `pydantic_core._pydantic_core.ValidationError: 1 validation error for
+  DeltaMessage` / `tool_calls` / `Input should be a valid list [type=list_type,
+  input_value=None, input_type=NoneType]`. The patch wrote an explicit `None` into a
+  field the pinned protocol declares **non-Optional**
+  (`tool_calls: list[DeltaToolCall] = Field(default_factory=list)`), so the frontend
+  aborts the SSE generator and the client sees a truncated stream rather than a JSON
+  error — `delta-message-none-field.md` (#10376).
 
 Not this topic — leave with the linked route:
 
@@ -82,9 +92,11 @@ Not this topic — leave with the linked route:
   accuracy/score gap → `../accuracy-benchmarks/index.md`;
 - the thinking text sits in `content` / `reasoning_tokens: 0` →
   `../accuracy-benchmarks/reasoning-output-routing.md`;
-- nothing ever started → `../startup-failures/index.md`; a traceback →
-  `../hccl-and-hardware/index.md` (lane C) or
-  `../upstream-downstream-drift/index.md`.
+- nothing ever started → `../startup-failures/index.md`; a traceback **elsewhere**
+  (a device dump, a collective, a model/op frame) → `../hccl-and-hardware/index.md`
+  (lane C) or `../upstream-downstream-drift/index.md` — but a traceback raised while
+  the SSE generator is building deltas, whose deepest frame is `patch/**`, is the
+  server-side shape above, not a route away.
 
 ## Rules
 
@@ -267,6 +279,13 @@ parser puts you back on rule 1.
   passthrough, `:209-219` `json.loads`), the untested multi-block streaming reset
   (`:414-421`), the two registered parser names and why a name mismatch is a
   *different* shape, and the one sentence that retires the deployment lane.
+- `delta-message-none-field.md` — the server-side abort: a `patch/**` parser passing
+  `tool_calls=None` into the pinned non-Optional field (`protocol.py:262` at vllm
+  v0.20.2), why the upstream sibling passes a list (`minimax_m2_tool_parser.py:434-437`),
+  the reachable branch (`if delta_tool_call or content_before:` with
+  `_extract_delta_tool_call` returning `None`), the `[]` fix and why the frontend's
+  truthiness tests make it safe, the existing UT's blind spot (prose in a separate
+  chunk) and the one-`_feed` regression test. Worked for #10376 at v0.20.2rc1.
 - `mtp-block-verify-acceptance.md` — what the `max_spec_len >= 3` branch does
   (cumulative-product acceptance over the whole draft block, recovered token,
   bonus token), which requests it cannot touch (greedy rows), why a wrongly

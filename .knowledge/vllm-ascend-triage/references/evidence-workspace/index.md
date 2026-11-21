@@ -115,6 +115,11 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   listing ban is about `history/` (thousands of bodies), not this handful.
   Recorded #12658 declared its attachments missing on exactly that grep and lost
   the session; the same directory held all four dumps below.
+  A terminal screenshot of a `curl` **is the request body and the response in one
+  OCR file** — which sampling fields were set, `max_tokens`, `finish_reason`,
+  `usage.prompt_tokens` — so it decides the sampler and truncation lanes before any
+  source read (recorded #2537 held exactly that pair and the run never opened the
+  directory, spending its budget re-deriving an MoE gating op).
 - **Attachment shapes, and what each one decides.** A screenshot's `.ocr.txt` (a
   few hundred bytes) is the log paste — recorded #9986 filed a startup warning
   with no pasted log, and the answer's only version-pinned evidence
@@ -148,11 +153,17 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   and how each recorded session ended (delivered early, delivered late, cut
   mid-answer, or shipped nothing). Read it to place a new report beside a precedent,
   or before deciding that a session which already has a usable lead should keep
-  digging. It carries one index line per case and routes to six pages split by
-  track family: `recorded-cases-startup-and-environment.md`,
+  digging. It carries one index line per case and routes to seven pages split by
+  track family: `recorded-cases-startup.md`,
+  `recorded-cases-install-and-environment.md`,
   `recorded-cases-device-and-communication.md`,
   `recorded-cases-accuracy-and-output.md`,
   `recorded-cases-memory-and-throughput.md`,
   `recorded-cases-pd-kv-and-features.md` and `recorded-cases-brief-mentions.md`
-  (the paragraphs that list several issues at once). Open one page, not all six;
-  `rg -n '#<issue>'` across this directory finds an entry either way.
+  (the paragraphs that list several issues at once). Open one page, not all seven;
+  `rg -n '#<issue>'` across this directory finds an entry either way. The engine-start
+  family and the install/image/version family were split apart at the per-file size
+  cap, so add a case to whichever of `recorded-cases-startup.md` and
+  `recorded-cases-install-and-environment.md` owns its page plus one line in the index;
+  keep each of them under the cap rather than condensing entries, and split the index
+  itself by the same family boundaries when it reaches the cap.

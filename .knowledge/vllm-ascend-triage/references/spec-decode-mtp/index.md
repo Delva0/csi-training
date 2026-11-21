@@ -143,6 +143,19 @@ at request time. The shapes:
   arithmetic (`MambaManager`, `num_speculative_blocks`) is the crash surface. Verdict +
   ladder in the first message (`hybrid-mtp-prefix-cache-unvalidated.md`, worked #9003).
 
+- or the **decode node's EngineCore dies at the scheduler step**, before any model
+  execution, with `Warning: The token id -1 is out of range … Rejecting the token`
+  (xgrammar) then `Failed to advance FSM … for tokens -1` then
+  `AssertionError: (-1, '<req>', {'<req>': [-1, -1, -1]})` at
+  `vllm/v1/structured_output/__init__.py:288`, on a **P/D** launch that carries
+  `--speculative-config` **and** structured output (`response_format` / `guided_*`):
+  the `-1`s are seeded placeholder draft slots, and their count is the decode node's
+  `num_speculative_tokens`. Recorded #6421 was closed by **P/D config parity**;
+  the pin also has a source-verified seeder (`RecomputeScheduler.add_request`, gated
+  on `recompute_scheduler_enable` + `is_kv_consumer`). Diff both serve commands and
+  run the `recompute_scheduler_enable`-off launch before ranking a code fix →
+  `../pd-disaggregation/structured-output-draft-placeholder-assert.md`.
+
 - or the **process** dies at request time with a bare `AssertionError: num_decodes: N,
   num_spec_decodes: M` (both ≥ 1) whose deepest frame is upstream
   `vllm/v1/attention/backends/gdn_attn.py` `GDNAttentionMetadataBuilder.build`, reached
@@ -169,7 +182,10 @@ answers on a **PD** pair where the decode node received the state
 cards" question (`../deploy-sizing/index.md`). A **performance** complaint where spec decode is
 switched on and the engine is healthy with acceptance visibly non-zero ("开 MTP 反而慢了",
 two benchmark tables, no traceback) is the token-per-step arithmetic track:
-`../performance-throughput/spec-decode-gain-accounting.md`. A **tool call** whose JSON the
+`../performance-throughput/spec-decode-gain-accounting.md` — unless the lever that was
+toggled is FlashComm1/SP, where the owner is
+`../feature-enable-recipes/sequence-parallel-flashcomm.md` §*FC1 with a MoE MTP drafter*.
+A **tool call** whose JSON the
 client cannot parse (`Unterminated string`, 格式错误, 参数被截断) while the text
 itself is fine is also not here: the open question is whether the stream or the
 assembly lost the tail, so start at `../tool-call-streaming/index.md`. When its
@@ -352,6 +368,16 @@ from the acceptance numbers.
   reporter-confirmed `ValidationError`, the two candidates a grep eliminates
   (`draft_tensor_parallel_size` no-op at v0.11.0, the eagle3 target-family gate), the
   single-card-only e2e coverage, the ladder, and the delivery arithmetic.
+- `../pd-disaggregation/structured-output-draft-placeholder-assert.md` — the spec
+  family's **structured-output** face: `assert accepted` with `-1` scheduled draft
+  ids on a P/D decode node (nothing executes on device, so no plog applies). Carries
+  the P/D key diff that closed #6421 ("inconsistent configuration between prefilling
+  and decoding nodes"), the seeding chain at `a17059a2`
+  (`recompute_scheduler.py:101-111`/`:289-298`/`:519-532`, `rejection_sampler.py:22`
+  `PLACEHOLDER_TOKEN_ID = -1`, `scheduler.py:1030-1057`,
+  `structured_output/__init__.py:288`, `backend_xgrammar.py:181`), the single launch
+  that separates parity from the placeholder path, and the row-alignment rule any
+  patch must keep (`1 + len(spec)` bitmask rows per request).
 - `async-spec-bookkeeping-desync.md` — `--async-scheduling` + MTP and the
   three-traceback signature: the discarded-request chain
   (`model_runner_v1.py:838-842` mask → `prev_req_id_to_index` built without those

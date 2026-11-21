@@ -26,6 +26,18 @@ build lacked it, not which reader is wrong —
    (`.github/workflows/pr_test_full.yaml:78`). `requirements.txt` does not pin
    vllm at that commit (its only `vllm` mention is a comment at `:19`), so a grep
    for `vllm==` there returns nothing.
+   **On an official image the tag is readable in the pinned tree, and it can be newer
+   than the snapshot's export.** `ARG VLLM_TAG=` in the image's own Dockerfile names the
+   upstream vllm branch it clones: at vllm-ascend `v0.21.0rc1` (`80610e44`) both
+   `Dockerfile.310p:36` and `Dockerfile.310p.openEuler:35` read `VLLM_TAG=v0.21.0`, while
+   this snapshot exports vllm `v0.13.0`. So a `-310p` (or any official-tag) paste whose
+   vllm `file:line` values match neither the export nor its neighbours is **expected**,
+   not evidence of a hand-built install — one `rg -n 'ARG VLLM_TAG' <ascend>/Dockerfile*`
+   separates the two lanes before any mismatch advice, and the frames are then mapped by
+   function name (`gpu_model_runner.py` `profile_run`), never by line number. Recorded
+   #10872 spent four turns concluding "the reporter's vllm is not v0.13.0" (both of its
+   `file:line` pairs moved in opposite directions) when the Dockerfile tag was the
+   citation.
    **The snapshot's vllm pin can be older than the image's.** Recorded #6784:
    `SOURCES.json` pinned vllm `v0.13.0` while the image is vllm-ascend
    `v0.14.0rc1`, which pairs with vllm `v0.14.0/v0.14.1`. A traceback frame

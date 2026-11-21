@@ -39,6 +39,17 @@ releases on one command line — and pastes one number per run ("12s vs 4s", "�
 an EvalScope/AISBench table or a screenshot of one). Convert those into rates on a stated
 axis before ranking anything: `cross-run-ratio-normalization.md`, one script call.
 
+**And the PD variant of that shape:** the two runs are **one model's PD deployment and its
+colocated/multi-node deployment** ("the TTFT of PD is 2 times longer than TTFT of
+Multi-node Deployment … but the typical model of qwen no this issue"), with no numbers,
+no serve commands and an empty `collect_env`. The direction is structural — the PD proxy
+returns the first token only after **D** produces one (#3099) — so nothing here is a
+transport mechanism until the terms are split, and the two recipes are not the same
+configuration (the documented PD prefiller runs `--enforce-eager` + `--max-num-seqs 8`
+while the colocated blocks run `--async-scheduling` + `FULL_DECODE_ONLY`). Answer on the
+second or third turn with the chain, the pinned tutorial's own PD anchor and the one-flag
+A/B on the prefiller: `../pd-disaggregation/pd-vs-colocated-ttft.md`.
+
 **And this topic:** a MoE serve whose own command omits `--enable-expert-parallel`
 (usually because "开 EP 会胡言乱语") has moved every MoE layer onto the TP all-gather
 path — the perf complaint and the garbled-output complaint are one decision:
@@ -123,6 +134,15 @@ Not this topic, leave immediately:
   so its presence proves nothing was attempted, and on a hybrid linear-attention
   model at vllm ≤ 0.14.x the capability is force-disabled in the config layer.
   Check the gate before proposing anything: `zero-prefix-cache-hit-hybrid.md`.
+  **At a newer pin that gate is dead** — then, when the model is a documented one
+  and the deployment is PD, the pin's own `docs/source/tutorials/models/<model>.md`
+  decides before any source: which side the recipe enables caching on (DSV4-Flash
+  at v0.22.1rc1: P yes, D `--no-enable-prefix-caching`) and its tuning note
+  (§9.1: "4K prefix cache hit in an experimental manner … change `--block-size`
+  from 128 to 32"), so a 0 % read off the decode instance is structural and a
+  0 % on P is the recipe run outside its envelope. Diff the reporter's two launch
+  scripts against that recipe in the same turn (#12093 burned 60 turns on the
+  coordinators instead).
 - **Separate the two complaints before answering.** "排队久" is TTFT: total
   prefill work ahead / prefill throughput, and it is *not* improved by
   `--max-num-seqs` or by memory. "生成慢" during the same window is
@@ -222,6 +242,16 @@ Not this topic, leave immediately:
   TP all-gather path instead of MC2 dispatch/combine at the same card count — one
   grep of the selector plus the two step times is the answer, and the garbled EP run
   is the defect to chase (`moe-comm-path-when-ep-off.md`).
+- **A performance switch that swaps a layer's comm group changes its weight sharding,
+  so it can OOM instead of speeding anything up.** `VLLM_ASCEND_ENABLE_MLP_OPTIMIZE`, a
+  hand-set fine-grained `mlp`/`oproj` tensor-parallel size and
+  `VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE` are all chosen in
+  `get_{column,row}_parallel_op` (`vllm_ascend/ops/linear_op.py`), and the selected op's
+  `comm_group` supplies the `tp_size` that `divide(...)` shards the weight by — with
+  `data_parallel_size == 1` the MLP group has one member, so the MLP is replicated on
+  every card (+~38 GB for a Qwen3-32B at TP4) while its collectives become no-ops. Price
+  the flag in bytes before any tuning or leak hypothesis:
+  `../deploy-sizing/mlp-tp-group-oom.md`.
 
 ## Pages
 
@@ -294,7 +324,11 @@ Not this topic, leave immediately:
   disables prefix caching in `MambaModelConfig` at vllm v0.14.1, the model's own
   `assert not cache_config.enable_prefix_caching`, how vllm-ascend's
   `patch_mamba_config.py` inherits that decision, the one log line that confirms
-  it on the reporter's host, and the later-version contrast.
+  it on the reporter's host, and the later-version contrast. Plus the newer-pin /
+  PD branch (recorded #12093, DeepSeek-V4-Flash on A2 under PD): the model
+  tutorial's own `--block-size 32` / 4K-experimental note, the recipe's P-yes /
+  D-`--no-enable-prefix-caching` asymmetry that makes a decode-side 0 % structural,
+  and the per-cache-kind block sizes that quantise the hit.
 - `pre-graph-mode-eager-era.md` — the v0.8.x/v0.9.x sibling of these rules (#1138,
   v0.8.5rc1, DeepSeek-R1-Distill-Qwen-32B TP4 on 4×910B, "AICore < 15 %, 57 tok/s"): how
   `Swapped`/`Pending` date the paste to the V0 logger, why `Pending: 0` + `KV 0.2 %` retires

@@ -72,6 +72,63 @@ of those buckets, the request count and accepted-draft count the pair implies un
 the v0.19 branch rule (stating the `M == r` ambiguity instead of resolving it), the
 Lane A decompositions of `M`, and the ordered ablations.
 
+## Third reading: `queryT` *smaller* than every plausible `M`
+
+The two lanes above both assume `N` is a padded bucket above the real schedule. A paste
+can report the opposite direction, and then the padding story is not just uncertain — it
+is excluded. Recorded #4771 (vllm-ascend **v0.11.0rc2** `a2e4c3f` + vllm **v0.11.0**
+`b8b302c`, Qwen2.5-32B-Instruct TP2 with its own trained **eagle3** draft,
+`draft_tensor_parallel_size: 1`, `n=5`, `--max-num-batched-tokens 4096`, no graph-mode
+flag on the launch): the first request completes normally (the metrics line even reads
+`Drafted: 15, Accepted: 2`), the **second** request dies ~8 s later, and the paste carries
+three things at once:
+
+```text
+(Worker_TP1) File "vllm_ascend/sample/sampler.py", line 28, in _apply_top_k_top_p
+(Worker_TP1) RuntimeError: operator():…/LocalScalarDenseNpu.cpp:47 NPU function error:
+  c10_npu::acl::AclrtSynchronizeStreamWithTimeout(copy_stream), error code is 507018
+E89999 … When layout is TND, queryT(1) must be equal to the last element of
+  actualSequenceLengthQ(33)[FUNC:CheckFAISeqlenDataInTND]…LINE:880]
+        When layout is TND, queryT(1) must be equal to the last element of
+  actualSequenceLengthQ(2)…                       # a second M in the same record
+        Aicpu kernel execute failed, device_id=1, stream_id=2, task_id=7315,
+  soName=libcpu_kernels.so, funcName=RunCpuKernel, kernelName=ScatterElements,
+  errorCode=0x2a.[FUNC:PrintAicpuErrorInfo][FILE:davinci_kernel_task.cc][LINE:1308]
+```
+
+- `sample/sampler.py:28` at that pin is the **fast-path condition** of
+  `_apply_top_k_top_p` (`if not is_310p() and p is not None and k is not None and
+  1 <= int(k.max()) <= 1024:`). `int(k.max())` is a `LocalScalarDenseNpu` D2H copy, i.e.
+  a host sync point: it is where an earlier async op's failure surfaces, not the owner
+  (SKILL.md rule 11). Say so in the first paragraph or the reporter will chase the
+  sampler.
+- The `v0.11`-era padding branch cannot produce this pair. In
+  `attention/attention_v1.py` `build()`, the `DecodeOnly and num_input_tokens >
+  num_actual_tokens` branch (`:228-247`) pads `seq_lens` and `block_table` by
+  `padded_num_tokens` but extends `query_start_loc_cpu` with
+  `torch.arange(query_start_loc_cpu[-1] + 1, query_start_loc_cpu[-1] + padded_num_tokens)`
+  (`:244-247`) — an **exclusive** stop, so it appends `padded_num_tokens − 1` entries and
+  `actual_seq_lengths_q[-1]` (`:271`) ends at `num_input_tokens − 1`. That branch's own
+  refusal is therefore **`N = M + 1`**, never `M ≫ N`; it is worth quoting as a
+  source-verified off-by-one at this ref (recheck before citing at another), and it is
+  enough to retire the padded-bucket reading of a `queryT(1)` paste.
+- On the `SpecDecoding`/`ChunkedPrefill` path the two numbers are read from the same
+  list: `_forward_v1_style` passes `actual_seq_lengths=attn_metadata.actual_seq_lengths_q`
+  (`:553-555`) after the caller unpads `query = query[:query_start_loc[-1]]`
+  (`:674-675`), so a *stable* mismatch there needs the metadata itself to be wrong — and
+  a paste with **two different `M` in one record** (33 then 2) shows more than one
+  refusal was recorded, so the pair does not describe a single step's bookkeeping.
+
+What to do with that shape: treat the **device record as the primary evidence** — the
+kernel name, `task_id`, `stream_id`, `chipId` and `retCode=0x2a` belong to the AICPU
+task, so the answer is `--enforce-eager` (or `PIECEWISE`) first, `n: 5 → 1` second, and
+a request for the plog's `[AIC_INFO] fault kernel_name=` segment plus an
+`ASCEND_LAUNCH_BLOCKING=1` run — not a further derivation of which padding site fired.
+The recorded run spent ~40 K characters of reasoning on that decomposition and shipped
+the mechanism as an open item, which is the correct label: **arithmetic verified, owner
+not established.** Do not publish a candidate branch as the cause here; the pair rules
+the branches out rather than in.
+
 ## Lane A — the padding sites that disagree at v0.14 refs (verified 52d4acf, MTP launches)
 
 | site | pads the query rows (`N`) | pads `actual_seq_lengths_q` (`M`) |
@@ -244,10 +301,14 @@ starts there rather than in the kernel.
   refused two numbers that must be identical: the query rows were padded to a
   graph bucket (`queryT`) while the per-request cumulative lengths stayed at the
   real schedule; then rung 1.
-- Classification: lane C is wrong here — the fault is host-side metadata
-  bookkeeping, detected by the op before launch; the reported line has no device
-  dump, no `aicore`, no plog content to read.
-- Version scope: Lane A is source-verified at vllm-ascend v0.14.0rc1 (`52d4acf`,
+- Classification: for the `queryT > M` pair lane C is wrong — the fault is host-side
+  metadata bookkeeping, detected by the op before launch, and the reported line has no
+  device dump, no `aicore`, no plog content to read. When the pair runs the **other**
+  way (`queryT` below every `M`) the paste *does* carry a device record, so say so
+  instead: host sync point + AICPU task, plog ask first (§*Third reading*).
+- Version scope: the third reading is source-verified at vllm-ascend v0.11.0rc2
+  (`a2e4c3f`) with vllm v0.11.0 (`b8b302c`) — `sample/sampler.py:28`,
+  `attention_v1.py:228-247`, `:271`, `:553-555`, `:674-675`; Lane A is source-verified at vllm-ascend v0.14.0rc1 (`52d4acf`,
   snapshot; reporter ran `d1dcdfc`) with vllm v0.14.1 (`d7de043`); Lane B at
   v0.19.1rc1 (`da421af`) with vllm v0.19.1 (`b1388b1`). The recorded v0.14 paste was
   a 3-line OCR with **no Python frame**, so which padding site fired there is derived

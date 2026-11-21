@@ -849,6 +849,28 @@ rung was the install-and-re-run, one command, ahead of the plog ask. Pages:
 `../startup-failures/environment-correspondence.md` §*A self-built vllm beside an rc
 vllm-ascend*.
 
+**#4771** vllm-ascend v0.11.0rc2 (`a2e4c3f`) + vllm v0.11.0 (`b8b302c`),
+Qwen2.5-32B-Instruct TP2 with its own trained **eagle3** draft
+(`draft_tensor_parallel_size: 1`, `n=5`, `--max-num-batched-tokens 4096`, no graph
+flag): the first request answers (the metrics line even reads `Drafted: 15,
+Accepted: 2`), the **second** dies with `RuntimeError: operator():…
+LocalScalarDenseNpu.cpp:47 … AclrtSynchronizeStreamWithTimeout(copy_stream), error
+code is 507018` at `vllm_ascend/sample/sampler.py:28`, and the same block carries
+`queryT(1)` against `actualSequenceLengthQ(33)` **then** `(2)`, plus an AICPU task
+record (`kernelName=ScatterElements`, `retCode=0x2a`, `task_id=7315`, `chipId=1`).
+Track: not a card, CANN or eagle3-weights fault. `sampler.py:28` is the
+`1 <= int(k.max())` fast-path *condition* in `_apply_top_k_top_p`, i.e. a
+`LocalScalarDenseNpu` D2H copy and therefore a host sync point (SKILL.md rule 11);
+and the pair's **direction** — `N` far below both `M` values — excludes the
+padding-bucket reading the FIA page's arithmetic assumes (at that pin the
+`DecodeOnly` padding branch's `arange` stops one element short and can only give
+`N = M + 1`). The run delivered the sync-point verdict, three ranked candidates and
+the ladder, and left the owner open — the correct label; what it spent was ~40 K
+characters of reasoning on the decomposition and a second `M`. Durable correction:
+`../spec-decode-mtp/fia-tnd-seqlen-mismatch.md` §*Third reading* — read the device
+record first (`plog` `[AIC_INFO] fault kernel_name=`), `--enforce-eager`/`PIECEWISE`
+rung 1, `n: 5→1` rung 2.
+
 **#3810** vllm-ascend v0.11.0rc0 (`00ba07102212`) + vllm v0.11.0 (`b8b302cde434`),
 one 910B4 (CANN 8.2.RC1), Qwen3-VL-8B-Instruct with
 `--max_model_len 128000 --gpu-memory-utilization 0.75` and one image request:

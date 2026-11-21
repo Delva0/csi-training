@@ -10,6 +10,39 @@ Routes: `../pd-disaggregation/index.md`, `../kv-pool-store/index.md`,
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#15402** vllm-ascend v0.23.0rc1 (`f4a08bd`) + vllm `0.23.0+empty`, torch_npu
+2.10.0.post2, CANN 9.0.1; MiniMax-M2.5-w8a8 at 40-60 K context; PD with `MultiConnector` +
+`MooncakeLayerwiseConnector` (`use_layerwise: true`, `use_ascend_direct`, P dp1/tp8, D
+dp1/tp8): 「偶现TTFT变短，并且输出乱码」, with an attached HTML report holding the
+reporter's own wait-idiom A/B (`event.synchronize()` → intermittent short TTFT + garbage;
+stream-side wait → stable), i.e. the attachment *was* the experiment. Delivered on the ninth
+assistant turn, on source alone: `mooncake_layerwise_connector.py:483-490` is the only branch that
+waits host-side while the two `resharding_stream` siblings insert `reshape_cache_event.wait()`
+as a device dependency (`:1736-1737`, `:492`); `pd_head_ratio` is `ascend_config.py:211`
+(default 1, MLA checkpoints skip the block, so the host branch is the ordinary path); the
+`(TTFT, output)` pairing is the closing check and the mamba/linear coverage question sits
+below it. Two corrections to the recorded ranking are on the page: KV quantization is a
+**confounded** discriminator (it also changes dtype and buffer registration), and the
+pin's `:484-489` ADXL comment describes a *hang*, not an early return. Reporter later
+confirmed publicly that both sides ran the current `0.23.0+empty` / `0.23.0rc1` pair, so
+the version lane is closed → `../pd-disaggregation/layerwise-send-sync-race.md` (new).
+
+**#7182** vllm-ascend v0.13.0 (`6281c12`) + vllm v0.13.0 (`72506c9`), A2 and A3: "[Bug]:
+DSv3.1, the TTFT of Prefill-Decode Disaggregation is 2 times longer than TTFT of
+Multi-node Deployment … the typical model of qwen no this issue", no log, no metric block,
+no serve commands, empty `collect_env`. Measurement lane, delivered as a verdict: the TTFT
+chain plus **#3099** (the proxy returns the first token only after D produces one, so
+PD > colocated is structural), the pinned tree's own anchor
+(`DeepSeek-V3.1.md:692-706`: 6.16 s @ 3.5k/1.5k, P DP2+TP8 / D DP32+TP1), the recipe flag
+asymmetry the comparison hides (PD prefiller `--enforce-eager` `:319` + `--max-num-seqs 8`
+`:318` + ns 1 `:324` vs colocated `--async-scheduling` `:121` + `FULL_DECODE_ONLY` +
+`--max-num-seqs 16` + ns 3 `:128`), the concurrency×`max-num-seqs` trap
+(`long_sequence_context_parallel_single_node.md:114`) and
+`VLLM_ASCEND_BALANCE_SCHEDULING` (`:135`). (run: seven reasoning-only assistant turns
+before the first message text, then one 5.7 K-character answer cut inside `## Scope and
+gaps` — the same content was a two-turn answer) → `../pd-disaggregation/pd-vs-colocated-ttft.md`
+(new).
+
 **#6950** vllm-ascend v0.15.0rc1 (`3d43ed99`) + vllm v0.15.0 (`f176443`), body only
 "[Bug]: v0.15.0rc1, Flash Comm V1 is not supported for VL models … Assertion failed … while
 v0.13.0 supports this" with an empty `collect_env` block. The string is the project's own guard —
@@ -298,6 +331,27 @@ predicts. Cause left open; the deliverable is the D-side plog plus the `hccn_too
 block. Delivery: the ranked answer shipped at the last turn (51 messages, ~100 K prompt tokens)
 and was **output-truncated** inside action rung 5. Page:
 `../pd-disaggregation/mooncake-adxl-connect-103900.md` (new).
+
+**#9003** vllm-ascend v0.19.1rc1 (`da421af`) + vllm v0.19.1 (`b1388b1`),
+Qwen3.6-27B-w8a8 TP2 with `--speculative-config '{"method": "qwen3_5_mtp",
+"num_speculative_tokens": 5, "enforce_eager": true}'` **plus**
+`--enable-prefix-caching`, `--async-scheduling`, `FULL_DECODE_ONLY`, a hand-picked
+`cudagraph_capture_sizes [6…60]` and `--max-model-len 262144`: the bug body is
+`<!-- Failed to upload "image.png" -->` and `/workspace/attachments` is empty, so
+there is **no error text at all**. The run verified the right facts — the pair is
+*documented* (`docs/source/tutorials/models/Qwen3.5-27B.md:137`, with the
+block_size-2048 caveat) while every validated row runs it off (the nightly
+`Qwen3.5-27B-w8a8-A3.yaml`, `tests/e2e/multicard/4-cards/test_qwen3_5.py`, and
+`enable_prefix_caching=False` hard-coded in
+`tests/e2e/singlecard/spec_decode/test_v1_spec_decode.py:558,680`); align mode is
+auto-selected upstream (`vllm/model_executor/models/config.py:436-472`), so
+`--mamba-cache-mode` is redundant rather than missing; `enable_weight_nz_layout` is
+read by no code at that pin — and shipped them in one final message, after **20
+tool turns that emitted 19 characters of message text**, ending at 13 393 of 16 384
+completion tokens. Durable correction: with no error text the **first** message
+already carries the deliverable ("the pair is documented, never tested;
+`--mamba-cache-mode` is not the gap; drop `--enable-prefix-caching` and send the
+traceback") — `../spec-decode-mtp/hybrid-mtp-prefix-cache-unvalidated.md`.
 
 **#10290** vllm-ascend reported 0.18.0 (snapshot v0.20.2rc1 `367b8e62`) + vllm
 v0.20.2 (`bc150f50`), GLM-5.1 大EP: `/v1/chat/completions` answers through

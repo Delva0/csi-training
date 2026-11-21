@@ -133,3 +133,26 @@ on step 0 with `RuntimeError: Prefix cache and chunked prefill are currently not
 supported` — a downstream capability gap whose trigger was the trainer's own
 `LLM(enable_prefix_caching=True)`; answered in 12 calls from the raise site plus the V0
 defaults, the shape to copy — `../upstream-downstream-drift/unsupported-path-raise.md`.
+
+**#1609** vllm-ascend v0.9.0rc2 (`8dd686d`) + vllm v0.9.0, Atlas 300I Duo, no log:
+"does vllm-ascend v0.9.0rc2 support 300i + qwen2.5-vl-7b?". The pin is **one release
+before the lane exists** — `git grep -n -i -E '300i|310p'` returns one hit
+(`docs/source/faqs.md:18`, "NOT supported yet … might be supported on 2025.Q2"), there is no
+`single_node_300i.md`, no `Dockerfile.310p` and no `is_310p` — so the 300I model list the
+reporter quotes (Qwen3-0.6B 1 card / Qwen2.5-7B-Instruct 2 cards / Pangu-Pro-MoE-72B 8
+cards) is a later ref's page: `Pangu` occurs in no file at this pin. Answered at its 9th
+assistant turn from that grep, the unconditional `qwen2_5_vl` registration, and the move to
+a `-310p` tag; #1383 (v0.9.1rc1, `TransData` op-store refusal on a 0.5B text model) is why
+the ladder must not promise the upgrade fixes it — `../soc-platform-paths/atlas-300i-310p.md`.
+
+**#8920** vllm-ascend v0.18.0 (`e18643f8`) + vllm v0.18.0, Qwen3.5 MoE under PD "per the
+docs", curl answer mixes Chinese and English, **no** env dump / serve command / log. One
+documented PD recipe exists for this family and it is in the model page
+(`Qwen3.5-397B-A17B.md`), while the generic PD page names two different connectors in
+different sections, the generic one being the connector whose `register_kv_caches` derives a
+single page geometry from the first cache tensor. Answered with ranked causes plus an
+ablation ladder whose rung 1 is the single-instance control run (the report carried no
+working-vs-failing control) — `../pd-disaggregation/hybrid-state-transfer.md`. The run
+emitted text on its first and last turns only (13 silent turns, ~30 K characters of
+reasoning against 6.3 K delivered); the ranked facts were in hand by the 11th turn, so
+three more confirming reads were all the margin it had.

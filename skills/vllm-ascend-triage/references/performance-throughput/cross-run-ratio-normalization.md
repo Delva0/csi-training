@@ -86,7 +86,12 @@ change:
 A fixed per-request offset instead (TTFT up ~8 s while tokens/s is unchanged) moves
 the question to the PD transport / first-token path
 (`../pd-disaggregation/llmdatadist-done-signal-and-ttft.md`,
-`../pd-disaggregation/recipe-contract-diff.md`).
+`../pd-disaggregation/recipe-contract-diff.md`). When the second run is the **same
+model colocated/multi-node** rather than another build, read
+`../pd-disaggregation/pd-vs-colocated-ttft.md` first: PD TTFT above colocated is expected
+by construction (#3099: the proxy returns the first token after D produces one), and the
+cheapest explanation is usually that the two recipes differ in graph/async-scheduling and
+admission (`max-num-seqs × DP`), not in the transport.
 
 ## Step 4 — name the missing controls in the first message
 

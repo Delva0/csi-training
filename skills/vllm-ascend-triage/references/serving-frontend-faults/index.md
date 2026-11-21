@@ -5,8 +5,10 @@
 The report carries a Python traceback or error line that surfaces in the OpenAI
 server process but whose frames are **only** `vllm/**` and the installed Python
 packages: no `vllm_ascend/**` frame, no `npu_*` / `aclnn` / `EZ…` / `HCCL` text,
-no plog. #7197 is the recorded case: `RuntimeError: Already borrowed` from a
-transformers fast tokenizer while the chat preprocessor builds a tool parser.
+no plog. Recorded twice: `RuntimeError: Already borrowed` from a transformers fast
+tokenizer while the chat path builds a tool parser — #7197 at vllm v0.16.0 through the
+non-streaming preprocessing wrapper, #7609 at vllm v0.17.0 through
+`chat_completion_stream_generator` (`Error in tool parser creation.`).
 
 The deliverable is an ownership verdict plus the cheapest client-side A/B. The
 NPU stack cannot own a raise that never enters it — say that in the first
@@ -52,6 +54,10 @@ Not this topic, leave immediately:
   also **re-raises its dependency's text verbatim**, so a `site-packages`/transformers
   traceback is not proof the raise lives there (#6345 lost three calls to both traps on
   `As of transformers v4.44, default chat template is no longer allowed …`).
+  Read the **file** that emits each hit, not the count: at vllm v0.17.0
+  `Error in preprocessing prompt inputs` lives only in the completion/tokenize/
+  speech-to-text servers, while the chat endpoint emits `Error in tool parser
+  creation.` — so the message identifies the upstream path (and the version) that ran.
 - **When the raise is about a chat template, the tokenizer mode is the first
   question, not the checkpoint.** `As of transformers v4.44, default chat template is no
   longer allowed …` is vLLM's own raise when template resolution comes back empty
@@ -94,11 +100,17 @@ Not this topic, leave immediately:
   flag at `:40,64`, the tutorial's four serve blocks do not), the `thinking` default, the
   vLLM<0.13 error that separates a version problem, and the thin-checkpoint and DEBUG
   checks.
-- `tokenizer-already-borrowed.md` — the worked #7197 case: `RuntimeError: Already
-  borrowed` at `Hermes2ProToolParser.__init__` inside `_preprocess_chat`, the two
-  threads that share one HF fast tokenizer in the API-server process, the single
-  retry upstream already ships for this exception, the serial-request / retry
-  ladder, and the transformers-version evidence gap.
+- `tokenizer-already-borrowed.md` — the worked #7197 (vllm v0.16.0) and #7609
+  (vllm v0.17.0, Qwen3-Omni under concurrency) cases: `RuntimeError: Already borrowed`
+  at `Hermes2ProToolParser.__init__`, first inside `_preprocess_chat` and then inside
+  `chat_completion_stream_generator` (`Error in tool parser creation.`, one parser built
+  per streaming request), both chains side by side with their own `path:line`, the two
+  threads that share one HF fast tokenizer in the API-server process, the single retry
+  upstream already ships, the three-command recipe that re-pins the sites at any
+  release (including the ast check that stops a mis-counted pre-encoding parser list —
+  `rg 'encode('` also counts `str.encode("utf-8")` calls that never touch the
+  tokenizer), the serial-request / retry ladder, and the transformers-version evidence
+  gap.
 - `guided-decoding-backend-aarch64.md` — the worked #1592 case: a
   `response_format: {"type": "json_object"}` request 500s on aarch64/Kylin while
   plain chat answers; the three warnings as one loop with the pinned `path:line`s

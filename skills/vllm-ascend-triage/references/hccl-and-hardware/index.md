@@ -125,6 +125,17 @@ that says which bucket a single request replays, and the four-row ablation; one
 call: `bash <skill_root>/scripts/dp-single-request-bucket.sh --capture-sizes 8,1
 --dp 8 --tp 2`.
 
+**Changed shape — the peers keep serving.** If the router's own counts show the
+*other* DP ranks finishing requests and their KV transfers completing while the
+affected ranks hold `Running` > 0 with a flat generation counter, no collective can
+be waiting on them (a pending all-to-all would block the peers too) and the paste
+has no RPC-watchdog or plog `STUCK` block: classify it as a scheduler/KV-state
+failure and go to `../scheduler-admission/kv-block-lifetime-async-scheduling.md`
+(#13964: SWA/chunked-local blocks reused under async scheduling, vllm-ascend #13518).
+The recorded run of that case spent its budget on the DP cudagraph-mode sync and the
+skipped DP all-reduce instead — both are real mechanisms, and both are refuted by
+that one sentence in the report.
+
 **But when the graph mode printed its banner and finished capturing, the mode's own
 request path owns the stall.** `FULL_DECODE_ONLY compilation enabled on NPU` (or
 `PIECEWISE`) plus a per-rank `Graph capturing finished in N secs`, then the bare

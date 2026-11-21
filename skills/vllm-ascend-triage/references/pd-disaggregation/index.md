@@ -39,6 +39,21 @@ output, or did no request ever reach a decode engine?**
 - Connected, but the answer is corrupt/empty/alternating, or the decode node's
   first token is wrong, on a **hybrid linear-attention (GDN/Mamba)** model —
   Qwen3.5/Qwen3.6, DeepSeek-V4 — under PD → `hybrid-state-transfer.md`.
+- Connected, and the decode output is **garbled on some requests only, while those same
+  requests' TTFT is *shorter*** than the normal class, on a `use_layerwise: true`
+  `MooncakeLayerwiseConnector` (often wrapped in a `MultiConnector`) at 40-60 K context:
+  not a performance report — a layer can be sent before its KV write is visible to the
+  transfer engine. One block mixes three wait idioms and only the `pd_head_ratio == 1`
+  branch waits host-side; the `(TTFT, output)` pairing is the zero-cost discriminator and
+  the fix shape is the neighbouring branches' stream-side wait →
+  `layerwise-send-sync-race.md`.
+- The body **compares PD TTFT with the same model's colocated/multi-node TTFT** and pastes
+  no numbers, serve commands or token counts ("the TTFT of PD is 2 times longer than
+  TTFT of Multi-node Deployment", "but the typical model of qwen no this issue"):
+  measurement lane. PD > colocated is structural — the proxy returns the first token
+  after **D** produces one (#3099) — so the answer is the term split, the pinned
+  tutorial's own PD anchor, and the flag asymmetry between the two recipes, not a
+  transport mechanism → `pd-vs-colocated-ttft.md`.
 - Connected, and an **image** request returns a fluent but unrelated short answer on a
   **VL/OCR** model (Qwen2.5-VL family, DotsOCR, olmOCR) — while a single-instance serve
   of the same body, image and flags answers it — is not a transport case: the control
@@ -81,6 +96,19 @@ output, or did no request ever reach a decode engine?**
   `/metrics` and the profilers fanned out; docs — and two silent traps on
   `/v1/messages` (the `recomputed` marker is erased by the Anthropic stop-reason map,
   and the retry rewrite assumes string `content`): `proxy-example-endpoint-coverage.md`.
+- Every request is served and correct, but the decode node emits one token per
+  ~0.35 s ("only 3 tok/s", `Average time per output token 0.3519`) with no error:
+  convert the headline to a per-step cost and check the `Running:`/`Avg generation
+  throughput` line first — a single running request at `1/ITL` rules out queueing,
+  admission and batch padding, and a finite per-request KV handoff in the DEBUG
+  paste (130-160 ms plus ~30 `WAITING_FOR_REMOTE_KVS` repeats) is the TTFT
+  component, not this cause → `decode-step-latency-tpot-anomaly.md`.
+- An invalid `max_tokens` (`0`, or `prompt + max_tokens > max_model_len`) is not
+  rejected on a P/D deployment, no error reaches the client, and the prefiller's
+  KV stays held until its expiry: the prefill leg is sent `max_tokens = 1` by the
+  proxy (`load_balance_proxy_server_example.py:801`) and the native disagg API
+  builds `TokenizeParams(max_total_tokens=None, max_output_tokens=0)`, so the
+  question is which leg could have validated it → `invalid-max-tokens-and-p-refill.md`.
 - Requests **are** served on `LLMDataDistCMgrConnector` but the prefiller prints
   `Some requests in prefill node fail to receive KV Cache transfer done signal in 120s.
   … 'export VLLM_LLMDD_ABORT_REQUEST_TIMEOUT=600' …`, alone or alongside "TTFT extremely
@@ -115,6 +143,16 @@ output, or did no request ever reach a decode engine?**
   `ASCEND_VISIBLE_DEVICES`) and a shared `VLLM_LLMDD_RPC_PORT` collides — three checks
   before any connector, transport or `kv_p2p/` read →
   `llmdatadist-ranktable-startup.md`.
+- The same connector family **before** it serves but *with* a log this time — both
+  workers die in `llm_datadist.status.LLMException: [LLMDataDist.init] failed, error
+  code is LLMStatusCode.LLM_FAILED …` while the plog reads `Unsupported process type:
+  queue_schedule` → `Failed to fork flowgw` → `Failed to deploy rank table` → `[Manager]
+  initialize failed`: GE's flow-gateway bring-up in the host environment, not the rank
+  table and not the connector's options (the `llm.Role` / `llm.ClusterInfo` /
+  `ge.resourceConfigPath` keys are added inside `llm_datadist`, and
+  `stub_numa_config_<role>_<rank>.json` is written at runtime — neither is in the tree
+  at any pin). Environment first, and check the plog's own clock →
+  `llmdatadist-ranktable-startup.md` §*The other startup shape*.
 - **No deployment yet**: the question is a capability verdict about the *transport
   plane* before any run — "Atlas 800T A3 双机 PD 分离，两台机器只能走参数面 RoCE，
   超平面不通、没有灵衢交换机，是否支持", usually with no log and no serve command →
@@ -261,6 +299,23 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
 
 ## Pages
 
+- `decode-step-latency-tpot-anomaly.md` — the deployment serves and returns correct
+  text while the decode node is ~10x slow (`TPOT 0.3519`, 54 tok/s at 20 concurrency,
+  "only 3 tok/s"), no traceback. The one-line arithmetic that separates per-step from
+  queueing, what the decode node's `VLLM_LOGGING_LEVEL=DEBUG` paste proves (the
+  Mooncake handoff is TTFT) and what it cannot be, the A2 MC2 gate
+  (`world_size_across_dp / pp_size >= 16`, else ALLGATHER) against the pinned
+  `Qwen3-235B-disagg-pd.yaml` DP4/TP4 row, FUSED_MC2 as an A3-only lever, and
+  `async_scheduling` defaulting on at vllm v0.14.1 (`config/vllm.py:588-628`, KV
+  transfer absent from the disable list) with the reporter's PD-incompatibility
+  claim and its counter-evidence. Verified at v0.14.0rc1 `52d4acf`; #6485 left open.
+- `invalid-max-tokens-and-p-refill.md` — `max_tokens = 0` or
+  `prompt + max_tokens > max_model_len` on a P/D deployment produces no 400, the
+  request is re-dispatched and the prefiller's KV is held to expiry. Where the
+  validation really sits per leg (proxy `:801` `max_tokens = 1`; disagg
+  `build_tok_params` with `max_total_tokens=None`; `get_max_tokens` clamping
+  instead of raising), the proxy's retry/reassign path, and the three fix sites.
+  Verified at vllm v0.23.0 `0fc695f` / vllm-ascend v0.23.0rc1 `f4a08bd`; #13539.
 - `prompt-side-outputs-on-decode-node.md` — the decoder dies with `OverflowError: out
   of range integral type conversion attempted` on a request carrying `prompt_logprobs`
   (or `echo: true`): the node that skips the prompt forward cannot produce
@@ -320,15 +375,38 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   ablation ladder, and the no-log scale-fault variant with two verified non-answers
   (GDN chunk-meta buffer arithmetic, #7863's 310P-only masked assign). Worked for
   #13381 and #9578 at v0.23.0rc1 / v0.19.1rc1.
+- `pd-vs-colocated-ttft.md` — "PD 的 TTFT 是混部/多机部署的 2 倍" as filed (DSv3.1,
+  v0.13.0, no log, no numbers): the TTFT chain (P queue + prefill + transfer + D's first
+  step + proxy hop) and precedent #3099 that makes PD > colocated structural; the pinned
+  tree's own PD anchor (`DeepSeek-V3.1.md:692-706`, 6.16 s @ 3.5k, P DP2+TP8 / D DP32+TP1);
+  the flag asymmetry the comparison hides (PD prefiller is `--enforce-eager` +
+  `--max-num-seqs 8` + ns 1 while the colocated blocks are `--async-scheduling` +
+  `FULL_DECODE_ONLY` + ns 3); the one-line MLA-vs-GQA arithmetic that refutes a bandwidth
+  theory; queueing in the metric (`max-num-seqs × DP` = 16 slots,
+  `long_sequence_context_parallel_single_node.md:114`); and
+  `VLLM_ASCEND_BALANCE_SCHEDULING` (`:135`). Two-turn answer, recorded #7182.
 - `hybrid-state-transfer.md` — PD on a hybrid linear-attention model: the
   connector matrix (`MooncakeConnectorV1` / `MooncakeHybridConnector` /
-  `MooncakeLayerwiseConnector` / `AscendStoreConnector`), the
+  `MooncakeLayerwiseConnector` / `AscendStoreConnector`), the generic connector's
+  single-geometry assumption (`register_kv_caches` reads `num_blocks`/`block_len` off the
+  first cache tensor, and its `Registering KV_Caches … shape …` line is the artefact to
+  ask for), which doc section a reporter copied when they say "the PD doc" (that page
+  names two different connectors), the
   `mamba_cache_mode` gate that only the KV-store connectors satisfy, which
   runner paths that skips, the MTP-under-PD accounting sites (`num_draft_layers`,
   the MambaSpec `num_speculative_tokens` block index, the `"mtp" in layer_name`
   predicates) together with the refuted "our method name is not `mtp`" theory,
   and the ablation matrix to hand the reporter when the symptom is alternating
   good/bad output.
+- `layerwise-send-sync-race.md` — layerwise PD, **garbled output plus a *shorter* TTFT**
+  (recorded #15402, MiniMax-M2.5-w8a8, 40-60 K, v0.23.0rc1 `f4a08bd`): why the TTFT moving
+  the wrong way is the same bug, the three wait idioms in
+  `mooncake_layerwise_connector.py:482-492` (only `pd_head_ratio == 1` waits host-side,
+  `:484-489`'s ADXL comment is a *hang*, not an early return), where `pd_head_ratio` comes
+  from (`ascend_config.py:211-234`, default 1, MLA models skip it), the stream-side wait
+  the sibling branches already use (`:1736-1737`), why KV quantization is a confounded
+  discriminator, and the tutorial-coverage fact (`MiniMax-M2.md:395,459` uses
+  `MooncakeConnectorV1`, no `layerwise`).
 - `prefill-scheduler-kv-xfer-assert.md` — the prefiller dies on
   `assert req_id in self.requests` (upstream `v1/core/sched/scheduler.py`): how the
   frame set identifies the scheduler instance and the version, why

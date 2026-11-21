@@ -1022,3 +1022,20 @@ durable fact: the paste's `skip this step for we receive the data from remote di
 prefill node` looks like PD and is not — it is guarded by `not has_kv_transfer_group()`
 (`vllm_ascend/worker/model_runner_v1.py:1929-1936`), i.e. "no tokens scheduled this step".
 Route: `../observability-and-logs/index.md` rule 4.
+
+**#7191** vllm-ascend `0.11.0` (`2f1aed9`) + vllm `0.11.0` (`b8b302c`), CANN 8.3.RC1,
+`torch_npu` 2.7.1, TP4, `enforce_eager=True`: offline `LLM(sys.argv[1],
+enforce_eager=True, tensor_parallel_size=4)` on DeepSeek-R1-Distill-Qwen-7B/32B
+returns `'\n\n,\n\n ( (\n ( or'` with a `SamplingParams` the body writes as
+`temperature=0.6`, "from v0.7.3 to v0.11.0". **The reporter resolved it
+themselves (public comment, 2026-03-27): changing the temperature to 0.6 —
+"anything number >0.1" — fixed it on the 7B model**, so the effective value in
+the failing runs was ≤ 0.1 and the body's `0.6` is not the run that produced the
+sample. The recorded run (completed, 37 messages) ranked chat templating,
+first-`generate()` state, `--dtype` and TP sharding, and offered
+`SamplingParams(temperature=0, top_p=1, max_tokens=128)` as its cheapest check —
+the reproducing configuration — so its ladder pointed away from the fix. Two
+harness rules came from it: the sampler value is read before any engine mechanism
+on a reasoning-distill checkpoint, and a pasted `SamplingParams` is a claim about
+the run rather than the run —
+`../accuracy-benchmarks/short-prompt-corruption.md` §*Grade the symptom first*.

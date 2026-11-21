@@ -50,13 +50,31 @@ is true of exactly one path, the unquantized **dense** Linear cast, which is the
 At v0.11.0rc0 there is **no** `weight_nz_mode` and no `VLLM_ASCEND_ENABLE_NZ`:
 `vllm_ascend/envs.py` has no `nz` entry and `ascend_config.py:121` carries only
 `enable_kv_nz` (the torchair MLA **KV** layout, `:153-155` errors without graph mode) —
-the layout is decided inline in the cast sites above. At v0.20.2rc1 the three-valued
+the layout is decided inline in the cast sites above. **Between those two refs the env
+var arrives before the config key**: at v0.19.1rc1 (`da421af`) the gate functions already
+exist — `utils.py:157-175` `_should_trans_nz` (`310P` always; non-310P follows
+`VLLM_ASCEND_ENABLE_NZ`; bf16/fp16 only at `== 2`; fp32 never) and `maybe_trans_nz`
+(consumers at `ops/linear.py:79`, `ops/fused_moe/fused_moe.py:106-107`,
+`_310p/quantization/methods/*`), with `envs.py:87-91`
+`VLLM_ASCEND_ENABLE_NZ` default `1` — while **no `weight_nz_mode` key exists**: `rg -n
+'weight_nz' vllm_ascend/ascend_config.py` is empty. At v0.20.2rc1 the three-valued
 switch exists: `weight_nz_mode` `0` off / `1` quantized-only (default) / `2` bf16+fp16
 too (`ascend_config.py:216-223`, env `VLLM_ASCEND_ENABLE_NZ`), and mode 2 is what makes a
-narrow bf16 weight crash (`../startup-failures/nz-weight-format-refusal.md`). Therefore:
+narrow bf16 weight crash (`../startup-failures/nz-weight-format-refusal.md`).
+**A documented key can also be a key nothing reads.** `enable_weight_nz_layout` — the
+spelling the project's own page uses (`docs/source/user_guide/feature_guide/large_scale_ep.md:168,234,443`)
+and several nightly yamls pass — is read by **no** code at v0.19.1rc1
+(`rg -n 'enable_weight_nz_layout' vllm_ascend/` empty; it survives only in docs, tests
+and the zh_CN `.po`), because `additional_config` is consumed key by key with
+`.get(...)` (`ascend_config.py:35-195`) and an unknown key is silently ignored rather
+than rejected. So a launch carrying it at that pin behaves exactly like a launch without
+it: not a cause, and not the feature the reporter thinks they enabled. Therefore:
 `rg -n -i nz vllm_ascend/envs.py vllm_ascend/ascend_config.py` at the **reported** ref
 first; a flag that is absent there is a version statement, not a lever, and "set
-`weight_nz_mode: 2`" on a 0.11 tree is advice that does nothing.
+`weight_nz_mode: 2`" on a 0.11 tree is advice that does nothing. The same grep answers
+the opposite question — a flag that is *present in the docs and absent from the code* is
+inert at the reported ref, so quote both sides before ranking it as a cause or crediting
+it as an experiment.
 `scripts/nz-format-gate-check.sh` reports "no gate function at this ref" when
 `is_enable_nz` / `_should_trans_nz` / `maybe_trans_nz` are all absent, instead of
 implying a missing shape guard.

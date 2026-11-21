@@ -46,6 +46,27 @@ branch URL, a flag that no release carries, or a **second, literal tag on the sa
 page** (§6). Different → the built revision's substitution is stale, which is the
 defect to report, with §3's correction site.
 
+**`extra` carries three version keys that differ by several rcs — quote the right one.**
+At v0.27.1rc1 (`3b31886`) `mkdocs.yml:167-173` holds `vllm_version: v0.27.1`,
+`vllm_ascend_version: v0.27.1rc1`, `stable_vllm_ascend_version: v0.23.0`,
+`release_vllm_ascend_version: 0.27.1rc1`. The `stable_*` key is consumed only by the
+developer-preview banner (`docs/hooks/macros_main.py:57`), never by a tutorial body — so
+a `[Doc]` report quoting "`extra.vllm_ascend_version: v0.23.0`" (recorded #17951) has
+quoted the *stable* key or a `…/en/stable/` build, and the first paragraph owes that
+distinction before it ranks a stale-substitution defect: their build's macro may be
+`v0.27.1rc1` while the page they read is another branch. Both facts are one
+`rg -n 'vllm_ascend_version|stable_vllm_ascend_version' mkdocs.yml` apart; state which
+key the quoted value matches and send that command.
+
+**A proposed suffix needs a census, not an impression.** When the report claims a tag
+family (`-a5`, `-950dt`, …) has no precedent, count it in one call:
+`rg -o --no-filename 'vllm-ascend:[A-Za-z0-9._{} -]+' docs/source/tutorials/models/*.md
+| sed 's/.*://' | sort | uniq -c | sort -rn`. At the same pin the released-stack
+families are bare `{{ vllm_ascend_version }}` ×46, `-a3` ×33, `-310p` ×14, `-950DT` ×3,
+while `-a5` appears only on a *model-branded* tag (`Qwen3.8-27B.md:47` `qwen3.8-a5`) —
+so "`{{ vllm_ascend_version }}-a5` invents a family" is a source-verified sentence and
+"the `-a5` image does not exist" is not (check the registry, §6 item 4).
+
 ## 3. The #16954 disposition, step by step
 
 Report: `latest` GLM-5 §5.3 A3 PD prints `--kv-cache-dtype int8` +

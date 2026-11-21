@@ -20,6 +20,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   from the log's own `model_runner.py:<line>`, then ask for the full `vllm serve`
   line and take the liveness checks. Do not lead with `--enforce-eager` where the
   platform already sets `simple_compile_backend = "eager"`.
+- Nothing raised, and the last worker line is `Encoder cache will be initialized with a
+  budget of N tokens, and profiled with M <modality> items of the maximum feature size`
+  while EngineCore repeats `[shm_broadcast.py:…] No available shared memory broadcast
+  block found in 60 seconds` → `mm-encoder-profile-stall.md` first: the phase is the
+  vision-tower dummy forward inside `profile_run`, `N` is the reporter's own
+  `--max-num-batched-tokens` and `M` its `--max-num-seqs` × `--limit-mm-per-prompt`, the
+  shm lines are the wait. One flag (`--limit-mm-per-prompt '{"image":0,"video":0}'`) or
+  `--skip-mm-profiling` skips the block entirely and decides whether the encoder owns it;
+  then cut the budget to the tree's own 310P recipe (2048/16384) and ask for `npu-smi`
+  during the stall.
 - The profiling window **does** raise, and the same error appears once per rank but the
   driver: `EOFError: Ran out of input`, bottom frame
   `torch_npu/distributed/distributed_c10d.py` `_gather` →
@@ -314,6 +324,21 @@ Inherit the rules in SKILL.md. Conditional routes:
   and get the serve command: scales confined to a handful of sub-projections with
   nothing declaring a quantisation mean a full-precision release served instead of
   the documented quantised variant (recorded #12675), not a per-layer code bug.
+- The quant-method lookup dies before any shard bar with `KeyError: '.weight'` — the
+  quoted key **starts with a dot** — deepest frames
+  `vllm_ascend/ops/vocab_parallel_embedding.py` → `quant_config.get_quant_method` →
+  `is_layer_skipped_ascend`, on a quantised checkpoint whose model file builds the
+  embedding with `quant_config=` and **no** `prefix=` (llama at vllm v0.13.0 is the
+  recorded one; the grep finds 12 such sites, so never narrow it to one family) →
+  `empty-prefix-quant-keyerror.md` first: an upstream model file builds its
+  `embed_tokens` without `prefix=`, so the lookup asks for `'' + '.weight'`, and a
+  construction-time failure cannot be moved by any serve flag, TP size or graph knob.
+  Three calls there: does the reporter's own model file pass a prefix (the sibling
+  `qwen2.py` / `deepseek_v2.py` do), does `quant_model_description.json` carry
+  `model.embed_tokens.weight: "FLOAT"`, and does `lm_head` already pass one. Not §C of
+  `quantization-method-gate.md` — that key carries a module path — and no blanket
+  `quant_description.get(..., "FLOAT")` guard, because the same function also decides
+  the quantised linears.
 - The first MoE forward (usually `profile_run`, so it reads as a startup failure)
   dies with `RuntimeError: Promotion for Float8 Types is not supported, attempted to
   promote Float8_e4m3fn and Bool`, deepest frames `w4a8_mxfp4.py` →

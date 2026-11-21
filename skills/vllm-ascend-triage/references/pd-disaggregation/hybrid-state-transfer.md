@@ -44,12 +44,47 @@ inside the hybrid connector are hard asserts, worth quoting when you compare:
 P/D TP with Mamba (`:1419`, "Mooncake connector does not support different TP
 size with Mamba").
 
+**The generic connector's mismatch is a page-geometry assumption, not only a missing
+branch** — verified at vllm-ascend **v0.18.0** (`e18643f8`) + vllm **v0.18.0**
+(`bcf2be96`), the pin of recorded #8920 (Qwen3.5 MoE under PD "per the docs", curl answer
+mixes Chinese and English, no env dump / serve command / log; answered with the ranked
+ladder). `rg -c Mamba kv_p2p/mooncake_connector.py` is **empty** at that pin, but that grep
+is not the evidence — its transfer is deliberately model-agnostic (one flat
+`local_block_ids`/`remote_block_ids` list, `:376-394`, `:471-505`). The evidence is
+`register_kv_caches` (`:1183-1232`): `num_blocks` and `block_len` are read off the
+**first** cache tensor (`first_kv_cache.shape[0]`, `block_len[i % length]`) and every
+layer's region is registered as `num_blocks * block_len`, while the reformat paths unpack
+each layer as a `(k_cache, v_cache)` 2-tuple (`:595`, `:641`). A hybrid model's mamba group
+carries the conv-padded page `patch_mamba_config.py:80-86` builds at that pin and an
+`(ssm, conv)` state pair, which that arithmetic cannot describe. Quote those sites, and
+ask for the connector's own line — it prints its assumption at `:1196` (`num_blocks: %s`),
+`:1202/:1210` (`block_shape: %s`) and `:1213` (`Registering KV_Caches. use_mla: %s,
+use_sparse: %s, shape %s`), so one pasted D-node line shows which geometry was registered.
+
+**"I followed the vllm-ascend PD doc" is not a connector statement.** At v0.18.0 the
+generic feature page `docs/source/tutorials/features/pd_disaggregation_mooncake_multi_node.md`
+uses `MooncakeLayerwiseConnector` in its 2P1D external-DP blocks
+(`:295,354,413,471`) and `MooncakeConnectorV1` in the later ones (`:538,597,656,714`), all
+on DeepSeek-R1 — so ask which section they copied instead of calling the connector user
+error, then diff against the model page: at that pin
+`docs/source/tutorials/models/Qwen3.5-397B-A17B.md` pins `--no-enable-prefix-caching`
+(`:312` P / `:391` D), `--no-disable-hybrid-kv-cache-manager` (`:328` / `:408`),
+`--speculative-config '{"method": "qwen3_5_mtp", "num_speculative_tokens": 3,
+"enforce_eager": true}'` (`:329` / `:409`) and `--enforce-eager`; `:145` states that
+enabling prefix caching on a mamba-like family needs `--enable-prefix-caching
+--mamba-cache-mode align` and may raise `block_size` to 2048, and `:518` carries the
+D-node known-issue note (#7944 — cite the tutorial line, its body is not in these
+snapshots).
+
 ## 2. The `mamba_cache_mode` gate (source-verified, v0.22.1rc1 / vllm v0.22.1)
 
 **Older pin, before quoting any of it:** at v0.19.1rc1 (`da421af`) that file has
 **no** `_using_kv_store()` and no forced-align block — it only delegates to
 `MambaModelConfig.verify_and_update_config` and sets `mamba_block_size` at
-`:104-107` (`block_size` when prefix caching *and* `align`, else `max_model_len`).
+`:104-107` (`block_size` when prefix caching *and* `align`, else `max_model_len`);
+at v0.18.0 the same two effects are at `patch_mamba_config.py:89-92`, and upstream
+`MambaModelConfig.verify_and_update_config` is `vllm/model_executor/models/config.py:354-411`
+with the identical `none`/`all`/`align` logic.
 So on a report older than v0.22.1rc1, `align` is whatever the reporter's
 `--mamba-cache-mode` / upstream default made it, and the two consumers to read are
 `worker/model_runner_v1.py:1590` and, under PD, the connector itself —
@@ -86,10 +121,13 @@ At v0.22.1rc1, `vllm_ascend/patch/platform/patch_mamba_config.py` patches
 
 Consequence to state carefully: on plain Mooncake PD **with prefix caching off**, a
 hybrid model keeps `mamba_cache_mode="none"` with a whole-sequence-sized mamba page,
-and the align-mode copy paths never run. That is a combination the tutorials, the
-KV-store path and the unit tests (`mamba_cache_mode="align"`/`"all"`) do not
-exercise. It is a **candidate**, not the proven cause of #12339: neither run
-could show the D node receiving a stale state.
+and the align-mode copy paths never run. That is what the tutorials' own PD blocks
+ship (`--no-enable-prefix-caching` on both sides, e.g. `Qwen3.5-397B-A17B.md:312,391`
+at v0.18.0), while the KV-store path, the connector's `align` branch and the unit
+tests (`mamba_cache_mode="align"`/`"all"`) only exercise the other side — i.e. the
+**documented deployment is the unexercised one**, not the exotic one. It is a
+**candidate**, not the proven cause of #12339: neither run could show the D node
+receiving a stale state.
 
 ## 3. MTP under PD: the method-string trap and the accounting sites
 

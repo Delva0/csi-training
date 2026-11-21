@@ -93,7 +93,13 @@ fix is established. What is established is the ownership and the discriminators 
 4. **Async scheduling + MTP placeholders.** `step_with_batch_queue` means requests are
    scheduled with `num_output_placeholders` and spec tokens; a rolled-back
    `num_computed_tokens` is the other way the skip window moves. Ablation:
-   `--async-scheduling` off, then MTP off.
+   `--async-scheduling` off, then MTP off. **This is the trigger with a recorded
+   resolution**: the same optimistic count lets SWA/chunked-local blocks be freed and
+   reused under an in-flight step, which the reporter of #13964 confirmed as a *stall*
+   (not a crash) and vllm-ascend #13518 fixed — `../scheduler-admission/kv-block-lifetime-async-scheduling.md`
+   has the pinned anchors (`_update_after_schedule`, the `MambaManager`-only guard) and
+   the ablations. When the same deployment goes silent instead of asserting, that page
+   is the route, not this one.
 
 The first ablation that survives a few hours names the family. Report the assert as
 upstream's invariant with the named trigger, not as a device or driver fault — and do not
@@ -120,6 +126,10 @@ the reporter's answer was "start script is in my first bug description, folded".
 
 ## Not this page
 
+- The same serve goes **silent** instead — requests stay `Running` > 0, the
+  generation/completion counters are flat, there is no traceback and some ranks
+  recover hours later: that is the *lifetime* half of this family, not the assert →
+  `../scheduler-admission/kv-block-lifetime-async-scheduling.md` (#13964 → #13518).
 - A request that waits forever with no traceback → `../scheduler-admission/index.md`.
 - A `RuntimeError`/`AttributeError` raised in a `vllm_ascend/` frame → the sibling pages
   here (`patched-forward-api-drift.md`, `scheduler-fork-missing-status.md`).

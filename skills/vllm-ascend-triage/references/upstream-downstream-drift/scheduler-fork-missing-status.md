@@ -1,6 +1,6 @@
 # Downstream scheduler fork missing an upstream request status
 
-Recorded twice, at two pins, with the same gap underneath:
+Recorded twice, at two pins, with the same gap underneath (the *signature* variant of the same family — a fork that stops binding the base's constructor keyword — is `fork-ctor-arg-sweep.md`, #18688 at v0.23.0):
 
 - **#3979** — vllm-ascend `v0.11.0rc0` (`00ba07102212`) + vllm `v0.11.0rc3`
   (`8ce5d3198d00`), QwQ-32B-w8a8 on Atlas 800I A2, "其他模型有同样问题";

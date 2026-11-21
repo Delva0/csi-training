@@ -8,6 +8,12 @@ request waits forever and everything behind it waits too, or a class of requests
 while short ones are served. There is no traceback and no device fault — the
 scheduler simply decided not to schedule, and nothing in the log says so.
 
+The topic's second shape keeps the requests **running**: `num_requests_running`
+stays > 0 while the generation and completion counters do not move at all, health
+answers 200 and nothing is logged. That is not the throughput topic either —
+nothing drains — so it is a scheduler/KV-*state* failure and its page is
+`kv-block-lifetime-async-scheduling.md`.
+
 This topic owns the **admission decision**: which request gets blocks from the KV
 pool, what happens to the queue when one request cannot have them, and the
 counters that show it. Throughput/queue arithmetic on an engine that keeps
@@ -23,6 +29,11 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   at vllm v0.26.0). `Running` = 0 with `Waiting` ≥ 1 and KV usage near 0 is an
   admission state, not a compute one; `Running` > 0 with a queue that drains is
   the throughput topic. This one call replaces reading the scheduler.
+  **`Running` > 0 with `generation_tokens_total` and
+  `request_generation_tokens_count` flat in every scrape is neither of those** —
+  read it as a per-request KV-state question
+  (`kv-block-lifetime-async-scheduling.md`) and take the two series' *deltas*, not
+  their levels: a stuck rank's `Running` level looks healthy.
 - **Read the pool's capacity from the startup lines, not from the flags.** The
   engine prints `GPU KV cache size: N tokens` and
   `Maximum concurrency for M tokens per request: kx`
@@ -43,3 +54,10 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   `break` that head-of-line blocks the queue, the compressed-MLA / recycling
   admission cap downstream re-applies, and the checks that separate "the pool can
   never hold this request" from "the abort never arrived".
+- `kv-block-lifetime-async-scheduling.md` — requests stay `Running` while generation
+  stops, with no error and per-rank (recorded #13964, fixed by vllm-ascend #13518):
+  the skip-block prune runs on `num_computed_tokens`, which async scheduling
+  advances at *schedule* time, so SWA/chunked-local blocks can be freed and reused
+  under an in-flight step. The pinned anchors, the `--async-scheduling` /
+  `--speculative-config` ablations, why a self-recovering hours-long stall is a
+  lifetime story, and the two collective/graph-sync theories the counters refute.

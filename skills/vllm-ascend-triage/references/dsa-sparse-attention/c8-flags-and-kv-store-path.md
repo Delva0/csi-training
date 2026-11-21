@@ -99,6 +99,14 @@ neither, asymmetric DCP causes accuracy issues (`:260`, #14322); GLM-5.2 DCP ×
 `enable_sparse_sfa_c8` has "known issues, including performance degradation, and is not
 recommended" (`:262`, #14011); GLM-5.1 sfa_c8+li_c8 64K/1K regression (`:268`, #14329).
 
+## Not this page
+
+A launch that never reaches an inference step and dies in
+`_reshape_kv_cache_tensors` on `assert sum_page_size_bytes % … page_size_bytes == 0`
+is the KV-page arithmetic, not the C8 write path —
+`c8-page-size-reshape-assertion.md` (it also carries the `ls` that tells the two
+spec contracts apart).
+
 ## Delivery order for this class
 
 1. Verdict line: runtime hang inside the SFA/LI C8 KV-write path, not transport; the

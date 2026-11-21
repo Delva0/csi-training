@@ -13,6 +13,51 @@ Signature family:
 
 This is a version gate, not a defect. Answer it before any other archaeology.
 
+## Look-alike to rule out first: `Error in inspecting model architecture '<Arch>'`
+
+```
+(APIServer pid=286) ERROR 10-09 03:05:30 [registry.py:547] Error in inspecting model architecture 'Qwen3NextForCausalLM'
+(APIServer pid=286) ERROR 10-09 03:05:30 [registry.py:547] Traceback (most recent call last):
+```
+Pasted exactly like that — the header and nothing else (recorded #3325, image
+`v0.11.0rc0`, Qwen3-Next-80B-A3B at TP4) — this is **not** the gate above: the
+architecture is registered in both trees and a tutorial exists for it. It is a
+crash while the model class is imported, and the missing tail is the finding.
+
+- The line is `logger.exception` in `_try_inspect_model_cls`
+  (`vllm/model_executor/models/registry.py:540-549` at v0.11.0rc3), so the inner
+  traceback **was** printed by the same logger, under the same `[registry.py:547]`
+  prefix — ask for the lines after the header before theorising. Inspection runs in
+  a fresh interpreter (`_SUBPROCESS_COMMAND = [sys.executable, "-m",
+  "vllm.model_executor.models.registry"]`, `registry.py:329-331`, called at
+  `:507-509` and `:959-961`; wrapper `RuntimeError: Error raised in subprocess:
+  <stderr>` at `:964-969`), so the inner error is an **import-time** failure of
+  `vllm_ascend.models.<model>` or of a module it imports.
+- Two recorded inner frames for this exact signature: `#2889`
+  `AttributeError: module 'triton.language' has no attribute 'exp'` at
+  `vllm/model_executor/layers/fla/ops/op.py:26`, reached from the module-level
+  `from vllm.model_executor.layers.fla.ops import …` in
+  `vllm_ascend/models/qwen3_next.py:20-23`; and `#2929`
+  `ModuleNotFoundError: No module named 'vllm_ascend.models.interfaces'`, a
+  main-branch checkout whose `qwen3_next.py` imported it (gone at rc0, which imports
+  upstream's `qwen3_next` instead).
+- A **missing** triton is not what #2889 shows: vllm substitutes placeholders when
+  `find_spec("triton")` fails (`vllm/triton_utils/__init__.py:7-14`,
+  `triton_utils/importing.py:14-17`) and the release image removes the wheel on
+  purpose (`Dockerfile:42-44`, "triton doesn't work correctly" on Ascend). An
+  `AttributeError` on `triton.language` therefore means a triton **is** installed and
+  it is the wrong one (the triton-ascend pairing).
+- One command reproduces the real error, no server needed:
+  `python -c "import vllm_ascend.models.<model_file>"` in the image (plus
+  `pip show vllm vllm-ascend triton triton-ascend`, `uname -m`).
+- Every upstream name `vllm_ascend/models/qwen3_next.py` imports exists at
+  vllm v0.11.0rc3 (verified one by one), so an `ImportError`/`NameError` from that
+  file means the **installed** vllm is not the tag — check `pip show vllm` rather
+  than the export.
+- If the engine does start and the *first request* dies inside
+  `vllm_ascend/ops/triton/fla/**` with `MLIRCompilationError`, that is the runtime
+  half of the same pair: `../image-dependency-faults/triton-ascend-pair.md`.
+
 ## Answer the literal question first
 
 Deliver, in one paragraph: **no / yes for that version**, the earliest release

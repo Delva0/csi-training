@@ -115,6 +115,12 @@ answer settles the *action*, not the ABI detail.
 
 ## Related
 
+- Same pair at **startup**, before any kernel runs: an `Error in inspecting model
+  architecture '<Arch>'` whose logged tail is an import-time
+  `AttributeError: module 'triton.language' has no attribute '<x>'` (a triton is
+  installed and it is the wrong one — an absent triton only gives vllm's
+  placeholders) → `../startup-failures/model-type-not-recognized.md`, inspection
+  section.
 - Same pair, performance side: `../performance-throughput/qwen3-next-decode-throughput.md`
   (a hybrid GDN model is slow when the Triton FLA kernels are absent/replaced).
 - `../custom-ops-runtime-faults/index.md` for the aclnn/AscendC lane that this

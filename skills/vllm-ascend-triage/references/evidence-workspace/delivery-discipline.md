@@ -19,13 +19,37 @@ leads were.
   a couple of lines of reasoning.
 - **G3 — 12th assistant turn:** answer text only — no reasoning, no tool call, no
   "one more thing".
+- **The index is the weak part of the gates: your own count drifts low.** Both runs of
+  one recorded batch reported a turn index 2-3x under the real one — #6529 wrote
+  "budget: I'm at turn 7. G2 is turn 8" on its **15th** assistant turn (and "Turn 3 now"
+  on its 5th), #6243 wrote "I'm at 6 assistant turns" on its **14th**. So a gate that had
+  visibly passed was still not applied, and both runs died at the cap with the ranked
+  answer already named. Two consequences: (a) the operative trigger is content, not the
+  number — the turn you can state a cause with its one check is the turn the answer is
+  owed; (b) if you do count, count the `tool` results in the transcript you can see (each
+  is a turn already spent, and it is enumerable while memory is not), and treat a
+  from-memory estimate as an underestimate by a factor of two.
+- **The budget arithmetic, so "a third of it is gone" is measurable:** the cap in these
+  sessions is 16 384 output tokens, and mixed Chinese/English ran at ~2.7-3.0 characters
+  per token — #6529 spent 44.4 K characters (40.8 K reasoning + 3.6 K text) and #6243
+  50.7 K (50.6 K reasoning + **67 characters** of text), both reaching exactly 16 384. So
+  a session is ~45-50 K characters, a 5 K-character reasoning block is a tenth of it, and
+  the recorded cuts landed at 35-51 K characters of reasoning. A block that is still
+  planning past a few hundred tokens is spending the answer's budget.
 - **Reasoning is a scratchpad, a few lines per turn:** what the last result proved,
   the single next check, go. It spends the same output budget as the answer, so a
   session that reasons in 1-6K-character blocks can hit the cap with zero answer
   text. A block that starts enumerating the answer's sections,
-  or says "I have enough" / "that is the crux" / "let me write the answer", *is* the
-  answer — emit it as message text in that turn. A "now let me…" plan line delivers
-  neither answer nor evidence: every assistant message is a tool call or text.
+  counts its own turn number against these gates, or says "I have enough" / "that
+  is the crux" / "let me write the answer", *is* the answer — emit it as message
+  text in that turn; a turn-counting block measures the budget instead of spending
+  it on the deliverable (recorded #16365: the verdict was pinned by turn six and
+  twenty turns later the answer existed only as reasoning). A "now let me…" plan line delivers
+  neither answer nor evidence: every assistant message is a tool call or text. Gate
+  *recognition* is not delivery either: #6243's 14th turn reasoned "G1 requires answer
+  text by turn 3 (already passed …) I need to send the deliverable", then sent two tool
+  calls with empty text; its last turn was 14.4 K characters of reasoning holding the
+  whole ranked answer and the repro script, cut inside it, 67 characters shipped.
 - **Every assistant turn carries message text, not only a tool call.** A gate only
   binds if the text exists to be cut. #5295 is the clean case: 16 assistant turns,
   every one of them a bare tool call, ~46 K characters of reasoning (≈12 K of a 16 K
@@ -40,6 +64,14 @@ leads were.
   (the 310P rope branches) by its middle turns, which the platform
   topic now reduces to one probe
   (`../soc-platform-paths/310p-vl-ocr-garbage-output.md`).
+  #4178 is the same arithmetic with the *mechanism* trap attached: an rc-only
+  `FULL_DECODE_ONLY` hang on a VL model, 22 assistant turns, 48 243 characters of
+  reasoning and 55 characters of message text (one status line), cut at the 16 384
+  token cap with **no answer** — although the attachment's lane-separating lines
+  (mode banner, per-rank `Graph capturing finished`, the crash dump's
+  `scheduled_new_reqs` step) were in hand by its fifth turn and the missing coverage
+  check was three greps. An rc-only failure is a version verdict, not a mechanism:
+  `../hccl-and-hardware/aclgraph-full-decode-runtime-hang.md`, SKILL.md rule 16.
   The status-note form is the same waste: #17797 put one short note on each of its
   first 17 turns ("the 310P path has its own model runner — let me check X") and
   #5525 emitted zero message text on 11 of 20 turns, neither ever stating a verdict;
@@ -115,6 +147,22 @@ leads were.
   identical pins (config hook, `MambaModelConfig`, the model's assert, the
   downstream patch, the loggers line) — ten turns that bought nothing, and its
   action ladder was the part that got cut.
+- **A reasoning block that drafts the ranked answer charges it twice, and the second
+  copy is what gets cut.** The #14731/#12102 pair is the measured case: 17 assistant
+  turns each, 42.9 K and 39.4 K characters of reasoning against **1.3 K and 2.7 K
+  characters of delivered answer**, both ending at the 16 384-token cap with the
+  ranked list half-written. #14731 spent one mid-session block of 11.8 K characters
+  deriving the GLM parser (a quarter of the budget in one turn), then opened its
+  final turn with a 6.2 K block that listed the verdict, the five ranked causes, the
+  evidence table and the gaps *before* typing any of it; #12102's final 5.0 K block
+  did the same and explicitly noted "this is turn 12 = G3: answer text only" while
+  writing the answer in reasoning. Two habits fix it: the ranked list is written
+  **once, in message text**, and a block that has started numbering causes ends
+  there — the next characters are the message. The per-turn habit was the other half
+  of the loss: #14731 emitted message text on only 3 of its 17 turns (77, 444 and
+  1 309 characters), so its ranked answer only ever existed in the turn that was cut,
+  while #12102 carried a one-line verdict on 14 turns and still kept the ranked list
+  for the last message.
 - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:** write
   it at G2 *in place of* the reasoning block, and skip it when the session is
   already long. Composing it late is what costs a run its ranked causes.
@@ -175,6 +223,7 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #16563 / A | by turn ~14: the counter is cgroup host memory, the +80 GB/7 d arithmetic (3.5-7 KB per request, <16 B per decode step, so per-step host buffers are priced out), the closest precedents (#2650 host memory 1-2 GB/h, #12345 DeepSeek-V4 leak, #5847 CPU-memory leak) and the A2 recipe diff (`--no-enable-prefix-caching`, `additional_config.enable_flashcomm1`) | **no answer at all**: 20 turns, a 69-character opener then bare tool calls, ~48 K characters of reasoning, cut inside a reasoning block (`../runtime-memory/container-working-set-growth.md`) |
 | #12261 | by turn 11: the parser's `_is_string_type` gate on a nullable `anyOf: [string, null]` argument, the raw branch, the length-prefix delta and the arithmetic that reproduces the paste | **no answer at all**: 15 turns / 23 tool calls, ~35 K characters of reasoning against 3.5 K of message text, a one-line verdict on most turns, cut on a tool call while trying to `import vllm` (no torch in the sandbox) to simulate two functions it had already read |
 | #14656 | by turn 7: the page's schema-type gate is **fixed** at v0.23.0 (`_is_string_type` now `extract_types_from_schema`), so the GLM-5.2 paste needed another owner, and by turn 12 two verified candidates plus the downstream patches excluded | **no answer at all**: 15 assistant turns / ~16 K completion tokens of reasoning (blocks of 5-10 K characters) against ~2.1 K of message text, two final turns with empty text, cut inside a reasoning block; the streamed-text owner (`resetting decode stream`) was named as a hypothesis and never grepped (`../tool-call-streaming/detokenizer-text-delta.md`) |
+| #7682 | by turn 3: the assembled tool-call arguments are the *last two characters* of the non-streaming string (non-stream complete, stream `"}`), i.e. only a suffix was ever emitted — one subtraction, no source read | **no answer at all**: 16 turns / 16 384 output tokens, ~9 K-char reasoning blocks, ~630 characters of message text in total; the turns went into the missing `glm47` registry in a vllm v0.13.0 export that predates the runtime, then `serving_chat`'s `remaining_call`, then the sampler, and the cap landed on a block deciding which file to open next (`../tool-call-streaming/suffix-only-arguments.md`) |
 | #2015 | by turn 11: the pinned `quantization.md:37/:5/:94` contract (the W8A8 export carries no `quantization_config`, so the flag is mandatory) and the `enforce_eager` exclusion of the ACL-graph cause | **no answer at all**: 17 turns / 25 tool calls, ~45 K characters of reasoning against 4.0 K of text, cut on a tool call |
 | #1796 | by turn ~6: the wheel's `Requires-Dist` pin is `torch-npu==2.5.1.post1.dev20250619` while `setup.py:341` drops the `--extra-index-url`/`--pre` lines from the metadata, i.e. a mirror-only build made unfindable — and `torchvision<0.21.0` puts the same requirement set on the 2.5.x torch line against vllm 0.9.2's `torch==2.7.0` | **no answer at all**: 39 tool calls, ~16 K completion tokens of reasoning, every assistant message a bare tool call; the budget went to whether that dev wheel was rebased onto torch 2.7.1, a fact no local file can settle (`../image-dependency-faults/pip-index-visibility.md`) |
 | #3107 | by turn 3: the paste names the two objects whose roles differ (`attn_metadata.max_tokens_across_dp` → `get_forward_context().max_tokens_across_dp`), and by turn 5-6 the pin's writer (`ascend_forward_context.py:91-98`), the three consumers and the `dp_size × max_tokens = 544` arithmetic against the pasted `[544, 5120]` | **no answer**: 12 turns, 7 with no message text, ~49.6 K characters of reasoning against 661 characters of text, 22 tool calls, cut on the last turn's reasoning block; the `pangu_moe.py`-absent-from-the-pin finding (turn 4) was the one sentence the reporter needed (`../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`, `../startup-failures/environment-correspondence.md`) |
@@ -184,12 +233,24 @@ lead existed. Classified by what the run already had in hand when it kept going:
 | #16563 / B | by turn ~9: the same class and arithmetic, the env-flag liveness findings (no consumer at the pin for `VLLM_ASCEND_ENABLE_FLASHCOMM` / `PYTHON_NPU_ALLOC_CONF`), the MTP `pin_memory()` asymmetry and a `findings.md` draft | verdict, five causes, four precedents and the six-rung ladder did reach the message, but the cap landed inside the closing version-scope section: five causes with sub-paragraphs plus a precedent table plus a ladder is more answer than the budget holds |
 | #894 | by turn 2: a 4-token paste is a degeneration report with no serve command, no log and no env, so a ranked matrix *is* the answer — and the pin's forced `enforce_eager = True` (`platform.py:124`) plus the `-Chat`-only validated row were one grep each | **no answer at all**: 20 turns / 35 tool calls, 69 characters of message text against ~43 K characters of reasoning, the full 16 K output budget spent on `deepseek_v2.py` / `fused_moe.py` / `platform.py` (would this branch break V2-Lite?), cut inside a reasoning block (`../accuracy-benchmarks/deepseek-v2-lite-mla-degeneracy.md`) |
 | #4323 | by turn ~12: the ATB block is a real `atb::OperationSetup` failure inside `libop_plugin_atb.so`, so the pasted `eagle_proposer.py:476` frame is a join point (precedent #447 carries the same wording over `_npu_reshape_and_cache`); `draft_tensor_parallel_size` has no consumer under `vllm/v1/**` at the pin, and the eagle3 e2e there is single-card Llama-3.1 drafts only | **no answer**: 26 turns, **zero** message text on every one of them, the 16 384-token cap reached inside a reasoning block that already held the ranked causes and the ladder; the closing turns asked which `torch_npu` op reaches ATB — a fact no export in the case contains (`../spec-decode-mtp/atb-op-setup-failure-at-proposer.md`) |
-
+| #11095 | the phase (frozen `Loading safetensors checkpoint shards: 0/11` inside `vllm_ascend/worker/model_runner_v1.py:3635` `get_model`), and a *self-derived* "HBM 26618 MB ≈ 51.75 GiB / TP2 ⇒ the weights are fully loaded, so the stall is after the copies" | **no answer at all**: 11 assistant turns / 606 K prompt tokens, the whole 16 K output budget spent in reasoning on the post-load paths that inference pointed at (Qwen3.5 registration, GDN Triton warmup, NZ/quant cast, cpu binding). Resident HBM is the *pre-load* state — the loader builds the model on the device before reading (`base_loader.py:53-64`) — and the reporter's own resolution (a fresh copy of the checkpoint directory plus a fresh bind mount, serve command unchanged) was the one hypothesis that arithmetic had excluded (`../startup-failures/weight-load-stall-in-shard-loop.md`) |
 | #3062 (v0.9.1, `llmdatadist` PD) | by turn 9: the 120 s warning's emitter, the three port formulas (the advertised port carries no `tp_rank`), `ThreadPoolExecutor(1)` and the `query_register_mem_status` loop — i.e. the source-verified statement that the pasted line is P-side bookkeeping, plus both TTFT discriminators | **no answer at all**: 12 turns / 22 tool calls, ~51 K characters of reasoning against 1.2 K of text, and that text was status notes ("Now the decisive part: …", "Two last code facts to pin: …"); cut inside the block composing the ranked answer (`../pd-disaggregation/llmdatadist-done-signal-and-ttft.md`) |
+| #6529 (v0.14.0rc1, DS-V3.2 4-machine 1P1D, D node dies on the first curl) | by turn 5: the traceback shape (`_generate_dummy_run_hidden_states` → `acl_graph.__call__` → `npu.synchronize` → `507015` + the capture-mode `rtMemcpy` record) matches the MTP + captured-decode-graph family, and by turn 8 the pinned tutorial's D-node flag set (`FULL_DECODE_ONLY` + `deepseek_mtp` + `--async-scheduling`, and P nodes are the ones with `--enforce-eager`) | a ranked answer from turn 6, and answer-draft text on 11 of its 15 messages — the **only** run of its batch that shipped anything, precisely because of that habit; the cap still landed inside the turn-15 answer's evidence table, so the ladder and the scope block never shipped, and its own count read "turn 7" on that turn |
+| #6243 (v0.12.0rc1, DS-V3.2 A2 双机, `npu_kv_rmsnorm_rope_cache` `cos or sin shape is invalid`) | by turn ~12: the paste's own `[FUNC:GetShapeAttrsInfo]` puts the failure in attribute validation, so the title's "tiling 切分有误" is the wrong frame and the owner is the caller's rows; plus the pinned call sites, the MLAPO 1024-token branch and the DSA-CP slice | **no answer at all**: 15 turns, 50.7 K characters of reasoning against **67** characters of message text, the last turn a 14.4 K block holding the ranked answer and the repro script, cut inside it; the reporter's later comment (operator side returns it as a "调度问题") went unanswered (`../custom-ops-runtime-faults/tiling-attribute-rejection.md`) |
 | #15927 (v0.26.0rc1, GLM-5.3-w8a8c8 C8 PD) | by turn 8: the direct precedents (#12533 "关掉C8就可以正常推理", #12905 first-curl garbled) and the flag gating that makes `c8_enable_reshape_optim` the one-variable ablation; the pinned GLM-5.2 recipe diff by turn 13 | a ranked answer did reach the message, but only on the **17th** turn, and the cap landed inside its action ladder (rung 2 of 4) after ~39 K characters of reasoning against 3.8 K of text; turns 3-16 carried lead lines ("The key hit: … Let me read the gating code"), not the verdict (`../dsa-sparse-attention/c8-flags-and-kv-store-path.md`) |
+| #6266 (v0.12.0rc1, GLM-4.7 1P1D) | by turn 6: the assert is upstream `_update_from_kv_xfer_finished` freeing blocks on a `finished_sending` id, and the pair that matters — `step_with_batch_queue` in the stack proves `--async-scheduling`, and the connector's `request_finished` delays the free only for `FINISHED_LENGTH_CAPPED` (`mooncake_connector.py:910-919`) | **no answer at all**: 11 assistant turns, the 16 384-token cap spent in 2-8 K-character reasoning blocks, a draft verdict line on most turns, then turns 6-11 spent enumerating eight further failure modes ("Failure mode A…H", a duplicate report, a pull-model send, a DP-shared tracker) instead of emitting the two-fact ranked answer; the cap landed inside the reasoning of the final turn, whose message text was empty (`../pd-disaggregation/prefill-scheduler-kv-xfer-assert.md`) |
+| #5571 | by turn 6: the upstream `__init__` binds `mm_budget` on every path (`gpu_model_runner.py:565-573`) and the Ascend subclass does call `super().__init__()` (`model_runner_v1.py:191-193`) — the two facts that make "upstream renamed it" impossible | **no answer at all**: 12 turns / 21 tool calls, 226 characters of message text against ~48 K characters of reasoning, and the later turns re-measured those same two facts instead of reading the third line of the call site (`with _torch_cuda_wrapper():`, whose `except Exception` under the `yield` swallows the constructor's exception). A contradiction between two verified facts is a missing code path — and naming it is the verdict sentence (`../upstream-downstream-drift/swallowed-init-exception.md`) |
+| #1138 (v0.8.5rc1, dense 32B on 4×910B, "AICore < 15 %") | by turn 3: the OCR'd metrics line is the **V0** logger (`Running: 6 reqs, Swapped: 0, Pending: 0, GPU KV 0.2 %, CPU KV 0.0 %`), so 57 tok/s ÷ 6 = 9.5 tok/s per request and nothing was queued — the reporter's own "what caps concurrency at 6" was already answered; by turn 5 the pin's `enforce_eager = True` (`platform.py:124`) with the torchair opt-in and its two silent gates | **no answer at all**: 12 assistant turns, ~45 K characters of reasoning (blocks of 5.4-8.5 K) against three status notes (79/212/217 characters), the full 16 384-token budget gone, cut inside a block re-deriving V0-vs-V1 selection (`../performance-throughput/pre-graph-mode-eager-era.md`) |
+| #4948 (v0.11.0rc3, DeepSeek-R1-0528-BF16, TP8 PP4) | by turn 10: `dispose_tensor` → `x.set_` (`utils.py:504-505`) reached from `torchair_deepseek_v2.py:985-986` inside a `fullgraph=True` torchair compile (`torchair_model_runner.py:423,446`), the same signature in precedent #1615, the `PP + ray + graph` known-issue line, and `check_ascend_config`'s refusal to combine `--enforce-eager` with graph mode | **no answer at all**: 17 assistant turns, ~45 K characters of reasoning (one block 10.7 K) against a single 270-character verdict paragraph at its 14th turn; the cap landed while it planned `findings.md`. Never sent: the per-rank KV budget on the paste's own `Available memory: 5.08e9, total memory: 6.55e10` line, or the BF16-vs-W8A8 recipe question the reporter settled himself a week later (`../startup-failures/torchair-dynamo-compile-unsupported.md`) |
 
 Two consequences worth restating: an "I'll start by…" line is not an answer and
 does not satisfy G1, and a run whose last turn is a tool call has shipped nothing.
+
+**#6529 and #6243 are the batch's natural experiment.** Same skill read, same report
+family (DeepSeek-V3.2 on A2), near-identical spend (44.4 K vs 50.7 K characters) and the
+same mis-tracked turn count — the difference is that most turns in #6529's loop carried
+the current verdict while #6243's fifteen carried none. Everything else that separated
+them is downstream of that habit.
 
 **#12261 and #2015 are the pair that separates "carries message text" from
 "carries the answer".** Both kept a one- or two-sentence finding on nearly every

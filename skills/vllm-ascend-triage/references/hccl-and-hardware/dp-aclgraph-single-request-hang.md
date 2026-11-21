@@ -14,6 +14,10 @@ classification and the artefacts; read this one before deriving any collective
 shape arithmetic from source, because most of that arithmetic is already settled
 and is the part that consumes sessions.
 
+Not this page: **nothing** being served after one oversized request — tiny prompts
+time out too and only a restart recovers, with no watchdog frame anywhere — is the
+KV admission wedge, `../scheduler-admission/waiting-queue-wedge.md`.
+
 ## What "concurrency is fine" actually selects
 
 With DP > 1 every engine has its own scheduler, so a single request leaves the

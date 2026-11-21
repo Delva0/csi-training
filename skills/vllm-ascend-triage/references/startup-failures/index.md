@@ -20,6 +20,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   from the log's own `model_runner.py:<line>`, then ask for the full `vllm serve`
   line and take the liveness checks. Do not lead with `--enforce-eager` where the
   platform already sets `simple_compile_backend = "eager"`.
+- Nothing raised, and the paste stops **inside** weight loading — `Loading
+  safetensors checkpoint shards:   0% Completed | 0/N`, or a bar that never
+  advances, with no `Loading model weights took X GB`, the port still refused and
+  the worker processes alive → `weight-load-stall-in-shard-loop.md` first.
+  Resident HBM equal to checkpoint-size/TP is the *pre-load* state — the loader
+  builds the model on the device before it reads a shard
+  (`vllm/model_executor/model_loader/base_loader.py:53-64` at vllm v0.21.0) — so
+  it does not move the stall after the copies; rank the checkpoint **source**
+  (bind-mounted host dir, mount, disk, a copy in flight) beside the post-copy
+  code paths, and take the `/proc/<pid>/io` sample
+  (`../../scripts/shard-source-probe.sh <model dir> <pid>`).
 - Startup passes the model load and dies with `KeyError: '<...>.self_attn.attn'`.
   **Split it by the frame, not by the key.** Inside upstream
   `offloading_connector.py register_kv_caches`, right after
@@ -35,6 +46,11 @@ Inherit the rules in SKILL.md. Conditional routes:
   foreign one (per-worker `KVCacheConfig` index vs Ray's worker re-rank); fingerprint
   the printed layer index with `scripts/pp-layer-partition.sh` before reading any
   executor code.
+- Every rank dies in `_reshape_kv_cache_tensors` on a bare
+  `AssertionError:  assert sum_page_size_bytes % current_kv_cache_spec.page_size_bytes == 0`,
+  on a DSA model with sparse C8 and/or DCP/MTP → not a memory or hardware lane:
+  `../dsa-sparse-attention/c8-page-size-reshape-assertion.md` (one script call
+  decides whether the arithmetic can even pass).
 - The paste's `file:line` names a `vllm_ascend/**` module the pin does not
   contain (e.g. `vllm_ascend/models/<x>.py`) → `environment-correspondence.md`,
   its vendored-file section: the model code is the reporter's, the framework calls
@@ -53,6 +69,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   are not supported`, or the bare question "can version V deploy model M?" →
   `model-type-not-recognized.md` first. This is a version gate, not a defect:
   answer no/yes + the earliest release that works, then show the gates.
+  The **look-alike** lands on the same page and is not a gate:
+  `ERROR [registry.py:<n>] Error in inspecting model architecture '<Arch>'`
+  followed by a `Traceback (most recent call last):` and nothing else, on an
+  architecture that is registered in both trees — the line is `logger.exception`,
+  the real tail was printed into the same log and cut, and inspection runs in a
+  `python -m vllm.model_executor.models.registry` subprocess, so it is an
+  import-time failure of `vllm_ascend.models.<model>` (wrong triton, or an image
+  that is not the tag). Ask for the tail *and* give the reproducing one-liner.
 - Suspicion of "model X is unsupported", wrong image/vllm pairing, or an
   obvious maintainer "works on my machine" reply → `environment-correspondence.md`.
   That page also carries the scope of the question: the launch environment is
@@ -141,6 +165,13 @@ Inherit the rules in SKILL.md. Conditional routes:
   replaces** (e.g. `'ZeroExpertFusedMoE' object has no attribute
   'select_experts'` — the replacement is keyed by class name)
   → `../upstream-downstream-drift/index.md`; this is drift, not a config value.
+  **Unless** the attribute is one the pinned upstream `__init__` assigns on every
+  path (even to `None`) and the Ascend subclass calls `super().__init__()` inside a
+  `@contextmanager` — then the constructor raised and the wrapper swallowed it
+  (`'NPUModelRunner' object has no attribute 'mm_budget'` at v0.13.0rc1), which is
+  `../upstream-downstream-drift/swallowed-init-exception.md`: the message's own
+  sibling is `AssertionError` from the next `assert`, and the reporter recovers the
+  real error with a `raise` in that branch.
 - The per-rank traceback has `torch/_subclasses/fake_tensor.py` and
   `torch/_ops.py` frames and ends `NotImplementedError: <ns>::<op>: attempted to
   run this operator with Meta tensors` (e.g. `_C::rotary_embedding`), after the
@@ -197,6 +228,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   insufficient available streams` sentence there is canned wrapper text printed
   for every capture exception, and the capture-size set may already be the
   computed maximum.
+- The capture that failed is the **torchair** one —
+  `Capturing torchair graph, this usually takes 1.0~3.0 mins.` followed by
+  `Error executing method 'compile_or_warm_up_model'` and a
+  `torch._dynamo.exc.Unsupported: call_function DelayGraphBreakVariable() …` /
+  `Unsupported function call` — → `torchair-dynamo-compile-unsupported.md` first.
+  Torchair compiles with `fullgraph=True`, so a dynamo graph break is a hard
+  startup failure; the innermost `vllm_ascend` frame (e.g. `dispose_tensor` →
+  `x.set_`) names the owner, and the environment pairing plus the PP/ray/graph
+  known issue are the two checks before any patch. On a full-precision 671 B MoE
+  the per-rank KV budget on the paste's own `Available memory: <N>, total memory:
+  <M>` line is a co-equal cause, not a footnote.
 
 Common rules for this topic:
 

@@ -46,6 +46,18 @@ Inherit the rules in SKILL.md, plus these:
    excludes activations, KV growth and fragmentation, so a PASS is "not yet
    excluded" while a FAIL is decisive.
 
+5. **Ask which checkpoint the recipe was priced for before diffing flags.** A tutorial
+   command carries the *quantized* weights in its model path (`vllm-ascend/DeepSeek-R1-W8A8`,
+   `…-w4a8`) while the reporter serves the unquantized BF16 download — that is 4× the bytes
+   per parameter and a different minimum card count, and no flag diff closes it. Price both
+   with `scripts/card-budget.sh --params <B> --dtype bf16|w8a8 --tp <TP×PP> …` (**only the
+   product** shards the weights; `--tp 8` on a TP8×PP4 layout reports 4× the real per-rank
+   bytes) and quote the project's own
+   minimum when it exists: reporter-confirmed on #4948 that full-weight DeepSeek-R1-0528-BF16
+   needs **at least 4 Atlas 800I A2 servers (32 × 910B4)**, and that the DeepSeek-R1 tutorial
+   page suits the W8A8 weights, not BF16. "Your layout is at the documented minimum and the
+   recipe you followed is for other weights" is a complete sizing answer.
+
 Conditional routes:
 
 - Two serve commands that differ by one resource knob (`--tensor-parallel-size`,

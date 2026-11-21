@@ -27,6 +27,16 @@ after that keeps the header, not this text.
 
 ## Entries
 
+- `scripts/opcount-reconcile.py --count NAME=N [--count …] [--table FILE|-]
+  [--max-factor M] [--layers L] [--steps N] [--elapsed-s S] [--avg-us NAME=US]` —
+  profiler-table arithmetic for an op-count report (#7351): prints every row's
+  count, the step count that *all* rows' quotients agree on with each row's per-step
+  factor, `--steps`/`--layers` per-unit figures, calls/s over `--elapsed-s`, and the
+  `count × avg-us` total against the window (over 100 % = rows from different
+  windows, under 5 % = those rows cannot be the window's cost). Exit 0 =
+  reconciles, 1 = no common step count (mixed windows / broken collection), 2 =
+  unusable input. Table lines are `<name> <count>` / `<name>,<count>`; a garbled
+  OCR row is listed as skipped rather than guessed.
 - `scripts/pp-layer-partition.sh --layers N --pp P [--key-layer K]` — the PP layer
   split and stage-start fingerprint (#5724). Mirrors `get_pp_indices`: the
   `layers % pp` remainder goes to `[-2], [-3], …`, never the last partition, so
@@ -34,6 +44,16 @@ after that keeps the header, not this text.
   `0,15,30,45`. With `--key-layer` it says whether a `KeyError: '…layers.<K>…'`
   index is a stage start — the only index a foreign per-worker kv-cache config can
   name — or contradicts that theory.
+- `scripts/shard-source-probe.sh <model-dir> [pid] [--tp N] [--bytes MiB]` —
+  checkpoint-source probe for a start-up frozen inside weight loading
+  (`Loading safetensors checkpoint shards: 0/N`, no error, no `Loading model
+  weights took`): the mount behind the path, shard count vs
+  `model.safetensors.index.json`, per-rank size, oldest/newest mtime, a timed
+  1 GiB raw read (or `dd did not finish within 20 s -> the READ PATH IS BLOCKED`),
+  and with a pid a `/proc/<pid>/io` `read_bytes` delta over 5 s plus
+  `ps -o stat,wchan`. Its per-rank line is arithmetic, **not** a phase bound —
+  vLLM allocates the params on the device before reading
+  (`base_loader.py:53-64`), so equal numbers prove nothing (#11095).
 - `scripts/history-titles.sh [-i] '<regex>' [root] [limit]` — precedent index,
   one `<file> :: <title>` line per matching history issue (rule 8: titles first).
   Arguments are **positional**; `-i` (case-insensitive) is the only flag, and any
@@ -58,6 +78,17 @@ after that keeps the header, not this text.
   over processes sharing a device (#9335). `P` is **billions** of parameters
   (`671`, not `671e9`); the script exits 2 on a raw count rather than printing
   arithmetic that inverts the verdict.
+- `scripts/kv-page-size-arithmetic.py --layout {legacy,v023} --mode {li_c8,sfa_c8}
+  [--soc A3|A5] [--dcp D] --k-head-dim L --v-head-dim R --index-head-dim I
+  [--block-size 128] [--num-kv-heads 1] [--pages N]` — the DSA/sparse-C8 KV page
+  identity behind `assert sum_page_size_bytes % page_size_bytes == 0` (#12102):
+  recomputes `page_size_bytes` and the virtual terms from the checkpoint's dims,
+  simulates the `int(size // ratio)` splits and prints `VERDICT: holds / does not
+  hold`. The two layouts are the two arithmetic contracts in the snapshot (legacy
+  ≤ v0.22.1rc1 keeps the virtual terms in bf16 elements, so exactness needs an
+  even `index_head_dim`; v0.23.0 is byte weighted and carries
+  `sfa_dcp_replicated_indexer_size`). `does not hold` = arithmetic, so no flag
+  ablation can help.
 - `scripts/aclgraph-size-budget.sh --layers N [--tp --dp --pcp --dcp --ep --moe
   --aiv --max-num-seqs --sizes]` — the capture-size budget: maximum captureable
   sizes and the sampled subset (94 layers, TP=16 gives 6 sizes, #3389).
@@ -111,7 +142,12 @@ after that keeps the header, not this text.
   record clusters so a multi-hour/multi-incident dump is anchored with `--since`
   instead of on its newest line.
 - `scripts/executor-timeout-check.sh <log|->` — vLLM's RPC/ringbuffer watchdog vs
-  a real collective timeout; tolerates screenshot-OCR garble (#1865).
+  a real collective timeout; tolerates screenshot-OCR garble (#1865). It also prints
+  the graph-mode evidence that decides the *next* branch — the mode banner, the
+  `Graph capturing finished` rank count, the crash dump's `cudagraph_mode` tuple with
+  its name (`[2,0]` = `FULL_DECODE_ONLY`), and whether the stalled step was a
+  new/prefill request — and names `aclgraph-full-decode-runtime-hang.md` when the
+  mode engaged (#4178).
 - `scripts/dp-single-request-bucket.sh --capture-sizes 8,1 [--dp --tp
   --max-num-seqs --report 1,2,8 --num-spec]` — the DP>1 + ACL-graph
   single-request lane: the `bs_to_padded_graph_size` map for the launch's own
@@ -159,8 +195,12 @@ after that keeps the header, not this text.
   `HeaderTooLarge` / `HeaderTooSmall` / `invalid JSON` report, so the lane closes
   without opening the loader (#955).
 - `scripts/sse-toolcall-audit.sh <raw-sse>` — the streamed `tool_calls` argument
-  fragments, their assembly and a per-call verdict (`balanced` / `tail-lost` /
-  `quote-gap` / `malformed`) (#17797, #12261).
+  fragments, their assembly, the count of chunks carrying neither `content` nor
+  `tool_calls`, and a per-call verdict (`balanced` / `tail-lost` / `head-lost` /
+  `quote-gap` / `malformed`) (#17797, #12261, #7682). `head-lost` counts paired
+  braces, so a 2-character `"}` with no `{` is reported as a lost **head**
+  (suffix-only assembly) and no longer as a `quote-gap` to be sent to
+  `tool-schema-type-audit.py`.
 - `scripts/seq-cls-arch-check.sh <vllm-root> <Arch>[,<Arch> ...] [--list '<frag>']`
   — resolve a `--hf_overrides architectures` string the way
   `ModelRegistry._normalize_arch` does: registered directly, else the first

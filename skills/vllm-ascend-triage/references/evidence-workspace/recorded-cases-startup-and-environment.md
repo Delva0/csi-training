@@ -418,6 +418,47 @@ thread moved only when the maintainer asked for the startup command and the
 reporter supplied the `vllm serve` line — the ask, not a mechanism, was the
 productive step. Page `../startup-failures/silent-stall-after-weight-load.md`.
 
+**#11095** vllm-ascend v0.21.0rc1 (`80610e44`) + vllm v0.21.0 (`ad7125a4`), image
+`quay.io/ascend/vllm-ascend:v0.21.0rc1-openeuler`, 2×910B3 (64 GB), TP=2,
+Qwen3.5-27B, `--max-model-len 133000`,
+`--speculative-config '{"method": "qwen3_5_mtp", …}'`,
+`--additional-config '{"enable_cpu_binding":true}'`, container
+`-v /mnt/xxx/model:/model`: the serve hangs after
+`Loading safetensors checkpoint shards:   0% Completed | 0/11`, no error, both
+`VLLMWorker_TP` processes alive at 26 618 MB each, port never opens. Track:
+startup, silent stall **inside** the shard loop (`model_runner_v1.py:3635`
+`get_model`, before `Loading model weights took` at `:3666`). The session shipped
+**no answer** (11 turns, 606 K prompt tokens, the full 16 K output budget in
+reasoning): it derived "HBM ≈ checkpoint/TP ⇒ the weights are already loaded, the
+`0/11` frame is stale", and every later turn was post-load code (`qwen3_5`
+registration, `gdn.py` `_warmup_prefill_kernels`, NZ cast, cpu binding) — an
+inference the pin refutes, since `vllm/model_executor/model_loader/base_loader.py:53-64`
+builds the model under `with target_device:` before `load_weights`, so the
+parameters are on the device before the first shard is read. It also used
+`weight_utils.py:938` `Filesystem type for checkpoints: EXT4` to dismiss the
+storage lane; that line is `_get_fs_type`'s `/proc/mounts` lookup (`:784-812`),
+used only to decide prefetching. The reporter's own later comment
+(issuecomment-4831844713, 2026-06-29) resolved it by copying the checkpoint into a
+**new host directory** and re-running the container against it — `--name` changed,
+*"其他容器启动命令不变"*, *"真的是奇奇怪怪！！！"* — i.e. a reporter-confirmed outcome
+on the checkpoint **source** with the mechanism unsettled. Page
+`../startup-failures/weight-load-stall-in-shard-loop.md`, one call
+`../../scripts/shard-source-probe.sh`.
+
+**#6309** vllm-ascend v0.14.0rc1 (`52d4acfa`) + vllm v0.14.1 (`d7de043d`), image
+`quay.io/ascend/vllm-ascend:v0.14.0rc1-310p`, Atlas 300I (310P), Qwen2.5-VL-7B
+SFT checkpoint under `/mnt/nfs310p/…`, `--enforce-eager --dtype float16 --max-model-len 2048`: the
+`[Doc]` question was "which image tag supports 310P", but the paste is a Lane B
+import failure — `EngineCore failed to start` at `_310p/worker_310p.py:21` →
+`patch/worker/__init__.py:20-21` (`HAS_TRITON`) → `patch_triton.py:4` →
+`ops/triton/fla/chunk.py:15` → upstream `fla/ops/utils.py:141` module-level
+`device = … get_available_device()` → `triton/backends/ascend/driver.py:188,91`,
+`SystemError: <built-in function get_arch> returned NULL without setting an
+exception`. The run answered it well (verdict first, one-line probe,
+`pip uninstall -y triton` ladder, pins labelled, registry content marked
+unverified); keep the shape. Page `../soc-platform-paths/atlas-300i-310p.md`
+(triton-import section).
+
 **#11742** `[Community Test]` document task (InternVL3.5-38B-W8A8 on 2×800I A2,
 `推理众测任务书-vllm.xlsx` row 7): the run never delivered. Delivery lesson only —
 its report heredoc opened on the 9th of 10 turns, the session then returned to
@@ -477,6 +518,7 @@ use DSA CP.` wrapped as `EngineCore failed to start`. Cause: `--additional-confi
 delivered verdict + two fixes + the doc/line table on its 15th turn, and correctly flagged that the
 screenshot's `utils.py:1388` differs from the pin's `1533` (image built from a nearby commit; message
 identical). Route: `../dsa-sparse-attention/index.md`.
+
 **#955** vllm-ascend image `v0.8.4rc2` (env dump says `vllm-ascend 0.8.5rc1`,
 vllm 0.8.5.post1, CANN 8.1.RC1, torch-npu 2.5.1), Qwen2.5-VL-7B-Instruct on 910B2C
 ×10, `tensor_parallel_size=4`: "[Bug] … Failed with HeaderTooLarge Error". All four
@@ -498,6 +540,7 @@ the cap itself (no network for `uv --with safetensors`), and delivered the verdi
 one answer at turn 8. Page `../startup-failures/checkpoint-file-not-safetensors.md`,
 one call `../../scripts/checkpoint-header-scan.py <model dir>`. Open: how the
 weights were obtained and the shard sizes.
+
 **#12985** vllm-ascend `v0.23.0rc1-310p-openeuler` (tree v0.23.0rc1 `f4a08bdd`) +
 CANN 9.1.0-beta.1, 4× Atlas 300I Duo = 8 dies of ~43 GiB, Qwen3.5-35B-A3B-w8a8-MTP:
 `vllm serve --tensor-parallel-size 8 --max-model-len 100000
@@ -513,3 +556,79 @@ the reporter later reported the same stall on Qwen3-VL-32B and asked "是硬件�
 That second checkpoint retires every model lane, so the answer stays the documented
 platform limits plus co-tenancy — a broken card is the last row. Route:
 `../soc-platform-paths/atlas-300i-310p.md` (ranked actions, items 2-3).
+
+**#5571** vllm-ascend v0.13.0rc1 (`1b5d5ab`) + vllm v0.13.0 (`72506c9`, matched by the
+paste's `gpu_model_runner.py:4434`), a multimodal serve: `AttributeError:
+'NPUModelRunner' object has no attribute 'mm_budget'` raised in upstream `profile_run`.
+Classified as downstream-patch drift in the run's first sentence and answered with
+nothing at all: 12 assistant turns, 21 tool calls, **226 characters** of message text,
+`output_truncated` at the 16 384-token completion cap. Both decisive facts were in hand
+by turn 6 — upstream binds the attribute on every path
+(`gpu_model_runner.py:565-573`, `MultiModalBudget(...) if self.supports_mm_inputs else
+None`) and the Ascend subclass does call `super().__init__()`
+(`model_runner_v1.py:191-193`) — and the run then spent six turns re-testing a
+"newer upstream moved the initialiser" hypothesis against the two facts instead of
+reading the third line of the call site. What was never grepped: the wrapper.
+`_torch_cuda_wrapper` (`model_runner_v1.py:3453-3488`) puts `except Exception:` under
+its `yield`, so whatever upstream's constructor raised is suppressed by contextlib and
+`mm_budget` is never bound — the attribute error is the *second* symptom, and the
+reporter's real error (inside `MultiModalBudget.__init__`, i.e. the HF processor /
+max-token table) was destroyed. Delivery lesson and mechanism both: when two verified
+facts contradict, the missing third fact is a code path, not a re-measurement. Route:
+`../upstream-downstream-drift/swallowed-init-exception.md`.
+
+**#3325** vllm-ascend v0.11.0rc0 (`00ba071`) + vllm v0.11.0rc3 (`8ce5d31`), image
+`quay.io/ascend/vllm-ascend:v0.11.0rc0`, Qwen3-Next-80B-A3B-Instruct at TP4:
+`ERROR [registry.py:547] Error in inspecting model architecture
+'Qwen3NextForCausalLM'` followed only by `Traceback (most recent call last):`. Answered
+in 11 assistant turns / 19 tool calls with the verdict first and in the report's
+language: not a version gate (the arch is registered at
+`vllm_ascend/models/__init__.py:59-60` and a tutorial exists), inspection runs in a
+subprocess so the cut tail is the finding, then triton-ascend pairing ranked first with
+`#2889`'s `tl.exp` inner frame, `#2929`'s `ModuleNotFoundError` second, and the
+tutorial's `--enforce-eager` / shorter context as the follow-up. What it added beyond
+the paste: an absent triton cannot produce `AttributeError: module 'triton.language'`
+(vllm substitutes placeholders), so a triton is installed and mispaired. Cost: one
+`cat SOURCES.json` (~21 KB, rule 7) and a full read of the tutorial including its
+x86_64 "Coming soon" tab. Route:
+`../startup-failures/model-type-not-recognized.md` (inspection-crash section).
+
+**#4948** vllm-ascend v0.11.0rc3 image (`quay.nju.edu.cn/…`, tree `b6d63bb`) + vllm v0.11.0,
+"部署满血版 DeepSeek R1 0528 BF16 失败" on Atlas 800I A2 / 910B4, `--tensor-parallel-size 8
+--pipeline-parallel-size 4 --enable-expert-parallel --distributed-executor-backend ray
+--additional-config '{"ascend_scheduler_config":{"enabled":true},"torchair_graph_config":
+{"enabled":true}}'`, `--max-model-len/--max-num-batched-tokens 65536`: every rank printed
+`Capturing torchair graph …` and then `Error executing method 'compile_or_warm_up_model'` with
+`torch._dynamo.exc.Unsupported: call_function DelayGraphBreakVariable()` from
+`dispose_tensor` → `x.set_` (`utils.py:504-505`, called at
+`torchair/models/torchair_deepseek_v2.py:985-986`) inside the `fullgraph=True` compile
+(`torchair_model_runner.py:423,446`); precedent #1615 carries the same signature. Co-equal
+cause on this checkpoint: the paste's `Available memory: 5080964608, total memory:
+65452113920` (`worker_v1.py:257`) leaves 7.8 % headroom at a 65 K-token profile, and
+reporter-confirmed later on the same issue: full-weight BF16 R1-0528 needs ≥4 A2 servers
+(32 × 910B4) and the DeepSeek-R1 tutorial suits the W8A8 weights. Known issue in the pinned
+tree: `release_notes.md:383` still lists "Pipeline parallel does not work with ray and graph
+mode" (#1751/#1754), and both recorded reports ran PP=4. The recorded run reached the verdict
+by turn 10 but shipped **no answer** (one 270-character paragraph, the rest reasoning) before
+the 16 K cap. Page `../startup-failures/torchair-dynamo-compile-unsupported.md`. Open: the
+image's `torch`/`torch_npu` versions against the pinned 2.7.1 pair.
+
+**#12059** vllm-ascend v0.19.1rc2.dev849 (`05e095a20`, from the reporter's `collect_env`)
++ vllm 0.24.0, aarch64 Ubuntu 22.04 host, Mooncake-adjacent report: "env vars set in
+`~/.bashrc` are missing on non-interactive container startup (`LD_LIBRARY_PATH` /
+`LD_PRELOAD`)". Track: build-recipe / launched-process environment
+(`../image-dependency-faults/launch-env-and-library-path.md`). Delivered in 19 turns with
+the verdict first and the source-verified table: the preload is **the image's own recipe**
+(one `RUN echo … >> ~/.bashrc` pair per variant, all variants), `LD_PRELOAD` expands empty
+at build time (the trailing colon the reporter saw), no `ENV LD_*` carries it, and
+`CMD ["/bin/bash"]` is non-interactive without a TTY — so the image's advertised default
+start is broken independently of `--entrypoint`. The fix is `ENV`, the workaround on
+released tags is the export in the launch command, and verification is
+`/proc/1/environ`/`docker exec … bash -c`, never an interactive shell — #7352 is the
+reporter-confirmed precedent. Re-verified at the snapshot pin (`a78a00e`): the same pair
+exists in six `Dockerfile*` (`Dockerfile:81-82`, `.a3:80-81`, `.openEuler:78-79`,
+`.310p:63-64`, `.a3.openEuler:78-79`, `.310p.openEuler:59-60`), `CMD ["/bin/bash"]` at
+`Dockerfile:84`, and the base is `quay.io/ascend/cann:8.5.1-910b-ubuntu22.04-py3.11`
+with no `ENV LD_*` in the recipe. Left open, correctly: whether the reporter's
+`v0.22.1rc1-a3` tag carries the same lines (tag not in this snapshot) and any concrete
+Mooncake failure (nothing in the paste shows one).

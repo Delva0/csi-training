@@ -312,6 +312,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   against their own below-cliff N
   (`../performance-throughput/sequence-count-cliff-capture-size.md`,
   #14440).
+- The evidence is a **profiler table** rather than a metric block or a log — "`<Op>`
+  被调用了 98 万次", an `msprof`/MindStudio operator-statistics screenshot, "NPU
+  空闲时间 95%", an NPU-vs-GPU operator-count ratio: run
+  `bash <skill_root>/scripts/opcount-reconcile.py --count NAME=N … [--steps N]
+  [--elapsed-s S --avg-us NAME=US]` first (it prints the one step count every row's
+  quotient agrees on, per-step factors, and the total-time reconciliation), ask
+  whether the collection itself exited 0 (a `libruntime_v100.so` bug and a window
+  that mostly covered idle time are the reporter-confirmed failure family), and let
+  an unchanged same-request TPOT delete the amplification claim. Do not open
+  `ops/linear_op.py` or `quantization/w8a8_dynamic.py` for a count
+  (`../performance-throughput/profiler-opcount-evidence.md`, #7351).
 - "The machine crashed" / the host dropped / a `top` paste whose python3 ranks
   each hold tens of GiB RES: run
   `bash <skill_root>/scripts/host-ram-check.sh <paste|->` and report the ratio
@@ -409,6 +420,16 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   diff the same tutorial for the decode side and lead with the identity row
   (`--max-num-seqs 1`, `temperature: 0`, same request 3×)
   (`../accuracy-benchmarks/long-output-repetition.md`).
+- The same prompt or body run **several times** gives different lengths or contents
+  ("nv 卡多次一致，npu 多次差异大", "`temperature=0` 结果不确定"): this is a
+  reproducibility question, so the first two reads are the request body's
+  `temperature`/`top_k`/`seed` and the *pattern* of which runs differ — not a kernel
+  walk and not a long-output hunt. A stable NV baseline is a control that refutes
+  sampling randomness, the tree's FAQ #16 (`docs/source/faqs.md:167-203`, four env
+  vars) is the documented recipe, and `VLLM_BATCH_INVARIANT=1` is the beta mitigation
+  with 910B/custom-op/coverage gates
+  (`../accuracy-benchmarks/repeated-run-nondeterminism.md`). Recorded #7180 ranked
+  "sampling not pinned" first; the reporter's next comment pasted a greedy body.
 - A crash under concurrency with **no** error text pasted: do not hunt the mechanism.
   The answer is the gap, the config diff against the tree's own validated command
   (`tests/e2e/**`, `docs/source/tutorials/<model>.md`) and ranked candidates with one

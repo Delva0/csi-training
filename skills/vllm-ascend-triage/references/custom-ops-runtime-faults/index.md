@@ -79,6 +79,11 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
 - The dump names the operator and the error class; it does **not** identify the shape. Never
   assert "fails for hidden size N" without a shape-bearing artefact (reporter log line,
   tiling log, or a computed tiling decision).
+  The same holds for the pre-launch cousin: `EZ9999 … <tensor> shape is invalid` /
+  `cos or sin batchSize must same as x batchSize` carrying
+  `[FUNC:GetShapeAttrsInfo][FILE:<op>_tiling.cpp]` plus `<Op> do tiling failed, ret is -1`
+  is an **attribute rejection of the caller's arguments** (nothing launched), intermittent
+  only because a rarer batch regime changes the rows — `tiling-attribute-rejection.md`.
 - **No error text at all is a third family.** A correctly shaped, silently wrong
   result (uniform-average output, softmax apparently dropped, error only against
   an fp32 reference) is an **operator numerics** report, not a device fault: the
@@ -152,6 +157,15 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   (`chunk.py:95` → binding → `nullptr` → scheduler), the Python-gate gap, the fix
   ladder with the `prepare_chunk_indices` route, and why a shape-only nightly op test
   reports PASSED while the kernel faults (plus the `[N,H,V,K]` vs `[N,H,K,V]` oracle trap).
+- `tiling-attribute-rejection.md` — `<tensor> shape is invalid` /
+  `… batchSize must same as x batchSize` out of `<op>_tiling.cpp` `GetShapeAttrsInfo` with
+  `do tiling failed, ret is -1` and `error code is 561002`: what the line proves (an argument
+  check, not a split bug), the three recorded wordings on `npu_kv_rmsnorm_rope_cache` and
+  `npu_interleave_rope`, the caller's tensor construction sites at v0.13.0rc2
+  (`sfa_v1.py:511-553`, `mla_v1.py:1098/1126`, `rotary_embedding.py:107-119`), the four
+  regimes that change the rows at the call (MLAPO's 1024-token branch, graph buckets,
+  DSA-CP slicing, SP gather), the five-line shape-dump spy, the framework-free `torch_npu`
+  sweep, and how to answer when the op owner returns the case as a "调度问题".
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
   each line does/does not pin down.
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend

@@ -29,7 +29,7 @@ gates; this topic keeps the per-track detail that used to sit beside them.
 
 ## Routes
 
-- `signature-routes.md` — the 111-row classification index (log fragment →
+- `signature-routes.md` — the 126-row classification index (log fragment →
   track A/B/C/D → owning page), moved out of `SKILL.md`. Its scope defines the four
   tracks; open it when the signature is specific, and read the middle cell before
   following the link, since it carries the decisive local rule.

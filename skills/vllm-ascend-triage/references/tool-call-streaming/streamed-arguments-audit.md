@@ -36,11 +36,16 @@ the balance of `{ } [ ] "`, the first/last fragments, the assembled string, and
 `finish_reason` chunks, the last non-empty argument chunk, and any chunk whose
 `arguments` is the empty string — because "the tail arrived as `""`" is the shape
 that hides a lost tail. Since #12261 it also prints a per-tool-call **verdict** —
-`balanced`, `tail-lost` (an opening brace/bracket left open), `quote-gap` (braces
-and brackets balance, the quote count is odd) or `malformed` — and those map onto
-outcomes A/B/C below: a `quote-gap` verdict is case C, **not** a lost tail, so do
-not overrule it by hand. It tolerates HTML/Excel clipboard wrappers, console
-prefixes (`decoded ok: data: {...}`) and `[REDACTED]` placeholders (those inject
+`balanced`, `tail-lost` (an opening brace/bracket left open), `head-lost` (more
+*closing* than opening braces: the assembly starts inside the object),
+`quote-gap` (braces and brackets balance, the quote count is odd) or `malformed` —
+and those map onto outcomes A/B/B2/C below: a `quote-gap` verdict is case C and a
+`head-lost` verdict is case B2, **neither** is a lost tail, so do not overrule
+either by hand. It also counts the chunks that carry neither `content` nor
+`tool_calls`: a buffering tool parser emits a run of them while it walks the
+model's XML, so the count alone is not a fault. It tolerates HTML/Excel clipboard
+wrappers, console prefixes (`decoded ok: data: {...}`) and `[REDACTED]`
+placeholders (those inject
 brackets, so read the braces and quotes, not the bracket pair).
 
 Calibrations on the recorded pastes:
@@ -48,6 +53,7 @@ Calibrations on the recorded pastes:
 | Paste | Result |
 |---|---|
 | #7580 opencode reproduction, 11 chunks, `num_speculative_tokens: 3` | one tool call, 10 fragments, assembled `{"filePath":"/…/K8sYamlAgent.java` — `{` 1 / `}` 0, odd quote count, `json.loads` → `Unterminated string starting at: line 1 column 13 (char 12)`, which is the reporter's own error verbatim. Tail missing while `finish_reason: "tool_calls"` follows. |
+| #7682 GLM-5-w4a8 paste, 29 chunks (`delta: {}` × 28) | one tool call, **one** fragment, 2 chars: assembled `"}` — `{` 0 / `}` 1, 1 quote, `json.loads` → `Unterminated string starting at: line 1 column 1 (char 0)`. Head-lost, not a lost tail: the non-streaming body returns the complete `{"todos": "…"}` and the assembly is its last two characters. |
 | #8122 Qwen3-Next-80B-A3B-Instruct response dump, 97 chunks | one tool call, 95 fragments, assembled 268-char arguments, braces 1/1, 40 quotes (even), `json.loads` OK. The pasted stream is healthy — so that sample was not one of the "大概率截断" requests and no mechanism should be built on it. |
 
 ## Step 3 — route on the outcome
@@ -73,6 +79,20 @@ chat_completion/protocol.py:98`, filled only under `request.return_token_ids` at
 - token ids complete but the text is short → the delta assembly in the serving
   path lost them; grep the tool parser's `extract_tool_calls_streaming` delta
   state and the `previous_text` slicing, not the sampler.
+
+**B2. Head missing entirely** — the assembly is only the object's closing
+punctuation (`"}`; `{` 0 / `}` 1) while `stream: false` returns the full string,
+and every other chunk is `delta: {}`. Nothing but a suffix of the arguments was
+ever emitted, so the owner is the layer that keeps the streamed **length**, not
+the model and not the client: the parser's `_compute_args_diff` /
+`streamed_args_for_tool`, or the frontend's finish-step
+`remaining_call = expected.replace(actual, "", 1)`. One arithmetic is the whole
+diagnosis — `assembled == non_stream_args[-len(assembled):]` — and no parser read
+is needed to state it. Note the run of `delta: {}` chunks is a *buffering* parser
+(GLM walks `<tool_call>…</tool_call>` before emitting anything), so do not read
+it as dropped tokens. Full mechanism, the two code sites and the
+`--tool-call-parser` registry check that dates the export against the runtime:
+`suffix-only-arguments.md` (#7682).
 
 **C. Unbalanced in the middle, gap inside a value** — braces balanced, quotes
 odd, no opening `"` after `": ` while the closing `"` and `}` are present
@@ -167,6 +187,7 @@ report is about a version the topical page does not name.
 | `stop_reason: <int>` on a chunk | upstream vLLM field carrying the stop token id |
 | `finish_reason: "tool_calls"` with short arguments | the stream ended early — engine or delta, decided by `return_token_ids` |
 | arguments valid but the model answered only CoT / no `tool_calls` | parser+flag gate: `--tool-call-parser`, `--enable-auto-tool-choice`, `--async-scheduling` row |
+| assembled string is only the closing `"}` / `}` (more closing than opening braces), all other chunks `delta: {}`, `stream: false` clean | the delta **bookkeeping** length, in its extreme form: only a suffix was ever emitted — `suffix-only-arguments.md`; test `assembled == non_stream_args[-len(assembled):]` before any parser read |
 | balanced braces, odd quotes, no opening quote on a value, `stream: false` clean | the tool parser's delta arithmetic, keyed on the argument's declared schema type (`arg-type-gate-unquoted-value.md`) — upstream vLLM, not the model and not vllm-ascend |
 | leading characters of a value missing **and** a fragment repeated later, `stream: false` clean, often at a script boundary | the streamed text: the incremental detokenizer (`detokenizer-text-delta.md`) when `content` is damaged identically, the parser's length diff when only `arguments` is — one grep for `resetting decode stream` separates them |
 | token ids short with `num_speculative_tokens >= 3` | vllm-ascend sampler (`sample/rejection_sampler.py:114`) |

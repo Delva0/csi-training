@@ -321,13 +321,30 @@ lacks (`add_request` -> `num_reqs` at `:316-324`, `remove_request` skipping
 `removed_append` at `:462-465`, trim-only `condense` at `:573-577`, forced by
 `assert request.sampling_params` at `:303`), which leaves a `None` hole plus a
 duplicated slot under concurrency and raises at
-`vllm/v1/attention/backends/utils.py:798`; by v0.23.0 the copy is gone
-(`class NPUInputBatch(InputBatch)`, `__init__` only). **Shipped no answer**: 20
+`vllm/v1/attention/backends/utils.py:798`; already at v0.13.0rc1 the copy is
+gone (`npu_input_batch.py:33 class NPUInputBatch(InputBatch)`, `__init__` only).
+**Shipped no answer**: 20
 assistant turns, 11 of them with zero message text (bare tool calls), the 16 K
 output budget entirely in reasoning, cut while it was still verifying
 `add_request`'s index assignment after having named the root cause two turns
 earlier. Lane: pooling batch bookkeeping
 (`../pooling-embedding/batch-index-desync.md`).
+
+**#5687** vllm-ascend `v0.11.0rc3`, Qwen3-Embedding-8B, `--max-num-seqs 256` on a
+`ray_distributed_executor`: `KeyError: None` at `model_runner_v1.py:1260
+_prepare_inputs` -> `tokens = [scheduler_output.num_scheduled_tokens[i] for i in
+req_ids]`, gone at `--max-num-seqs 8`; the ask is "要怎么找到报None值到底出现在哪里",
+and the reporter's own probes were in `reorder_batch_to_split_decodes_and_prefills`
+and around `update_states`/condense — both legitimately empty. The delivered
+answer named the `InputBatch` slot bookkeeping (the #5525 mechanism, stated as a
+precedent because 0.11.0rc3 is not in the snapshot), said the first consumer in
+this version is `_prepare_inputs` rather than the reorder helper, and gave a
+one-launch probe at the listcomp. **Reporter-confirmed afterwards**: `print(input_batch)`
+showed `[None,None,xxx,297]` in the second batch becoming `[None,298,299,xx]` as
+requests were added, "初步排查是因为condense侧的删除逻辑有问题" — i.e. the ranked
+diagnosis held, and the decisive evidence came from dumping the batch state, not
+from any consumer frame (`../pooling-embedding/batch-index-desync.md` §instrument
+the producer). Lane: pooling batch bookkeeping.
 
 **#10700** vllm-ascend v0.21.0rc1 (`80610e4`) + vllm v0.21.0 (`ad7125a`), 2× Atlas
 800I-A2, GLM-5.1, DP2 × TP8 + EP, `deepseek_mtp` 3, `FULL_DECODE_ONLY`,
@@ -409,6 +426,52 @@ tutorial's `--async-scheduling` is absent, and `--speculative-config` carries
 补充，可以缓解"), and that a **later parser refactor** showed no recurrence. Treat the
 client-side validate-and-repair as the actionable answer for these versions and
 keep both parser and text-delta owners open.
+
+**#7682** vllm-ascend v0.17.0rc1 (`e20f0b1a`) image `v0.17.0rc1-a3-glm5-v2`,
+GLM-5-w4a8 on one A3 16-card node, `--tool-call-parser glm47 --reasoning-parser
+glm45`, MTP `deepseek_mtp` n=3, `--async-scheduling`, `FULL_DECODE_ONLY`, chunked
+prefill: the non-streaming `/v1/chat/completions` returns the complete
+`{"todos": "- [x] 分析项目结构…"}`, the streaming one returns
+`"arguments":"\"}"` — two characters — after 28 `delta: {}` chunks. Track:
+tool-call output integrity, the **suffix-only / head-lost** variant of the
+bookkeeping family (`../tool-call-streaming/suffix-only-arguments.md`, new):
+`{` 0 / `}` 1, one quote, `json.loads` → `Unterminated string starting at: line 1
+column 1 (char 0)`, and the assembly is a strict suffix of the non-streaming
+arguments. The reporter restated the same A/B in a follow-up minutes after filing
+(2026-03-26T08:29Z, `#issuecomment-4132650891`), so the paste is a genuine failing
+request (unlike #8122). Coverage gap at this pin: the case view exports vllm **v0.13.0**
+(`72506c9`), whose tool/reasoning registries hold `glm45` only — a deployment
+running `--tool-call-parser glm47` cannot be serving that tree, so the parser code
+under the export is not the code that ran. Delivery: the recorded run called the
+shape on turn 3 ("not the model … only its last two characters"), then spent ~8
+turns on the `glm47`-absent registry and the parser/sampler walk (`serving_chat`
+`remaining_call`, `rejection_sampler.py:114`, `patch/` sweep) and ended
+`status: output_truncated` at 16 384 output tokens with **no answer text ever
+sent** — the last block was reasoning about which file to open next. Two fixes
+landed: `scripts/sse-toolcall-audit.sh` had labelled this paste `quote-gap`
+(braces "balanced" although 0 `{` vs 1 `}`) and pushed it to
+`tool-schema-type-audit.py`; it now reports `head-lost` with the suffix
+arithmetic, and the doc route is rule 1's new outcome plus the new page.
+
+**#5065** vllm-ascend v0.12.0rc1 (`42ceaf08`) + vllm v0.12.0 (`4fd9d6a8`), A2
+910B2C ×8 (`910B2C`, TP=8) with an `A+X` box, Qwen3-Next-80B-A3B-Instruct W8A8 via
+`--quantization ascend`, `VLLM_ASCEND_ENABLE_NZ=1`, `FULL_DECODE_ONLY`, chunked
+prefill on: `who are you?` comes back as an answer to a different question and a
+Chinese prompt as an English CAI essay, `finish_reason: stop`, `prompt_tokens`
+12/24. Track: accuracy/corruption on a hybrid GDN model
+(`../accuracy-benchmarks/qwen3-next-gdn-numeric-path.md`, new
+`v0.12.0rc1` section). The run's citable finds at this pin: the release's own
+Known Issues carry "DeepSeek 3/3.1 and Qwen3 doesn't work with FULL_DECODE_ONLY
+graph mode" (`release_notes.md:42`) and the `VLLM_ASCEND_ENABLE_NZ` default note
+(`:46`), the Upgrade Note requires CANN 8.3.RC2 while the reporter has 8.2.RC1
+(`:39`), the W8A8 e2e case is annotated `# TODO: will conduct accuracy
+verification after the subsequent version becomes stable`
+(`tests/e2e/multicard/test_qwen3_next.py:109`) and the batch-chunked-prefill case
+`# TODO: Fix the accuary of batch chunked prefill` (`:64`), and the GDN path now
+binds to `vllm_ascend/ops/triton/fla/*` (`patch/worker/patch_triton.py:2-16`)
+instead of the v0.11 fp32 torch reference. Delivered a ranked answer on turn 15
+(NZ, graph mode, unverified W8A8, CANN/wheel pair) and correctly refused to treat
+the paste's own corrupted JSON keys as detokenizer evidence.
 
 **#5549** vllm-ascend v0.10.0rc1 (`4604882`) + vllm v0.10.0 (`6d8d0a2`), image
 `v0.10.0rc1-310p`, Ascend 310P3: `vllm serve /model/Qwen3-Embedding-0.6B --dtype
@@ -535,3 +598,19 @@ preempts `outlines_decoding.py:127`) — with `findings.md` written before the f
 message. The one waste was a whole-file `cat SOURCES.json` on turn 1 (rule 7); its
 replacement, `scripts/sources-summary.sh`, was used by the same run two turns later.
 Page: `../serving-frontend-faults/guided-decoding-backend-aarch64.md`.
+
+**#7180** image 0.13.0 + CANN 8.5.0, 910B4, `QwQ-32B-GRPO-INT8`: "同一条 prompt，nv 卡
+vllm 推理若干次的输出 tokens 长度一致，而 npu A2 推理若干次的输出 token 长度差异大" — no
+log, no request body. Track: reproducibility, not accuracy
+(`../accuracy-benchmarks/repeated-run-nondeterminism.md`). The recorded run delivered in
+shape (verdict, ranked causes, action ladder, `findings.md` before the final message) and
+was source-accurate on the batch-invariance mechanism, but it **ranked "采样参数没有固定" as
+cause 1**; the reporter's later public comment pasted the body — `temperature: 0`, `top_p: 1`,
+`top_k: 1`, `repetition_penalty: 1.1`, `max_tokens: 65536`, prompt ≈8782 tokens, and three
+screenshots of `time curl` runs — so the only live branch was the one it ranked second. Two
+things it had and did not use: the reporter's own cross-platform control already implied a
+pinned body, and `vllm/v1/sample/sampler.py` `all_greedy` → `greedy_sample` (argmax, before
+any RNG) refutes the sampler at `temperature: 0` from source. It also never cited the tree's
+own FAQ #16 (`docs/source/faqs.md:167-203`, four determinism env vars), leading instead with
+the beta `VLLM_BATCH_INVARIANT=1` program and its gates. Page:
+`../accuracy-benchmarks/repeated-run-nondeterminism.md`.

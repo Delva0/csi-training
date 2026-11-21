@@ -66,6 +66,11 @@ Conditional routes:
 - `Unknown vLLM environment variable detected: VLLM_ASCEND_*` — why it fires, which
   process printed it, why `collect_env.py` never shows the variable, and where the
   downstream fix belongs: `env-var-validation-warning.md`.
+- The number came out of an *external* profiler rather than out of a vLLM flag —
+  `msprof`/MindStudio operator counts, "NPU 空闲时间 95%", an NPU-vs-GPU operator
+  compare: that is not this topic's route and not vLLM's `/start_profile`, it is
+  collection validity plus per-step normalization —
+  `../performance-throughput/profiler-opcount-evidence.md`.
 - An endpoint that is simply *not there* — `POST /start_profile` /
   `/stop_profile` → `404 Not Found` after `--profiler-config '{…}'`, or a 500
   naming `Profiling is not enabled` — a route-registration question in the

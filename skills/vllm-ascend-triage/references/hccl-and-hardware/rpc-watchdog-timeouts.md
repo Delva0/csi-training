@@ -17,6 +17,11 @@ Two conditional routes before the ranked list below:
   while concurrency is served normally, on `-dp N` with ACL graph on: the idle
   ranks run `execute_dummy_batch() -> _dummy_run(1)` and the pad target is not the
   suspect. `dp-aclgraph-single-request-hang.md` (recorded #3128).
+- **The graph mode's own banner printed and capture finished**, then the *first*
+  request stalls (DP=1, so the dummy-batch route above cannot be it):
+  `aclgraph-full-decode-runtime-hang.md` — the mode's request path, not the
+  watchdog, owns the diagnosis, and on a release candidate the deliverable is a
+  coverage/version verdict before any source walk (recorded #4178).
 - **The deployment is DP>1 with MoE**, hang or no hang: the DP all-gather's pad
   target, the `with_prefill` phase vector and the owner slice are already worked
   out in `../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`. Read it
@@ -71,7 +76,9 @@ level.
   raise line as `409`. Quote the function, footnote the line.
 
 `bash <skill_root>/scripts/executor-timeout-check.sh <paste|->` prints the family,
-the direction and the next artefacts in one call.
+the direction and the next artefacts in one call, plus the graph-mode evidence
+(mode banner, capture-finished ranks, the dump's `cudagraph_mode` tuple) that decides
+whether the stall belongs to the mode's request path — `aclgraph-full-decode-runtime-hang.md`.
 
 ## Why DP>1 makes one stalled rank hang everyone (source-verified, v0.9.2rc1)
 

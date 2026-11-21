@@ -8,6 +8,10 @@ Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deeps
   dump names a scatter/gather kernel — `indexer-cache-scatter-fault.md`;
 - "服务崩溃 / 崩溃" under concurrency or high load **with no error text pasted** —
   `concurrency-crash-with-no-log.md`;
+- a `npu_kv_rmsnorm_rope_cache` `cos or sin shape is invalid` /
+  `do tiling failed, ret is -1` after a healthy run, i.e. the op's attribute check refusing
+  the rows this batch handed it (graph bucket, DSA-CP slice, chunked-prefill chunk) —
+  `../custom-ops-runtime-faults/tiling-attribute-rejection.md`.
 - an engine-start `AttributeError` on `aclnn_input_scale` / `aclnn_input_scale_reciprocal`
   / `aclnn_input_offset` at `sfa_v1.py:707` (`_init_o_proj_tp_full_params`) with
   FLASHCOMM1 or shared-expert-DP on and a W4A8/BF16 checkpoint —
@@ -17,6 +21,11 @@ Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deeps
   answering**, whose first request is garbled, or which only loses accuracy — the flag
   algebra, the two `store_kv_block*` custom ops and the pinned per-weights recipes —
   `c8-flags-and-kv-store-path.md`.
+- the engine dies **at KV cache construction** with a bare
+  `AssertionError:  assert sum_page_size_bytes % current_kv_cache_spec.page_size_bytes == 0`
+  (`_reshape_kv_cache_tensors`), on a DSA model with C8 and/or DCP/MTP — a page-size
+  arithmetic/spec-consistency question, not memory or a card —
+  `c8-page-size-reshape-assertion.md`.
 
 Not this topic: startup failures before the engine is ready (see
 `../startup-failures/index.md`), generic collective/HCCL faults

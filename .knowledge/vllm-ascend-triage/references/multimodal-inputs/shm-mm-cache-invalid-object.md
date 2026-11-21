@@ -15,6 +15,15 @@ issue. See stack trace (above) for the root cause` at the API server. No `vllm_a
 frame (only `patch/platform/patch_core.py`'s `run_engine_core` loop). Owner: upstream
 vLLM's SHM **multimodal feature cache**, not the plugin and not a device fault.
 
+**Not a trigger: the flag on its own.** This class exists only when the error string
+above appears on a **request**. `--mm_processor_cache_type shm` in a serve line whose
+paste ends `WorkerProc failed to start.` (or any worker-start failure with no readable
+traceback) routes to `../startup-failures/silent-worker-exit.md` and
+`../startup-failures/weight-scale-keyerror-quant-variant.md` first: recorded #7744 ranked
+this page's "drop the flag" ladder first while the failing phase was a load-phase
+`KeyError: 'layers.37.mlp.experts.w2_weight_offset'`, and the reporter's resolution was
+the newer tag, not the flag.
+
 Verified at vllm v0.11.0 `b8b302cde434` ↔ vllm-ascend `01a13a9b` (recorded #5117) unless
 a line is marked otherwise.
 

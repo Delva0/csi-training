@@ -45,8 +45,12 @@ though a mixed step is what reaches it: no unit is mis-sliced, a branch guarded 
 torchair × chunked-prefill config contract —
 `../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md`.
 
-Not this topic: a pure decode-only or prefill-only crash (read that backend's own
-page), **the variant the operator itself refuses** — `EZ9999 … When layout is TND,
+Not this topic: **a step that mixes a spec-decode request with a plain decode request** —
+same word "mixed", different question: no unit is mis-sliced, an upstream hybrid
+linear-attention builder refuses the composition and the answer is its version window
+(`../spec-decode-mtp/mixed-spec-and-plain-decode-assert.md`); a pure decode-only or
+prefill-only crash (read that backend's own page); **the variant the operator itself
+refuses** — `EZ9999 … When layout is TND,
 queryT(N) must be equal to the last element of actualSequenceLengthQ(M)`, which is
 padding bookkeeping in a `FULL_DECODE_ONLY` graph rather than a wrong split
 (`../spec-decode-mtp/fia-tnd-seqlen-mismatch.md`) —, a device fault raised from the

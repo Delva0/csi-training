@@ -11,13 +11,17 @@ crashed yet. Two faces of one decision:
 - **inside a running deployment, adding an optional dependency** — a command from the
   project's own docs dies on `ImportError: Please install vllm[bench] for bench
   support`, and the reporter's next attempt, `pip install pandas`, ends in
-  `No matching distribution found for pandas` in the image (#4737).
+  `No matching distribution found for pandas` in the image (#4737);
+- **no pip output pasted at all** — the body narrates the substitution instead: installing
+  `vllm==<ver>` "prompts you to uninstall torch 2.5.1 and reinstall version 2.7.X", after
+  which the vllm-ascend install "reports that torch 2.5.1 could not be found" (#1363) —
+  same defect, paraphrase instead of a message: §A0.
 
 The sibling shape — the same two-command install ending in pip's *warning* block
 rather than an error — is `pip-resolver-warning-block.md`; it owns the "nothing
 failed" verdict and the device-gated metadata that decides it.
 
-Both are answered from **three files and one command**, never from a release survey:
+All three are answered from **three files and one command**, never from a release survey:
 the downstream `requirements.txt` (and the `setup.py` that turns it into metadata), the
 upstream `requirements/*.txt` for the same three packages, and the reporter's own
 `pip config list` / `pip show torch torch-npu`. Inherit `index.md` and the rules in
@@ -38,6 +42,67 @@ different faults. Tell them apart **before** any version reasoning:
 Only the middle row is a packaging defect; the first row is a missing index on the
 command line; the third is a network fact about the reporter's site and is fixed with a
 wheelhouse, not with a version.
+
+## A0. No pip output is pasted — the reporter narrates the torch substitution
+
+Recorded: **#1363**, `[Installation]: How to deploy vllm-ascend in AutoDL's 910B instance`.
+A rented aarch64 box whose pasted `npu-smi` (one 910B2 chip, 3335 MB resident HBM, no
+process) and `ascend_toolkit_install.info` (CANN `8.1.RC1`) show the CANN and torch side
+already installed, and whose whole "error" section is one sentence pair: installing
+`vllm 0.9.1` "prompts you to uninstall torch 2.5.1 and reinstall version 2.7.X", after
+which the `vllm-ascend 0.9.1rc1` install "reports that torch 2.5.1 could not be found";
+`collect_env.py not Found`. No `ERROR:` line, no traceback — so §A's chain cannot be
+triggered by a grep, and the report reads like a recipe question ("how will such a
+problem be handled?").
+
+It is the §A conflict seen from the reporter's side, answered by **four reads and no
+source walk** at vllm-ascend `v0.9.1rc1` (`c30ddb8`) + vllm `v0.9.1` (`b6553be`):
+
+| Read | What it settles |
+|---|---|
+| `docs/source/developer_guide/versioning_policy.md:25` | the release's own pairing row — `v0.9.1rc1 \| v0.9.1 \| … \| 8.1.RC1 \| 2.5.1 / 2.5.1.post1.dev20250528`: the Ascend line is torch **2.5.1** |
+| downstream `requirements.txt:13-14,25-27` with `setup.py:306-316,359` | `torch>=2.5.1`, `torchvision<0.21.0`, and mirror-only `torch-npu==2.5.1.post1.dev20250528` after `--pre` / `--extra-index-url`; `--` lines are dropped from `install_requires`, and there is **no `vllm` requirement at all**, so nothing checks which vllm this sits beside |
+| upstream `requirements/cuda.txt:9-12` + `setup.py:436,611-612` | the PyPI `vllm` wheel is a CUDA build whose metadata pins `torch==2.7.0` / `torchvision==0.22.0`; `_no_device()` reads `common.txt` only, which has **no torch** — so `VLLM_TARGET_DEVICE=empty` is the one vllm install that leaves the torch line alone |
+| `Dockerfile:18,40-44,49-53` | the project's own recipe: CANN base image (`:18`), `ARG VLLM_TAG=v0.9.1` (`:40`), `VLLM_TARGET_DEVICE="empty" … pip install -e vllm` (`:43`), `pip uninstall -y triton` (`:44`), then vllm-ascend after `export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi` (`:49,53`) |
+
+Verdict for the first paragraph: **do not take `vllm` from PyPI on that release** — no pip
+command gives both wheels one torch line; install vllm v0.9.1 from source with
+`VLLM_TARGET_DEVICE=empty` as the Dockerfile does, keep torch 2.5.1, pull
+`torch-npu==2.5.1.post1.dev20250528` from the Huawei mirror, then vllm-ascend. The
+reporter's second error is that mirror, not a second defect — the paraphrase does not say
+whether pip named `torch`, `torchvision` or `torch-npu`, so ask for the exact line
+(`pip install --dry-run` / `pip show` on their box) instead of guessing which of the three
+it was.
+
+The doc defect this exposes at the same ref: the **pip leg** of `installation.md`
+(`:126-141`) renders `pip install vllm==0.9.1` / `vllm-ascend==0.9.1rc1` from
+`conf.py:75-76` and carries **no Ascend mirror** — its only extra-index is
+`download.pytorch.org/whl/cpu` for x86 torch (`:126-129`) — while the **build-from-source**
+leg is the one with `VLLM_TARGET_DEVICE=empty` (`:153`) and
+`export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi` (`:159`).
+A reader who follows the pip leg therefore cannot satisfy the tree's own
+`torch-npu==…dev20250528`. Quote both line ranges when filing the `[Doc]` item and hand
+the reporter the source leg.
+
+Ladder (on a box where CANN and torch are preinstalled — reinstall neither):
+
+1. `pip show torch torch-npu torchvision vllm` plus
+   `python -c "import torch, torch_npu; print(torch.__version__, torch_npu.__version__)"`
+   — which torch line the aborted install left on the box.
+2. `export PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi`, then
+   `pip install "torch-npu==<the row's dev pin>"` (and `torch==` its line if pip moved it
+   to 2.7).
+3. vllm from source at the paired tag: `VLLM_TARGET_DEVICE=empty pip install -v -e <vllm>`,
+   then `pip uninstall -y triton`.
+4. `pip install -v -e . --no-build-isolation` in vllm-ascend (`installation.md:169` names
+   `--no-build-isolation` as the escape for a torch-npu conflict in the build); the
+   prebuilt image `quay.io/ascend/vllm-ascend:v0.9.1rc1` is the alternative.
+5. `python -c "import vllm, vllm_ascend, torch, torch_npu; print(...)"`, then one small
+   serve. `pip check` still lists the torchvision pair on a source vllm — that residual is
+   the design (`pip-resolver-warning-block.md` §D), not a second fault.
+
+Do not read the one-chip `npu-smi` or the 3335 MB resident HBM as the symptom, and do not
+reinstall CANN: `ascend_toolkit_install.info` already matches the row's `8.1.RC1`.
 
 ## A. The wheel pin lives on a mirror, the metadata cannot say so
 
@@ -223,7 +288,9 @@ packaging` needs the network, which is closed; the script falls back to
 2. **Never assert a package is missing from an index you cannot see.** Say which index
    pip was given, which line in the tree supplies it, and that wheel metadata cannot.
    The mirror's file listing was never reachable from a recorded session; keep it that
-   way rather than guessing that a dev build was "deleted".
+   way rather than guessing that a dev build was "deleted". The reporter's own
+   `(from versions: …)` list **is** the set of indexes pip was given, so a `.dev` build
+   absent from it is §A0's visibility evidence, not a removal.
 3. **Options are not requirements.** `--pre`, `--extra-index-url`, `--find-links`,
    `-r` in `requirements.txt` are pip *options*: the tree honours them, a wheel's
    metadata cannot. Same rule for a `pip config` value: it applies to the whole
@@ -258,6 +325,17 @@ packaging` needs the network, which is closed; the script falls back to
 
 ## Recorded runs and their cost
 
+- **#1363** (v0.9.1rc1 + vllm v0.9.1, AutoDL aarch64, §A0): 16 assistant turns, 20 tool
+  calls and **15 721 of the 16 384 completion tokens**, the whole answer typed on the last
+  turn — the run never opened this topic and re-derived the same conclusion from
+  `conf.py`, `release_notes.md` and the docs' FAQ. The four reads of §A0 were in hand by its
+  sixth message, and message text carried no verdict until the end; the paraphrase in the
+  body is the trigger, so route it here on the first pass.
+- **#1901** (`v0.9.2rc1` + vllm `v0.9.2`; 「源码安装0.9.2rc1，torch npu版本问题」): the
+  same defect with the `ERROR: Could not find a version …` text pasted and with
+  `VLLM_TARGET_DEVICE=empty` already in the reporter's vllm step. This page's §A chain plus
+  `setup.py`'s `--`-line skip answered it in 7 assistant turns / 6 005 tokens — the shape a
+  session reaches §A0's evidence with when it opens the topic early.
 - **#1796** (`v0.9.2rc1` + `v0.9.2`): 39 tool calls, ~16 K completion tokens of
   reasoning, **every assistant message a bare tool call, cut with no answer** — the
   delivery failure, on a report whose answer is `requirements.txt:25-27` +

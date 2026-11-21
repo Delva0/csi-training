@@ -53,6 +53,21 @@ RuntimeError: ACL stream synchronize failed, error code:507035
   `[DFX_INFO]Aicore kernel execute failed, device_id=…, fault kernel_name=…`,
   `PreCheckTaskErr … [vector core exception]`, `chipId`. Do not rank the gather
   path, the communicator or the HCCL config from this traceback.
+- **The `opapi` 507018 sibling of that label** (recorded #2105, v0.9.2rc1,
+  Qwen3-235B W8A8 + `--enable-expert-parallel`, fault in `profile_run` at
+  `hidden_states = hidden_states[logit_indices]`): when the function in the paste is
+  `(function copy_between_host_and_device_opapi)`, the wrapper is
+  `torch_npu/csrc/aten/ops/op_api/CopyKernelOpApi.cpp:37-66` — the blocking branch calls
+  `aclrtSynchronizeStream(stream)` first, copies, and only then raises
+  `AT_ERROR("ACL stream synchronize failed, error code:", error)`, so the label is again the
+  **sync point** introduced by indexing an NPU tensor with a host `np.int32` array, not the
+  owner. Two consequences for the answer: an empty `fault op_name=` in the same paste means
+  that paste **cannot** name the owner (only `ASCEND_LAUNCH_BLOCKING=1` or the plog
+  `fault kernel_name=` can), and all live ranks reporting it in the same second weakens the
+  single-bad-card theory. At that pin the EP MoE branch in `profile_run` is `All2All`
+  (`mc2-dispatch-profile-run-hang.md` exclusions), so an MC2/AIV page is
+  not the route. #2105's cause is **open** — the paste had no serve command and no
+  `[EP Rank r/N]` line.
 - Different from Step 1's readback row: there the Python statement needed a scalar
   and so is the owner; here the Python statement handed an object to a collective.
   The startup sibling of the same emulation is `EOFError: Ran out of input` at
@@ -60,7 +75,14 @@ RuntimeError: ACL stream synchronize failed, error code:507035
 - `--enforce-eager` is only an ablation if the release has a graph mode at all: at
   v0.7.1rc1 `rg -n 'aclgraph|cudagraph|torchair' vllm_ascend/` returns one comment
   (`attention.py`), so the flag removes nothing — say that instead of offering it.
-  Check the same for the reporter's rc before quoting the graph ladder.
+  Check the same for the reporter's rc before quoting the graph ladder. At a ref
+  that does have one (v0.10.1rc1 `7e16b4a7`: the disaster dump's own
+  `compilation_config` carries `use_cudagraph: true`, `cudagraph_mode: 1`), run the
+  ablation even when the failing op sits outside the captured region — a sporadic
+  `507035` in CANN's `ApplyTopKTopPWithSorted` sampling kernel cleared under
+  `--enforce-eager` (reporter-confirmed #2763, at ~5 vs ~40 tok/s;
+  `../custom-ops-runtime-faults/aclnn-error-dump-reading.md` §*When the built-in
+  kernel is a sampler mask op*).
 
 ## Step 1b — the sync point can be a compile-phase sample kernel
 

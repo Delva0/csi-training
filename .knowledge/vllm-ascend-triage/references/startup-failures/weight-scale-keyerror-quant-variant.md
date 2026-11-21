@@ -109,6 +109,51 @@ KeyError: 'model.layers.40.mlp.experts.w2_weight_offset'    # PP1 rank; the PP0 
    serve the modelers.cn *w8a8_dynamic* directory)" and "send the description entry"
    are the deliverable, not a patch.
 
+## The VL-MoE offset form, and the route when no traceback reaches the paste (recorded #7744)
+
+Verified at vllm v0.14.1 `d7de043` ↔ vllm-ascend v0.14.0rc1 `52d4acf` (Atlas 800I A2
+×8, `Qwen3-VL-235B-A22B-Instruct-W8A8`, TP8 + `--enable-expert-parallel`,
+`FULL_DECODE_ONLY`, `--mm_processor_cache_type shm`). The reporter's later log resolves
+**line for line** against that pin:
+
+```text
+(Worker_TP3 pid=2777) ERROR … [multiproc_executor.py:749] WorkerProc failed to start.
+(Worker_TP3 pid=2777) ERROR … [multiproc_executor.py:749]   File "…/vllm/model_executor/models/qwen3_vl.py", line 2083, in load_weights
+(Worker_TP3 pid=2777) ERROR … [multiproc_executor.py:749]     return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
+   … models/utils.py", line 335, in load_weights   → set(self._load_module("", self.module, weights))
+   … model_loader/online_quantization.py", line 173, in patched_model_load_weights → return original_load_weights(…)
+   … models/qwen3_vl_moe.py", line 279, in load_weights
+       param = params_dict[name_mapped]
+KeyError: 'layers.37.mlp.experts.w2_weight_offset'
+```
+
+1. `qwen3_vl_moe.py:279` is the **non-fused** expert branch's subscript, and its guard
+   one group above (`:272-278`) skips only `ignore_suffixes`, defined at `:173-184` as
+   `.bias / _bias / .k_scale / _k_scale / .v_scale / _v_scale / .weight_scale /
+   _weight_scale / .input_scale / _input_scale`. **No `*_offset` member** — so a
+   scale-only export is skipped silently while an offset-carrying W8A8 export reaches
+   the subscript. That is why the quoted key is an `_offset` and not a `_scale`, and it
+   is the model-file half of the family table above.
+2. **The `online_quantization.py` frame says nothing about online quantisation being
+   on.** `support_quantized_model_reload_from_hp_weights` decorates
+   `AutoWeightsLoader.load_weights` itself (`models/utils.py:321`), and on the first
+   (or offline-quantised) run `patched_model_load_weights` returns
+   `original_load_weights(...)` at `:173`. It is the standard wrapper at this ref, not
+   evidence about the checkpoint.
+3. **Resolution here is a tag.** The same weights and the same serve line worked on
+   `v0.17.0rc1` (reporter-confirmed), and v0.14.0rc1's matrix leaves the Qwen3-VL-MOE
+   W8A8 cell empty (`docs/source/user_guide/support_matrix/supported_models.md:81`) —
+   upgrade is rung 1, the mechanism below it.
+
+**When the traceback never reaches the paste** (a screenshot whose OCR is noise, a
+title-only report), the lane is still decidable in two calls: read the serve path for a
+quant suffix (`…-W8A8`, `…-w8a8_dynamic`) and the matrix cell for that quant, then ask
+for the block **below** `WorkerProc failed to start.` in one rank's log (`logger.exception`
+prints it under that same `[multiproc_executor.py:749]` prefix) plus
+`scripts/checkpoint-key-prefix.py --scales <model dir>`. Do not fill the gap with the
+nearest unusual flag — in #7744 that was `--mm_processor_cache_type shm`, whose page
+requires its own `Data for address:id …` error.
+
 ## Procedure — two calls before any source walk
 
 1. **Get the contract first: the exact `vllm serve` line (or launch script) and

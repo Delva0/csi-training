@@ -20,8 +20,28 @@ The frames above it are `torch/_dynamo/**` and, near the top,
 failed this way with `mindie_turbo: 2.0rc2` installed, while
 `vllm serve Qwen/Qwen2-7B-Instruct` on the same host was reported to work.
 
+**Variant B — nothing raised, and the claim is "turbo 没有生效".** Recorded
+#2451 (vllm-ascend v0.9.1rc2 `b9f715d6ce30` + vllm v0.9.1 `b6553be1`, 910B,
+`VLLM_USE_V1=1 … --enforce-eager`, Qwen2.5-32B TP4): "vllm 0.9.1 + turbo 没有吞吐
+提升, vllm0.7.3 + turbo 2.0.rc2 有提升", and the reporter's own note is the answer
+— the `INFO … utils.py:33] MindIE Turbo is installed. vLLM inference will be
+accelerated with MindIE Turbo.` line they saw on 0.7.3 is **absent** from the
+0.9.1 serve log. Per §1 that sentence is the only probe, so the wheel never
+loaded in that process and both 0.9.1 runs measured one baseline (their 756.7 vs
+739.0 tok/s is noise). Do not answer this variant from §2/§3 alone, and do not
+accept "the model is not supported": the read is the missing probe line, then the
+two causes in §1 (import raised and was swallowed — #1144 is the recorded form,
+`ImportError: … undefined symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs`,
+and `ImportError` *is* an `Exception` — or the wheel is not visible to that
+interpreter), each settled by one `python -c "import mindie_turbo"` **in the
+launching interpreter**. Second, independent finding in that case: the 0.9.1
+baseline was measured with `--enforce-eager`, which removes the very path
+`faqs.md:72` names as the 0.9.x performance source, so re-run without it before
+comparing against a 0.7.3 number.
+
 Verified anchors below are at vllm-ascend `c30ddb8` = v0.9.1rc1 and vllm
-`b6553be` = v0.9.1 (the #1534 case pins). Re-grep before quoting at another ref.
+`b6553be` = v0.9.1 (the #1534 case pins); variant B's pins are vllm-ascend
+`b9f715d6ce30` = v0.9.1rc2 + the same vllm. Re-grep before quoting at another ref.
 
 ## 1. Which process imported the plugin
 
@@ -31,7 +51,12 @@ Verified anchors below are at vllm-ascend `c30ddb8` = v0.9.1rc1 and vllm
   `vllm_ascend/utils.py:172-182` — `importlib.util.find_spec` then
   `importlib.import_module`, then
   `logger.info("MindIE Turbo is installed. vLLM inference will be accelerated with MindIE Turbo.")`
-  (`utils.py:180`), and `except Exception: pass` around all of it.
+  (`utils.py:180`), and `except Exception: pass` around all of it. The helper
+  **moves**: the same `try_register_lib` is `utils.py:172-182` at v0.9.1rc1
+  `c30ddb8` and `utils.py:75-85` at v0.9.1rc2 `b9f715d6ce30` (worker call sites
+  `worker_v1.py:78` / `worker.py:85` at rc1, `worker_v1.py:97-100` /
+  `worker.py:84-87` at rc2) — grep `def try_register_lib` instead of quoting a
+  line number, and never read "not at that line" as "no such helper".
 - No flag, env var or config gates it: `grep -rn mindie vllm_ascend/` at this ref
   returns only those two worker sites and
   `vllm_ascend/quantization/quantizer.py:49-55` (the w8a8 quantizer path). So if
@@ -72,9 +97,10 @@ Verified anchors below are at vllm-ascend `c30ddb8` = v0.9.1rc1 and vllm
 
 ## 3. The pairing verdict (the reporter's literal question)
 
-- `docs/source/developer_guide/versioning_policy.md:23-30`: the MindIE Turbo
-  column is **empty** for every row from `v0.8.4rc2` upward, and `2.0rc1` appears
-  only beside `v0.7.3` / `v0.7.3.post1`. At v0.9.1rc1 there is no matched
+- `docs/source/developer_guide/versioning_policy.md:23-30` at v0.9.1rc1 (the
+  file moves to `docs/source/community/versioning_policy.md:23-32` at v0.9.1rc2,
+  same rows): the MindIE Turbo column is **empty** for every row from `v0.8.4rc2`
+  upward, and `2.0rc1` appears only beside `v0.7.3` / `v0.7.3.post1`. At v0.9.1rc1 there is no matched
   mindie-turbo (maintainer, same thread: *"0.9.1rc1 has no matched mindie-turbo
   now"*).
 - `setup.py:362` at v0.9.1rc1 is `extras_require={}` — the
@@ -114,6 +140,11 @@ proves the trigger is the compile step rather than the plugin on its own.
 
 ## 5. Answer ladder
 
+0. Variant B first, because it is one grep: is the `MindIE Turbo is installed.`
+   line in the serve log at all? Absent ⇒ the plugin never loaded, so there is
+   nothing to measure; then `python -c "import mindie_turbo"` in the launching
+   interpreter, and drop `--enforce-eager` before quoting any 0.9.x throughput
+   (that flag selects the pre-graph baseline, not the release's performance).
 1. `enforce_eager=True` / `--enforce-eager` on the failing path — the accepted
    workaround at this ref, and the one-line test of the mechanism.
 2. `VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE=0` — turns the hard error into a graph

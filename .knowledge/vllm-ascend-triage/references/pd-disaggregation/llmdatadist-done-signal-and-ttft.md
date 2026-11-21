@@ -84,8 +84,10 @@ Cheap discriminators, all reporter-side:
 - `add_remote_agent` (`:626-760`) builds the rank table and then waits in
   `while True: query_register_mem_status(comm_id)` with `time.sleep(1)` (`:733-745`),
   once per remote cluster (cached in `linked_cluster`), so the cost is paid by the first
-  request(s) per link. Precedent #2498 ("Checking query_register_mem_status again never
-  stop"). Discriminator: slow only for the first requests after start, then flat.
+  request(s) per link. Discriminator: slow only for the first requests after start, then
+  flat. This page owns the *transient* cost; a loop that **never** exits on that same log
+  line is `llmdatadist-register-mem-loop.md` (#2498, reporter-confirmed: two container-network
+  engines on one host, `--net=host` the fix).
 - Version note worth one line, not a cause: at this pin
   `examples/disaggregate_prefill_v1/run_server.sh:29` advertises
   `kv_connector_module_path: vllm_ascend.distributed.llmdatadist_connector_v1_a3`, a

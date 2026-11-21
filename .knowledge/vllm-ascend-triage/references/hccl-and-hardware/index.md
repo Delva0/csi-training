@@ -31,7 +31,13 @@ was launched: a **group** creation was refused. `1` there is not a network code 
 (`init external input error` / `init environment config error` / `load comm config
 failed` / `nRanks…`), so read the HCCL `ERROR` line, then diff the two nodes' serve
 scripts, and only then ask whether the recipe exists at the pin for that model and
-node count. `comm-create-errors.md`.
+node count. `comm-create-errors.md`. At the same entry code `15` (`HCCL_E_RUNTIME`) is the
+**opposite** lane: comm setup asked the driver for the link type of a *physical device pair*
+(`hrtGetPairDeviceLinkType` over every same-server rank pair) and the driver declined, so the
+evidence is the container's device set (`ls /dev/davinci*`, `ASCEND_RT_VISIBLE_DEVICES`,
+`npu-smi info -t topo`) plus a minimal `torch.distributed` HCCL `all_gather` on the same devices —
+never the launch script, and never more `cann/hcomm` source: the failing return code comes from the
+closed driver. `comm-create-errors.md` §*Code 15*.
 **The no-config sibling `create … HcclCommInitRootInfo(…)` with code `2` is a different lane**:
 the group belongs to whichever caller the traceback names, often a third-party trainer
 (DeepSpeed `_broadcast_model`, TRL `prepare_deepspeed`) colocated in the engine's process, with no

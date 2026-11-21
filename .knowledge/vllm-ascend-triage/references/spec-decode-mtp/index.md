@@ -110,6 +110,16 @@ at request time. The shapes:
   This is the one acceptance-collapse shape that is decided *above* the positions and
   block-table code, so the family grep comes before `acceptance-collapse.md`'s Step 3.
 
+- or the request dies with a plain **`IndexError: list index out of range`** whose
+  deepest frame is upstream `vllm/model_executor/layers/mamba/mamba_utils.py`
+  `get_temporal_copy_spec` (`src_block_id = block_ids[cur_block_idx + num_accepted_tokens - 1]`),
+  reached through `vllm/v1/worker/mamba_utils.py` `collect_mamba_copy_meta` /
+  `preprocess_mamba` from `vllm_ascend/worker/model_runner_v1.py`, on a hybrid GDN model
+  carrying `--speculative-config` **and** `--enable-prefix-caching` (often
+  `--async-scheduling`, `mamba_cache_mode` auto-set to `align`, and "either feature alone
+  is fine"): the align-mode mamba state copy, four frames and no device code, with the
+  precedent filed in the history under those **upstream** names (#9024, #10326 at
+  v0.19.1rc1) — `hybrid-mtp-prefix-cache-unvalidated.md`, §*The `IndexError` form*.
 - or there is **no error text at all**: the title says "同时开启 mtp+prefix cache 后，推理
   报错" on a hybrid GDN model (`qwen3_5`) and the bug body is an upload failure or one
   Chinese line, so the only evidence is the serve command
@@ -121,6 +131,16 @@ at request time. The shapes:
   `enable_prefix_caching=False` — runs it off, and at a v0.19+ ref the align-mode block
   arithmetic (`MambaManager`, `num_speculative_blocks`) is the crash surface. Verdict +
   ladder in the first message (`hybrid-mtp-prefix-cache-unvalidated.md`, worked #9003).
+
+- or the **process** dies at request time with a bare `AssertionError: num_decodes: N,
+  num_spec_decodes: M` (both ≥ 1) whose deepest frame is upstream
+  `vllm/v1/attention/backends/gdn_attn.py` `GDNAttentionMetadataBuilder.build`, reached
+  from `vllm_ascend/worker/model_runner_v1.py _build_attn_group_metadata`, on a hybrid GDN
+  family (Qwen3.5/Qwen3.6, Qwen3-Next) with MTP/eagle, every rank in the same second,
+  MTP-off clean for hours: one step mixed a request that had draft tokens with one that did
+  not. The two counters *are* the classification — **check the version next**, because
+  vllm ≥ v0.22.1 reclassifies that half as prefill instead of asserting
+  (`mixed-spec-and-plain-decode-assert.md`).
 
 Not this topic: a first-request fault whose only extra axis is PP > 1
 (`../pipeline-parallel/spec-decode-first-request.md`), a launch/startup failure
@@ -243,6 +263,14 @@ from the acceptance numbers.
 
 ## Pages
 
+- `mixed-spec-and-plain-decode-assert.md` — `AssertionError: num_decodes: N,
+  num_spec_decodes: M` from the GDN metadata builder: the counter derivation
+  (`gdn_attn.py:179-213` at vllm v0.17.0, mask built at
+  `gpu_model_runner.py:1695-1719` == `model_runner_v1.py:818-846`), the per-request
+  draft-absence inventory in the scheduler, the two-pin version window (v0.17.0 asserts,
+  v0.22.1 reclassifies at `:236-247`, vllm-ascend v0.22.1rc1 mirrors it in
+  `ops/gdn_attn_builder.py:1010-1015`), the ladder (MTP off → async off → version) and the
+  worked #7532 row (v0.17.0rc1, Qwen3.5-27B TP2, 400 pods).
 - `acceptance-collapse.md` — the acceptance metric reading, the ordered ablation,
   the async-spec-decode `num_computed_tokens` drift correction, the
   `mamba_block_size` prefix-caching gate, where capacity fits, and the worked
@@ -349,6 +377,14 @@ from the acceptance numbers.
   `AssertionError` surface in upstream `MambaManager` (`single_type_kv_cache_manager.py:937-1005`,
   `:961`/`:1003`/`:1005`), the six-rung ladder, and the worked #9003 row
   (v0.19.1rc1, where 20 tool turns produced 19 characters of message text).
+  Its **full-traceback** form is the same pair with the answer already written down:
+  `IndexError` at upstream `get_temporal_copy_spec`, the align-mode index arithmetic
+  (`prev_state_idx + num_accepted_tokens_cpu[i] - 1`, bounded by
+  `1 + num_speculative_tokens`), the `finished ∪ preempted ∪ resumed` clear that already
+  guards the stale-index story, the two v0.19.1rc1 precedents and the reporter-confirmed
+  v0.18.0 control (#9024 / #10326), and the history search keyed on the upstream frame
+  names that finds them in one call. A GLM-5.x `glm_moe_dsa` launch is **not** this pair
+  (no mamba layers): `../dsa-sparse-attention/glm-moe-dsa-tag-regression-corruption.md`.
 - `../accuracy-benchmarks/mtp-prefix-cache-310p.md` — when spec decode is the
   *second* feature on a **310P** hybrid model: MTP over an `align`-mode prefix cache
   (per-block SSM state, `num_speculative_blocks`, `accept_token_bias`, the fp16 state

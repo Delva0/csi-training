@@ -1,16 +1,26 @@
-# `qwen3_5_mtp` + `--enable-prefix-caching` on a hybrid GDN model: the unvalidated pair, often with no error text
+# `qwen3_5_mtp` + `--enable-prefix-caching` on a hybrid GDN model: the unvalidated pair, with or without error text
 
 ## Report shape
 
-A hybrid linear-attention family (Qwen3.5/Qwen3.6, DeepSeek-V4, GLM; `model_type`
-`qwen3_5`) served with `--speculative-config '{"method": "qwen3_5_mtp", …}'` **and**
+A hybrid linear-attention family (Qwen3.5/Qwen3.6, `model_type` `qwen3_5`) served with
+`--speculative-config '{"method": "qwen3_5_mtp", …}'` **and**
 `--enable-prefix-caching`, where the title says only "同时开启mtp+prefix cache后，推理报错"
 and the **body carries no error at all** (recorded #9003: the body's whole bug section was
 `<!-- Failed to upload "image.png" -->`, and `/workspace/attachments` was empty) — or the
-error is one line of Chinese with no traceback. The launch usually also has
+error is one line of Chinese with no traceback — **or the body carries the whole
+traceback**, in which case the frames decide the page and §*The `IndexError` form* below
+is the answer, not the coverage verdict. The launch usually also has
 `--async-scheduling`, `cudagraph_mode: FULL_DECODE_ONLY`, an explicit
 `cudagraph_capture_sizes` list, a `--quantization ascend` w8a8 checkpoint and a
 `--additional-config` stack.
+
+**Not every "GLM"/DeepSeek launch in this pair's shape is this page.** GLM-5/5.1 is
+`model_type: glm_moe_dsa` — DSA/MLA sparse attention, no mamba layers — so
+`mamba_cache_mode`, `mamba_block_size` and `preprocess_mamba` never enter it even with
+`--enable-prefix-caching` on, and a corruption report there is
+`../dsa-sparse-attention/glm-moe-dsa-tag-regression-corruption.md`. The crash surface
+below needs a checkpoint that really has mamba/GDN state layers — the model class exposes
+`get_mamba_state_copy_func`, and the traceback reaches `mamba_utils` at all.
 
 **The deliverable for the no-error-text form is a coverage verdict plus an ablation
 plan, and it is owed in the first message.** Nothing in the pinned tree can name the
@@ -61,6 +71,64 @@ inventory is upstream and one read:
   dropping `--speculative-config` (blocks gone). Say both, and say that the mechanism is upstream
   vLLM's, so a vllm-ascend patch is not the first place to look.
 
+## The `IndexError` form: the state-copy index at `get_temporal_copy_spec`
+
+The same pair also arrives **with** a four-frame traceback and no device code, and then
+the coverage question is already answered:
+
+```
+vllm_ascend/worker/model_runner_v1.py:1597    mamba_utils.preprocess_mamba(...)
+  vllm/v1/worker/mamba_utils.py:207           collect_mamba_copy_meta(...)
+    vllm/model_executor/layers/mamba/mamba_utils.py:285   get_temporal_copy_spec
+        src_block_id = block_ids[cur_block_idx + num_accepted_tokens - 1]
+IndexError: list index out of range
+```
+
+Verified at vllm v0.19.1 (`b1388b1`): `preprocess_mamba` runs only behind
+`assert cache_config.enable_prefix_caching`, and per scheduled request it derives
+`num_blocks = cdiv(num_computed_tokens + num_scheduled_tokens, block_size) +
+num_speculative_blocks`, `curr_state_idx = num_blocks - 1 - num_speculative_blocks`, and
+passes `collect_mamba_copy_meta` the bias `num_accepted_tokens_cpu[i] - 1`; inside, the
+source index is `prev_state_idx + (bias + 1) - 1`, i.e.
+`prev_state_idx + num_accepted_tokens_cpu[i] - 1`, and the function's own docstring bounds
+that count to `1 .. 1 + num_speculative_tokens`. The index can leave the list only when
+the request's **mamba block table is shorter than `prev_state_idx + 1 +
+num_speculative_blocks`** — an align-mode allocation (`MambaManager`,
+`num_speculative_blocks` from the KV-cache spec) disagreeing with this step's
+`prev_state_idx`. Not a card, a weight, a kernel or a quantization.
+
+What follows from it, cheaply:
+
+- "either feature alone is fine" becomes source-explained rather than luck: prefix
+  caching off ⇒ `mamba_cache_mode="none"` ⇒ `preprocess_mamba` never runs; MTP off ⇒
+  `_update_states_after_model_execute` returns early (`not self.speculative_config or not
+  self.model_config.is_hybrid`) ⇒ the accepted count stays 1 ⇒ the index degenerates to
+  `prev_state_idx`.
+- The owner is upstream align-mode bookkeeping. The downstream contribution is only the
+  gated call site (`model_runner_v1.py`, `if self.cache_config.mamba_cache_mode ==
+  "align"`) plus the deferred `_update_states` correction it runs first — so do not hunt
+  a `vllm_ascend` patch.
+- The pin's own comment in `preprocess_mamba` already names the stale-index hazard and
+  clears `mamba_state_idx` for `finished ∪ preempted ∪ resumed`; "stale state index after
+  a resume" is therefore *guarded* at v0.19.1. When the paste's three scheduler sets are
+  all empty, that branch simply did not run.
+
+### Search the history by the **upstream** frame names
+
+The deepest frame is under `vllm/`, not `vllm_ascend/`, so a history search keyed on this
+project's own symbols misses the precedent. One call —
+`bash <skill_root>/scripts/history-titles.sh -b 'preprocess_mamba|get_temporal_copy_spec|mamba_state_idx|mamba_cache_mode'`
+— returns **#9024**, "[Bug]: IndexError when MTP speculative decoding + prefix caching
+enabled simultaneously" (v0.19.1rc1-openeuler, Qwen3.5-27B-w8a8-mtp TP4): same four
+frames, same "either feature alone works" control. Recorded #10326 (Qwen3.5-35B-A3B-w8a8,
+TP1, 910B4) is the second report of that exact signature at the same version, and its
+reporter added the window in a follow-up — **v0.19.1rc1 crashes, v0.18.0 does not** — which
+puts the regression inside the v0.19 line, where the release notes list the rework:
+"Zero Bubble Async Scheduling … for async scheduling and speculative decoding" (#7640).
+Run that search first: the recorded #10326 run reached it at its 8th tool turn, after four
+source reads the precedent would have replaced, and still ended its first turn
+output-truncated at the 16 384-token completion cap.
+
 ## Ladder (one axis per launch, cheapest first)
 
 1. Delete `--enable-prefix-caching`, keep everything else: splits the pair from
@@ -101,6 +169,11 @@ traceback" — and every further read is a turn that a truncation can take away.
 The case's own `sources-summary.sh` row reads `files=1744` for vllm-ascend, i.e. `tests/`
 is present — the three greps above are enough and there is no reason to check coverage a
 second way.
+
+When the paste carries the `get_temporal_copy_spec` traceback and the history search
+returns #9024, the deliverable is already complete — the precedent, the two-feature split
+and the version window — so send it in that turn. #10326 spent its remaining turns on the
+KV manager, `config.py` defaults and the release notes after the precedent was in hand.
 
 Not this page: the same two features on **310P with corrupt text at normal
 acceptance** (`../accuracy-benchmarks/mtp-prefix-cache-310p.md`, the fp16-SSM-state and

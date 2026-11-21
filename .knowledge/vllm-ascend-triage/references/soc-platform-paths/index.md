@@ -111,7 +111,12 @@ Conditional routes:
   or `<Op>Operation setup failed!` out of a `torch_npu._npu_*` call: the op ran on the
   CPU/AICPU fallback, so the owner is the Python statement (or the un-gated config)
   that launched it, and the dmesg `devmm … should call halMemMap` is downstream of the
-  fault → `310p-cpu-fallback-op-fault.md`.
+  fault → `310p-cpu-fallback-op-fault.md`. That page also owns the **two-op paste**
+  (a later `aclnn<Op> failed, error code is 507018` + `launch failed for <Op>,
+  errno:361001` is the next launch on the poisoned stream, not a second fault — read
+  `kernelName=` and the timestamps) and the **VL/OCR model** case, where no
+  `_310p/ops/fla/` indexed write is reachable and the sampler's Triton-absent penalty
+  fallback explains an `aclnnInplaceSub` but contains no `index_put_`.
 - A 310P serve that ran fine then dies **under load** with
   `[Error]: Event resources are insufficient.` / `Event id alloc error …
   retCode=0x7020019` / `rtEventRecord … no event resource` / `207007`, the Python

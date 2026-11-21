@@ -5,11 +5,14 @@
 # the pinned tree actually runs, and whether the graph-capture case list it
 # advertises is the set it really captures.
 #
-#   1. punica backend selection in vllm_ascend/lora/punica_npu.py --
+#   1. punica backend selection in the punica_npu.py module (both spellings:
+#      `vllm_ascend/lora/punica_wrapper/punica_npu.py` up to v0.9.2rc1,
+#      `vllm_ascend/lora/punica_npu.py` from v0.13.0rc2) --
 #      `vllm.lora.ops.torch_ops` (PyTorch per-slice gather+cast+einsum, launch
-#      bound) vs `vllm_ascend.lora.lora_ops` (AscendC kernels).  The predicate is
-#      version-specific: unconditional torch at v0.9.2rc1; at v0.13.0rc2 torch
-#      only for 310P or max_lora_rank >= 128.
+#      bound, and dynamo-visible) vs `vllm_ascend.lora.lora_ops` (AscendC
+#      kernels).  The predicate is version-specific: unconditional torch at
+#      v0.9.1rc1/v0.9.2rc1; at v0.13.0rc2 torch only for 310P or
+#      max_lora_rank >= 128.
 #   2. every `has_lora` producer, split into "live batch" and "config constant".
 #      A BatchDescriptor is the cudagraph dispatch key (num_tokens, num_reqs,
 #      uniform, has_lora); when startup capture writes the same descriptor for
@@ -31,7 +34,7 @@ echo "== lora-graph-descriptor-audit =="
 echo "vllm-ascend: $ac_root${vl_root:+   vllm: $vl_root}"
 
 echo
-echo "-- 1. punica backend (vllm_ascend/lora/punica_npu.py) --"
+echo "-- 1. punica backend (vllm_ascend/lora[/punica_wrapper]/punica_npu.py) --"
 pn=$(ls "$ac_root"/vllm_ascend/lora/punica_npu.py "$ac_root"/vllm_ascend/lora/punica_wrapper/punica_npu.py 2>/dev/null | head -1)
 if [ -z "$pn" ]; then
   echo "  no punica_npu.py found (partial export?) -- grep it: rg -n 'torch_ops' $ac_root/vllm_ascend"
@@ -125,4 +128,10 @@ echo "      capture's config-const has_lora=False then misses the has_lora=True 
 echo "      and the fork raises 'Aclgraph runtime mode mismatch at dummy_run' at start."
 echo "  torch_ops backend + an eager-only SoC (310P) => per-step launch overhead, not"
 echo "      arithmetic; see references/lora-adapters/decode-overhead-vs-base-model.md."
+echo "  torch_ops backend + compile enabled (V1 PIECEWISE) => the FIRST compiled"
+echo "      forward (determine_available_memory -> profile_run -> _dummy_run) can die"
+echo "      on 'Could not guard on data-dependent expression Ne(u0, 1)' raised inside"
+echo "      bgmv_shrink's torch.einsum; --enforce-eager starts it at the same slow"
+echo "      decode rate.  A graph-capable A2/A3 does NOT make this adapter cheap while"
+echo "      the binding is torch: see references/lora-adapters/pytorch-punica-compile-guard.md."
 exit 0

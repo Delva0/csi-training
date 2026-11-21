@@ -135,7 +135,12 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   both sides' `torch`/`torch-npu`/`torchvision` pins, and the `--pre` /
   `--extra-index-url` lines the wheel metadata drops. Decide mirror-only pin vs
   unsatisfiable pin set vs unreachable index **before** any version survey
-  (`../image-dependency-faults/pip-index-visibility.md`, #1796, #4737). When the same
+  (`../image-dependency-faults/pip-index-visibility.md`, #1796, #4737). With **no pip
+  message pasted** — 「安装 vllm 0.9.1 提示卸载 torch 2.5.1 装 2.7.x」 on a box whose CANN and
+  torch came preinstalled, then vllm-ascend "could not find torch 2.5.1" (#1363) — the same
+  script plus the release's pairing row decide it, and the rung is vllm from source with
+  `VLLM_TARGET_DEVICE=empty` (`Dockerfile:40-44`), not a pip command
+  (`../image-dependency-faults/pip-index-visibility.md` §A0). When the same
   call is asked as a **dependency bump** ("能否把 torch-npu 升级为 2.8.0", no pip error),
   the same script's matrix block is the answer, not a version survey
   (`../image-dependency-faults/dependency-pin-bump-request.md`, #3266).

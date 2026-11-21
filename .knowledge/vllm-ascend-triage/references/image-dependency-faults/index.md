@@ -94,6 +94,16 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `missing-subpackage-after-wheel-install.md` (#1156). Distinguish it from the
   top-level `No module named 'vllm_ascend'` two bullets above and from
   `vllm_ascend.vllm_ascend_C` (never built, `../soc-platform-paths/kernel-package-vs-card.md`).
+- The whole image boots and the **first request** raises
+  `AttributeError: '_OpNamespace' '_C_ascend' object has no attribute '<op>'` after a
+  startup `Failed to import vllm_ascend_C … Sleep mode will be disabled` warning, and
+  `/v1/models` was 200 → `custom-op-extension-missing-from-image.md`. One grep decides
+  whether it is fatal here (`rg -c 'torch\.ops\._C_ascend' vllm_ascend/_310p/`: at
+  v0.23.0.post1 the 310P GDN files hold 6 unguarded call sites, so a Qwen3.5/Qwen3-Next
+  checkpoint on 310P is the fatal case); the build lane that makes it silent is the
+  csrc-cache hit running `COMPILE_CUSTOM_KERNELS=0`
+  (`.github/workflows/_schedule_image_build.yaml:225-250`), and the reporter's own
+  per-tag `vllm_ascend_C*.so` table is the strongest artefact in the report.
 - A `python -c "import <pkg>"` (or the first real use) fails **at symbol
   resolution**, not at open: `ImportError: …/<pkg>/_ops.cpython-310-…so: undefined
   symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` and the ENV dump selects
@@ -165,7 +175,11 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   survey: `bash scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` prints the
   `torch` / `torch-npu` / `torchvision` pins of both sides and the contradictions, and
   the page carries the three-way split (mirror-only metadata pin vs unsatisfiable pin
-  set vs unreachable index) plus both answer shapes (#1796, #4737). Its sibling case
+  set vs unreachable index) plus both answer shapes (#1796, #4737) and the **paraphrase**
+  face where no pip message is pasted at all — 「安装 vllm 0.9.1 提示卸载 torch 2.5.1 装 2.7.x」,
+  then vllm-ascend "could not find torch 2.5.1" on a rented box whose CANN/torch were
+  preinstalled (#1363, §A0: four reads, and rung 1 is vllm from source with
+  `VLLM_TARGET_DEVICE=empty`, not another pip command). Its sibling case
   is the one where **nothing failed**: a two-command wheel install that only prints
   pip's post-install block (`vllm 0.18.0 requires torch==2.10.0, but you have torch
   2.9.0`, plus torchaudio/torchvision/opencv lines) → `pip-resolver-warning-block.md`
@@ -370,8 +384,11 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   it: a wheel pin on a mirror-only dev build with the `--extra-index-url`/`--pre` option
   lines dropped from the metadata (`setup.py` skips `--` lines), the torch /
   torch-npu / torchvision line arithmetic that makes a documented pip pair
-  unsatisfiable (#1796), and the air-gapped image extra (`vllm[bench]` → `pandas` /
-  `datasets`, the image's own `global.index-url`, the wheelhouse recipe) (#4737).
+  unsatisfiable (#1796), the air-gapped image extra (`vllm[bench]` → `pandas` /
+  `datasets`, the image's own `global.index-url`, the wheelhouse recipe) (#4737), and the
+  no-error paraphrase of a PyPI `vllm` wheel that replaced the box's preinstalled torch
+  (§A0, #1363 — the pip leg of that ref's install doc has no Ascend mirror, the
+  build-from-source leg does).
 - `offline-source-build.md` — an offline source build: the own-source invocation
   chain (`setup.py` `build_aclnn` → `csrc/build_aclnn.sh` → `csrc/build.sh` →
   `csrc/CMakeLists.txt`), the five network legs with the existence gate that
@@ -402,6 +419,14 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   environment or an image regression: the four artefacts that *are* the image's
   dependency set, the version-swap control rule, the container-only rung set, and
   `scripts/image-recipe-inventory.sh` (#2812).
+- `custom-op-extension-missing-from-image.md` — a published image ships **without**
+  the compiled `vllm_ascend_C`: startup `Failed to import vllm_ascend_C … Sleep mode will
+  be disabled` (logger basename `[camem.py:67]`), then a first-request `AttributeError`
+  on `torch.ops._C_ascend.<op>`. Which SoC/model pairs are load-bearing (one grep of
+  `vllm_ascend/_310p/`), the two silent build lanes (`COMPILE_CUSTOM_KERNELS=0` on a
+  csrc-cache hit; the `develop`-only CMake install prefix), the two-command decision,
+  and the artefact-keyed guard that a `COMPILE_CUSTOM_KERNELS=1`-keyed one misses
+  (recorded #17713).
 
 ## Common rules
 

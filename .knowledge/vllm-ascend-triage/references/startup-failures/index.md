@@ -8,7 +8,12 @@ Inherit the rules in SKILL.md. Conditional routes:
 
 - No per-rank worker traceback in the pasted log → `silent-worker-exit.md`
   (how the vLLM v1 multiproc executor reports each lane, what to request, and
-  why `Parent process exited` / `TBE Subprocess` lines are consequences). When
+  why `Parent process exited` / `TBE Subprocess` lines are consequences). Its
+  no-traceback section is the route when the paste *cannot* carry one (screenshot OCR
+  is noise): `WorkerProc failed to start.` is `logger.exception`, so the stack is the
+  block **below** the message, and the lane is classified from the serve path's quant
+  suffix (`…-W8A8`) plus that matrix cell — a quantised variant with an unvalidated
+  cell ranks the load-phase aux-key family first, never the oddest flag in the command. When
   the paste also carries `!!!!!!! Segfault encountered !!!!!!!` and the parent's
   `Failed core proc(s): {'EngineCore': -11}`, finish in the startup section of
   `../hccl-and-hardware/worker-segfault-no-python-frames.md`: a trivial CPU
@@ -308,6 +313,15 @@ Inherit the rules in SKILL.md. Conditional routes:
   platform list at that same ref *would* accept it — classify on the message form
   (§D of `quantization-method-gate.md`), and check the reporter's installed
   `pre_register_and_update` before calling the build unquantized.
+- A **VL-MoE** quantised serve fails at the same family in
+  `vllm/model_executor/models/qwen3_vl_moe.py:279`, reached through
+  `models/qwen3_vl.py:2083` → `models/utils.py:335` → `model_loader/online_quantization.py:173`
+  (that last frame is the standard `AutoWeightsLoader.load_weights` decorator, not a sign
+  of online quantisation): its guard skips `.weight_scale`/`.input_scale` but has no
+  `*_offset` member (`:173-184`, `:272-279` at vllm v0.14.1 `d7de043`), so only an
+  offset-carrying W8A8 export raises. Recorded #7744: the fix was the newer tag
+  (`v0.17.0rc1`, reporter-confirmed), and the pin's matrix leaves the Qwen3-VL-MOE W8A8
+  cell empty (`supported_models.md:81` at v0.14.0rc1).
 - The loader raises `KeyError: '<prefix>.weight_scale'` (also `.scale` pre-remap,
   and the whole `…mlp.experts….weight_offset` family of a W8A8 export) at
   `param = params_dict[name]`, on every rank but with a **different layer** each
@@ -324,6 +338,13 @@ Inherit the rules in SKILL.md. Conditional routes:
   and get the serve command: scales confined to a handful of sub-projections with
   nothing declaring a quantisation mean a full-precision release served instead of
   the documented quantised variant (recorded #12675), not a per-layer code bug.
+  The **static-W8A8** spelling `…gate_up_proj.deq_scale` is neither of those: only
+  the static `W8A8` linear method allocates `deq_scale`, so a `-W8A8` directory that
+  *does* ship `quant_model_description.json` is the variant the release validates and
+  the engine was never quantised at all — then check that `--quantization ascend`
+  reached the **running** command (`docker inspect … .Config.Cmd`; a folded compose
+  `command: >` with an inline `#` silently drops every later flag), §B-i/§B-ii of
+  `quantization-method-gate.md` (recorded #5812).
 - The quant-method lookup dies before any shard bar with `KeyError: '.weight'` — the
   quoted key **starts with a dot** — deepest frames
   `vllm_ascend/ops/vocab_parallel_embedding.py` → `quant_config.get_quant_method` →
@@ -473,6 +494,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   known issue are the two checks before any patch. On a full-precision 671 B MoE
   the per-rank KV budget on the paste's own `Available memory: <N>, total memory:
   <M>` line is a co-equal cause, not a footnote.
+- The same torchair capture instead fails **inside GE shape inference** —
+  `RuntimeError: E89999: Inner Error!` + `op[<Node>], attr[perm], has wrong
+  value[N], it should be less than input shape size[0][FUNC:TransposeCommonInferShape]`
+  + `Call InferShapeAndType for node:<Node>(Transpose) failed` +
+  `[Compile][Graph]Compile graph failed … [FUNC:ge_api.cc]` —
+  → `torchair-ge-infershape-rejection.md`: a host-side graph-build refusal, so
+  nothing device-side belongs to it; the node id is GE's, not a symbol, and the
+  `torch_npu/dynamo/torchair` + `cann/ge` sources are both outside the exports, so
+  the answer is two ablations (drop the `torchair_graph_config` key — `--enforce-eager`
+  cannot be added beside it; then the tutorial tab's own W8A8 checkpoint) before any
+  attempt to localise the producing `.permute` from the dump.
 - The worker raises while the **model forward is being compiled**, not at load
   and not at capture: `torch._dynamo.exc.Unsupported: Attempted to call function
   marked as skipped`, `Explanation: Dynamo does not know how to trace the builtin

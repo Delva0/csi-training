@@ -26,8 +26,14 @@ except LookupError:
 
 so the printed number is `setuptools_scm`'s description of the **git tags of the
 tree it was built in**, and `vllm_ascend/_version.py` is generated and gitignored
-(`.gitignore:198`). Two consequences belong in the opening paragraph: the number
-does not prove which code is imported, and no code in `vllm_ascend/` reads it —
+(`.gitignore:198`). Three consequences belong in the opening paragraph: the number
+does not prove which code is imported; running `python collect_env.py` **from the
+checkout** therefore dies at `collect_env.py:174 get_vllm_ascend_version` with
+`ModuleNotFoundError: No module named 'vllm_ascend._version'` — a benign artefact of
+the source dir, not the packaging defect reported beside it (#3793: the real one was
+`torch-npu==2.7.1.dev20250724` on an index-poor mirror, pinned in the wheel's
+`Requires-Dist` with the `--extra-index-url` option line stripped); and no code in
+`vllm_ascend/` reads it —
 `rg -n "__version__" vllm_ascend/` at that ref has exactly one hit,
 `utils.py:283-295` `vllm_version_is()`, which loads `envs.VLLM_VERSION` or
 `vllm.__version__` (vLLM's, never vllm-ascend's). The compatibility gates are

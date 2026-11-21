@@ -3,7 +3,7 @@
 ## Scope
 
 The deployment was started with `--enable-lora` / `--lora-modules` and the
-complaint is one of three shapes:
+complaint is one of four shapes:
 
 - **It dies on a request**, after a clean startup, with an ACL/CUDA
   graph-capture error (`CUDA graph capturing detected at an inappropriate time.
@@ -14,6 +14,14 @@ complaint is one of three shapes:
 - **It is several times slower than the same model served without adapters**
   (recorded #1812: 9 tok/s → 2 tok/s on Qwen3-8B + LoRA, Atlas 300I Duo), with
   no error and no OOM → `decode-overhead-vs-base-model.md`.
+- **It never starts: the worker dies in the memory-profiling forward** with
+  `Could not guard on data-dependent expression Ne(u0, 1)` (or another
+  data-dependent expression) and a `from user code:` block whose last frames are
+  `punica_npu.py` → `vllm/lora/ops/torch_ops/lora_ops.py` `bgmv_shrink` →
+  `torch.einsum`, under `VLLM_USE_V1=1` / `PIECEWISE` compile. That is the same
+  PyTorch punica binding as the slow-decode shape, seen from the compile side:
+  the adapter math is traceable, so the first compiled forward cannot guard on
+  it → `pytorch-punica-compile-guard.md`.
 - **The model is a VL model and the adapter covers the vision tower**
   ("LoRA（with ViT）", an RL rollout whose `target_modules` name `visual.*`), and
   the complaint is an OOM in multimodal prefill ("请求显存明显超出预估"), answers
@@ -23,7 +31,8 @@ complaint is one of three shapes:
   `multimodal-vit-lora-ignored.md`.
 
 Evidence that decides these: the two serve commands (with and without
-`--enable-lora`), the SoC and whether graph capture is possible on it, the
+`--enable-lora`), **which phase** the failure sits in (engine init / profile run
+vs request time vs capture), the SoC and whether graph capture is possible on it, the
 adapter `r` / `target_modules` / dtype, and for the crash the **worker**
 traceback above the `Worker failed with error` wrapper. For the VL shape, the
 `target_modules` list and the server's `… will be ignored` warning decide it,
@@ -45,7 +54,10 @@ Not this topic, leave immediately:
 
 1. **Name the punica backend before anything else; it is version- and
    SoC-dependent.** `vllm_ascend/lora/punica_npu.py` binds the bgmv/sgmv
-   callables in `__init__`. At v0.9.2rc1 (`b5b7e0e`) the binding is
+   callables in `__init__` (the module path moves: `vllm_ascend/lora/punica_wrapper/punica_npu.py`
+   at v0.9.1rc1 `c30ddb83`, `vllm_ascend/lora/punica_npu.py` at the later refs in
+   this library — `ls` or grep both, the audit script probes both). At
+   v0.9.2rc1 (`b5b7e0e`) the binding is
    unconditional `from vllm.lora.ops.torch_ops import …` — pure PyTorch, so each
    apply is a gather of the adapter weight stack + cast + `einsum` + strided
    write-back, per slice, per layer, per step. At v0.13.0rc2 (`a17059a`) the
@@ -56,9 +68,16 @@ Not this topic, leave immediately:
    prints the binding and its predicate. Consequence to carry into advice: on
    310P the PyTorch backend is the *selected* backend at every ref in this
    library, and raising `--max-lora-rank` past 128 silently demotes an A2/A3
-   serve to it.
-2. **A LoRA × ACLGraph crash is a defect at refs whose own docs claim the
-   pair.** v0.13.0rc2 ships `docs/source/user_guide/feature_guide/lora.md:8,16`
+   serve to it. The **same binding reads both ways**: where it is transitive
+   PyTorch, compile cannot tolerate it (engine-init dynamo guard,
+   `pytorch-punica-compile-guard.md`) and a graph cannot amortise it (slow
+   decode) — so "the SoC has ACL graph" does not by itself make an adapter
+   cheap; ask whether the *LoRA path* is graph-visible.
+2. **A LoRA × graph-mode crash — capture or compile — is a defect at refs whose
+   own docs claim the pair.** v0.9.1rc1 `c30ddb83` claims it twice — `suppoted_features.md:11`
+   (LoRA 🟢 Functional on both engines) and `release_notes.md:62` ("supported for
+   V1 Engine now") — while `tests/conftest.py:87` runs every e2e LoRA case
+   eager, so nothing exercises LoRA under compile. v0.13.0rc2 ships `docs/source/user_guide/feature_guide/lora.md:8,16`
    ("You can run LoRA with ACLGraph mode now… enables the ACLGraph mode by
    default"). So the answer is an ablation ladder plus a bug report, never
    "LoRA is not supported with graphs". At v0.9.2rc1 (`b5b7e0e`) the same page's
@@ -72,10 +91,14 @@ Not this topic, leave immediately:
    a capture error is upstream `vllm/compilation/monitor.py`; for the slow shape
    there is no raise at all and the owner is the call count in
    `punica_npu.py`.
-4. **"LoRA costs 4-5×" is never an answer.** Convert the two reported rates to
-   ms/step (`1000 / tok_s`), price the adapter's extra FLOPs (order 1 % for a
-   rank-16 adapter on a dense 8B), and put the remainder on dispatch — then say
-   which backend and whether a graph can amortise it on that SoC.
+4. **"LoRA costs 4-5×" is never an answer, and the ratio is not SoC-specific.**
+   Convert the two reported rates to ms/step (`1000 / tok_s`), price the
+   adapter's extra FLOPs (order 1 % for a rank-16 adapter on a dense 8B), and put
+   the remainder on dispatch — then say which backend and whether a graph can
+   amortise it on that SoC. Recorded ratios: 9 → 2 tok/s on eager-only 310P
+   (#1812) **and** 10-12 → 2-3 tok/s on graph-capable 2×910B3 TP2 (#1629,
+   reporter-confirmed base-only baseline), so a graph-capable SoC does not
+   short-circuit the question.
 5. **On a VL model, ViT adapters are dropped by upstream before any Ascend code
    runs.** `vllm/lora/models.py:613-624` filters everything under the model's
    `tower_model` / `connector` prefixes and only warns (`:489-497`), so rank a

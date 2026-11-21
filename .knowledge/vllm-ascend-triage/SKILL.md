@@ -91,6 +91,19 @@ version, gaps stated.
   (`proxy通信超时`) — an endpoint-count question before any connector read; transport
   identity and rank tables are a topology question, a pool deployment a config
   question — `references/pd-disaggregation/index.md`.
+  If instead a `LLMDataDistCMgrConnector` deployment **starts and then loops forever** on
+  `INFO … Checking query_register_mem_status again` once a second (the decode worker has
+  already printed `try link with remote`, the rank table, `comm name` and `cluster rank
+  info`, so the handshake and the local memory registration worked): that wait is the
+  connector's own `while True` with no timeout, and the field to read in the printed table
+  is `server_count` — `"2"` for two engines on **one** machine in two container-network
+  namespaces, because their `get_ip()`s differ, so the datapath required is cross-server
+  RoCE over `device_ip` from inside a container; **relaunch both containers with
+  `--net=host` (`hostNetwork: true`) and `server_count` becomes `"1"`** — reporter-confirmed
+  #2498, a CANN limitation. Both sides' `ranktable` / `cluster_rank_info` / `comm name` must
+  first be printed and compared (any difference is a config cause); cross-machine with
+  matching values is the NPU NIC / after-sales rung —
+  `references/pd-disaggregation/llmdatadist-register-mem-loop.md`.
   When the transport lines are Mooncake's (`ascend_direct_transport.cpp:820 Failed to
   connect to target … 103900`, `mooncake_connector.py:410 Mooncake transfer failed …
   ret: -1`) rather than HIXL's, the decoder's plog is the first request, not a
@@ -499,6 +512,11 @@ delivery pattern is rule 1.
    Do not read this as licence to demote a real mechanism: quote what the pinned tree
    *does* carry (the registration, the dead lever, the coverage absence) and say plainly
    that "is it fixed" cannot be answered from the snapshot.
+   **And when the paste or a later comment already shows the reporter rebuilt from
+   source and it still failed, the tag rung is spent** — recorded #5484 (reporter
+   tried `vllm-ascend==0.11.0`, then `0.11.0-dev` `pip install -e`, same GE
+   `E89999` infershape error): rank the checkpoint/flag axis and say the upgrade was
+   already tried, instead of repeating it as rung 1.
 
    **Read the direction of the comparison first — the tag rung above is one-directional.**
    It applies when the **older** tag is the broken one. When the reporter's own control
@@ -515,6 +533,21 @@ delivery pattern is rule 1.
    `references/accuracy-benchmarks/harness-vs-engine-attribution.md` §*When the older image
    is the good one*, `references/accuracy-benchmarks/vl-vision-tower-degeneracy.md`
    §*Fifth pin*.
+
+   **A capability the reporter says worked on an older release is a regression before it
+   is a mechanism.** The rule above is about a *symptom*; this is its twin for a
+   *deliverable* — a profiling collection that produced no table, a mode that now refuses to
+   start, a flag that no longer reaches its consumer — where the body says the same
+   combination worked before, or works on the sibling node. Then the ranked answer is
+   "regression between `<works>` and `<fails>`, here is the one command that dates it", and
+   every vendor-stack limitation (`msprof` cannot record graph-replay tasks, CANN skips a
+   table under graph mode) sits *below* it as a labelled hypothesis, because the older
+   release is the control that refutes it. Ask which release did it before believing the
+   premise: a release that never collected is coverage, not a regression. Recorded #12241
+   (`releases/v0.23.0`, `enable_npugraph_ex` + MTP, no `kernel_details.csv`) had a
+   `msprof`/graph-replay limitation ranked first when the reporter wrote "这个组合旧版本一直
+   支持"; the maintainer restored it and the reporter confirmed "现在可以采集了" —
+   `references/performance-throughput/profiler-no-kernel-details-graph-mtp.md`.
 
    **A matching trio does not close the version lane when the pin is an rc and the
    trigger is a feature crossing that pin never tests.** An accuracy/numeric report
@@ -695,6 +728,23 @@ delivery pattern is rule 1.
     cannot be applied from the launch shell; the op named in the message is the subject
     and the FX trace beside it names the owner
     (`references/startup-failures/aclop-op-during-graph-capture.md`).
+    The same rule covers the multiproc wrapper, in the one direction that changes what
+    you ask for: `WorkerProc failed to start.` is `logger.exception`
+    (`vllm/v1/executor/multiproc_executor.py:749` at vllm v0.14.1), so the rank's whole
+    stack is printed **below** it, every line under that same
+    `[multiproc_executor.py:749]` prefix — ask for the block below the line, not above
+    it. When the paste cannot carry that block at all (a screenshot whose `*.ocr.txt`
+    is noise, a title-only report), the wrapper is all the evidence there is: classify
+    from the serve path's own tokens — a quant variant in the model directory
+    (`…-W8A8`, `…-w8a8_dynamic`) plus that quant's cell in `supported_models.md` at the
+    pin decides the lane (quantised and untested → the load-phase aux-key family first,
+    `references/startup-failures/weight-scale-keyerror-quant-variant.md`) — and put the
+    traceback request in the answer. **The oddest flag in the command is not a
+    substitute**: `--mm_processor_cache_type shm` ranks only with its own
+    `Data for address:id …` string. Recorded #7744 ranked that flag first on a
+    load-phase `KeyError: 'layers.37.mlp.experts.w2_weight_offset'` and its resolution
+    was the newer tag (reporter-confirmed `v0.17.0rc1`) —
+    `references/startup-failures/silent-worker-exit.md`.
 12. **A crash inside a native module the image installed is an environment
     question, and it is answerable without that module's source.** Three forms — a
     `python -c "import <pkg>"` glibc allocator abort, `std::logic_error` /
@@ -779,10 +829,19 @@ delivery pattern is rule 1.
     unless the paste carries that flag's own lines (`Compilation disabled, using
     eager mode by default`, `Cudagraph is disabled under eager mode`). Pick the
     ablation that removes the suspected phase, name the line that proves it ran
-    (`references/startup-failures/compile-backend-banner-then-silence.md`). The same
-    trap sits inside `--speculative-config`: with `--async-scheduling` on, `method:
-    mtp` forces the drafter eager regardless of `enforce_eager`
-    (`spec_decode/eagle_proposer.py:136-142` at v0.18.0rc1), so "toggled
+    (`references/startup-failures/compile-backend-banner-then-silence.md`).
+    **Reachability never cancels the run: a flag can move a phase it does not
+    contain.** `--enforce-eager` cleared a *sporadic* `507035` inside CANN's
+    `ApplyTopKTopPWithSorted` sampling kernel although the sampler runs after the
+    forward and outside the captured region (reporter-confirmed #2763, and the same
+    comment prices it at ~5 tok/s against ~40 tok/s — so it is the isolation run
+    first, never the recommendation; at v0.10.1rc1 the flag's own line is
+    `Compilation disabled, using eager mode by default`,
+    `vllm_ascend/platform.py:145-147`). Do not reason "that op is not in the graph,
+    so eager cannot help": pool, workspace, stream overlap and task concurrency all
+    change with the mode. The same trap sits inside `--speculative-config`: with
+    `--async-scheduling` on, `method: mtp` forces the drafter eager regardless of
+    `enforce_eager` (`spec_decode/eagle_proposer.py:136-142` at v0.18.0rc1), so "toggled
     `enforce_eager`, both crash" is one path run twice — check the serve command for
     `--async-scheduling` before crediting that ablation
     (`references/spec-decode-mtp/empty-first-response.md` Step 6b).
@@ -859,7 +918,13 @@ resolution error, a missing library at import — is its own track: the paste's 
 frames name the failing *stage* and the stage names the owner (vllm-ascend's
 `CMakeLists.txt`/`setup.py` vs the CANN toolkit vs the image), the reporter's
 CANN/torch/torch-npu trio is checked against the pin's own requirements table before
-any version advice, and the cheapest working install is rung 1. A `multiple
+any version advice, and the cheapest working install is rung 1. When the body carries **no
+failing frames at all** — prose only, "installing vllm 0.9.1 prompted me to uninstall torch
+2.5.1 and install 2.7.x, then vllm-ascend could not find torch 2.5.1" (#1363) — it is a
+**pairing** question: the release's own versioning-policy row, the two requirement trees and
+`_no_device()` decide it in four reads, and rung 1 is the project's own recipe (vllm from
+source with `VLLM_TARGET_DEVICE=empty`, then the tree's mirror), not another pip command
+(`references/image-dependency-faults/pip-index-visibility.md` §A0). A `multiple
 definition` at the AscendC kernel relink is one source under two path spellings, not a
 kernel defect: `references/image-dependency-faults/custom-op-build-stage.md`. Then, when the signature is specific — a log
 fragment, an error string, a flag that did nothing, a title that names a mechanism —

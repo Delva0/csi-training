@@ -45,6 +45,18 @@ accepts it as an unambiguous prefix. Tier it **cosmetic** and say why; calling
 it a startup failure is the more common mistake, and a wrong severity costs the
 report's credibility.
 
+**"No such flag" is not "does not parse" — prove the acceptance, don't infer it from the
+grep.** The name-drift finding stands, but the tier comes from whether argparse takes the
+string, which is a six-line probe: `allow_abbrev` defaults to `True`, this parser never
+disables it (no `allow_abbrev` in `vllm/` at v0.18.0), and only one defined option begins
+`--random-input`, so
+`argparse.ArgumentParser()` + `--random-input-len` / `--random-output-len` /
+`--random-prefix-len` then `parse_args(['--random-input','200'])` returns
+`Namespace(random_input_len=200, …)` — the doc's line runs and sets 200 input tokens.
+Recorded #12562 upgraded this row to "破坏命令" and scored 正确性 2/5 on the grep alone; a
+"breaks the command" claim needs a second option sharing the prefix, or an
+`allow_abbrev=False` hit, and nothing else.
+
 ## 3. Does every relative path in the doc exist, with the image's own WORKDIR?
 
 ```bash

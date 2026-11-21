@@ -27,7 +27,14 @@ called` / `shm_broadcast` lines are consequences. The `[AIC_INFO] fault
 kernel_name=` line is the authoritative name. Not this page when the reporter
 themselves removed `HCCL_OP_EXPANSION_MODE`/`PYTORCH_NPU_ALLOC_CONF` and the op is
 `…Dispatch/CombineV4` with `107020` (`aiv-mc2-env-ablation.md`), or when the
-failing frames are Python-only (`collective-error-chain.md`).
+failing frames are Python-only (`collective-error-chain.md`). Nor is it the lane for a
+**pre-0.12** pin on a non-DeepSeek MoE: at v0.9.2rc1 `b5b7e0ec` the selector is
+`get_fused_moe_state(ep_size, with_prefill, is_deepseek_v3_r1)` (`utils.py:473-490`) and
+`with_prefill` is true in `profile_run`, so EP ≥ 2 lands on `All2All` and `MC2` is
+unreachable there whatever the ep size — the branch that runs is named
+`fused_experts_with_all2all` (`quantization/w8a8_dynamic.py:755, :223`), and an
+AICPU-label fault inside it is a device-`op_name` question (`ASCEND_LAUNCH_BLOCKING=1`,
+plog `fault kernel_name=`), not a dispatch timeout.
 
 ## Step 1 — the batch that runs is `mc2_tokens_capacity`, not `max_num_batched_tokens`
 

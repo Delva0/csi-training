@@ -159,6 +159,17 @@ Re-verify before reusing: by vllm-ascend `v0.23.0rc1` the string is gone from
 `platform.py` and the import moved to a lazy path (`vllm_ascend/utils.py:435`), so
 quote the red herring only for the older release line.
 
+**Scope of the red-herring verdict: only while no code path on that SoC needs the
+extension.** At vllm-ascend v0.23.0.post1 (`1cdb8c4`) the 310P lane calls it
+unguarded — `rg -c 'torch\.ops\._C_ascend' vllm_ascend/_310p/` returns 4 in
+`_310p/ops/fla/gdn_310.py` and 2 in `_310p/ops/fla/chunk_gated_delta_rule.py` — so a
+GDN / Qwen3.5 / Qwen3-Next family checkpoint on 310P dies at the first prefill with
+`AttributeError: '_OpNamespace' '_C_ascend' object has no attribute 'npu_causal_conv1d_310'`,
+and an image whose per-tag `vllm_ascend_C*.so` table shows the extension *missing*
+is a real image regression, not a red herring:
+`../image-dependency-faults/custom-op-extension-missing-from-image.md`. Run the grep
+before quoting either verdict.
+
 ## What the snapshot cannot settle
 
 - The `npu-smi` **name** (`910C1`) → `soc_version` string mapping is not in any

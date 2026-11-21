@@ -16,7 +16,11 @@ One shape here compares the engine **with itself** rather than against a referen
 the same prompt or body run several times, with lengths or contents differing
 ("nv 卡多次一致，npu 多次不一致", "`temperature=0` 结果不确定"). That is
 reproducibility, not accuracy: `repeated-run-nondeterminism.md` owns it, and the
-request body plus the *pattern* of which runs differ decide it.
+request body plus the *pattern* of which runs differ decide it. Its sibling compares
+the engine with itself across **batch composition** instead of across repetitions —
+the same body differing only with concurrency while `VLLM_BATCH_INVARIANT=1` is set:
+`batch-invariant-coverage.md` owns that one, and the answer is the feature's per-op
+envelope rather than the flag failing to apply.
 
 Seven entry shapes leave this topic immediately and are not accuracy questions at all:
 
@@ -210,6 +214,18 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (`--enable-prefix-caching` is default-on at vllm v0.23.0; a Mooncake
   `VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT` hit is a log line, not a generation bound; the
   block-verify gate is off by default there), and the recorded #13719 diff table.
+- `batch-invariant-coverage.md` — the same request returns different text only when
+  concurrency changes, with `VLLM_BATCH_INVARIANT=1` exported and a normally serving
+  engine (recorded #14884: Qwen3-VL-30B-A3B, TP4 + `--enable-expert-parallel`, greedy,
+  `--enforce-eager`, `--no-enable-prefix-caching`). Why the start-up log cannot say
+  whether attention was patched (the INFO line is keyed on `HAS_TRITON or
+  HAS_ASCENDC_BATCH_INVARIANT`), the two coverage branches at v0.18.0
+  (`batch_invariant.py:96-124`), the ops no branch replaces (EP dispatch/combine,
+  `npu_grouped_matmul`, FIA `_v2`, the VL vision tower), the project's own
+  tested-model and e2e envelope that excludes VL and EP
+  (`test_batch_invariant.py:160` has `enable_expert_parallel` commented out), the
+  three causes a reviewer will otherwise pick (HCCL timing, sampler, custom-op
+  fusion — all refuted) and the one-axis-per-launch matrix.
 - `repeated-run-nondeterminism.md` — the engine compared with itself: the same prompt
   or body run 3–5×, lengths or contents differing, typically NPU "差异大" against a
   stable NV-GPU baseline at `temperature: 0`. The reporter's own control refutes any

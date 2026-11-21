@@ -8,8 +8,11 @@ been killed without a message — the paste cannot tell, so the deliverable is t
 phase bound plus the one artefact that separates the two, not a mechanism.
 
 Not this topic: `EngineCore failed to start` / `WorkerProc initialization failed`
-(→ `silent-worker-exit.md`), a traceback (→ the matching page in
-`index.md`), or a box that dies *before* `Starting to load model`
+(→ `silent-worker-exit.md`), a paste whose last line is `Using OOT custom backend
+for compilation` (→ `compile-backend-banner-then-silence.md`: that banner is
+printed before the shards are read, not after the weights are down), a traceback
+(→ the matching page in `index.md`), or a box that dies *before* `Starting to
+load model`
 (→ `../runtime-memory/attention-mask-host-allocation.md`).
 
 ## Step 1 — bound the phase from the pinned worker, then say it

@@ -37,7 +37,7 @@ Inherit the rules in SKILL.md, plus these:
    explicit slot plus the one command that fills it on the host. A report that
    presents a doc baseline as this environment's measurement is a fabricated
    result; a report with empty labelled slots is a usable template.
-3. **Audit in a fixed, finite order and stop.** The checklist has ten items
+3. **Audit in a fixed, finite order and stop.** The checklist has eleven items
    (`tutorial-command-audit.md`); after 3-5 concrete defects plus the corrected
    deploy command and a three-item FAQ you have the deliverable. #11739's
    recorded run confirmed several real doc bugs and then kept auditing until the
@@ -57,15 +57,18 @@ Conditional routes:
 
 - The task shape, the deliverable skeleton and the staged-emission protocol for
   a community-test report → `community-test-report.md`.
-- The ten-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
+- The eleven-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
   v0.18.0 and v0.19.1rc1 examples (dead `--swap-space` / `--disable-log-request`,
   `--random-input` vs `--random-input-len`, image WORKDIR vs doc relative path,
   `limit_mm_per_prompt` and remote-media defaults, boilerplate TP sentence vs
   sibling docs, stale baseline release, CI config as the known-good command,
   `pip install <pkg>==<ver>` against the image's own requirements pins) plus the
-  ready-made Qwen3-32B-W4A4 defect table, and the `--hf_overrides` architecture
-  string check added after #14817 → `tutorial-command-audit.md`; the mechanism
-  behind a wrong architecture prefix is `../pooling-embedding/seq-cls-arch-routing.md`.
+  ready-made Qwen3-32B-W4A4 and Qwen3.5-397B-A17B-§5.6 defect tables, the
+  `--hf_overrides` architecture string check added after #14817, and check 11
+  (a tab-set's block against its own prose **and** its own `kv_connector` — the
+  swapped-proxy defect of #15389; a missing `bash proxy.sh` is check 3) →
+  `tutorial-command-audit.md`; the mechanism behind a wrong architecture prefix
+  is `../pooling-embedding/seq-cls-arch-routing.md`.
 - The doc's log/flag claims override the doc rather than the code:
   `../observability-and-logs/request-output-logging-flags.md`.
 - The doc's accuracy or performance numbers look anomalous: check the precedent

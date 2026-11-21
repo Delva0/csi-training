@@ -31,6 +31,58 @@ GLM-5.1, DP2 × TP8 + EP, `--max-num-seqs 8 --max-model-len 200000`,
 `FULL_DECODE_ONLY`, `enable_npugraph_ex` (passed flat, i.e. inert — the default is
 already `True`). It recurred unchanged on v0.22.1rc1, so do not answer "upgrade".
 
+## The non-MTP variant: `suffix` / `ngram` (#9278, v0.19.1rc1)
+
+Same capture-mode family, different method and a **request-time** frame. Recorded
+#9278: vllm-ascend v0.19.1rc1 (`da421af`) / vllm v0.19.1 (`b1388b1`), GLM-5 (i.e.
+`GlmMoeDsaForCausalLM` → DSA/`sfa_v1`) w4a8 on 8 cards, `--max-num-seqs 8
+--max-model-len 32768`, `--quantization ascend`,
+`--speculative-config '{"num_speculative_tokens": 3, "method": "suffix"}'`,
+`--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY", "cudagraph_capture_sizes":
+[4,8,…,32]}'`, `--additional-config '{"fuse_muls_add": true,
+"multistream_overlap_shared_expert": true, "ascend_compilation_config":
+{"enable_npugraph_ex": true}}'`, `--no-async-scheduling`.
+
+- Kept in: the log's own `SpecDecoding metrics: acceptance length: 1.00, Accepted: 0
+  tokens, Drafted: 1 tokens, Per-position acceptance rate: 0.000` (`acceptance-collapse.md`
+  shape), a `Replaying aclgraph` line, then `EE9999 … execution failed, reason=the
+  current capture mode does not support this operation`,
+  `synchronized memcpy failed, kind = 1` / `(function copy_between host and device
+  opapi)`, `there is an exception of aivec error … The extend errcode: (0x800000e, 0, 0)
+  errorStr: The MAR address of the … instruction is out of range`, `rtStreamSynchronize
+  execution failed, reason=vector core exception`, then the Python frame
+  `RejectionSampler.parse_output` → `output_token_ids.cpu()`.
+- That frame is a **sync point, not the owner** (rule at the top of this page): the
+  `.cpu()` is the first D2H on the step and carries an earlier kernel's async report.
+  The capture-mode record is the same marker as #10700's, so classify the lane the same
+  way before any tensor-shape theory.
+
+What is genuinely different from `mtp` at the *same* `num_speculative_tokens` — all
+verified at `da421af`, and each one an ablation you can ask for:
+
+| Fact | Anchor | Consequence |
+|---|---|---|
+| suffix drafts a **dynamic** number of tokens per request per step | upstream `vllm/v1/spec_decode/suffix_decoding.py` `propose` docstring ("each entry … may have different lengths") | `max_spec_len`/`max_gen_len` move step to step, so the sampler's `(batch_size, max_spec_len + 1)` buffer and the captured bucket can disagree |
+| block verify is `max_spec_len >= 3 and draft_probs is not None` | `vllm_ascend/sample/rejection_sampler.py:114`; `model_runner_v1.py:2002-2007` passes `draft_probs=None` | a suffix/ngram launch **never** takes the block-verify kernel, even at `n=3` — so an `n=2` vs `n=3` ablation does not move it (for mtp it does). Review the non-block kernel path instead |
+| no drafter graph exists for this method | `vllm_ascend/spec_decode/suffix_proposer.py` `AscendSuffixDecodingProposer.dummy_run` is `pass` | capture never runs a drafter forward, so "the draft graph replay" is not available as a cause here |
+| the verify step's attention state is split | `model_runner_v1.py:1195-1198` returns `SpecDecoding` but stores `ChunkedPrefill` for any `method != "mtp"`; `:644` sets `with_prefill` from the *returned* value; `:2495` puts the *stored* one into the live metadata; `:2744-2750` pins `DecodeOnly` at capture | live and capture metadata disagree on the state. Note it, do not rank it: at this ref `mla_v1.py:1387-1392` treats `SpecDecoding`/`ChunkedPrefill`/`DecodeOnly` alike and `sfa_v1` reads the state only for the DSA-CP o_proj switch (`:1106`) |
+
+The combination itself is a known conflict, not a new one: **#7301** ("Performance
+degradation occurs when suffix is enabled in full_decode_only graph mode") records that
+suffix's dynamic output breaks the decode graph, that it "theoretically … should fall
+back to piecewise mode", and that the run degraded to eager instead. At `da421af` there
+is **no** such fallback in `vllm_ascend/` (only a 310P `ngram` `q_len=1` special case in
+`_310p/model_runner_310p.py:77-88`). So the answer's frame is "suffix + a captured
+decode graph is the unsupported combination", and the one-variable ablation is the graph
+mode, not the model.
+
+One `scripts/history-titles.sh -i 'suffix|507035|aivec|MPU address'` (titles only) now
+returns the whole precedent set for this shape — #7301 (`suffix` +
+`full_decode_only`), #5010 (`draft_model_config is None` with suffix), #5227 (suffix +
+`PP>2` `IndexError`), #10271 (GLM-5.1 D-node `fftsplus aivector` crash), and the
+`507035` reports #2763/#3037. Open #7301 and #10271 first; do not spend a call
+re-deriving the suffix sampler branch.
+
 ## What the frame proves, and what it does not
 
 - **Proves:** the engine was executing a **DP dummy pass**, not a user request.

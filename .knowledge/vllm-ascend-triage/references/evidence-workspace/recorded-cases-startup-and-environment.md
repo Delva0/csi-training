@@ -52,6 +52,30 @@ in use), and the same reporter's next round hit
 `../startup-failures/connector-config-attributes.md` and
 `../image-dependency-faults/launch-env-and-library-path.md`;
 
+**#1496** vllm-ascend v0.8.5rc1 (`ec27af3`) + vllm v0.8.5.post1 (`3015d563`),
+Qwen2.5-Math-1.5B, `tensor_parallel_size=4` with
+`distributed_executor_backend="external_launcher"`, torch 2.5.1 / torch_npu 2.5.1 /
+CANN 8.1.rc1: "TP=1 works, TP>1 deadlocks during driver initialization", the paste
+ending after the worker's device line with no traceback, and both an `LLM()` example
+and an `AsyncLLM` script reproducing it. This ref carries no `external_launcher`
+string at all, so the running mechanism is upstream's; `init_process_group` is passed
+`world_size=parallel_config.world_size` explicitly, which is why fewer processes than
+TP hang instead of raising the `reshape` error. The recorded run shipped **no message
+text** in 12 turns (~49 K characters of reasoning spread over four mechanisms), so the
+lane now has its own ordering and its own page:
+`../startup-failures/multiprocess-launch-hang.md`.
+
+**#1383** vllm-ascend v0.9.1rc1 (`c30ddb8`) + vllm v0.9.1 (`b6553be`), 310P3 /
+Atlas 300I Duo, `vllm serve Qwen/Qwen2.5-0.5B-Instruct` with no `--dtype`: V0
+`profile_run` dies with `EZ3002 … Optype [TransData] of Ops kernel [AIcoreEngine] is
+unsupported. Reason: [tbe-custom]:op type TransData is not found in this op store.`
+plus `format and dtype is not precisely equivalent to … op information library`. bf16
+on a SoC whose ATB rope path has no bf16 op; the same tag's tutorial says
+`dtype="float16" … cause some ATB ops cannot support bf16 on 300I series`
+(`docs/source/tutorials/single_node_300i.md:175`) and `rotary_embedding.py:52` keeps
+310P off the custom op, so `+rotary_embedding` cannot move it. Delivered:
+`../soc-platform-paths/atlas-300i-310p.md`, its `TransData`/`EZ3002` section.
+
 **#1144** vllm-ascend v0.7.3.post1 (`c69ceac`) / vllm v0.7.3, torch+torch_npu 2.5.1,
 aarch64 EulerOS: `import mindie_turbo` →
 `ImportError: …/mindie_turbo/_ops.cpython-310-aarch64-linux-gnu.so: undefined
@@ -293,6 +317,22 @@ was called with `--params 671e9` (a raw count, not billions) and printed a
 confident inverted FAIL which the run then had to disown and redo by hand — the
 script now refuses that input.
 
+**#15389** vllm-ascend v0.23.0 (`5cb98caaadef`) / vllm v0.23.0 (`0fc695fc`), the
+Qwen3.5-397B-A17B tutorial's §5.6 请求转发 example: the reporter runs
+`load_balance_proxy_server_example.py`, the proxy comes up and the P instance goes
+down; swapping in `load_balance_proxy_layerwise_server_example.py` works. Document
+defect, not an environment fault: the A3 tab's prose says "Use the layerwise proxy
+script" (`:817`) and its block runs the p2p one (`:823`) although §5.4 configures
+`MooncakeLayerwiseConnector` (`:521`, `:597`), the 950DT tab's block is the layerwise
+script while §5.5 configures p2p `MooncakeConnector` (`:703`, `:786`), and the
+section's `bash proxy.sh` (`:836-838`) names a file absent from
+`examples/disaggregated_prefill_v1/`. The mechanism is source-visible — the p2p
+proxy's `kv_transfer_params` (`load_balance_proxy_server_example.py:790-800`) omits
+`remote_cached_tokens`, which `MooncakeLayerwiseConnector` reads unconditionally
+(`mooncake_layerwise_connector.py:990`) — while the reporter's actual P crash text
+stayed an open item. Checklist item added: check 11, tab block vs its own prose and
+its own connector — `../tutorial-verification/tutorial-command-audit.md`.
+
 **#14817** vllm-ascend v0.23.0 (`5cb98ca`) + vllm v0.23.0 (`0fc695f`), Atlas
 800T A2 / 910B2 (driver 26.1.1), Qwen3-Reranker-0.6B served with
 `--runner pooling --hf_overrides '{"architectures":
@@ -490,6 +530,37 @@ example's name returned nothing (it is not documented outside the docstring). Pa
 `../startup-failures/arg-validation-errors.md` (third raise site). Open: how many
 NPUs the reporter's node has, and whether the 2-process gloo group formed cleanly.
 
+**#527** vllm-ascend v0.7.3rc1 (`f025df0`) + vllm v0.7.3+empty, one host, the
+reporter's own `sh vllm-infer.sh` running `vllm serve … --max-model-len 4996
+--port 8999 -tp 4`: title `[Bug]: cannot import name 'PoolingParams' from 'vllm'
+(unknown location)`, two screenshots and no pasted log. The OCR carries the whole
+traceback (`vllm/entrypoints/cli/main.py` → `serve.py` → `openai/api_server.py:34`
+→ `vllm/engine/multiprocessing/__init__.py` `from vllm import PoolingParams`) plus
+`ERR99999`, and its frames resolve `vllm` from `$HOME/hzy/vllm/vllm/…` — not
+`site-packages`. Route `../image-dependency-faults/wrong-vllm-module-shadowed.md`;
+the reporter cleared it himself the next day by deleting the `vllm` folder in the
+current path (issuecomment-2808451427), which is the shadowing finding stated as a
+fix. **Delivery failure**: 15 assistant turns, ~70 characters of message text in
+total (turn 1 only; every later turn a bare tool call), the full 16 384-token cap
+spent, status `output_truncated`, **no answer at all** — although turn 2's OCR
+already held the decisive line. What took the budget instead: the `+empty` marker
+walk (`setup.py:382,506-507`, README, `installation.md`, five calls), `patch_module.py`'s
+`sys.modules` splice, and two history precedents (#291, #384) — the version marker
+is the docs' own build route, and nothing in vllm-ascend imports the name.
+
+**#152** vllm-ascend v0.7.1rc1 + vllm v0.7.1 (`0.7.1+empty`), 8×910B1, CANN
+`8.0.RC1`, torch-npu 2.5.1.dev20250218, python3.9 env: title `ImportError:
+libatb.so` from `import torch_npu` in the reporter's `vllm_test.py`, with
+`No module named 'vllm._version'` and `No platform detected … UnspecifiedPlatform`
+beside it. The run delivered in one message at turn 23 (6.3 K characters): NNAL
+verdict first, the two probe commands, the pinned doc anchors
+(`installation.md:88-93`), the `platform.py:23-26` swallow as the second symptom's
+explanation, `vllm/version.py:1-8` as noise. Keep the shape. The reporter's later
+comment (issuecomment-2677722481) quotes the doc's **source-build** block verbatim
+and says installation had no errors — that block contains no NNAL line, so it
+corroborates the verdict rather than refuting it
+(`../image-dependency-faults/nnal-atb-missing-library.md`, "安装过程中没有报错").
+
 **#540** vllm-ascend v0.7.3rc2 (`00459aea`) + vllm v0.7.3, `vllm serve <model>
 --max-model-len 4096 --port 8000 -tp 4` from a conda env
 (`/root/miniconda3/envs/hzy_dev_vllm`), env dump `vllm 0.7.3+empty` /
@@ -632,3 +703,69 @@ exists in six `Dockerfile*` (`Dockerfile:81-82`, `.a3:80-81`, `.openEuler:78-79`
 with no `ENV LD_*` in the recipe. Left open, correctly: whether the reporter's
 `v0.22.1rc1-a3` tag carries the same lines (tag not in this snapshot) and any concrete
 Mooncake failure (nothing in the paste shows one).
+
+**#2315** vllm-ascend image `v0.9.2rc1-310p` (tree `b5b7e0e`) + vllm v0.9.2 (`a5dd03c`),
+2×`310P3` (host `NPU-SMI 24.1.0.1`), Qwen3-32B TP2: engine start dies inside torch_npu
+device open — `RuntimeError: SetPrecisionMode: … AclSetCompileopt(aclCompileOpt::
+ACL_PRECISION_MODE, precision_mode), error code is 500001`,
+`[Error]: The internal ACL of the system is incorrect.`,
+`EH9999 … [PLATFORM]PlatformInfoInit runtime platform info failed. SocVersion Ascend@910B`,
+`GEInitialize failed`, ending `ERR99999` — with no `vllm_ascend` frame, and the paste is
+OCR'd from screenshots. Same two lines in #302/#564/#692 on 910B2 hosts. Track: lane A
+startup, environment-owned (`../startup-failures/acl-init-500001-and-soc-version.md`).
+The recorded run confirmed the "not vllm-ascend code" verdict in a turn-17 status note but
+shipped **no answer**: 18 turns / 26 tool calls / 232 characters of message text, the
+budget spent in `torch_npu` `LazyInitAclops.cpp`, the `SocVersion` enum and `is_310p()`.
+The three facts that answer it are the printed SocVersion against `npu-smi`, the image's
+CANN base (`Dockerfile.310p:18`, `requirements.txt:27`) against the host driver, and the
+framework-free `torch.npu.set_device(0)` probe. Semantics established here, not by a
+reported fix: `SetPrecisionMode` only *supplies* the precision string for the SoC it
+resolved, so the numeric code is not a flag problem.
+
+**#6578** vllm-ascend v0.14.0rc1 (`52d4acfa`) + vllm v0.14.1 (`d7de043d`), Qwen3-32B on
+910B, title `no attribute qkv_rmsnorm_rope`, body's first line an
+`AttributeError: '_OpNamespace' '_C_cache_ops' object has no attribute 'reshape_and_cache'`:
+the `torch.compile` pass `qknorm_rope_fusion_pass.py:214` traces its replacement and the
+triton op is imported only `if HAS_TRITON` (`ops/__init__.py:25-26`) while the pass is
+appended by default (`fuse_qknorm_rope` True) and gated only on dtype + `head_size == 128`.
+`_C_cache_ops` has zero hits in the vllm-ascend tree, so it is a second launch's line, not
+this traceback's. Track: lane A/B graph-compilation
+(`../startup-failures/missing-triton-op-in-compile-pass.md`). The run reached the mechanism
+by turn 5 and shipped a ranked answer on turn 11, but the cap landed inside its closing
+scope paragraph — the fix (`--additional-config '{"ascend_compilation_config":
+{"fuse_qknorm_rope": false}}'`, the project's own line at
+`docs/source/user_guide/configuration/additional_config.md:79`) did ship.
+**#16581** vllm-ascend v0.23.0rc1 (`f4a08bd`, not byte-verified) + vllm v0.23.0
+(`0fc695f`), one 910 (64 GB), ModelSlim W8A8 Qwen3-32B (32.03 GiB) on
+`--max-model-len 16384 --gpu-memory-utilization 0.9`: `ACL graph capture fails with
+error code 507015` at `torch.npu.graph.__enter__` → `torch.npu.synchronize()`
+(`torch_npu/npu/graphs.py:519`), wrapped as `NPUModelRunner failed, error is …`, with
+`fftsplus aivector error … error code = 0x800000` / `The DDR address of the MTE
+instruction is out of range` / `retCode=0x26, [aicore exception]`; the reporter's own
+workaround changed util 0.9→0.85, capture sizes 51→`[1,2,4,8]` and `--max-model-len`
+16 K→40 K at once. Both frame numbers match the pin (`acl_graph.py:192`,
+`model_runner_v1.py:5177`). The recorded run found the two decisive facts — the advice
+gate only knows `207008` (`acl_graph.py:28-51`) and nothing reserves the graph pool
+(upstream `profile_cudagraph_memory()` is `is_cuda()`-guarded, downstream's
+`determine_available_memory` at `worker.py:527-597` drops it) — and correctly refused to
+name one cause because the workaround moved three variables, but it spent a turn on a
+442-hit history listing for `graph capture` and its answer was cut **mid-sentence inside
+its scope block** (3.9 K characters delivered against a 16.4 K completion-token cap), so
+the "what to send back" half never shipped. Route now
+`../startup-failures/acl-graph-capture.md` (v0.21–v0.23 section) and the new
+signature row for `NPUModelRunner failed … AclrtSynchronizeDeviceWithTimeout`.
+
+**#5075** vllm-ascend v0.10.0rc1 as reported (pin v0.12.0rc1 `42ceaf0` + vllm
+v0.12.0 `4fd9d6a8`), Atlas 300I Pro (310P), Qwen2.5-VL-3B, `--enforce-eager`,
+"310系列什么时候支持图模式和量化" plus "身份证识别 8 s vs T4 3 s": capability/roadmap
+question, not a crash. Answered in ~12 turns: quantization already has a 310P path at
+the pin (`--quantization ascend`, `quantization/w8a8.py:51,163,320`), graph mode does
+not (`docs/source/tutorials/310p.md:5` "only supports eager mode and the float16 data
+type"), the reporter's command is that file's Qwen2.5-VL-3B tab verbatim (`:120-131`),
+and the staging evidence is RFC #1309's empty `Stage2: Performance improvement`. Two
+corrections it needed: `is_310p()` does not exist at v0.12.0rc1 (the predicate is
+`get_ascend_device_type() == AscendDeviceType._310P`), and "no 310P e2e coverage at
+this ref" was wrong — `tests/e2e/310p/test_offline_inference_310p.py` exists, is wired
+by a label-gated workflow, and is eager-only, which is the sharper statement. Route now
+`../soc-platform-paths/atlas-300i-310p.md` (v0.12.0rc1 section) and
+`../feature-enable-recipes/index.md` rule 9.

@@ -33,11 +33,31 @@ at request time. The shapes:
   (+ `npugraph_ex`), with `fftsplus aicore/aivector … MTE DDR out of range` and a
   capture-mode `rtMemcpy … 107030` record stamped inside engine init
   (`draft-graph-capture-device-fault.md`).
+- **or** the same capture-mode family on a **`suffix`/`ngram`** launch: the log keeps
+  `SpecDecoding metrics: … Accepted: 0 … Drafted: 1` and a `Replaying aclgraph` line,
+  then `EE9999 … reason=the current capture mode does not support this operation` /
+  `synchronized memcpy failed, kind = 1` / `aivec … The MAR address of the …
+  instruction is out of range`, and the deepest Python frame is
+  `RejectionSampler.parse_output`'s `output_token_ids.cpu()`
+  (`draft-graph-capture-device-fault.md`, section "The non-MTP variant"). At `n=3` this
+  method never takes the block-verify kernel (`draft_probs is None`,
+  `vllm_ascend/sample/rejection_sampler.py:114`), has no drafter graph (`dummy_run` is
+  `pass`), and `suffix + FULL_DECODE_ONLY` is the combination #7301 already records as
+  degraded — so the ablation is the graph mode, not `n`.
 - or it dies with an **operator-level message and no Python frame**: `ERR00100 PTA
   call acl api failed` + `EZ9999 … When layout is TND, queryT(16) must be equal to
   the last element of actualSequenceLengthQ(4)` (`CheckFASeqlenDataInTND`,
   `fused_infer_attention_score.cpp`), on MTP + `FULL_DECODE_ONLY`, often with
   `--data-parallel-size > 1` and EP (`fia-tnd-seqlen-mismatch.md`).
+- or it dies at **request time** with `aclnnFusedInferAttentionScoreV3 failed,
+  error code is 107030` + `the key/value's actual sequence lengths(K) is N, it should
+  be in range [0, KV_S(M)]` + `FusedInferAttentionScore do tiling failed, ret is -1`,
+  the stack passing `_run_merged_draft` / `acl_graph.__call__` on an eagle/eagle3
+  launch, and the dumped config showing `N` one past the engine's own sequence cap:
+  a host-side argument rejection at the last scheduled step before the cap, not a
+  device fault (`max-model-len-boundary-fia-crash.md`). Distinct from the TND
+  `queryT` refusal above by the string: that one names two host tensors that must be
+  equal, this one names a value and a **capacity**.
 - or it dies at **request time** on every rank in the same second with an ATB
   operator message and a *proposer* frame: `SelfAttentionOperation setup failed!`
   + `Exception raised from OperationSetup … op_plugin_atb … compiler_depend.ts`
@@ -175,6 +195,18 @@ from the acceptance numbers.
   the `FIA_SEQ_LEN_LIMIT = 16` / RFC #3003-#4300 constraint text, the GLM-4.x
   tutorial diff that is the first half of the answer, the six-rung ladder and the
   worked #6598 row (v0.14.0rc1, DP2×TP8 A2 two-node, `num_speculative_tokens: 3`).
+- `max-model-len-boundary-fia-crash.md` — the KV-side FIA refusal at the cap
+  (`actual sequence lengths(N) … [0, KV_S(M)]`, `do tiling failed, ret is -1`): the
+  three dump numbers that classify it (`num_computed_tokens`, `num_scheduled_tokens`,
+  `scheduled_spec_decode_tokens=[-1]`), why nothing was launched so no plog/health
+  check applies, the two launcher-vs-dump disagreements to surface first
+  (`num_spec_tokens` 3 vs 1, a `--max-model-len` above the checkpoint's derived cap
+  that vllm v0.19.1 refuses), the ranked candidates (merged-draft guard without
+  upstream's `positions + total_num_drafts` lookahead; the `seq_lens_list` host list
+  built in `AscendAttentionMetadataBuilder.build` vs the masked tensor; the async
+  `optimistic_seq_lens_cpu`), why the co-occurring `rtMemcpy … capture mode` line is
+  not the cause, the ladder and the `cann/ops-transformer` gap. Worked #9359 row
+  (v0.19.1rc1, A2 2P1D, eagle3, K=3 as launched).
 - `dense-attn-state-gap.md` — `assert attn_metadata.attn_mask is not None`
   (`attention_v1.py:413`) under `method: ngram`: the three state branches plus one
   catch-all `else:` that serves `ChunkedPrefill` *and* the unknown states, the

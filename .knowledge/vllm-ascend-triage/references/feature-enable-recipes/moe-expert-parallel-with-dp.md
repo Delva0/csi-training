@@ -208,6 +208,14 @@ At v0.12.0rc1 the only EP+DP configurations the project ships are in
   --data-parallel-address $node0_ip --tensor-parallel-size 8
   --enable-expert-parallel` (`:177-185`) → **one DP rank per node**.
 
+`ep_size` is the flattened `dp × pcp × tp` of that group, so **the DP half only
+widens the expert shard when the DP ranks really share a DP group**: with
+`--data-parallel-size 2` alone and no `--data-parallel-size-local/-address/
+-rpc-port/-start-rank`, a two-node box runs two independent TP-shaped engines and each
+card keeps `experts / tp` of them. That is the 2× that turns into a load-phase OOM on a
+1T-class MoE — capacity side: `../deploy-sizing/moe-load-oom-expert-shard.md`
+(reporter-confirmed #7123).
+
 No doc and no `tests/e2e/**` config runs `--data-parallel-size 2` with
 `--distributed-executor-backend mp` on a single card set, which is #5295's shape
 (`rg -l "data-parallel-size 2" docs/ tests/e2e/` returns only the multi-node yaml

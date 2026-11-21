@@ -99,10 +99,17 @@ logits.
      (`vllm/model_executor/layers/batch_invariant.py:989-1000`), so it must be in the
      process environment at start (`VLLM_BATCH_INVARIANT=1 vllm serve …`); setting it
      after `import vllm` does nothing.
-   - **Confirm in the log**, don't assume: `Enabling batch-invariant mode for vLLM on
-     Ascend NPU.` vs `Batch-invariant mode requested but Triton or AscendC … not
-     available` (`vllm_ascend/batch_invariant.py:141-150`); entry is
-     `vllm_ascend/worker/worker.py:568`; probe `python -c "import batch_invariant_ops"`.
+   - **Confirm which branch is live, and do not use the log for it.** The INFO line
+     `Enabling batch-invariant mode for vLLM on Ascend NPU.` is gated on
+     `HAS_TRITON or HAS_ASCENDC_BATCH_INVARIANT` (`vllm_ascend/batch_invariant.py:139-145`
+     at v0.18.0), so it also prints when the AscendC library is missing and **attention
+     is not replaced**; the warning form (`… Triton or AscendC … not available`, `:146-150`)
+     appears only when both are absent. Re-grep the condition per ref. The decisive
+     probe is `python -c "import batch_invariant_ops"` inside the reporter's image; entry
+     is the worker's `_init_worker_distributed_environment`
+     (`vllm_ascend/worker/worker.py:575-580`). What each branch does and does not
+     replace, and the sibling report whose lever is batch **composition** rather than
+     repetition, are `batch-invariant-coverage.md`.
    - **Coverage is narrow:** the tested list is `Qwen3-1.7B/8B` and
      `Qwen3-30B-A3B`, no quantized checkpoint and no QwQ/Qwen2 architecture, and the
      registered op set is dense `mm`/`matmul`-shaped — W8A8 quantized linear is

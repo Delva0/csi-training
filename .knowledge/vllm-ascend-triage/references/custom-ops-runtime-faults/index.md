@@ -57,6 +57,15 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   (`../hccl-and-hardware/collective-error-chain.md`). Ask for the error text before
   mapping any caller: with only the op name in the title, the version triple and the
   first error line are the whole next step.
+- **"This op is not a CANN op, why is the framework dispatching it?" is an
+  ownership question, and the usual answer is that the op is vllm-ascend's own.**
+  A CamelCase `…Custom` op built from `csrc/build_aclnn.sh`'s `CUSTOM_OPS_ARRAY`
+  installs into `vllm_ascend/_cann_ops_custom` and is mounted through
+  `ASCEND_CUSTOM_OPP_PATH`, so it is absent from CANN's inventory by design. Name the
+  dispatching call site and stop; treat the `EZ1001 Get regInfo failed` text as the
+  separate install lane. For a sampling op the dispatch site is one of three known
+  call sites, chosen by whether MTP/spec-decode is on —
+  `custom-op-ownership-and-dispatch.md`.
 - **A numeric aclnn code is an argument, not an owner.** `call aclnnX failed, error
   code is 561103` states that this launch's tiling rejected one input; the same
   561103 appears on `aclnnFlashAttentionScore` (#115), `aclnnInplaceNormal` (#2892)
@@ -109,6 +118,12 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   phase's rows, and the crash tracked a mixed prefill+decode batch — the answer is an
   A/B on request concurrency, no plog needed
   (`../dsa-sparse-attention/indexer-cache-scatter-fault.md`).
+  The gather twin does not write, it **asserts**: `gather_v3_base.h:137
+  Assertion (0 <= val && val < this->gxSize_) Index N out of range[0 M)` names the
+  gather's source table in `M` and the offending element in `N`, so match `M` to a
+  table row count you can compute (RoPE `cos_sin_cache` = the checkpoint's
+  `max_position_embeddings`, the KV block table = `num_gpu_blocks`, a token
+  buffer, the vocab) before any hardware theory — `gather-index-out-of-range.md`.
 - Check the error family before the operator. When the same output also carries
   `SUSPECT REMOTE ERROR` / `error code is 507057` / an `EZ9999 … chipId:` dump /
   `error code = 0x8…`, it is a lane C device fault: the `fftsplus aivector error` there
@@ -168,6 +183,14 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   sweep, and how to answer when the op owner returns the case as a "调度问题".
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
   each line does/does not pin down.
+- `gather-index-out-of-range.md` — the `ascendc/gather_v3/gather_v3_base.h:137`
+  `Index N out of range[0 M)` assert (v0.9.2rc1 #2349): the bound is a table row
+  count, the four candidate tables, the verified `config.max_position_embeddings`
+  → `cos_sin_cache` rows → `_npu_rotary_embedding(positions, …, cos_sin_cache)`
+  chain that makes a `--max-model-len` above the checkpoint value an index
+  overflow (`VLLM_ALLOW_LONG_MAX_MODEL_LEN=1` only warns), the two-command
+  decider, the fix ladder with the YaRN mscale caveat, and the `dfx/ops/*.json`
+  artefact that names the table.
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend
   v0.19.1rc1: files, tiling key = dtype*10+mode, mode-selection table, buffer sizes, arch
   macros, python call sites. Read it only once the error family is a device fault.
@@ -182,6 +205,14 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
 - `../hccl-and-hardware/error-report-timestamps.md` — the ordering rule for a report
   that mixes runtime records with device dumps: which block is the incident, and
   when several chips share one `pc start` that means software, not several bad cards.
+- `custom-op-ownership-and-dispatch.md` — the op owner returns the case ("算子侧反馈
+  非cann算子，需要框架侧定位为什么会下发"): the `CUSTOM_OPS_ARRAY` →
+  `vllm_ascend/_cann_ops_custom` → `ASCEND_CUSTOM_OPP_PATH` chain at v0.13.0rc3 that makes
+  "not a CANN op" the design, the three top-k/top-p dispatch sites and the flag that picks
+  one (`sample/sampler.py:64-78`, `sample/rejection_sampler.py:16,74` via the patch at
+  `patch/worker/patch_rejection_sampler.py:1-12`, `worker/v2/sample/sampler.py:19,48`), the
+  greedy/`top_p` trigger, the name-order hypothesis it refuses to grade, and the in-image
+  reads that decide a release newer than the snapshot (recorded #8730, `0.14.0.RC1`).
 - `op-not-registered-for-soc.md` — the opposite class for the same op: `EZ1001 Get
   regInfo failed … does not support opType [AddRmsNormBias]` for `ascend910_93`
   (#11519, v0.18.0). Where `SOC_VERSION`, the per-SoC `build_aclnn.sh` branches,

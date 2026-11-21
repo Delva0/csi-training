@@ -10,7 +10,9 @@ vLLM **turns prefix caching off during config resolution**, before the engine
 starts. The printed `0.0%` is therefore structural at this version, not a
 misconfiguration, not a vllm-ascend defect, and not fixable with
 `--enable-prefix-caching`: the disabling branch does not distinguish an explicit
-flag from the default.
+flag from the default. **Scope: vllm v0.14.1 and earlier.** At vllm v0.23.0 that
+branch is gone and an explicit flag *is* honored — read *Version flip* at the end
+before quoting this verdict at a newer pin.
 
 ## The chain (each step source-verified)
 
@@ -43,6 +45,31 @@ under test no longer takes this branch — then (and only then) re-run the gates
 grep -n "supports_mamba_prefix_caching" vllm/model_executor/models/qwen3_next.py
 grep -rn "def verify_and_update_config" vllm/model_executor/models/config.py
 ```
+
+## Version flip — at vllm v0.23.0 the flag wins
+
+Verified at vllm **v0.23.0** (`0fc695f`) + vllm-ascend v0.23.0 (`5cb98caaadef`),
+the pins of recorded #16979: the disable branch above is **gone**.
+`MambaModelConfig.verify_and_update_config`
+(`vllm/model_executor/models/config.py:339-375`) now only derives the cache mode —
+with prefix caching on, `mamba_cache_mode` defaults to `"all"` when the model
+declares `supports_mamba_prefix_caching` and to `"align"` otherwise, and `"all"`
+falls back to `"align"` with the warning `Hybrid or mamba-based model detected
+without support for prefix caching with Mamba cache 'all' mode: falling back to
+'align' mode.` — nothing is disabled. The hybrid marker survives only as the
+default for the flag: `is_prefix_caching_supported` (`vllm/config/model.py:1814`)
+returns False for `attn_type == "hybrid"` (debug-level sentence "Hybrid models do
+not support prefix caching since the feature is still experimental"), and
+`vllm/engine/arg_utils.py:2374` reads it as `default_prefix_caching` only, so an
+explicit `--enable-prefix-caching` is honored and no line above INFO reports it.
+
+Consequence for a v0.23.0 report: `Prefix cache hit rate: 0.0%` on a hybrid model
+is **not** explained by this page any more, and an explicitly enabled prefix cache
+on a GDN model is a live, less-validated combination — the block/state geometry it
+selects is `align` + chunked prefill (asserted at `config.py:366-369`), which is the
+setting `../spec-decode-mtp/acceptance-collapse.md` and
+`../accuracy-benchmarks/hybrid-block-size-corruption.md` rank first. Check which
+regime the paste is in before reusing the v0.14 reasoning.
 
 ## Version scope and recheck conditions
 

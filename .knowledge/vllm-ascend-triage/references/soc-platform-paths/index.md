@@ -56,6 +56,13 @@ Conditional routes:
   family (the release pipeline ships a2/a3/310p variants only, `Dockerfile.a5`
   exists in-tree) or a live SoC code the map lacks →
   `device-type-build-vs-runtime.md`.
+- Engine start dies **inside torch_npu device open** on a `-310p`/pairing report —
+  `SetPrecisionMode … aclrtSetCompileOpt(aclCompileOpt::ACL_PRECISION_MODE …) 500001`,
+  `PlatformInfoInit … SocVersion <name>`, `GEInitialize failed`, `ERR99999` — with no
+  `vllm_ascend` frame: the SoC the runtime resolved is the first thing to read against
+  `npu-smi`, then the host driver/firmware vs the image's CANN base →
+  `../startup-failures/acl-init-500001-and-soc-version.md` (the 300I mount list at
+  `single_node_300i.md:20-31` is the cheapest conformance check).
 - The traceback on a 310P host ends in `npu_format_cast` /
   `_convert_torch_format` with a device allocation error →
   `../runtime-memory/kv-init-and-format-cast-alloc.md`.
@@ -72,6 +79,12 @@ Conditional routes:
   that split, document parsing is a layout → recognise pipeline (the VLM alone is
   one stage), and the 310P rope-branch map there is a single probe via
   `scripts/310p-rope-branch.py`, not a source walk.
+- 310P startup dies in the **first forward** (`profile_run`) with
+  `EZ3002 … Optype [TransData] of Ops kernel [AIcoreEngine] is unsupported … not found
+  in this op store` + `format and dtype is not precisely equivalent … op information
+  library` → `atlas-300i-310p.md`, its `TransData`/`EZ3002` section: a dtype/format
+  rejection (bf16 first, rope is always ATB on 310P), not the missing-kernel lane of
+  `kernel-package-vs-card.md`.
 - The op cannot be resolved for the SoC at all (`EZ1001`, `Get regInfo failed`,
   `does not support opType [X] … socVersion [ascend910_93]`) — a build/install
   fault, not a platform path →

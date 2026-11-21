@@ -54,11 +54,15 @@ after that keeps the header, not this text.
   `ps -o stat,wchan`. Its per-rank line is arithmetic, **not** a phase bound —
   vLLM allocates the params on the device before reading
   (`base_loader.py:53-64`), so equal numbers prove nothing (#11095).
-- `scripts/history-titles.sh [-i] '<regex>' [root] [limit]` — precedent index,
+- `scripts/history-titles.sh [-i] [-b] '<regex>' [root] [limit]` — precedent index,
   one `<file> :: <title>` line per matching history issue (rule 8: titles first).
-  Arguments are **positional**; `-i` (case-insensitive) is the only flag, and any
-  other leading `-x` exits 2 with the usage instead of being taken for the regex
-  (a `history-titles.sh -i 'reranker'` call once burned a turn on
+  **Title-only is the default**: `-b` adds whole-body matching, and a title-only
+  pattern that matches more than 30% of the corpus is reported as a pattern problem
+  (split the alternation) — a body search for `suffix`/`mtp`/`ngram`/`spec` returns
+  almost every issue through the pasted `collect_env.py`, which is what made #9278
+  read 207 real hits as noise. Arguments after the flags are **positional**; `-i` is
+  case-insensitive, and any other leading `-x` exits 2 with the usage instead of being
+  taken for the regex (a `history-titles.sh -i 'reranker'` call once burned a turn on
   `no such history root: reranker`).
 - `scripts/310p-rope-branch.py <config.json | model dir>` — which 310P rope
   implementation a checkpoint lands in, from its own `config.json`: multimodal or
@@ -72,7 +76,18 @@ after that keeps the header, not this text.
   per repo with coverage and `runtime_verified`, plus the unavailable repos.
 - `scripts/oom-budget-split.sh --line '<OOM line>' --gmu F [--params P] [--tp N]
   [--dtype D] [--hbm GB]` — splits a device-side OOM into inside vs outside the
-  `gmu x total` budget, then prices weights/TP and the remainder (#6572).
+  `gmu x total` budget, then prices weights/TP and the remainder (#6572). It does
+  not classify the phase: a `torch.zeros` inside `initialize_kv_cache_tensors`
+  makes "outside the budget" the expected shape (#4474), so read the frame first
+  — `../deploy-sizing/tp-scaling-oom-at-startup.md` step 2.
+- `scripts/acl-header-guard-check.sh --torch-npu-root DIR [--torch-npu-root …]
+  --cann-root DIR [--sources REPOS_ROOT]` — compares the `acl/acl_base.h` copies a
+  host-side C++ JIT TU can include (#6429): per copy it prints the path, the
+  include guard, whether it typedefs `aclOpExecutor` and whether
+  `acl_op_compiler.h` sits beside it, then the collision verdict (exit 1 =
+  collision, 0 = no collision / only one copy, 2 = no roots). Run it on the
+  reporter's `torch_npu` include root and CANN root; `--sources` runs the same
+  check against the pinned exports. Owner: `../image-dependency-faults/host-cxx-compile-header-conflict.md`.
 - `scripts/card-budget.sh --params P [--dtype] [--tp] [--gmu] [--hbm] [--cards]
   [--stage-gmu] [--stage-devices]` — weights-per-card vs budget and the gmu sum
   over processes sharing a device (#9335). `P` is **billions** of parameters
@@ -160,7 +175,10 @@ after that keeps the header, not this text.
   unguarded `torch.cuda` lines and whether the downstream tree replaces the class
   (#4309).
 - `scripts/batch-split-audit.sh <vllm-ascend-root>` — every site that slices a
-  request-indexed tensor by a token count (#17991).
+  request-indexed tensor by a token count, attention backends **and** the PCP
+  schedule metadata (`num_scheduled_tokens`, one entry per request) (#17991,
+  #11231); on the v0.21.0rc1 pin it prints `fa3_v1.py:132`, `pcp_utils.py:660`
+  and `:759`, and the two `pcp_utils` hits are gone at v0.23.0.
 - `scripts/lora-graph-descriptor-audit.sh <vllm-ascend-root> [vllm-root]` — the
   LoRA lane in one call: the punica binding (`torch_ops` vs the AscendC
   `lora_ops`) with its SoC / `max_lora_rank` predicate, every `has_lora`
@@ -194,6 +212,15 @@ after that keeps the header, not this text.
   verdict, plus `model.safetensors.index.json` vs disk; exit 1 names the file behind a
   `HeaderTooLarge` / `HeaderTooSmall` / `invalid JSON` report, so the lane closes
   without opening the loader (#955).
+- `scripts/mtp-head-check.py <model-dir|config.json> [-q]` — does the checkpoint
+  actually carry the MTP head the config promises (`mtp_num_hidden_layers` /
+  `num_nextn_predict_layers`)? Reads the sharded index or each shard header and
+  reports the three layouts that count — `mtp.*` keys (Qwen3.5/Qwen3-Next, the prefix
+  `Qwen3_5MTP.load_weights` remaps), layer ids `>= num_hidden_layers` (DeepSeek), the
+  `enorm`/`hnorm`/`pre_fc_norm*` norms — then `PRESENT`/`ABSENT` with the branch that
+  follows (unquantized: `ValueError: Following weights were not initialized from
+  checkpoint`; quantized: the tracking check is off, so `Accepted: 0` instead). Exit 2
+  when it cannot decide (`mtp-head-missing-from-checkpoint.md`, #15201).
 - `scripts/sse-toolcall-audit.sh <raw-sse>` — the streamed `tool_calls` argument
   fragments, their assembly, the count of chunks carrying neither `content` nor
   `tool_calls`, and a per-call verdict (`balanced` / `tail-lost` / `head-lost` /

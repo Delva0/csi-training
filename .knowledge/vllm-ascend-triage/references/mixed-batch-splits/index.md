@@ -5,8 +5,11 @@
 A step that contains **both** decode requests and prefill (or extend) requests is
 split into two attention calls. vllm-ascend implements that split in several
 places (`vllm_ascend/attention/fa3_v1.py`, `attention_v1.py`, `mla_v1.py`,
-`ops/gdn_attn_builder.py`, `attention/context_parallel/*`), each hand-written, and
-each of them mixes two different counting units in adjacent lines:
+`ops/gdn_attn_builder.py`, `attention/context_parallel/*`) and builds the same
+split a third time as **batch metadata** in `vllm_ascend/worker/pcp_utils.py`
+(`PCPManager.init_batch_info` / `update_tokens_for_pcp`, reached from
+`_prepare_inputs`). Each site is hand-written, and each mixes two different
+counting units in adjacent lines:
 
 - `num_decodes`, `num_prefills` — how many **requests**;
 - `num_decode_tokens`, `num_prefill_tokens` — how many **tokens**;
@@ -14,15 +17,26 @@ each of them mixes two different counting units in adjacent lines:
   so the two differ by the spec length per request, and with chunked prefill a
   prefill request contributes many tokens but one row.
 
-Enter this topic when the symptom is a **device-side fault or corruption whose
-deepest frame is an attention backend** and the batch was mixed: `RuntimeError:
-ACL stream synchronize failed, error code:507015` / `EE9999 …
-rtDeviceSynchronizeWithTimeout … aicore exception`, `507035`, `MTE … DDR address
-… out of range`, or output that is wrong only for batches where a decode and a
-prefill coexisted. The traceback line is often a `.npu()` H2D copy, not the
-faulting kernel: the aicore error is recorded asynchronously and surfaces at the
-next blocking sync, so **the reported line can belong to the decode half while
-the fault is in the prefill launch of the previous layer**.
+Two entry shapes, same class:
+
+- **Device side**: a fault or corruption whose **deepest frame is an attention
+  backend** while the batch was mixed: `RuntimeError: ACL stream synchronize
+  failed, error code:507015` / `EE9999 … rtDeviceSynchronizeWithTimeout … aicore
+  exception`, `507035`, `MTE … DDR address … out of range`, or output that is
+  wrong only for batches where a decode and a prefill coexisted. The traceback
+  line is often a `.npu()` H2D copy, not the faulting kernel: the aicore error is
+  recorded asynchronously and surfaces at the next blocking sync, so **the
+  reported line can belong to the decode half while the fault is in the prefill
+  launch of the previous layer**.
+- **Host side, no device frame at all**: `ValueError: could not broadcast input
+  array from shape (a,) into shape (b,)` (or an `np.repeat` length error) whose
+  deepest frame is `vllm_ascend/worker/pcp_utils.py`, reached from
+  `model_runner_v1._prepare_inputs`, with spec decode on and PCP > 1. numpy is
+  reporting the unit confusion for you — two slices of the per-request
+  `num_scheduled_tokens` array, one offset by a request count and one by a token
+  count. Do **not** route this to the PCP enablement lane
+  (`../feature-enable-recipes/index.md`) as a card/flag problem, and do not ask
+  for an MTP-only ablation: the offset only exists because MTP is on.
 
 Not this topic: a pure decode-only or prefill-only crash (read that backend's own
 page), **the variant the operator itself refuses** — `EZ9999 … When layout is TND,
@@ -38,14 +52,20 @@ and slow mixed batches with no fault (`../performance-throughput/`).
 1. **Audit the split before the kernel.** When the op itself names two numbers that
    must be equal, the units are already suspect *and already localised* — take
    `../spec-decode-mtp/fia-tnd-seqlen-mismatch.md` (one script call) instead of this
-   audit, which is for the silent variant. Otherwise, `bash
+   audit, which is for the silent variant. When the ValueError already prints both
+   slice lengths, decode them instead of auditing (`pcp-schedule-index-units.md`
+   §1: the difference is `num_decode_reqs × num_spec`, the target length gives
+   `num_reqs`). Otherwise, `bash
    <skill_root>/scripts/batch-split-audit.sh <vllm-ascend-root>` lists every site
    that slices a request-indexed tensor by a token count and every
    `query_start_loc`/`actual_seq_lengths` slice passed without rebasing. One call,
    whole tree, no reading. Verified on the #17991 pin (v0.23.0rc1): exactly two
    hits — the real defect at `fa3_v1.py:132-133` and one benign hit at
    `gdn_attn_builder.py:320`, where that file rebinds `num_decode_tokens :=
-   num_decodes` (request count) and the script says so.
+   num_decodes` (request count) and the script says so. Verified on the #11231 pin
+   (v0.21.0rc1): three unit mismatches — `fa3_v1.py:132`, plus the two PCP
+   schedule sites `pcp_utils.py:660` and `:759`, which is why
+   `num_scheduled_tokens` is in the script's request-indexed pattern.
 2. **The three tensors have fixed units; check each one separately.**
    `query`/`attn_output` are token-indexed (`[num_decode_tokens : num_tokens]`);
    `block_tables`/`seq_lens`/`state_indices` are request-indexed
@@ -70,6 +90,11 @@ and slow mixed batches with no fault (`../performance-throughput/`).
    whole point is the multiplier. It is also why the in-tree e2e test can pass:
    `tests/e2e/pull_request/one_card/test_attention_fa3.py` mixes prompts and
    tightens `max_num_batched_tokens` but never enables speculative decoding.
+   Corollary the reporter will test first: with spec decode off the same workload
+   completes (for the PCP metadata variant because `num_decode_tokens ==
+   num_decode_reqs` makes the two lengths equal), so a clean MTP-only or PCP-only
+   baseline is a *prediction* of this defect, not a refutation — say that in the
+   answer and do not spend a launch re-confirming it.
 5. **Find the same file's correct half and copy its units.** The decode branch of
    the very same `forward_impl` is usually right, and `attention_v1.py`
    (`:1843-1845,1864`) and `gdn_attn_builder.py:652-653` show the sanctioned
@@ -90,3 +115,11 @@ and slow mixed batches with no fault (`../performance-throughput/`).
   the traceback names the decode half's `.npu()`, the unit table, the derived
   overshoot, the corrected lines, and the two secondary defects
   (`causal=False` on multi-token decodes, `max_seqlen_q` = KV length).
+- `pcp-schedule-index-units.md` — worked case vllm-ascend #11231 (v0.21.0rc1
+  `80610e4438`, Qwen3.5-27B, TP2/PCP2, MTP `num_speculative_tokens: 2`):
+  `ValueError: could not broadcast input array from shape (29,) into shape (31,)`
+  at `pcp_utils.py:667` from `:660`, the broadcast-length arithmetic that names
+  the batch (`num_decode_reqs=1`, `num_reqs=32`), the three gates that make the
+  combined launch the only failing one, the second site at `:759` that fails
+  silently, the same function's correct sibling `:684`, and the fix as it already
+  reads in the v0.23.0 pin (`:821`, `:845`, `:938`).

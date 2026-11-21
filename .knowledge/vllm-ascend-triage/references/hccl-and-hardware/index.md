@@ -89,6 +89,16 @@ mode-specific handling (or its absence) for their family. `aclgraph-full-decode-
 has the four paste lines that settle the lanes, the two checks to run first, and the
 recorded #4178 case.
 
+**If the same mode instead dies *under load* with a device fault, start from the
+replay's arguments.** `507011` (`ACL_ERROR_RT_MODEL_EXECUTE` — a wrapper that names
+no op) plus `fftsplus aivector error`, `Illegal instruction … unaligned UUB
+addresses`, `mte error` or a `notify wait … sq sw status error` on another stream,
+appearing only once concurrency rises, is the crash variant of the paragraph above:
+`aclgraph-full-decode-runtime-crash.md` has the two config discriminators
+(`cudagraph_capture_sizes` vs the failing concurrency; `pa_shape_list`, which gates
+the legacy paged-attention patch path and defaults to empty), the `origin_op_name` /
+`fault kernel_name` ask, the ladder and the recorded #6018 case.
+
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
 bound`, check the record's date first (rule 13) and the number second: a port above
@@ -221,6 +231,12 @@ debugging" caveat.
    watchdog: which two lanes the paste already closes, the two coverage checks to run
    before any source read, and why an rc-only hang is a version verdict (recorded
    #4178; 310P variant #12985).
+8. `aclgraph-full-decode-runtime-crash.md` — the same mode captured and then dies
+   **later, under concurrency**, with `507011` / aivector / MTE / illegal-instruction
+   text instead of a hang: `507011` is `ACL_ERROR_RT_MODEL_EXECUTE` and names nothing,
+   the notify-wait and second-stream lines are victims, and the per-replay argument
+   patch (`acl_graph.py:198-304`) is why the bucket and the `pa_shape_list` gate decide
+   the ranking (recorded #6018).
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server

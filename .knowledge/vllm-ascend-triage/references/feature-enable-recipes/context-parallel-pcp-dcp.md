@@ -163,6 +163,16 @@ connector/pool pages (`../pd-disaggregation/index.md`).
   with_prefill` branch of `vllm_ascend/worker/pcp_utils.py`, so verify before
   claiming it is fixed.
 - #7375 v0.13.0 A3 — MTP + PCP tensor mismatch (same w4a8-mtp-QuaRot family).
+- #11231 v0.21.0rc1 — PCP2 + MTP `num_speculative_tokens: 2` on Qwen3.5-27B:
+  serves, then all workers die on a mixed step with `ValueError: could not
+  broadcast input array from shape (29,) into shape (31,)` at
+  `pcp_utils.py:667`. Root cause, arithmetic and the fix as it reads in the
+  v0.23.0 pin: `../mixed-batch-splits/pcp-schedule-index-units.md`. **The
+  reporter stated on the same issue that MTP alone had been tested clean before
+  the combined launch**, which is what this defect predicts
+  (`num_decode_tokens == num_decode_reqs` without spec decode) — so when a
+  PCP+MTP report carries that sentence, do not spend a launch on the MTP-only
+  row; ask for the four source lines and the mixed-step numbers instead.
 
 ## 5. Staged experiment to hand back (one axis per launch)
 

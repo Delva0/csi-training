@@ -61,7 +61,13 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   in one snapshot), so `-i 'spec'` / `-i 'npu'` / `-i 'model'` buy a listing, not a
   search: recorded #2071 spent two calls on `-i 'ngram|spec'` (84 hits) and
   `-i 'attn_mask|paged_attention|speculat'` (52 hits) before a plain source grep
-  answered it. Anchor on an op name, an error string or a flag.
+  answered it. Anchor on an op name, an error string or a flag. #9278 is the same
+  accident from the other side: `-i 'suffix|507035|aivec|MPU address'` returned
+  **207 hits / 207 distinct ids** (every one via `ATB_SHARE_MEMORY_NAME_SUFFIX=`), the
+  run called it noise and stopped, and the same listing held #488 with the reporter's
+  exact `error code:507035`. A ~100% hit rate indicts the pattern, not the corpus:
+  `history-titles.sh` is titles-only by default for this reason, and the survivors of a
+  split alternation are the precedents.
 - Attachments are multi-modal OCR text: line order, labels and table rows get scrambled.
   Treat a number as trustworthy only when a log line, caption or arithmetic cross-check
   confirms it; otherwise state the OCR caveat next to the claim.

@@ -47,6 +47,22 @@ in the tree: `faqs.md:91-92` lists the two `source` commands as separate steps,
 and `installation.md:97` (CANN) precedes `:107` (NNAL) without either implying
 the other.
 
+## "安装过程中没有报错" does not cover NNAL
+
+NNAL is a `.run` installer outside pip, and the docs' **two install routes do not
+contain it**: at v0.7.1rc1 the CANN manual-install block carries
+`Ascend-cann-nnal_8.0.0_linux-aarch64.run --install` plus both `source` lines
+(`docs/source/installation.md:88-93`), while the pip block (`:118-141`) and the
+"Build from source code" block (`:145-171`, `VLLM_TARGET_DEVICE=empty pip install .`
+→ `pip install -e .` → the `torch_npu-*.whl`) never mention NNAL. So a reporter who
+answers "followed the doc, installation finished without errors" with a paste of
+only pip commands has told you NNAL was **never installed** — #152's reporter did
+exactly that (issuecomment-2677722481, 2025-02-24: the source-build block verbatim,
+his `libatb.so` ImportError unchanged). Read the pasted command list for a `.run`
+line and a `nnal/atb/set_env.sh` source before accepting the clean install as a
+refutation of cause 1. The same asymmetry means "the doc worked for someone else"
+proves nothing here: it works only for the reader who also ran the CANN block.
+
 ## Steps, in order
 
 1. `ls -l <ASCEND_HOME>/nnal/atb/set_env.sh` and

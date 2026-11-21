@@ -96,6 +96,17 @@ output, or did no request ever reach a decode engine?**
   wrong yet; the compared numbers are `parallel_config.data_parallel_size` /
   `tensor_parallel_size` after upstream has rewritten a **dense** engine's DP to
   1, so the fix is the block's number, not the launch's DP flag.
+- The deployment never gets past engine start because the **second** engine on one
+  host cannot bind its HCCL comm port: `Bind_Failed(EJ0003): … port have been bound
+  already` plus `HCCL function error: hcclCommInitRootInfoConfig(…), error code is 7`
+  out of `w8a8_dynamic.py`'s `backend.get_hccl_comm_name(local_rank)`, the plog
+  repeating `[HcclSocket][Listen] … specific port[16666] fail`, and
+  "start P first, D crashes; start D first, P crashes". On a **single host** this is a
+  duplicate-device symptom, not the port band: 16666 is the one default comm port
+  (`HETEROG_CCL_PORT`) and the endpoint differs only by the local device IP, so the two
+  launches were handed the same cards — the external-DP launcher numbers them from 0 in
+  every invocation. Intersect the two card sets (one `rg`, one line of arithmetic)
+  before any HCCL or plog read → `same-host-pd-device-partition.md`.
 - **No deployment yet**: the question is a capability verdict about the *transport
   plane* before any run — "Atlas 800T A3 双机 PD 分离，两台机器只能走参数面 RoCE，
   超平面不通、没有灵衢交换机，是否支持", usually with no log and no serve command →
@@ -367,6 +378,14 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   `:305`), and the attn+mamba truncation/trim contract (`need_truncate` `:819`,
   `_trim_hybrid_remote_block_ids` `:881-899`) that the ablations isolate. Verified at
   v0.23.0 `5cb98caaadef`; #15394's cause left open.
+- `same-host-pd-device-partition.md` — P and D launched on **one** machine, the second
+  one dying at worker init with `Bind_Failed(EJ0003)` + `hcclCommInitRootInfoConfig …
+  error code is 7` and `[HcclSocket][Listen] … port[16666] fail`: why 16666 is a real
+  collision (`HETEROG_CCL_PORT`, one port for every rank, endpoint = chip IP) rather
+  than the 60000-band arithmetic, the pinned `launch_online_dp.py` line that numbers
+  cards from 0 in every invocation with no device-start argument, the card-set
+  intersection that decides it, and the same-host `mooncake_connector_deployment_guide`
+  split (0-3 / 4-7) as the recipe. #4725, reporter-confirmed.
 - `llmdatadist-done-signal-and-ttft.md` — `LLMDataDistCMgrConnector` serves but TTFT is
   slow and/or the prefiller logs `fail to receive KV Cache transfer done signal in 120s`
   (`VLLM_LLMDD_ABORT_REQUEST_TIMEOUT`, default 120): where the warning is emitted, the

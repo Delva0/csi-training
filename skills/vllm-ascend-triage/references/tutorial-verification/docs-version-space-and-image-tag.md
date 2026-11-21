@@ -41,9 +41,10 @@ pip_vllm_ascend_version: v0.26.0rc1   pip_vllm_version: v0.26.0
 
 The tag a page prints is thus a property of the **built revision**, not of the
 page text: `rg -n 'vllm_ascend_version|pip_vllm_ascend_version' mkdocs.yml`.
-Compare it with the tag the reporter pasted. Equal → the mismatch is elsewhere
-(a branch URL, or a flag that no release carries). Different → the built
-revision's substitution is stale, which is the defect to report.
+Compare it with the tag the reporter pasted. Equal → the mismatch is elsewhere — a
+branch URL, a flag that no release carries, or a **second, literal tag on the same
+page** (§6). Different → the built revision's substitution is stale, which is the
+defect to report, with §3's correction site.
 
 ## 3. The #16954 disposition, step by step
 
@@ -97,3 +98,61 @@ That is the sibling convention. A page that prints an image tag but never says
 which release its flags belong to — or says it only in prose far from the
 command block — is the defect to state, with `path:line` for both the tag line
 and the sentence that fails to gate it.
+
+## 6. When the substitution is right: the literal tag printed beside it
+
+Verified at vllm-ascend **v0.27.1rc1** (`3b31886237ed`) + vllm **v0.27.1**
+(`6e448d0e`); recorded for #18041.
+
+Report: `/zh-cn/latest/tutorials/models/DeepSeek-V4.1-Flash.html` says to pull a
+`deepseek-v4.1-flash-a3` image; on A3 the 1P1D deployment only starts after the
+reporter switches to `v0.27.1rc1-a3`. That "only after" is the finding: the tag
+that works *is* the build-time substitution (`mkdocs.yml:167-168` →
+`v0.27.1rc1-a3`), so unlike §3 the build is not stale — do not edit `extra`, and do
+not ask for a `latest` rebuild.
+
+1. **One grep lists every image reference on the page.**
+   `rg -n 'quay.io/ascend/vllm-ascend:' docs/source/tutorials/models/<Page>.md`.
+   At this pin `DeepSeek-V4-Flash.md:41` (prose under §4.1's "Attention") names
+   `quay.io/ascend/vllm-ascend:DeepSeekV4-flash-0731-a3` for A3, while the A3 tab
+   at `:85` runs `{{ vllm_ascend_version }}-a3` (`:48` `-950dt` and `:130`
+   `nightly-main` are the other tabs). Two A3 instructions, one of them literal:
+   that is the defect, and `:41` is the correction site.
+2. **A literal tag is not itself wrong at this pin.** Model-branded all-in-one
+   images are a page-level convention here (`Kimi-K3.md:61,99` `kimi-k3-a3`,
+   `Qwen3.8-27B.md:84` `qwen3.8-a3`, `Dots3-Note.md:110-113`
+   `dots3-note-prev-a3`), so grade the *pairing*, not the spelling: a branded tag
+   is a frozen vllm/vllm-ascend pair, and the section's command block is written
+   for the release line. Precedent for that failure mode — #9092:
+   `quay.io/ascend/vllm-ascend:deepseekv4` serving `DeepSeek-V4-Flash-w8a8-mtp`
+   died at `EngineCore failed to start` with `AttributeError: 'list' object has no
+   attribute 'merge'` raised in upstream `kv_cache_utils.py::is_kv_cache_spec_uniform`,
+   i.e. in-image vllm/vllm-ascend KV-spec API drift. Label it precedent plus
+   inference: no snapshot carries the image's contents, so ask for
+   `pip list | grep -iE 'vllm|torch-npu'` inside that image before claiming a
+   mechanism.
+3. **The release claim is the scope gate.** `docs/source/user_guide/release_notes.md:5`
+   (… "DeepSeek-V4-Flash support on 950DT Products … Models and hardware
+   combinations outside this declared scope are not part of the v0.27.1rc1 release
+   claim") and that release's own `### Hardware and Operator Support` row (`:26`:
+   `DeepSeek-V4-Flash | 950DT Products`) put the page's **A3** §5.2.1 outside the
+   validated matrix. A section describing a model × hardware pair the release does
+   not claim, and never saying which release its commands belong to, is the doc-side
+   root cause: report that missing scope line, not only the tag.
+4. **The CI tree is the coverage counter-evidence, and it uses the other image.**
+   `tests/e2e/nightly/multi_node/external_dp/config/DeepSeek-V4-flash-w8a8-PD-prefix.yaml:2-25`
+   (2 nodes, `npu_per_node: 16`, prefill dp4/tp4, decode dp16/tp1) runs this A3 1P1D
+   shape from the repo/release image — which is why "only the branded image fails"
+   is consistent rather than contradictory.
+5. **A `/zh-cn/` URL puts the `.po` in the fix list.** The Chinese page is the
+   gettext build: `docs/source/locale/zh_CN/LC_MESSAGES/tutorials/models/DeepSeek-V4-Flash.po:433-441`
+   carries the same sentence in `msgid`/`msgstr`, so (a) while the msgstr matches
+   the current msgid it may be quoted as what that page prints, and (b) an
+   English-only edit leaves the Chinese page printing the old tag. The `#:` line
+   refs still lag and are never citable
+   (`missing-guidance-and-contributor-docs.md`).
+6. **The linked page may not exist at the pin.** `DeepSeek-V4.1-Flash` does not
+   here (`rg --files docs/ | rg -i 'deepseek-v4'` → `DeepSeek-V4-Flash.md`,
+   `DeepSeek-V4-Pro.md`; nav `mkdocs.yml:232-233`). Say it in the first message,
+   grade the nearest page *as* the nearest page (`index.md` rule 3), and ask for the
+   linked page's §4.1 text before grading its wording.

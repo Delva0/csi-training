@@ -58,6 +58,14 @@ usually attached to a self-diagnosed `OpCommand::SetCustomHandler` /
 read `profiler-shape-columns-custom-op-launch.md` (and run its
 `scripts/op-shape-lane.sh`) before any of the count arithmetic below.
 
+**And this topic:** the direction is **graph mode slower than eager** and the
+reporter has already localized it — cites a `path:line` and says the perf comes
+back when that line is deleted ("ACLGraph 模式下 query 被截断，部分算子进不了图") —
+is a verdict on *their* patch: find the padding gate one block above the slice
+(the state-gated block that pads `seq_lens`/`block_table`/`query_start_loc`), check
+who assigns that state enum before trusting its name, and recommend extending the
+gate rather than deleting the guard — `graph-mode-slower-than-eager.md`.
+
 Not this topic, leave immediately:
 
 - Requests eventually answer but the **scores** differ between runs → accuracy
@@ -322,3 +330,7 @@ Not this topic, leave immediately:
   incomparable (`:728` vs `:342`, probe line `utils.py:180`), the three-value
   `VLLM_ASCEND_ENABLE_NZ` A/B with its four dated, contradicting note lines, and the
   artefacts both runs owe before any arithmetic.
+- `graph-mode-slower-than-eager.md` — "ACLGraph 比 eager 慢" on a working serve,
+  often with the reporter's own ablation and `path:line` (#5124, Qwen spec decode at
+  v0.11.0rc3): the cited block re-read at the pin, what the line compensates for, the
+  patch that keeps the contract, and why this axis is not `spec-decode-gain-accounting.md`.

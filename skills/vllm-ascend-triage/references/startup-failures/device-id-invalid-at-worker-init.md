@@ -34,7 +34,7 @@ unreached, and nothing about them can be blamed or exonerated from this log.
 | Text in the paste | Owner | Page |
 |---|---|---|
 | `AssertionError: Current device type … does not match the installed version's device type` / `RuntimeError: Can not support soc_version: <n>` | the SoC the runtime resolved vs the type baked into the wheel by `SOC_VERSION` | `../soc-platform-paths/device-type-build-vs-runtime.md` |
-| `SetPrecisionMode … 500001` + `PlatformInfoInit … SocVersion <name>` + `GEInitialize failed` | ACL/GE bring-up: mounted driver/firmware × the image's CANN | `acl-init-500001-and-soc-version.md` |
+| `SetPrecisionMode … 500001` + `PlatformInfoInit … SocVersion <name>` + `GEInitialize failed` | ACL/GE bring-up: in a container, the privilege/device set first (`--privileged=true`, reporter-confirmed #302), then the mounted driver/firmware × the image's CANN | `acl-init-500001-and-soc-version.md` |
 | `set default device id failed, ret: 107001` / `invalid device ID` / `reason=device id error` | **this page**: `aclrtSetDevice` rejected the id — the container/`ASCEND_RT_VISIBLE_DEVICES` device set | here |
 
 `107001 = ACL_ERROR_RT_INVALID_DEVICEID` (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h:22`;

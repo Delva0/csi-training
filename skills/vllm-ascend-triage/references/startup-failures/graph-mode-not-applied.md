@@ -38,6 +38,7 @@ per stage from the line below, never from the launcher source.
 | encoder-decoder checkpoint (`is_encoder_decoder`) | upstream `vllm/config/vllm.py:752-763` (forces `FULL_DECODE_ONLY`), then vllm-ascend `platform.py:275-280` forces `PIECEWISE` | `Encoder-decoder models do not support %s …` / `encoder-decoder model doesn't support FULL_DECODE_ONLY, fallback to PIECEWISE` |
 | `mode` outside `{NONE, VLLM_COMPILE}` (the `level: 1` case) | `platform.py:241-245` | `NPU does not support %s compilation mode. Setting CUDAGraphMode to NONE` |
 | `FULL_AND_PIECEWISE` | `platform.py:273-274` — silent downgrade | *(nothing)*; only `PIECEWISE compilation enabled on NPU` appears |
+| `cudagraph_mode` outside every branch above — in practice `FULL`, **including the legacy `full_cuda_graph: true` that upstream maps onto it** | `platform.py:256-259` at v0.11.0rc0; re-grep the `else` at another ref | `%s cudagraph_mode is not support on NPU. falling back to NONE`, then `cudagraph_mode = NONE` + `level = NO_COMPILATION`; **intended**, pinned by `tests/ut/test_platform.py:342-364` — see the `FULL` section below |
 | `xlite_graph_config.enabled` full mode | `platform.py:227-232` | `ACLGraph is disabled under xlite full mode` |
 | `cudagraph_mode` incompatible with `mode` | upstream `vllm/config/vllm.py:712-723` | `Cudagraph mode %s is not compatible with compilation mode %s. Overriding to NONE.` |
 | attention backend cannot do this graph (`AttentionCGSupport`) | upstream `vllm/model_executor/…/gpu_model_runner.py:5036-5140` via `vllm_ascend/worker/model_runner_v1.py:2803-2815`; a `NEVER` backend raises `ValueError` instead | `CUDAGraphMode.X is not supported with <Backend> backend (support: …); setting cudagraph_mode=…` |
@@ -50,6 +51,57 @@ Also gated by mode: `PIECEWISE` asserts `mode == VLLM_COMPILE`
 `vllm_ascend/attention/utils.py:51-52`, which special-cases `FULL_DECODE_ONLY` and
 otherwise runs the piecewise path — so a worker whose log lacks the success line at
 `:313` never had the mode, whatever the launcher said.
+
+## `FULL` is not a supported mode, and the legacy flag lands on it
+
+Scope: the paste's own line is `CUDAGraphMode.FULL cudagraph_mode is not support
+on NPU. falling back to NONE`, usually one line under `full_cuda_graph is
+deprecated, use cudagraph_mode=FULL instead.` Both facts that decide it are in the
+tree (verified at vllm-ascend v0.11.0rc0 `00ba0710` + vllm v0.11.0rc3 `8ce5d319`):
+
+- **The mapping is upstream's, not the launcher's.** `vllm/config/compilation.py:473-481`
+  turns `full_cuda_graph: true` into `cudagraph_mode = FULL` (`FULL = 2`, `:41`) and
+  refuses both keys together with `ValueError`. So when the reporter's `non-default
+  args` dump carries `"cudagraph_mode":2` beside `"full_cuda_graph":true`, the flag
+  *did* reach the config and there is nothing to find in the serve script.
+- **The fallback is design at that ref.** `tests/ut/test_platform.py:342-364`
+  (`test_check_and_update_config_unsupported_cudagraph_mode`) asserts exactly this
+  line with `cudagraph_mode == NONE` and `level == NO_COMPILATION`. Quote the test
+  instead of ranking causes: "why did my full-graph setting not take effect" is
+  answered by the project's own unit test, and nothing on the reporter's box is
+  broken.
+- **It is worse than sending nothing.** With no flag, upstream defaults
+  `cudagraph_mode` to `FULL_AND_PIECEWISE` (`vllm/config/__init__.py:366`), which this
+  plugin silently downgrades to `PIECEWISE` (row above); requesting `FULL` ends at
+  `NONE` + `NO_COMPILATION`, i.e. the flag switches graph mode *off*.
+- **The NPU long-graph lane is `FULL_DECODE_ONLY`** (its own banner plus the red
+  capture-size warning), so the fix is one JSON edit —
+  `--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'`. No flag yields
+  `FULL`, and `--enforce-eager` is the retreat, not the answer.
+
+**When the request came from a doc page, the page is the defect.** Recorded #4696:
+a `[Doc]` report on the Qwen2.5-Omni tutorial, whose "Graph Mode / full graph"
+section told readers to launch with `--compilation-config {'full_cuda_graph': 1}`;
+the pasted line is this fallback. At that pin the project already says so itself —
+`docs/source/user_guide/release_notes.md:192` (`test_aclgraph.py` failed with
+`"full_cuda_graph": True` on A2 (910B1), #2182) and `:350` ("Full graph mode support
+are not yet available for specific hardware types with full_cuda_graph enable") — so
+quote the release note rather than deriving the hardware matrix. Grade the
+**command**, not the page body: at v0.11.0rc0 `full_cuda_graph` occurs in no doc page
+and `docs/source/tutorials/` holds no Omni page, so a `latest`/`zh-cn` URL cannot be
+quoted — deliver the corrected command plus the three-mode table and say the page
+text is not in the snapshot (`../tutorial-verification/index.md` rule 3). The
+snippet's quote style is cosmetic at most: `{'full_cuda_graph': 1}` parsed on the
+reporter's own box (their dump shows the resolved field), so never grade a
+Python-literal dict for a dataclass-valued flag as "breaks the command"
+(`../tutorial-verification/tutorial-command-audit.md` check 1).
+
+**Re-grep the key at the reported ref before quoting this section.** The mapping
+above is v0.11.0's; at a later ref the same tutorial key can be *undefined* in
+`CompilationConfig` (`extra="forbid"`), so the command raises a validation error at
+startup instead of printing the fallback — recorded #6972 at v0.14.0rc1
+(`../evidence-workspace/recorded-cases-startup-and-environment.md`). Which of the
+two shapes the paste carries is the ref, not a second defect.
 
 ## Procedure
 

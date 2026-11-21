@@ -119,7 +119,10 @@ vllm serve kimi-k2-5 --trust-remote-code --host XXX --port 1025 \
 
 (`--additional-config` keys are matched by name, so a mistyped sub-key is a silent
 no-op — worth one look when a symptom says the setting "did nothing",
-`../startup-failures/graph-mode-not-applied.md`.) Deltas from the failing dict worth
+`../startup-failures/graph-mode-not-applied.md`.) Carry `--mm-processor-cache-type shm`
+from this recipe only with its caveat: it is not the default (`lru`) and it can abort the
+engine with a stale-slot `ValueError: Data for address:id …` on a request —
+`../multimodal-inputs/shm-mm-cache-invalid-object.md`. Deltas from the failing dict worth
 naming, in this order: the four `--data-parallel-*` flags, `gpu_memory_utilization`
 0.86 → 0.95, `ascend_scheduler_config`/torchair graph off, `FULL_DECODE_ONLY` with an
 explicit capture-size list. `--max-model-len 4096 → 72000` moved the *other* way, so it

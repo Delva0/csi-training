@@ -9,8 +9,14 @@ placeholder (or the reverse), a `tgt_sizes` / `image_bound` disagreement, or a
 request that dies inside `embed_input_ids` / `_preprocess` before any kernel runs —
 **or** an `IndexError: list index out of range` raised while the runner builds
 M-RoPE positions for a new request (`get_mrope_input_positions`,
-`image_grid_thw[image_index]`), with `EngineDeadError` at the API server.
-Not this topic: a VL answer that is merely degenerate or wrong with sane counts
+`image_grid_thw[image_index]`), with `EngineDeadError` at the API server — **or** a
+serve launched with `--mm_processor_cache_type shm` that dies on a request with
+`ValueError: Data for address:id '<addr>:<id>' has been modified or is invalid.` from
+upstream's `shm_object_storage.py` in every worker (`shm-mm-cache-invalid-object.md`).
+Not this topic: an adapter said to cover the vision tower ("LoRA（with ViT）",
+`target_modules` naming `visual.*`) — upstream filters it before any kernel
+(`../lora-adapters/multimodal-vit-lora-ignored.md`); a VL answer that is merely
+degenerate or wrong with sane counts
 (`../accuracy-benchmarks/vl-vision-tower-degeneracy.md`), a **device fault mid-request**
 inside the vision tower or in the LM prefill of a long/chunked image prompt
 (`fault kernel_name=unpad_flashattention_…` + MTE DDR out of range: read the dumped
@@ -55,6 +61,11 @@ Inherit the rules in SKILL.md.
   why" is what consumes a session — the recorded #14014 run spent its whole budget
   there and emitted no answer text; #5772 did the same on the m-rope shape (20
   turns, 50 K characters of reasoning, 53 characters of text).
+- **A cache-transport `ValueError` has no count arithmetic.** When the paste's leaf is
+  `shm_object_storage.py::get` / `get_and_update_features`, the two counts agree by
+  construction and the object was recycled: the verdict is the serve flag
+  (`--mm_processor_cache_type shm`), not a placeholder/feature mismatch — do not open the
+  model file for it (`shm-mm-cache-invalid-object.md`).
 - The same error string is recurring in the prior-month corpus — one
   `bash <skill_root>/scripts/history-titles.sh -i 'multimodal tokens'` gives the
   precedent family in one call before any code read.
@@ -65,6 +76,12 @@ Inherit the rules in SKILL.md.
   vs per-stage merge floor), the three levers that make them disagree, the
   direction rule, and the recorded family (#14014, #3286, #5349, #6934, #7023,
   #3092). One call: `uv run --no-project python <skill_root>/scripts/mm-placeholder-count.py`.
+- `shm-mm-cache-invalid-object.md` — the `shm` multimodal cache's reader-side staleness
+  check (#5117, vllm v0.11.0 `b8b302c`): the ring-buffer free rule
+  (`reader_count >= writer_count * n_readers`), why the plugin cannot own it (its only mm
+  patch is `_merge_multimodal_embeddings`), and the one-flag ladder
+  (`--mm_processor_cache_type` back to `lru`, then `--mm-processor-cache-gb 0`, then one
+  buffer name per host).
 - `mrope-image-index-error.md` — `IndexError` in `get_mrope_input_positions`
   (#5772, PaddleOCR-VL on v0.13.0rc1): the token-side image count vs the gathered
   `image_grid_thw`, the arithmetic on the dumped `SchedulerOutput`, the

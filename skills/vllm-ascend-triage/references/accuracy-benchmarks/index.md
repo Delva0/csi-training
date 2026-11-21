@@ -331,7 +331,11 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   TP=1-vs-TP=2 shape (#7680), and the **PD/EPD split** variant: the pinned 1P1D recipe
   (`pd_disaggregation_mooncake_single_node.md`) is Qwen2.5-VL-7B, so the entry point is
   the single-instance control, `usage.prompt_tokens` on a good and a bad run, and the
-  prefix-caching flag the recipe disables on both sides — not the connector.
+  prefix-caching flag the recipe disables on both sides — not the connector, and a
+  **fourth pin** (v0.11.0rc0, Qwen3-VL-30B-A3B with a **video**): Qwen3-VL is registered
+  unconditionally there (`USE_OPTIMIZED_MODEL` is not a row for it) and the *image tag* is
+  rung 1 — #3806's identical body on `quay.io/ascend/vllm-ascend:latest` answered correctly
+  (reporter-confirmed), while the pinned rc0 predates any fix.
 - `early-eos-short-output.md` — "only tens of tokens / 输出被截断, worked before I added a
   flag": `finish_reason` decides the lane (length = budget, stop = early stop), an
   integer `stop_reason` names the *declared* stop id that ended it (and not why the

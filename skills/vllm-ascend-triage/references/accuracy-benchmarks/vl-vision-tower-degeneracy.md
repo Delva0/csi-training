@@ -220,7 +220,9 @@ TP>1 wrong" is a config question before it is a kernel question, and the report 
 paste no log at all — the two screenshots *are* the evidence.
 
 **The lever is older than this pin — do not answer "upgrade" to a 0.13/0.14
-report.** Checked on #6525 (vllm-ascend v0.14.0rc1 `52d4acf` ↔ vllm v0.14.1
+report.** (Scope: a report whose pin is at or after the release that introduced the lever
+and within an rc or two of the analysis date. A pin a month / several rcs behind is a
+different question — fourth pin below.) Checked on #6525 (vllm-ascend v0.14.0rc1 `52d4acf` ↔ vllm v0.14.1
 `d7de043`): `mm_encoder_tp_mode` already defaults to `"weights"`
 (`vllm/config/multimodal.py:111`), the CLI flag already exists
 (`vllm/engine/arg_utils.py:981`, `--mm-encoder-tp-mode`), and Qwen3-VL already opts
@@ -290,6 +292,53 @@ spent the 16 384-token cap deriving `DotsVisionConfig` head arithmetic and the
 `mm_encoder_attn_backend` reset — and shipped **no message text** on its last turn,
 so the matrix never reached the reporter. Write the verdict plus the rows above in
 the first message, then check them.
+
+## Fourth pin: v0.11.0rc0 — Qwen3-VL is a brand-new registration, and the *tag* is rung 1
+
+Verified on #3806 (vllm-ascend v0.11.0rc0 `00ba0710`, committed 2025-09-30 ↔ vllm
+v0.11.0rc3 `8ce5d319`; reported 2025-10-27): `Qwen3-VL-30B-A3B-Instruct`, video request,
+`prompt_tokens: 11686`, answer = `!` repeated to `finish_reason: "length"`. Pin facts:
+
+- **The Step 1 gate above does not exist for Qwen3-VL at this pin.**
+  `vllm_ascend/models/__init__.py:11-19` registers both `Qwen3VLMoeForConditionalGeneration`
+  (the reporter's 30B-A3B) and `Qwen3VLForConditionalGeneration` **unconditionally** to
+  `qwen2_5_vl_without_padding`, while `USE_OPTIMIZED_MODEL`
+  (`vllm_ascend/envs.py:96-97`, default 1) gates only `Qwen2_5_VLForConditionalGeneration`
+  (`:21-30`). So `USE_OPTIMIZED_MODEL=0` changes nothing here — offering it as row 1 spends
+  an ablation and reads as not having opened the registry.
+- **`--mm-encoder-tp-mode data` is a dead lever here too**: `AscendQwen3_VisionBlock.__init__`
+  (`qwen2_5_vl_without_padding.py:373-378`) builds its
+  `AscendQwen2_5_VisionAttention_Without_Padding` replacement without `use_data_parallel`,
+  and that subclass' `__init__` (`:76-90`) has no such parameter, so `disable_tp` stays
+  false and the qkv/proj linears stay TP-sharded (upstream `qwen2_5_vl.py:269-304` keys
+  them on `use_data_parallel`).
+- **Two diffs that look like the mechanism and are not.** (a) The Ascend
+  `_process_video_input` (`:518-533`) drops `second_per_grid_ts`; upstream also only
+  carries it into `Qwen2_5_VLVideoPixelInputs`
+  (`vllm/model_executor/models/qwen3_vl.py:1257,1272`) and never reads it in
+  `Qwen3_VisionTransformer.forward` (`:494-505` take `x, grid_thw`). (b) The deepstack
+  `torch.cat([...], dim=1)` after `unsqueeze(1)` mirrors upstream (`qwen3_vl.py:259-300`
+  against the Ascend `AscendQwen3_VisionTransformer.forward`), so "the Ascend copy mangles
+  the merger output" is not available.
+- **Coverage at this pin** (citable as coverage, never as the cause):
+  `rg -ln 'Qwen3-VL|Qwen3VL|qwen3_vl' tests/ docs/` returns only
+  `docs/source/tutorials/multi_node_qwen3vl.md` (235B 双机, no video sample request); there
+  is no Qwen3-VL test, and `video` appears only in
+  `tests/ut/models/test_qwen2_5_vl_without_padding.py`.
+- **The rung the recorded answer missed: the image tag.** `v0.11.0rc0` was committed a
+  month before the report while rc2/rc4 tags were current, and the reporter's own next
+  comment says the identical `curl` body on `quay.io/ascend/vllm-ascend:latest` returned a
+  correct markdown table (reporter-confirmed, same hardware). A fix landed after rc0 cannot
+  exist in this snapshot, so **for a degeneration report whose tag is two or more rcs older
+  than the analysis date, rung 1 is "re-run the same body on the current image"** — one line
+  in the first message — and the ranking below it is the mechanism if the re-run still
+  degenerates. Say plainly that the pinned tree cannot answer "is it fixed".
+
+Ladder for this shape at this pin: (1) same body on the current image; (2) the same
+deployment with a **text-only** request (clean ⇒ the tower owns it); (3) an **image**
+instead of a video (clean ⇒ the video branch, `temporal_patch_size=2` / `grid_thw[:,0]`);
+(4) `--tensor-parallel-size 1`; (5) `--enforce-eager` **with its own banner line** in the
+paste, otherwise the ablation proves nothing (SKILL rule 15).
 
 ## Recheck conditions
 

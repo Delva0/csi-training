@@ -4,7 +4,13 @@ Scope: the report asks *how to turn a feature on* instead of what broke —
 "v<ver> 上如何正确开启 F", "单独 PCP 和 DCP 均有不同的报错，能不能给出示例", "does
 vllm-ascend <ver> support F for model M on this SoC". The reporter often pastes no
 log at all, or describes two different errors in one sentence. Deliver a verdict
-plus a recipe, not a source walk. Not this topic: a model type Transformers does
+plus a recipe, not a source walk. **Also this topic:** "<model> 离线推理报错 / 跑不通" on a named release with only
+screenshots — the release's own claim table decides it in one grep, and a `❌` row
+with a tracking issue *is* the verdict (`unsupported-model-row.md`: the matrix path
+moved between refs, and the reporter will come back with a second batch of
+*different* errors).
+
+Not this topic: a model type Transformers does
 not recognise (`../startup-failures/model-type-not-recognized.md`), a capacity plan
 (`../deploy-sizing/index.md`), a document audit
 (`../tutorial-verification/index.md`), or corruption *after* the feature is on
@@ -36,6 +42,19 @@ walk:
   (`rg -n "only supported on Atlas|experimental|not supported" docs/`) — a
   statement in the pinned tree is the project's position *for that version*, so
   do not overturn it with an older issue; quote it and date it.
+- **For "F is simply absent from the plugin", the roadmap question is answered by
+  the status ledger, not by release notes.** `docs/source/user_guide/support_matrix/
+  supported_features.md` is the project's own feature table: its legend (`:30-34`
+  at v0.11.0rc2/rc3) defines 🟢 Functional / 🔵 Experimental / 🚧 WIP /
+  🟡 Planned / 🔴 NO plan, and the `Next Step` column carries the tracking issue or
+  PR (LoRA at `:11` → vllm-ascend#396, #893). Quote the row for the feature, or
+  state that there is **no row** — a missing row is untracked in both directions,
+  so no plan and no refusal exists, and a dated commitment needs a maintainer or a
+  new tracking issue. Say that instead of "search the release notes of a later
+  version": recorded #4505 answered `prompt_embeds` correctly as absent at the pin
+  (0 hits in `vllm_ascend/`) with a port plan, and the reporter's public follow-up
+  was 「这个我们后续有计划支持吗」 — the table, not a future tree, is the answer to
+  the follow-up, and it is one read.
 - **Whose hardware the docs measured.** A "Supported Scenarios" table is a claim;
   the experimental-results table below it names the cards actually measured. "All
   numbers are A3 64-card" means A2 support is untested, not rejected.
@@ -99,7 +118,19 @@ Rules for this topic:
    async-TP pass — plus the platform's VL/Omni guard **and the remedy that guard's own
    message names at the reporter's ref** (unset-only on the v0.14 family; the Inductor SP
    pass on the v0.15 family, whose support matrix makes it the VL+Dense route), before any
-   shape walk: `sequence-parallel-flashcomm.md`.
+   shape walk: `sequence-parallel-flashcomm.md`. On the v0.19.x hybrid families
+   (Qwen3.5/Qwen3-Next, `expected src to have a size equal to the slice of self`) that page's
+   §*v0.19.x hybrid layers* separates layer 0's SP-sized buffer from its two writers and its two
+   enable gates — use it instead of grepping `copy_`.
+   **FlashComm2 is a different switch with a different failure**: when
+   `VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE` > 0 is combined with
+   `"layer_sharding": ["o_proj"]` and a worker dies while loading weights with
+   `AssertionError: layer_idx must be consecutive` (`ops/layer_shard_linear.py`), one
+   `o_proj` linear has been registered into the same shard *series* twice — once by the
+   Flashcomm2 row-parallel op, once by the attention impl's `layer_sharding` kwargs — and
+   the two one-line ablations plus the value/`recompute_scheduler_enable` answers are
+   `flashcomm2-o-shard-layer-sharding.md`. Do not read it as a bad
+   `FLASHCOMM2_PARALLEL_SIZE` value or a PD/transport fault.
 
 8. An **other-SoC** question — the model runs, and the report is "速度很慢" plus "能否提供
    量化版本 / 社区只看到 310P 的" where the model's tutorial, support-matrix row and
@@ -171,7 +202,13 @@ Pages:
   (`platform.py:394-403`, `is_vl_model` counting `thinker_config`), and why the
   shape mismatch `(sN//tp)` vs `sM` inside `profile_run` is arithmetic: SP keeps the
   row-parallel output reduce-scattered (`ops/linear_op.py:386-396`) while a per-layer
-  deepstack/full-length auxiliary tensor does not shrink. Worked for #6261.
+  deepstack/full-length auxiliary tensor does not shrink. Worked for #6261; §*v0.19.x hybrid
+  layers* for #8990 (Qwen3.5-27B-w8a8 + `qwen3_5_mtp` + FC1 at TP2): layer 0's `ceil(tokens/tp)`
+  buffer (`patch_qwen3_5.py:91-96`), its two writers (`:74` `o_proj` vs `ops/gdn.py:136` `out_proj`,
+  whose `[:num_tokens]` clamps so the paste shows the buffer's rows), the build-time
+  `sp_row_prefixes` decision, the `num_tokens > 1000` dense gate against the always-on MoE branch,
+  the already-sharded drafter inputs, and the vllm-pin coverage gap (`v0.13.0` vs the paired
+  `v0.19.1`).
 - `dp-moe-padding-and-owner-slice.md` — DP>1 MoE arithmetic behind a hang or a
   garbage tensor after an all-gather: `set_ascend_forward_context`'s pad target
   (`ascend_forward_context.py:91-98`, DP-wide only while `dp_metadata` is present,

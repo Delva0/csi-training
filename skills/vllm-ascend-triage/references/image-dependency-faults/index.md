@@ -37,6 +37,16 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
 
 ## Routes
 
+- The follow-up is a **sourcing question**, not a new stack: "0.10.1 需要安装新的东西吗",
+  "用相同环境把 vllm 从 0.10.x 改回 0.9.x 就能正常启动", "请问哪里可以看到你们镜像制作的
+  依赖，我对比下", often with "只能访问 docker 容器，接触不到主机". The image's dependency
+  set is four artefacts at the pin — the `FROM` CANN base image (which is what supplies
+  CANN **and** NNAL/ATB), `ARG VLLM_TAG`, the `--extra-index` URLs that serve
+  `torch-npu`, and the `devlib` `LD_LIBRARY_PATH` append no doc reproduces — while the
+  old-version success is a control only if `torch`/`torch_npu` moved with it
+  (`nnal-atb-missing-library.md` for the missing component itself) →
+  `image-recipe-inventory-and-diff.md`; one call:
+  `scripts/image-recipe-inventory.sh <vllm-ascend-root> --soc 910b --image-tag <tag>`.
 - `python -c "import <third-party module>"` (or the first real use of it) dies
   with a glibc allocator message — `corrupted size vs. prev_size`,
   `free(): invalid pointer`, `double free or corruption`,
@@ -180,6 +190,20 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   third-party tarballs from `gitcode.com` at configure time →
   `offline-source-build.md` for the inventory, the pre-seed gates and the two knobs
   that do not work (`CANN_PKG_SERVER`, an exported `CANN_3RD_LIB_PATH`).
+- A **compiler or linker** error in that same source build, with no engine start:
+  `ld: … multiple definition of '<symbol>'` / `first defined here`, `collect2: error:
+  ld returned 1 exit status`, `ccec_compiler`/`ascendc_pack_kernel` frames, then
+  `CalledProcessError` from CANN's `recompile_binary.py` and from `setup.py`
+  `cmake --build` — with `COMPILE_CUSTOM_KERNELS=1` exported → `custom-op-build-stage.md`.
+  The paste's last frames name the **stage**, and the stage names the owner
+  (vllm-ascend `CMakeLists.txt`/`setup.py` vs CANN's AscendC toolchain, which is what
+  a snapshot does not export); check the reporter's CANN/torch/torch-npu trio against
+  the pin's own requirements table **before** any version advice, and read a
+  `multiple definition` from the `recompile:` line's own object list — one
+  `csrc/kernels/*.cpp` under two absolute prefixes means the tree was compiled under
+  two path spellings, not that the kernel source is wrong (#1774, reporter-confirmed
+  「Thanks a lot. Solved!」 on the skip-the-build rung). Do not open `csrc/<op>/` or the
+  CANN toolchain source here.
 - You suspect the image at all: the Dockerfile `cp`s a helper from the repo
   (`Dockerfile.a3:37` copies `tools/mooncake_installer.sh`) and upstream ships
   its own copy of that script. Diff the two dependency lists before blaming the
@@ -340,6 +364,19 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   produce, why a shallow dev-branch clone yields `0.0.0` rather than a real number,
   the unsafe `-dev` expectation, and the one `python -c` + `pip show -f` pair that
   separates stale metadata from the wrong checkout (#1784).
+- `triton-module-residue.md` — a `triton` that imports but has no `language`
+  (`AttributeError: module 'triton' has no attribute 'language'` at `import torch`,
+  no `vllm_ascend` frame, usually a `-310p` box where the Dockerfile removes it on
+  purpose): the resolved module is uninstall residue or a shadow directory.
+- `custom-op-build-stage.md` — a `COMPILE_CUSTOM_KERNELS=1` source build that fails
+  in the compiler/linker log: which stage the last frames name, whose code it is
+  (vllm-ascend `CMakeLists.txt`/`setup.py` vs the CANN toolkit), the version
+  envelope read off the pin's own requirements table, and `multiple definition` at
+  the AscendC relink as one source under two path spellings (#1774).
+- `image-recipe-inventory-and-diff.md` — the sourcing question behind a hand-built
+  environment or an image regression: the four artefacts that *are* the image's
+  dependency set, the version-swap control rule, the container-only rung set, and
+  `scripts/image-recipe-inventory.sh` (#2812).
 
 ## Common rules
 

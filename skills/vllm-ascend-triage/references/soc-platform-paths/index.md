@@ -86,9 +86,11 @@ Conditional routes:
   `SetPrecisionMode … aclrtSetCompileOpt(aclCompileOpt::ACL_PRECISION_MODE …) 500001`,
   `PlatformInfoInit … SocVersion <name>`, `GEInitialize failed`, `ERR99999` — with no
   `vllm_ascend` frame: the SoC the runtime resolved is the first thing to read against
-  `npu-smi`, then the host driver/firmware vs the image's CANN base →
+  `npu-smi`; in a container whose `docker run` already matches the docs, the next step is
+  that same command + `--privileged=true` and nothing else (reporter-confirmed #302),
+  then the host driver/firmware vs the image's CANN base →
   `../startup-failures/acl-init-500001-and-soc-version.md` (the 300I mount list at
-  `single_node_300i.md:20-31` is the cheapest conformance check).
+  `single_node_300i.md:20-31` is the other conformance check).
 - The traceback on a 310P host ends in `npu_format_cast` /
   `_convert_torch_format` with a device allocation error →
   `../runtime-memory/kv-init-and-format-cast-alloc.md`.

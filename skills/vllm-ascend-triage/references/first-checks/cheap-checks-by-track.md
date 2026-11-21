@@ -146,6 +146,16 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `CANN_3RD_LIB_PATH` changes that (seed the directory or pass
   `csrc/build.sh --cann_3rd_lib_path=`). Pin v0.13.0rc3; the chain was
   source-read, not run (`../image-dependency-faults/offline-source-build.md`).
+- The same source build fails at **compile or link** (`multiple definition`,
+  `collect2: error: ld returned 1`, `CalledProcessError` from CANN's
+  `recompile_binary.py`): read the paste's last frames as the **stage** (python
+  metadata / cmake configure / AscendC compile-pack / CANN relink / host stub
+  link), check the reported CANN/torch/torch-npu trio against the pin's own
+  `installation.md` table, and read a `multiple definition` off the `recompile:`
+  line's object list — one source under two absolute prefixes is one tree compiled
+  under two path spellings, so `rm -rf build` from `pwd -P` (or install without
+  `COMPILE_CUSTOM_KERNELS`) is rung 1
+  (`../image-dependency-faults/custom-op-build-stage.md`, #1774).
 - Startup `ValueError` whose text names a parallel size inside
   `kv_connector_extra_config` (`KV transfer 'prefill' config has a conflicting
   data parallel size. Expected 1, but got 2.`): one grep for the string decides
@@ -216,6 +226,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   patch rebinds, check for a pre-patch alias in the consumer module —
   `consumer.<name> is defining_mod.<name>` settles it in one line
   (`../upstream-downstream-drift/stale-module-binding.md`, #15815).
+- Python `AttributeError` on a **per-object metadata name** (`attention_type`,
+  `layer_type`) raised inside a downstream copy of a library `forward`: one call in the
+  reporter's interpreter —
+  `uv run --no-project python <skill_root>/scripts/qwen2-body-drift-probe.py --config <model dir>`
+  — prints the installed body and says whether the copy mirrors it. Answer with the
+  delegation (`super().forward()`), never a `getattr` default: recorded #11991's guard
+  started the service and broke image recognition, so name the acceptance check as one
+  real image request (`../upstream-downstream-drift/patched-forward-api-drift.md`).
 - `RuntimeError: Invalid request status: <STATUS>` (e.g. `WAITING_FOR_FSM`)
   raised from `vllm_ascend/core/scheduler.py` while the server was serving: the
   `AscendScheduler` fork lags an upstream request status. One call —

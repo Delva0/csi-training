@@ -30,6 +30,18 @@ after that keeps the header, not this text.
 
 ## Entries
 
+- `scripts/image-recipe-inventory.sh <vllm-ascend-root> [--soc <variant>] [--image-tag vX.Y.ZrcN]`
+  (`--soc` = `910b` (default) / `a3` / `310p` / `openeuler` / `a3-openeuler` / `310p-openeuler`) — the official image's dependency
+  recipe in one call (#2812, #10525 hand-built CANN+conda envs). Prints the chosen
+  variant Dockerfile's `FROM` (where CANN **and** NNAL/ATB come from), `ARG VLLM_TAG`,
+  both `--extra-index` URLs, `pip uninstall -y triton`, both `set_env.sh` sources and the
+  `devlib` `LD_LIBRARY_PATH` append; the `requirements.txt` torch / torch-npu pins and
+  the `--pre`/`--extra-index-url` hint lines; the docs' component table, manual
+  CANN/kernels/NNAL `.run` block and the container's host `-v` driver mounts; the first
+  compatibility-matrix rows (the pair, not one package); and a paste-ready block the
+  reporter runs inside their own container plus the diff against the same-tag image.
+  Exit 0 always, 2 on a missing checkout or unknown `--soc`. Step 1 of
+  `../image-dependency-faults/image-recipe-inventory-and-diff.md`.
 - `scripts/logprob-bucket-fit.py --row 'P_LOW,P_HIGH,N,MEAN_ABS' [--row …]
   [--vocab 152064] [--spread 2.0]` — the cross-platform logprob table in one call
   (#18755, 910B2C vs an H100×2 golden). Prints each bucket's `mean|Δ log p| / (1-p)`
@@ -157,6 +169,20 @@ after that keeps the header, not this text.
   are populated for a multimodal config, and the one probe that decides it (#11936,
   `../soc-platform-paths/310p-vl-ocr-garbage-output.md`). Exits 2 rather than
   guessing when `head_size` cannot be derived.
+- `scripts/qwen2-body-drift-probe.py [--config DIR|config.json] [--lines N]` — is a
+  downstream *copied* forward written against the installed library body? Prints the
+  interpreter's `transformers` version/file, the checkpoint's `layer_types` /
+  `sliding_window`, whether a `Qwen2DecoderLayer` exposes `attention_type`, whether
+  `Qwen2Model.has_sliding_layers` exists, then the installed `Qwen2Model.forward` and
+  `Qwen2DecoderLayer.__init__` source plus a two-line verdict (`INDEXES BY
+  config.layer_types`, `mask mapping dict handled: yes|no`). Run it in the reporter's
+  interpreter for an `AttributeError` raised inside `vllm_ascend/ops/qwen2_decoder.py`
+  (#11661 / #11926 / #11991,
+  `../upstream-downstream-drift/patched-forward-api-drift.md`): `attention_type: False`
+  beside `INDEXES BY config.layer_types` means the copy is another generation of the
+  library, so the repair is the delegation, not a `getattr` guard — the guard starts the
+  service and misrecognises images. Exits 2 when `transformers` cannot be imported,
+  which is itself the finding (a host run, not the image's interpreter).
 - `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one line
   per repo with coverage and `runtime_verified`, plus the unavailable repos.
 - `scripts/oom-budget-split.sh --line '<OOM line>' --gmu F [--params P] [--tp N]

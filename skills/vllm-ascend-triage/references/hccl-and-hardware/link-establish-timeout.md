@@ -20,8 +20,8 @@ names a collective or a device op, while the plog's first in-window block is HCC
 ```
 
 Line numbers move between releases (#1955's plog carries the same sentences at
-`hccl_socket_manager.cc:830` / `:393` / `:591` and the row printer at `:553`; #4725 at
-`:106` of `hccl_socket.cc`), so grep the message text, not the line.
+`hccl_socket_manager.cc:830` / `:393` / `:591` and the row printer at `:553`), so grep
+the message text, not the line.
 
 `9` is `HCCL_E_TIMEOUT` (enum at `cann/hccl/docs/api/context/HcclResult.md`, quoted in
 `index.md`): the local device asked each peer to establish its control socket and
@@ -60,12 +60,17 @@ torchair, DP4×TP4+EP; its launcher set `HCCL_IF_IP=127.0.0.1` next to
 - The server half of the same failure prints as
   `[hccl_socket.cc:100] [HcclSocket][Listen] socket type[1], listen on ip[<ip>] and
   specific port[16666] fail. Please check the port status and whether the port is been
-  using by other process.` (#1955, #4725 in the same history view) — a *local* bind
-  failure on the port the peer is dialling. One node's plog therefore shows `Listen …
-  fail`, the other's shows `LinksEstablishCompleted … ret[9]`: **ask for both nodes'
+  using by other process.` (#1955) — a *local* bind failure on the port the peer is
+  dialling. One node's plog therefore shows `Listen … fail`, the other's shows
+  `LinksEstablishCompleted … ret[9]`: **ask for both nodes'
   plogs, and for every card** (`~/ascend/log/debug/plog/plog-<pid>_*.log`), because the
   failure is per local device (`comm error, device[N]`) and the printing rank need not
-  be the one that could not listen.
+  be the one that could not listen. This is the *two-node* reading only. A `Listen …
+  port[16666] fail` on a **single** host, with no `ret[9]` and no `LINK_ERROR_INFO` and
+  the second of two engines dying (`Bind_Failed(EJ0003)`, `hcclCommInitRootInfoConfig …
+  error code is 7`), is not a peer problem: both engines were given the same cards —
+  `../pd-disaggregation/same-host-pd-device-partition.md` (#4725; its plog line is
+  `hccl_socket.cc:106`, `socket type[0]`).
 
 ## Reading the LINK_ERROR_INFO table
 
@@ -144,5 +149,6 @@ Status | TlsStatus`; rows are the peers this device had to reach.
   `rtsIpcMemImportByKey` on a *subset* of edges → `transport-destlink-ipc-import.md`.
 - `hcclCommInitRootInfoConfig … error code is N` at group creation →
   `comm-create-errors.md`.
-- `EI0019 … port <n> have already been bound` / control-port arithmetic →
-  `control-plane-port-binding.md`.
+- `EI0019 … port <n> have already been bound` with a port above 65535 /
+  control-port arithmetic → `control-plane-port-binding.md`. `Bind_Failed(EJ0003)` on
+  the normal port `16666` is the other family → `comm-create-errors.md` §code 7.

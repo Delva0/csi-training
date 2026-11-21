@@ -553,3 +553,19 @@ upstream's `_check_enough_kv_cache_memory` `ValueError` with suggestions — so 
 missing traceback, not the missing text, is what the reporter should check next. Side
 finding kept in `../runtime-memory/index.md` rule 5: `--kv-cache-memory` is accepted
 and ignored on the Ascend worker at this ref.
+
+**#5124** vllm-ascend v0.11.0rc3 (`b6d63bbd5294`) / vllm v0.11.0 (`b8b302cde434`):
+"AclGraph mode underperforms eager mode in Qwen speculative decoding scenario". The
+reporter had done the ablation — the padded decode `query` is truncated at
+`vllm_ascend/attention/attention_v1.py:674-675`
+(`num_tokens = attn_metadata.query_start_loc[-1]`), and deleting it made graph mode
+beat eager. The recorded answer found the gate one block above (metadata padding at
+`:228-248`, conditioned on `attn_state == DecodeOnly`) and the two cost mechanisms
+(a per-layer device→host sync from the device-tensor `query_start_loc`, `:151`/
+`:250`, and host-built `actual_seq_lengths_q`/`seq_lens_list` at `:271-272`), then
+recommended widening the gate over the deletion. One correction left for this page:
+`_build_attn_state` (`worker/model_runner_v1.py:1609-1633`) assigns `SpecDecoding`
+**only** for `method == 'deepseek_mtp'`, so the Qwen MTP batch at that ref reaches
+the branch as `ChunkedPrefill`/`DecodeOnly` and the "widen to `SpecDecoding`" patch
+as phrased would miss it. Page (new):
+`../performance-throughput/graph-mode-slower-than-eager.md`.

@@ -231,7 +231,27 @@ packaging` needs the network, which is closed; the script falls back to
 4. **A deprecation notice is not a version contract.** `README.md:41` at
    `v0.9.2rc1` ("PyTorch >= 2.5.1, torch-npu >= 2.5.1.post1.dev20250619") and
    `installation.md`'s requirements table are prose; the executable contract is
-   `requirements.txt` + `setup.py` + the upstream `requirements/*.txt`.
+   `requirements.txt` + `setup.py` + the upstream `requirements/*.txt`. The same
+   answer settles the report that **quotes two files and asks which to obey** —
+   `[Installation][v0.9.1]` "The versions for torch_npu in the README and
+   pyproject.toml are different … is it necessary to forcibly pin 2.5.1.post1?",
+   no error and no log (#2838): the `==` is the contract and the prose `>=` is the
+   defect, so do not relax the pin and do not rank a version mismatch.
+   (a) The two exact files name each other as the mirror pair (`pyproject.toml:2`
+   "# Should be mirrored in requirements.txt", `requirements.txt:1` "# Should be
+   mirrored in pyporject.toml", typo in tree) and the README is **not** in that
+   pair, so its `>=` licenses no other wheel. (b) The pin is enforced twice:
+   `setup.py:331-341` reads `requirements.txt` (skipping `--` lines) into
+   `install_requires` (`:388`), and the same set is in `pyproject.toml`
+   `[build-system] requires` (`:3-19`), so build isolation and every wheel
+   consumer get `torch-npu==`; `==X` matches only that build, while `>=X` would
+   admit a `.post2`/next minor that cannot coexist with the pinned `torch`. (a) and
+   (b) were verified at v0.10.1rc1 (`7e16b4a7cdb1`), where the identical split
+   exists; the reported v0.9.1 tree was not in that snapshot, so quote the pin you
+   verified and hand the reporter the one line that decides **their** install —
+   `python -c "import importlib.metadata as m; print([r for r in m.requires('vllm-ascend') if 'torch' in r])"`
+   (`torch-npu==…` = the README's `>=` is cosmetic there too). The sanctioned way to
+   admit a newer torch_npu is the next release line, never a hand-edited pin.
 5. **`pip check` is the closing evidence.** Whatever ladder the reporter takes, the
    end state is `pip check` clean plus `python -c "import torch, torch_npu, vllm,
    vllm_ascend"`; a warning-only environment "works" until the first NPU op.
@@ -245,6 +265,13 @@ packaging` needs the network, which is closed; the script falls back to
   right facts (the metadata pin, the `torchvision<0.21.0` contradiction) and then
   spent the budget on whether `torch-npu 2.5.1.post1` was rebased onto torch 2.7.1,
   which no local file can settle.
+- **#2838** (snapshot v0.10.1rc1 `7e16b4a7cdb1` + vllm v0.10.1.1 `1da94e67`; the
+  report's own `v0.9.1` is not in that tree): the "README says `>=`, pyproject says
+  `==`" question, answered in 13 tool calls with the mirror-comment pair, the
+  `install_requires` chain and the metadata one-liner — and it flagged that v0.9.1
+  is absent instead of quoting it. The cost was scope, not delivery: it then
+  re-derived upstream vLLM's torch pin to explain *why* the pin is exact, which the
+  tree in hand cannot settle. Ask the reporter for their metadata line instead.
 - **#4737** (`v0.11.0rc2`): answered in 11 tool calls — the `[audio]`-only install,
   the `bench` extra, the placeholder rewrite and the pandas-free dataset names were
   all delivered. The gap the reporter's later comment exposes: the answer offered

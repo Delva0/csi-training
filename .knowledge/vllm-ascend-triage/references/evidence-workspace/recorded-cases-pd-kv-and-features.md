@@ -182,3 +182,19 @@ proxy里只写master ip 和start port就行", which is the doc's own `:1460-1472
 23 assistant turns / the full 16 K output budget, mostly inside `mooncake_connector.py` plus the
 recompute path, a "draft verdict" cut mid-sentence in a message, and the decisive comparison
 (doc proxy line vs DP layout) never made.
+
+**#11923** vllm-ascend 0.18.0rc1 + the reporter's own #7874/#10098 patches (snapshot
+pins v0.18.0rc1 `99e1ea0`), 910B/A2, GLM-5.1 (DSA/MLA) 2P1D on 4+4 servers with
+`AscendStoreConnector` + `memcache_hybrid`/`memfabric_hybrid` 1.1.1: "带 memcache 的
+版本初始 TTFT 比不带时慢约 6-7 倍，命中缓存的后续请求快很多", the numbers in an
+attachment that was not readable (no attachments in that workspace) and no log. The
+run pinned at the ref that the miss path returns before any store work
+(`pool_scheduler.py:56-111`), that `load_async` defaults `False` so the *hit* path is
+the blocking one, that the save runs off-step but syncs an NPU event before
+`m_store.put`, the A2-only `all_gather` + `register_buffer` branch, the blocking
+per-request lookup RPC, and the doc trap that the sample `mmc-local.conf` sets
+`device_sdma` (`kv_pool.md:530`) while the table recommends `device_rdma` for A2
+(`:566`, default `host_rdma`). Delivery: a complete ranked answer did ship, then the
+run reopened with "Final answer — one correction …" and was cut mid-sentence, so the
+A2 correction never reached the reporter. Route now:
+`../kv-pool-store/pool-attached-cold-request-cost.md` (same-prompt-twice is check 1).

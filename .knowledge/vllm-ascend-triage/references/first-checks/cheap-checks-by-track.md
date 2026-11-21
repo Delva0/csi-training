@@ -35,6 +35,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   without a source read — worked rows in
   `../spec-decode-mtp/max-model-len-boundary-fia-crash.md` and
   `../hccl-and-hardware/aclgraph-full-decode-runtime-hang.md`.
+- **The log's own process prefixes recover the launch that ran, so a mismatched
+  paste is caught for free.** `EngineCore_DP<N>` / `Worker_DP<N>_EP<N>` names exist
+  only when that parallel size is > 1 (`vllm/v1/engine/utils.py:136,151` at vllm
+  v0.22.1), so `EngineCore_DP2` beside a command carrying `--data-parallel-size 1`
+  is two different runs — #11300 pasted exactly that pair. When the disagreement is
+  *which hardware tab* the block came from (one page, A2 dp1/tp8+`enable_dsa_cp` vs
+  A3 dp4/tp4+`--api-server-count`, and a `-a3` image), one call gives the diff and
+  the closest tab: `uv run --no-project python scripts/recipe-tab-diff.py --page
+  <page> --section 5.1 --command <reporter script>`. Step 0 of
+  `../image-dependency-faults/native-string-abort.md` is where that lands for a
+  startup abort; a config-review task can use the same output as the finding.
 - Image / bundled-native-module abort (no vllm-ascend frame, glibc allocator
   text): which copy is imported, then allocator interposition, then the
   installer-vs-upstream dependency diff — steps 1-3 of
@@ -66,6 +77,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `python -c "import vllm, sys; print(sys.executable, vllm.__file__, list(vllm.__path__))"`
   in the reporter's shell and launch directory decides it
   (`../image-dependency-faults/wrong-vllm-module-shadowed.md`).
+  The **submodule** form is the other case and takes the opposite reading:
+  `cannot import name '<X>' from 'vllm.v1.worker.utils'` where that file *exists*
+  means the symbol moved between vLLM releases (`bind_kv_cache` is at
+  `vllm/v1/utils.py:278` in vllm 0.9.2 and `vllm/v1/worker/utils.py:120` in vllm
+  0.10.0), i.e. the two packages are a mismatched **pair** — pair them, do not edit
+  the import and do not assume the plugin build is stale
+  (`../startup-failures/environment-correspondence.md`, its nearest-tag section).
 - Log stops after `Loading model weights took X GB` with the port still refused
   and nothing raised: bound the phase before theorising — at v0.8.4rc1 the next
   code is `worker.py:240-256` `determine_num_available_blocks` → `profile_run()`
@@ -145,6 +163,12 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `--resources '{"NPU": 8}'`, which is the whole fix. No sizing arithmetic, no
   driver read, and the world size already matches the card count
   (`../startup-failures/ray-npu-resource-label.md`, #3114).
+  **Read the dict before acting on that**: if it shows `'NPU': 0` beside
+  `NPU_group_<i>_<pgid>` labels on a `--data-parallel-size` > 1 serve, the key is
+  right and a live placement group holds the node — the same `ray status` then shows
+  `NPU: 0.0/16.0`, and the levers are `--data-parallel-backend ray` (its own log line,
+  `Creating placement groups for data parallel`) or a stale group, not `--resources`
+  (`../startup-failures/ray-dp-placement-group-npu-exhausted.md`, #10910).
 - Custom op that aclnn refuses to *resolve* (`EZ1001`, `Get regInfo failed`,
   `does not support opType`, `binary_info_config.json of socVersion`): registry
   and install, before launch. Do not open `csrc/<op>/`: check the tree's
@@ -538,6 +562,18 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `quantization_config` started without `--quantization ascend` /
   `quantization="ascend"` and died in a worker (#2015) — the flag is mandatory
   exactly because upstream's auto-detection has nothing to read.
+- A load-phase `KeyError: '<prefix>.weight_scale'` (a **scale**, not a weight):
+  one call censuses the checkpoint before any `modelslim_config.py` read —
+  `uv run --no-project python <skill_root>/scripts/checkpoint-key-prefix.py --scales <model dir>`
+  — and the serve command decides the rest
+  (`../startup-failures/weight-scale-keyerror-quant-variant.md`). Scales on the
+  main linear/MoE families = a quantised export missing its method (the bullet
+  above); scales confined to `self_attn.wkv` / `self_attn.indexer.wq_b` = a
+  full-precision release served instead of the documented quantised variant.
+- A `RuntimeError: Promotion for Float8 Types is not supported … Float8_e4m3fn and
+  Bool` in `ops/fused_moe/token_dispatcher.py` on the first MoE forward: three
+  `sed` reads and one ablation, never a device theory
+  (`../startup-failures/fp8-topk-weights-mask-promotion.md`).
 - Deployment sizing / stage layout (does it fit on N cards, why a stage
   layout fails): run `bash <skill_root>/scripts/card-budget.sh` with the
   checkpoint's parameter count, the TP and the per-stage

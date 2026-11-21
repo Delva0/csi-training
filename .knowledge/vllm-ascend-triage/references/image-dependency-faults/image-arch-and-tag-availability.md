@@ -88,6 +88,19 @@ Read it as three facts:
    also why an A2 wheel cannot be installed on a 310P host
    (`../soc-platform-paths/device-type-build-vs-runtime.md`).
 
+### `quay.io/ascend/vllm-omni`: a second registry with a shorter matrix
+
+The suffix table above is vllm-ascend's. **vllm-omni publishes A2 and A3 only** — its own
+install page's table is `name | image-tag | image-tag-a3 | Hardware Atlas A2 | Atlas A3 |
+OS Ubuntu` ("verified on 4 x NPUs"), i.e. no `-310p` variant exists to look for, and the
+unsuffixed `image-tag` is the A2 build. The page is often reachable only as the post's
+screenshot: read `/workspace/attachments/<issue>/<img>.ocr.txt` before reconstructing
+conventions from another issue (`#8201`'s `镜像：vllm-omni:v0.18.0（from
+quay.io/ascend/vllm-ascend:v0.18.0rc1）` says the same thing one hop weaker). Consequence
+for a 310P report: the answer is not a different tag, it is a source build on a
+`-310p` CANN base with `SOC_VERSION=ascend310p1` →
+`../soc-platform-paths/310p-omni-model-deploy.md`.
+
 ## Step 3 — the wheel path, when no image fits
 
 - `release_whl.yml:46-47` builds on `os: [ubuntu-24.04, ubuntu-24.04-arm]` and

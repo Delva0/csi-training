@@ -24,6 +24,27 @@ ran TP=2 and stalled at `shm_broadcast` on TP=4. Route:
 the 310P graph-budget follow-up and the "the 60 s broadcast line during startup
 compilation is not yet a hang" reading.
 
+**#14274** vllm-ascend v0.22.1rc1 (`5f6faa0`) + vllm v0.22.1 (`0decac0d`),
+`v0.22.1rc1-310p` image, Ascend310P3 EP, Qwen3-0.6B fp16 TP1, `max_model_len`
+4096, `gpu_memory_utilization: 0.5`: `Total non KV cache memory: 1.65GiB` then
+`Available KV cache memory: 0.09 GiB (halved for workspace)` and the `ValueError:
+To serve at least one request with the model's max seq len (4096) …`, with
+`npu-smi` at 20,687/44,278 MB and no process visible in the container. The body
+already named the mechanism and the precedents (`#7308`, `#7427`, `#7372`), so the
+marginal work was verification — and the recorded run did that well: it placed the
+cause on `_310p/worker_310p.py:96-130`, showed the generic worker (`#7427`'s shape)
+and upstream keep no device-global term, kept the startup check and the RC branch
+out of the patch, found that `self.non_torch_memory` is read by the inherited
+budget log, and reported the missing `--kv-cache-memory` fast path. Two misses,
+both now covered by the page: it never opened `#7308`'s body (the twin carries the
+failing/working ratio pair — 0.3/0.3 fails, 0.3/0.6 starts both, v0.15/0.17 print
+`-1.33GB`), and it offered "raise `gpu_memory_utilization` above 0.5" as the
+workaround without the per-instance framing. The reporter's later public comments
+settled both: `gpu_memory_utilization` is a per-instance limit
+(`vllm/config/cache.py:66-74`), the 310P override never inherited `#7427`, and they
+opened `#14275` with this patch. Route:
+`../runtime-memory/kv-budget-per-instance-vs-device-global.md`.
+
 **#2873** vllm-ascend v0.10.1rc1 (`7e16b4a`) + vllm v0.10.1.1 (`1da94e6`), one
 910B host, Qwen3-Coder-30B-A3B at `-tp 8 --max-model-len 262144`: the machine
 died during engine start — the log stops at the eight
@@ -267,6 +288,22 @@ selection and the V0 runner and shipped **no answer text** (3 status notes). Pag
 `../performance-throughput/pre-graph-mode-eager-era.md`. Open: the load driver's concurrency
 and whether `enable_graph_mode` was ever applied on the reporter's host.
 
+**#9026** vllm-ascend v0.18.0 (`e18643f8a4d5`) + CANN 8.5.0, Atlas A3, GLM-5 W8A8
+(`hidden_dim=6144`), PD + MTP, `VLLM_ASCEND_ENABLE_MLAPO=1`: `kernel_details.csv`
+prints `Input Shapes: N/A` / `Block Dim: 0` for `mla_preprocess_0_mix_aic` (2028
+calls, ~103 µs) between rows that carry shapes, and the report self-diagnoses
+`OpCommand::SetCustomHandler` as the cause, with an `aclprofRangePushEx` patch
+attached. The recorded run refuted the middle link — vllm-ascend's own
+`EXEC_NPU_CMD` also calls `SetCustomHandler`
+(`csrc/aclnn_torch_adapter/op_api_common.h:584`) — and found `mla_preprocess` in no
+`CUSTOM_OPS` build list (so no `aclnnMlaPreprocess` exists to route to), the
+runtime's 5 × 8 tensor-info record (`aprof_pub.h:34-35,322-326`), and `acl_prof.h`
+stopping at `aclprofMarkEx` while the asc-devkit export carries no `.asc` files at
+all (so the proposed API is unverifiable, not disproved). Delivery: **no answer** —
+`status=output_truncated` on `output_tokens` while still drafting the ranked list;
+the verdict sentence belonged in the first message. Page:
+`../performance-throughput/profiler-shape-columns-custom-op-launch.md`.
+
 **#7351** vllm-ascend v0.13.0rc1 (`1b5d5ab`) + vllm v0.13.0 (`72506c9`), 2 cards
 (`ASCEND_RT_VISIBLE_DEVICES=0,1`, card model not stated), QwQ-32B-W8A8
 `--quantization ascend`, TP=2, `--max-model-len 131072`, `FULL_DECODE_ONLY` with
@@ -323,3 +360,60 @@ that makes the expert shard 16 wide instead of 8. Also note the pinned tutorial'
 "For an Atlas 800 A3 (64G*16) node, tensor-parallel-size should be at least 16"
 (`docs/source/tutorials/models/Kimi-K2-Thinking.md:113`) is a per-node A3 statement;
 answering "you need TP16" would have been wrong for this A2 host.
+
+**#9443** vllm-ascend `v0.19.1rc1` (`da421af`) + vllm `v0.19.1` (`b1388b1`),
+Qwen3.5-122B w8a8-mtp (title says `122B-A3B`, the weights URL says
+`Eco-Tech/Qwen3.5-122B-A10B-w8a8-mtp`), 1P1D on A2: "Profiling shows that Full
+Attention doesn't have quantization kernel, so this model can't get the W8A8
+performance benefits — the performance of bf16 model is as same as w8a8". The
+recorded run found the right two-part structure (per-layer int8 linears decided by
+`quant_model_description.json`, versus the checkpoint-driven, decode-only
+`fa_quant_type` int8 attention/KV) and source-proved the loud-failure property —
+`is_layer_skipped_ascend` only skips on a `"FLOAT"` value, and the fused shard
+lookups are bare dict reads — so an engine that started with a bf16 class has a json
+that says so, and no serve flag can change it. What it under-delivered: the verdict
+framed the gap as that artifact's (or its converter's) choice, and the reporter's
+public follow-up was "Please check this issue. This issue should be a common
+problem that affects performance gains". For an *architectural* layer class
+(every-Nth full-attention in a hybrid GDN model) the hole is in every artifact of
+the family: say so, hand over the sibling-size `jq` plus the same-request bf16/w8a8
+A/B, and route the report to the conversion pipeline. Also note the report's own
+name mismatch and that only `Qwen3.5-397B-A17B` and `27B` are in the matrix/nightly
+w8a8 configs at that ref. Route:
+`../performance-throughput/quantized-artifact-layer-coverage.md`.
+
+**#13591** vllm-ascend `v0.18.0` image (`e18643f8`), 4× Atlas 800I A2 with
+`910b4-1` cards ×8 each, non-quantized `Qwen/Qwen3.5-397B-A17B`, no log pasted:
+asks for an official example ("DP=? TP=?" in the MP scene, "PP=? TP=?" for Ray) and
+the recommended vllm-ascend version, adding "I've already tried to change arguments
+on the official docs of the w8a8 version but can hardly run it up". Two facts decide
+the sizing without any source read: the pinned tutorial's every serve block is the
+`Eco-Tech/…-w8a8-mtp` artifact while its BF16 requirement line is 2× A3 (64G×16) or
+**4× A2 (64G×8)** (`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:21-22`, MP
+section `:151`, Ray section `:262`), and `910B4/-1`'s per-card HBM is not in the
+snapshot — `npu-smi info` (65536 vs 32768 MB) decides whether a 4×8-card layout is
+the documented minimum or half of it. The recorded answer delivered the MP
+DP-per-node × TP-inside-node block with `--data-parallel-size{,-local,-address,-rpc-port,-start-rank}`
+and ruled Ray out; the reporter's next public message was instead a hand-assembled
+Ray line carrying three structural defects (`--tensor-parallel-size 16`,
+`--pipeline-paralle-size`, `--headless` with no `--data-parallel-*`, no `--nnodes`).
+Lesson: audit the launch line they already have (`../deploy-sizing/index.md` rule 7)
+rather than choosing the path for them — the tutorial has a Ray section, so "don't
+use Ray" is a preference, not a prohibition.
+**#5859** reported 0.11.0rc2 image (snapshot pins vllm-ascend v0.13.0rc1 `1b5d5ab` /
+vllm v0.13.0 `72506c9`), single 8-card A2 64G, GLM-4.7-W8A8, 32K-in/1K-out: "KV cache
+usage 接近 100 % 时 TPOT 激增四五倍，排队 waiting 机制有效但保不住服务性能" — 6/7/8
+offered concurrency at 107/114/**440** ms TPOT with KV 79.4/92.4/98.9 %, and 12
+offered running at 8 with `Waiting` 4. The run back-solved the pool from two of the
+reporter's own rows (33 792 × 6 / 0.794 ≈ 255 K and × 7 / 0.924 ≈ 256 K tokens, so a
+≈7.5-request ceiling), pinned preemption-as-recompute (`scheduler.py:775`
+`num_computed_tokens = 0` at vllm v0.13.0), the `Preemptions`-only-when-non-zero
+logger line, the downstream SLO fork repeating the same reset, and the fact that the
+default capture list already contains 8 — so an 8-sequence step with
+`num_speculative_tokens = 0` is not the graph ceiling. Route now:
+`../performance-throughput/kv-capacity-step-and-preemption.md` (the KV column at the
+step is the discriminator against `sequence-count-cliff-capture-size.md`). No reporter
+confirmation: the later message only answered the checkpoint-provenance and
+MTP-version questions (GLM-4.7 MTP needs main; 0.11-0.13 run without it), which is
+why the MTP-era graph candidate is retired for that image but the preemption check
+stays owed.

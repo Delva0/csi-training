@@ -36,6 +36,13 @@ headless node's own log. Ask which three variables they mean instead of guessing
 do not offer "unset them all" as a further experiment — that is the run they already
 did.
 
+**And the compile-cache lead is closed too.** On #10370 the paste's only log line was
+`saved AOT compiled function … torch_compile_cache …`; a maintainer proposed
+`VLLM_DISABLE_COMPILE_CACHE=1` and the reporter answered **没有效果** (2026-06-12) after
+the fact. That line is `decorators.py` *saving* an artefact — a graph-mode tell, not the
+fault owner — so treat the ablation as done, and take the mode split instead
+(`graph-vs-single-op-comm-fault.md`).
+
 ## What the two knobs actually are (do not rank them equally)
 
 - `HCCL_OP_EXPANSION_MODE=AIV` switches the collectives to AI-vector-core
@@ -70,6 +77,13 @@ did.
    profiling/warm-up batch can take) is eligible **by construction** — the test is
    `num_tokens is None or num_tokens <= capacity`. If the numbers say ALLGATHER,
    this page is not your lane, and the hang belongs to whatever op the log names.
+
+   **The rule changed between pins, so quote the pin's own form.** At v0.20.2rc1
+   (`367b8e62`, recorded #10370) the same decision is inline in
+   `select_moe_comm_method` (`vllm_ascend/ascend_forward_context.py:233-319`): there is
+   no `num_experts > 512` guard yet (A2 branch `:273-282`, A3 `:284-310`), so applying
+   the newer rule at that pin would wrongly turn a >512-expert A2 case into
+   "ALLGATHER, not my lane".
 2. Give the ablation matrix, one variable per launch, cheapest first — the
    reporter has only tested "both removed":
    | run | env | expected if AIV × MC2 owns it |

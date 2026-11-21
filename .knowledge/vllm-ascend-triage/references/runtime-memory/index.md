@@ -69,6 +69,15 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    shm buffer, so their state says nothing about HBM (`hbm-growth-and-oom.md` 4b).
 5. Everything here is about the reporter's host: local `npu-smi` output is not
    evidence about their memory behaviour.
+6. **A KV budget that comes out at ~0 or negative is a bookkeeping error before it
+   is a small card.** When a device with free HBM hands the engine
+   `Available KV cache memory: 0.09 GiB (halved for workspace)` (310P) or
+   `Available memory: 0` / `-1.33GB` (the second of two co-tenant engines), the
+   worker has charged usage that is not this instance's. One subtraction of the
+   logged `Total non KV cache memory` against the requested budget names the
+   offending term; `gpu_memory_utilization` is a **per-instance** limit
+   (`vllm/config/cache.py:66-74` at v0.22.1), so "raise the ratio, it includes the
+   other instance" is not the fix — `kv-budget-per-instance-vs-device-global.md`.
 
 ## Reading a v0.21+ startup memory block
 
@@ -110,6 +119,13 @@ Conditional routes:
   #12534: `expandable_segments:False` starts; note vllm-ascend injects `True`
   unless the variable already carries another of the three keys, so "unset" is
   not "off").
+- Start-up dies **at KV sizing, before any allocation fails**: `Available KV cache
+  memory: … (halved for workspace)` then `ValueError: To serve at least one request
+  with the model's max seq len …`, or `Available memory: 0` / `-1.33GB` on the
+  **second** engine sharing one card, while `npu-smi` shows free HBM →
+  `kv-budget-per-instance-vs-device-global.md`: device-global HBM charged to one
+  instance, the `#7308` → `#7427` → `#7372`/`#14274` propagation chain, the
+  per-instance `gpu_memory_utilization` contract, and the one-line patch.
 - The failure is an allocation error inside KV-cache initialisation, with the
   deepest frame in `_convert_torch_format` / `torch_npu.npu_format_cast` and
   `507013` / SDMA / SMMU text around it → `kv-init-and-format-cast-alloc.md`

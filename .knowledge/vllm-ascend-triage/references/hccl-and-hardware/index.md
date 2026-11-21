@@ -22,9 +22,20 @@ generic rejection: the surrounding message text names the precondition, the code
 does not. The one-sided `HcclBatchPut` / store-put variant of that argument is
 `../kv-pool-store/hccl-onesided-store-put.md` §1.
 
+**First decide whether a communicator can be created at all.** If the text is
+`HCCL function error: hcclCommInitRootInfoConfig(…), error code is N` out of
+`…/torch_npu/csrc/distributed/HCCLUtils.cpp:140` (`create_config`), no collective
+was launched: a **group** creation was refused. `1` there is not a network code —
+`HcclCommInitRootInfoConfigInner` folds `InitExternalInput()`, `InitEnvConfig()` and
+`commConfig.Load()` failures into `HCCL_E_PARA` and prints the sub-check
+(`init external input error` / `init environment config error` / `load comm config
+failed` / `nRanks…`), so read the HCCL `ERROR` line, then diff the two nodes' serve
+scripts, and only then ask whether the recipe exists at the pin for that model and
+node count. `comm-create-errors.md`.
+
 Order matters more than depth here:
 
-**First separate the watchdog from the collective.** If the only failure text is a
+**Then separate the watchdog from the collective.** If the only failure text is a
 bare `TimeoutError` whose frames are `multiproc_executor.py` (`collective_rpc` /
 `get_response`) and `shm_broadcast.py` (`acquire_read` / `acquire_write` /
 `recv`), it is not a collective error at all: it is vLLM's own RPC watchdog
@@ -43,6 +54,18 @@ knob changed the selected MoE communication path (AIV × MC2) — a known defect
 family, not a cabling fault: `aiv-mc2-env-ablation.md` has the single-variable
 ablation matrix, the rank arithmetic that says whether MC2 was even selected, and
 the four precedents (#14928, #13688, #9447, #15195).
+
+**If the report is a mode split instead of an error — "图模式算子通信报错, 只有开启单算子
+才能规避", no log, the attachment failed** — that is an execution-mode classification
+before it is a kernel question: `单算子` is GE's single-op/eager mode, not a key in the
+tree, the reporter's working single-op run on the same cluster exonerates the rank
+table, the HCCL links and the NICs, and the deliverable is the knob ladder
+(`cudagraph_mode` NONE → PIECEWISE vs `FULL_DECODE_ONLY` → `HCCL_OP_EXPANSION_MODE`)
+plus the two-node recipe diff → `graph-vs-single-op-comm-fault.md`. Two traps it
+carries: `ASCEND_LAUNCH_BLOCKING=1` is refused outright while a graph mode is on
+(`platform.py:457-467`, v0.20.2rc1), and the `saved AOT compiled function …
+torch_compile_cache` line is a save message whose cache ablation was already refuted
+by the reporter on #10370.
 
 **Then separate an MC2 timeout the reporter did *not* ablate.** If the paste dies
 inside `profile_run` / `determine_available_memory` with `507014` "The aicore
@@ -105,6 +128,14 @@ appearing only once concurrency rises, is the crash variant of the paragraph abo
 the legacy paged-attention patch path and defaults to empty), the `origin_op_name` /
 `fault kernel_name` ask, the ladder and the recorded #6018 case.
 
+**`507018` is not this topic's.** "The aicpu execution is abnormal" beside a
+`kernelName=<Op>, soName=libpt_kernels.so, funcName=RunCpuKernel` block is one
+operator that ran on the CPU/AICPU fallback because no AI-Core kernel matched the
+SoC/dtype/layout; the code is what the copy-stream sync reports afterwards, and the
+`devmm … should call halMemMap` dmesg line follows the fault rather than causing it.
+Route by the op name — on 310P `../soc-platform-paths/310p-cpu-fallback-op-fault.md`
+— instead of looking for a collective or a card here.
+
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
 bound`, check the record's date first (rule 13) and the number second: a port above
@@ -145,7 +176,14 @@ is the OOM-class budget lane — KV cache is already resident because
 `initialize_from_config` allocates it before `compile_or_warm_up_model` — not an
 edge, a GE build or a card fault: `qp-resource-exhausted-at-graph-load.md`
 (#2754, maintainer-classified OOM; the `send_cq_depth` field is a request, not a
-knob).
+knob). **Read the phase off the frames before choosing a lever:** the same refusal
+delivered by an MC2 MoE dispatch (`aclnnMoeDistributeDispatchV3 … 561000`,
+`HcclAllocComResourceByTiling … ret = 4`, no `LoadGraph failed`/`ERR03005` block) is
+the first MC2 collective, which on v0.13.0rc1 runs in `profile_run`'s
+`mc2_tokens_capacity` dummy run *before* the KV pool — there the KV budget is not the
+lever and the capacity/`global_bs` arithmetic of
+`mc2-dispatch-profile-run-hang.md` §Step 1 is (recorded #5947; under
+`HCCL_INTRA_PCIE_ENABLE=1` only the cross-node RoCE peers print `DestLink`).
 
 **Then separate a cascade from the primary, and count the ranks.** When a paste
 carries two error families and one of them comes from exactly **one** process, that
@@ -243,6 +281,13 @@ debugging" caveat.
    the notify-wait and second-stream lines are victims, and the per-replay argument
    patch (`acl_graph.py:198-304`) is why the bucket and the `pa_shape_list` gate decide
    the ranking (recorded #6018).
+9. `comm-create-errors.md` — `hcclCommInitRootInfoConfig … error code is N` at
+   communicator creation (`create_config`, `HCCLUtils.cpp:140`), usually inside
+   `get_hccl_comm_name` for a MoE all-to-all group: the `HcclResult` codes that
+   outrank it, the six `HCCL_E_PARA` sub-checks at `op_base.cc:1377-1408`, the
+   launch-script values that reach them (`HCCL_BUFFSIZE` ≥ 1 MB, config magic word),
+   the tutorial-recipe check, and the rank-asymmetry reading when a config change
+   turns the error into a hang.
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server

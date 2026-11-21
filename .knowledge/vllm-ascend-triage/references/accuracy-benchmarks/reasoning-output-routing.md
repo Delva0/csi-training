@@ -300,3 +300,55 @@ sibling pages' flag choices move between releases).
   from raw text? Is thinking supposed to be on for an accuracy run at all?
 - Whether the reported per-subset gaps are concentrated where CoT length is longest — that is
   the fingerprint of this failure mode.
+
+## The thinking channel never closes: the stream burns the whole budget in a loop (recorded #16116)
+
+Verified at vllm v0.26.0 (`568afb3a`) + vllm-ascend v0.26.0rc1 (`f2f74a16`): DeepSeek-V4-Pro with
+`chat_template_kwargs: {"thinking": true, "reasoning_effort": "high"}`, every SSE chunk
+`delta.reasoning` and **zero** `delta.content`, `output_token == max_completion_tokens == 77817`.
+Three questions, three answers — this is a request-contract and model-degeneration report, not a
+device fault and not a broken parser:
+
+1. **The budget was legal.** `chat_completion/serving.py:307-311` takes
+   `request.max_completion_tokens if … is not None else request.max_tokens`, so a body carrying both
+   `max_tokens: 4096` and `max_completion_tokens: 77817` ran the larger one by design
+   (`get_max_tokens`, `entrypoints/serve/utils/api_utils.py:170-207`, then clamps). Never read
+   `output_tokens == max_completion_tokens` as a leak.
+2. **No loop brake exists.** The only repetition controls are `presence_penalty` /
+   `frequency_penalty` / `repetition_penalty` (`sampling_params.py:224,228,232`) — per-token logit
+   shaping, and no `no_repeat_ngram_size` anywhere in the sampling params. An exact n-gram cycle the
+   model prefers survives all of them; forced termination exists only as a token count. Say so
+   rather than recommending a flag.
+3. **A separate thinking cap exists upstream and is dead on NPU.** `thinking_token_budget` is a chat
+   field (`chat_completion/protocol.py:241`) and a sampling param (`sampling_params.py:344`),
+   enforced by forcing the end-of-thinking token (`v1/sample/thinking_budget_state.py`,
+   `maybe_create_thinking_budget_state_holder`, built in `v1/worker/gpu_input_batch.py:111`).
+   Downstream sets `self.thinking_budget_state_holder = None` with the comment *"NPU does not use
+   thinking budget, so the holder is always None"* (`vllm_ascend/worker/npu_input_batch.py:56-59`),
+   so the field parses, returns 200 and does nothing. Upstream has its own gate (Model Runner V2
+   warns once, `config/vllm.py:2227-2231`). One request (`"thinking_token_budget": 512`, reasoning
+   does not stop near 512) is the evidence for a separate downstream issue.
+
+**The amplifier is a prompt, not a budget.** On DeepSeek-V4 vllm-ascend maps `reasoning_effort` to
+a **prompt prefix** (`vllm_ascend/patch/platform/patch_deepseek_v4_thinking.py`):
+`REASONING_EFFORT_PROMPTS = {"low": "", "high": "…Absolute maximum with no shortcuts permitted…
+Explicitly write out your entire deliberation process, documenting every intermediate step,
+considered alternative, and rejected hypothesis…", "max": …}` (`:25-48`), prepended only when
+`index == 0 and thinking_mode == "thinking"` (`:85-86`). Absent effort with thinking on gives
+`"low"` under the preview mapping and `"high"` otherwise (`:120-127`); `"none"` switches
+`thinking_mode` to `"chat"` (`:128-129`); `"medium"`/`"minimal"` collapse to the empty `low` prefix.
+So `high` cannot bound thinking — it asks for exactly the "enumerate every rejected hypothesis and
+do not stop" behaviour the captured loop shows, and the loop text (`我决定…但…不准确。` ×10) is that
+shape.
+
+Deliverable order: (1) classify, and say the empty `content` proves routing works (the inverse of
+the `content`-only shape above); (2) close the underspecified field in the caller's schema (a
+prose enum with no none-value, e.g. `"executeType": "执行动作：新增、更新删除"`, is the prompt-side
+root cause); (3) one budget field only, re-run at 8192 and expect `finish_reason: "length"`;
+(4) `reasoning_effort: "low"` or `thinking: false` on the same body separates effort-prompt
+amplification from model behaviour; (5) identity run ×3 at `--max-num-seqs 1` / `temperature: 0`
+(`long-output-repetition.md`'s row); (6) `thinking_token_budget` as the no-op demonstration;
+(7) until a server brake exists, the only working loop brake is client/gateway-side abort on a
+repeated n-gram. Trap: a `finish_reason`/`usage`/`[DONE]`-less capture is a gateway truncation
+artefact when `bytes_sent` far exceeds the captured window and the window starts and ends
+mid-sentence — not a server defect.

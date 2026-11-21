@@ -50,6 +50,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   `ray status`'s Resources block, then restart each raylet with
   `--resources '{"NPU": 8}'` → `ray-npu-resource-label.md`. One turn decides it; there
   is no card shortage to size and no driver fault behind it.
+- The **same** `ValueError: Current node has no NPU available` but the dict reads
+  `'NPU': 0` beside `'NPU_group_9_<pgid>': 1.0`, `'NPU_group_10_<pgid>': 1.0` …, on a
+  serve with `--data-parallel-size` > 1 → **not** the label case above: the check reads
+  the *free* view (`available_resources_per_node`, `v1/executor/ray_utils.py:463`), so a
+  live placement group already holds the node's devices and the raising process is
+  outside it. Grep their log for `Creating placement groups for data parallel`
+  (`v1/engine/utils.py:412`) and `Using the existing placement group`
+  (`ray_utils.py:419`): neither, plus `No current placement group found …`, means the
+  default `mp` DP backend (`parallel.py:121`) started a sibling engine whose own PACK
+  group took the node → `ray-dp-placement-group-npu-exhausted.md` (one read, and no
+  `ray start --resources` advice).
 - Every rank's last line is `Using OOT custom backend for compilation` (nothing
   raised, port refused, HBM resident) → `compile-backend-banner-then-silence.md`
   first: at v0.22.1rc1 that banner is printed **while the model object is built**
@@ -112,6 +123,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   `source set_env.sh` proves nothing about a worker on another node — ask for
   `pip show vllm vllm-ascend`, `import triton` and `which bishengir-compile`
   per node (#3098).
+- The graph-mode start dies at **config time** — the last line before the
+  traceback is `PIECEWISE compilation enabled on NPU. use_inductor not supported -
+  using only ACL Graph mode` and `Starting to load model` never appears — on a
+  **VL/audio** model, with an `AttributeError` naming the *config object*
+  (`'InternVLChatConfig' object has no attribute 'num_hidden_layers'`) or ending in
+  the checkpoint's own `configuration_*.py` `to_dict` (`… has no attribute
+  'llm_config'. Did you mean: 'sub_configs'?`) → `vl-layer-count-attribute.md`.
+  `update_aclgraph_sizes` needs a layer count off a composite config; eager mode
+  never reaches the call, so `--enforce-eager` is the workaround and the graph-branch
+  call site is the proof. Not the capture-size lane.
 - The per-rank traceback is `AssertionError: Current device type:
   AscendDeviceType.A5 does not match the installed version's device type:
   AscendDeviceType.A2, please check your installation package.` (or
@@ -209,6 +230,25 @@ Inherit the rules in SKILL.md. Conditional routes:
   tensors into a dense model, behind the bare `Engine core initialization
   failed` (#2015). Ask for the per-rank traceback and the `quantization=` /
   `--quantization ascend` flag before ranking causes.
+- The loader raises `KeyError: '<prefix>.weight_scale'` (also `.scale` pre-remap)
+  at `param = params_dict[name]`, on every rank but with a **different layer** each
+  time, drawn from a few module families (`self_attn.wkv`,
+  `self_attn.indexer.wq_b`, `self_attn.compressor.wkv`) →
+  `weight-scale-keyerror-quant-variant.md` first: this is the *mirror* of the
+  quantization gate below/above — the checkpoint owns a scale the engine built no
+  parameter for. Census the checkpoint's scale keys **before** reading
+  `modelslim_config.py` (`../../scripts/checkpoint-key-prefix.py --scales <dir>`),
+  and get the serve command: scales confined to a handful of sub-projections with
+  nothing declaring a quantisation mean a full-precision release served instead of
+  the documented quantised variant (recorded #12675), not a per-layer code bug.
+- The first MoE forward (usually `profile_run`, so it reads as a startup failure)
+  dies with `RuntimeError: Promotion for Float8 Types is not supported, attempted to
+  promote Float8_e4m3fn and Bool`, deepest frames `w4a8_mxfp4.py` →
+  `moe_comm_method.py` → `token_dispatcher.py:393 topk_weights = topk_weights * mask`
+  → `fp8-topk-weights-mask-promotion.md`. W4A8-MXFP activations **plus** flashcomm1
+  make `topk_weights` fp8, and the AllGather dispatcher multiplies them by a bool EP
+  mask. Three source reads, then the flashcomm1-off ablation — no device, HCCL or
+  checkpoint component is involved.
 - `AttributeError: '<Model>Config' object has no attribute '<attr>'` raised inside
   `vllm_ascend/distributed/*connector*.py` from `ensure_kv_transfer_initialized`
   (typically a VL/MoE model under PD disaggregation) → `connector-config-attributes.md`.

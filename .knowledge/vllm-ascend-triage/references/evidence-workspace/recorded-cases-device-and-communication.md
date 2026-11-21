@@ -9,6 +9,20 @@ mixed decode+prefill batch faults. Routes: `../custom-ops-runtime-faults/index.m
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#18345** vllm-ascend v0.23.0rc1 (`f4a08bddd0cc`) + vllm 0.23.0, triton-ascend
+v3.2.1 (`2badfc89e70a`), 8×910B3, CANN 9.1.0, torch 2.10.0 / torch_npu 2.10.0.post2:
+"`extract_slice` of triton-ascend gives wrong data when the start address is not
+32-byte aligned", bf16 only, with the upstream PR referenced in the body. Track:
+**ownership of a third-party extension op**, not a vllm-ascend defect. The recorded
+run pinned the wheel (`requirements.txt:20`), mapped the extension op to an MLIR
+`tensor::ExtractSliceOp` and its Ascend rewrites, contrasted the doc's "bf16
+supported / 无特殊限制" with a UT that slices only 1-D fp32 at 2048-byte-aligned
+starts, and answered the in-tree exposure from the 42 `extract_slice` call sites
+(offsets `0` / `HALF_ROPE_DIM` / `COL_BLOCK_SIZE`, aligned at rope_dim 64/128). It
+shipped the full answer with the mechanism correctly left open and the
+print-path-versus-data-path check first. Page:
+`../image-dependency-faults/triton-extension-op-silent-miscompute.md`.
+
 **#8730** vllm-ascend `0.14.0.RC1` (newer than the pinned `v0.13.0rc3` `bbe9bc0` +
 vllm `v0.13.0` `72506c9`): "强化学习场景用户设置top后报错，调用了 `ApplyTopPTopCustom`
 算子，算子侧反馈非cann算子，需要框架侧定位为什么会下发这个" — no framework traceback, only
@@ -528,3 +542,83 @@ and `test_aclgraph_mem.py` (`_e2e_test.yaml:77,91-92`). The run delivered the ra
 answer plus the per-replay mechanism on its 11th and last turn, with seven of its
 eleven turns carrying no message text. Page:
 `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`.
+
+**#10370** vllm-ascend v0.20.2rc1 (`367b8e62`, the snapshot's own pin), two nodes ×
+910B, GLM-5.1-w4a8, 两个局点 both reproducing: title only — 图模式算子通信问题，只有开启
+单算子才能规避 — with the log attachment failing to upload and the single pasted line
+`saved AOT compiled function to …/torch_compile_cache/…` from
+`[decorators.py:668]`. Track: **execution-mode split**, answerable as an ablation ladder.
+The recorded run reasoned correctly that single-op working on the same cluster exonerates
+ranktable/HCCL/NICs, then spent the budget reading the MC2 selector and `npugraph_ex`
+gates and was cut at the cap (14 043 output tokens) **inside its own answer** — it had
+reached the verdict and the plog ask. Afterwards a maintainer proposed
+`VLLM_DISABLE_COMPILE_CACHE=1` and the reporter answered **没有效果**, i.e. the cache lane
+is refuted and the mode lane stands. Page:
+`../hccl-and-hardware/graph-vs-single-op-comm-fault.md`.
+**#11188** vllm-ascend v0.21.0rc1 (`80610e44`), image `v0.21.0rc1-310p`, Atlas 300I Duo
+310P3 ×2 at TP2, Qwen3.6-35B-A3B `w8a8` (GDN/hybrid), `--enforce-eager --max-model-len
+8192`: `/v1/models` 200, first chat request 500 with `507018` / `[Error]: The aicpu
+execution is abnormal` and a fault block `kernelName=IndexPut, soName=libpt_kernels.so,
+funcName=RunCpuKernel, errorCode=0x2a` under `gdn_linear_attn.py`, plus host dmesg
+`[ascend][devmm][ERROR] Reserve addr is invalid, should call halMemMap … ret=-22` once
+per device. Track: **device-op fault**, but the owner is a Python statement or an
+ungated config, not a kernel. The run got the reading right — fault block = CPU fallback
+op, devmm = downstream, hardware lane retired by the reporter's own ablations (board,
+BIOS 3101, firmware 7.7.0.1.231 `Compatibility: OK`, clean HDK 25.2.0 reinstall), family
+= documented **preview** at `310p.md:405` — and delivered a ranked answer with a
+`PYTORCH_NPU_ALLOC_CONF` injection claim it then corrected in two later turns (it
+asserted the tutorial value "would not stop" `expandable_segments` before reading
+`platform.py:696-715`, where the append is skipped when any of `expandable_segments` /
+`max_split_size_mb` / `garbage_collection_threshold` is already present and `:715` logs
+the result). Cheap lesson: read the gate before stating a negation about it. Page:
+`../soc-platform-paths/310p-cpu-fallback-op-fault.md`.
+
+**#8284** vllm-ascend v0.18.0rc1 (`99e1ea0f`) + vllm v0.18.0, image
+`v0.18.0rc1-310p-openeuler`, Qwen3-30B-A3B-Instruct-2507, TP4 + `--enable-expert-parallel`,
+`--dtype float16 --enforce-eager --max-model-len 8192` **plus `--kv-cache-dtype fp8`**:
+`Using fp8 data type to store kv cache` (`config/cache.py:212`), `Available KV cache
+memory: 8.82 GiB`, `GPU KV cache size: 768,384 tokens`, engine up in 7 s — then the
+first request kills all four ranks at `device/device_op.py:32`
+`torch_npu._npu_reshape_and_cache` → `RuntimeError: ReshapeAndCacheOperation setup
+failed!`. Track: **device-op fault**, cause = an unsupported dtype on a `-310p` image
+(`310p.md:5` float16-only; `kv_cache_dtype` is only *stored* on the attention impl,
+`attention_v1.py:371`, and consulted nowhere; `_310p/` has no dequant path; the cache is
+FRACTAL_NZ by construction). The run found the
+whole chain and **shipped no message**: 35 assistant turns, 1.85 M cumulative prompt
+tokens, cut at the 16 384-token cap inside a reasoning block that already held the ranked
+answer, with three of its calls empty greps for `setup failed` in trees the snapshot does
+not carry and a mid-session 33 K-character platform-page read. Page:
+`../soc-platform-paths/310p-kv-cache-dtype.md`.
+
+- **#11542** — vllm-ascend `v0.22.1rc1` image, 2× 910B3 (A2), a fork branch
+  (`qwertyjack/deepseek-v4-dspark-main`), `DeepSeek-V4-Flash-DSpark-bf16`, launching from the
+  **DeepSeek-V4-Pro** tutorial's multi-node script: title `create_config /torch_npu/csrc/distributed/
+  HCCLUtils.cpp:140 HCCL function error: hcclCommInitRootInfoConfig(…), error code is 1`, with the two
+  screenshots OCR'd into `attachments/` showing the same `RuntimeError` at `deepseek_v4.py` →
+  `FusedMoE` → `token_dispatcher.py` `get_hccl_comm_name(local_rank)` plus a peer's TCPStore
+  `connection was closed` and `broadcastMasterID` frames. The recorded run localized the call site,
+  the enum (`1` = `HCCL_E_PARA`) and the decisive mechanism — `HcclCommInitRootInfoConfigInner`
+  (`cann/hcomm … op_base.cc:1378-1411`) folds `InitExternalInput()`, `InitEnvConfig()` and
+  `commConfig.Load()` into `HCCL_E_PARA`, so the naming text is an `HCCL_ERROR` line, not the
+  traceback — then spent 20 assistant turns and ~48 K characters of reasoning, emitted **30
+  characters of message text** and was cut at the output cap: the reporter never got the ranked
+  answer, and their later comments are only "here are my node0/node1 scripts" and "with dp=tp=4 it
+  hangs instead". Page: `../hccl-and-hardware/comm-create-errors.md`; the recipe gap it never said
+  — V4-Flash at that pin has a single-node (§5.1) and a PD-only multi-node recipe, while the Pro A2
+  multi-node script needs 4 nodes at DP4 × TP8 with a unique `--data-parallel-start-rank` per node.
+**#5947** vllm-ascend `v0.13.0rc1` (`1b5d5ab`), DeepSeek-R1-0528-W8A8 on 2×A2 64G, engine
+log says TP4 / DP4 / DP-local 2 / EP / MTP 3 / `FULL_DECODE_ONLY` / `HCCL_BUFFSIZE=200`
+(the body claimed TP8/DP8, which cannot fit the 16 dies): weights load at 47.2958 GB per
+card, then every rank dies in the same 60 ms with
+`call aclnnMoeDistributeDispatchV3 failed, error code is 561000` →
+`Allocation_Failure(EI0007): Failed to allocate resource[qp] … send_cq_depth:32768 … Memory
+resources are exhausted` + `HcclAllocComResourceByTiling … ret = 4`, `DestLink` only to the
+8 remote ranks (intra-node is PCIe under `HCCL_INTRA_PCIE_ENABLE=1`). No Python frame and
+no `LoadGraph failed` block, so the phase (MC2 `profile_run` dummy run vs torchair capture)
+is inferred, not pasted. The run routed to `qp-resource-exhausted-at-graph-load.md` — whose
+ordering paragraph is the v0.10.1.1 torchair-capture case — re-derived the capacity
+arithmetic over five calls and shipped no answer (16 384 output tokens, 1.05 M cumulative
+prompt tokens, 29 KB spent on a batched `ls`/`cat SOURCES.json`/`ls history` beside
+`skill_view` that the skill's first rule forbids). Pages now carry the phase split:
+`../hccl-and-hardware/qp-resource-exhausted-at-graph-load.md` "the phase depends on the ref"
+and `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3b.

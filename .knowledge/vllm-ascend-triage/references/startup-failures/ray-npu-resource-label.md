@@ -27,6 +27,15 @@ to the ray cluster (the port/GCS side is fine), and the driver node's own
 resource map carries `'GPU': 8.0` and **no** `NPU` key. The two log lines are the
 two lookups that key returns 0 for.
 
+**Same message, other owner — decide it on the dict, not on the wording.** If the
+map instead shows `'NPU': 0` beside `'NPU_group_9_<pgid>': 1.0`,
+`'NPU_group_10_<pgid>': 1.0` …, the key is right and a live **placement group** holds
+the node's devices: `available_resources_per_node()` is the *free* view
+(`vllm/v1/executor/ray_utils.py:463`, vllm v0.19.1), and a process outside the group
+reads 0 while the reserved devices sit under the group labels →
+`ray-dp-placement-group-npu-exhausted.md`. Do not restart raylets with `--resources`
+for that paste; the resources are already advertised.
+
 ## Mechanism (source-verified at the pins above)
 
 - vllm-ascend tells vLLM which resource name to use:

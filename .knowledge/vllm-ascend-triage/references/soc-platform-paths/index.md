@@ -34,6 +34,26 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    ignored/overwritten on 310P (`compilation_config.custom_ops`), and format
    conversions that are no-ops on 910B allocate and copy on 310P. Read the gate
    before attributing behaviour to the reporter's flag.
+4. **A dtype or format value in the reporter's own serve line is checked against the
+   pinned doc for their SoC before any source walk.** On 310P the doc's own note —
+   `docs/source/tutorials/hardwares/310p.md:5`, "only supports eager mode and the
+   float16 data type" — plus a `--kv-cache-dtype fp8` or a bf16 checkpoint *is* the
+   verdict. Neither value is refused up front: the KV dtype is not read in
+   `vllm_ascend/platform.py` at all (`rg -c kv_cache_dtype` → 0 at v0.18.0rc1), and no
+   310P dtype gate rejects a bf16 checkpoint (`atlas-300i-310p.md`, verified there at
+   v0.9.1rc1 — re-grep per pin). So the engine starts and an op refuses later, as an
+   op-shaped error, and that error is not a licence to walk the op's library. Two
+   recorded runs spent 25-35 turns inside `reshape_and_cache` / `IndexPut` with the
+   offending value visible from the first paste, and shipped no message.
+5. **A SoC subpackage is a fork, so diff it before theorising.** `vllm_ascend/_310p/`
+   (and any later `_<soc>/`) subclasses the generic worker/platform and
+   re-implements a few members — at v0.22.1rc1 `NPUWorker310` overrides exactly five
+   (`_310p/worker_310p.py:49,58,80,140,144`), everything else is inherited. A wrong
+   number or refusal inside such an override is usually a **missing propagation** of
+   a fix the generic path already carries, so compare the override method with
+   `vllm_ascend/worker/worker.py` and upstream first: it yields the cause, the patch
+   and the precedents together (`../runtime-memory/kv-budget-per-instance-vs-device-global.md`
+   is the recorded case — `#7372` kept a formula `#7427` had dropped).
 
 Conditional routes:
 
@@ -45,6 +65,12 @@ Conditional routes:
   numbers are gone), the release's own validated `310p.md` table, the inert
   `fuse_norm_quant` flag and the `max_model_len`-sized mask — quote the block for
   the reporter's release, not the v0.11 one.
+- 310P start-up dies at **KV sizing** with `Available KV cache memory: … (halved
+  for workspace)` and `ValueError: To serve at least one request with the model's
+  max seq len …`, while `npu-smi` shows free HBM (often the second engine on one
+  card) → `../runtime-memory/kv-budget-per-instance-vs-device-global.md`: the
+  override charges device-global HBM, `gpu_memory_utilization` is per-instance, and
+  `--kv-cache-memory` is inert on 310P.
 - The complaint is that **no 310P artefact exists for this machine** (arm64 host,
   an arm64 tag that pulls amd64, an aarch64 wheel) — an image/wheel pipeline
   question, not a platform code path →
@@ -66,6 +92,17 @@ Conditional routes:
 - The traceback on a 310P host ends in `npu_format_cast` /
   `_convert_torch_format` with a device allocation error →
   `../runtime-memory/kv-init-and-format-cast-alloc.md`.
+- A **non-fp16 KV cache on 310P** (`--kv-cache-dtype fp8` / `bfloat16` in the serve
+  line): the engine comes up, the first request kills every rank at the KV **store**
+  (`reshape_and_cache` → `device_op.py:32` → `torch_npu._npu_reshape_and_cache` →
+  `ReshapeAndCacheOperation setup failed!`) — a config verdict plus a one-flag
+  ablation, not an op bug → `310p-kv-cache-dtype.md`.
+- A first-request **op fault naming an ordinary tensor op**, `507018` + "The aicpu
+  execution is abnormal" + `kernelName=…, soName=libpt_kernels.so, funcName=RunCpuKernel`,
+  or `<Op>Operation setup failed!` out of a `torch_npu._npu_*` call: the op ran on the
+  CPU/AICPU fallback, so the owner is the Python statement (or the un-gated config)
+  that launched it, and the dmesg `devmm … should call halMemMap` is downstream of the
+  fault → `310p-cpu-fallback-op-fault.md`.
 - A **quantized** model on 310P fails at the first quantized linear with an
   op-level dtype/layout complaint instead of a Python raise — e.g. `Bias dtype
   should be INT32, actual dtype is DT_FLOAT16` in the title alone: the
@@ -94,6 +131,27 @@ Conditional routes:
   ADD_TO_LAUNCHER_LIST_AICORE failed`) on a card the release's docs exclude, often
   asked as "does image `<tag>` support `<card>`?" → `kernel-package-vs-card.md`
   (image/CANN kernel package vs the live SoC; one standalone op probe).
+  The `EZ9999 … Op <Op> does not has any binary` wording (with `call aclnn<Op>
+  failed, error code is 561000` + `ERR00100 PTA call acl api failed`) is the same
+  section and takes the same probe — on 310P it usually fires only on the
+  **multimodal** request path (`aclnnIsNegInf` from a vision/NaN-guard call,
+  #6082, v0.10.0rc1-310p), and the Python caller is in no pinned tree, so grep
+  the trees once, then probe.
+- An **omni / TTS / audio-out** model on 310P — "310p 使用
+  quay.io/ascend/vllm-omni:vX.Y.Z 这个镜像来创建容器部署 <TTS 模型> 么?" — is a
+  prebuilt-image verdict plus a build recipe, not a bug hunt: the project publishes omni
+  images for **A2/A3 only** (the vendor install page, readable from the post's own
+  attachment OCR), so the answer's first sentence is "no such tag", the second is the
+  source build with `SOC_VERSION=ascend310p1`, the third is the per-stage fp16 +
+  `enforce_eager` deploy-config → `310p-omni-model-deploy.md` and
+  `templates/omni-310p-deploy-config.yaml`.
+- The model **loads and dies in the first forward** with
+  `AttributeError: '<SomeClass>310' object has no attribute '_<name>'` where `_<name>`
+  is used as `self._<name>(...)` — a `_310p/` class that is a hand-copied sibling of a
+  class under `vllm_ascend/ops/`: grep the name package-wide, quote the sibling's
+  definition, and check the copy's return contract in the same pass →
+  `310p-sibling-class-drift.md` (a Python error inside the copy has no plog line, and
+  "the family is preview" does not explain it).
 - The report is a version gate ("does V support model M on 310P?") — typically an
   `[Installation]`/`[Bug]` title, a tutorial-copied `vllm serve` line and the only log an
   external attachment URL → **read the pinned `docs/source/tutorials/hardwares/310p.md`

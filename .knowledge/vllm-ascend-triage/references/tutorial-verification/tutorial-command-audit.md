@@ -215,6 +215,14 @@ layerwise proxy's own wildcard-`--host` guard (`:278-282`,
 "Wildcard Address … is not allowed for proxy") is the other pre-run trap, since
 D must be able to reach `host:port/v1/metaserver`.
 
+A tab that is internally consistent is **not** a defect: when the reporter ran the
+*other* SoC's block on their own cards, the page is fine and the report belongs to
+fault triage — say which tab their command matched (`scripts/recipe-tab-diff.py
+--page <page> --section <N.N> --command <their script>`, one call) and route the
+live question to `../image-dependency-faults/native-string-abort.md` step 0
+(#11300: A3 host running the A2 block). Grading the page for the reporter's tab
+choice wastes the report.
+
 ## Second worked page: Qwen3-32B-W4A4 at v0.18.0 (recorded #11759)
 
 The same tree (`e18643f8`, vllm `bcf2be9612`), page

@@ -150,7 +150,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   and "概率性没有content" is first a **request-body diff**, not a model defect;
   #9521 reproduced it on 0.18.0 and 0.19.1rc1, which closes the release-diff branch
   and leaves `completion_tokens` (small ⇒ genuinely short completion) as the
-  discriminator against routing.
+  discriminator against routing. (f) A **thinking stream that never
+  closes** — every chunk `delta.reasoning`, zero `delta.content`, `output_token ==
+  max_completion_tokens` — at vllm v0.26.0: `max_completion_tokens` outranks `max_tokens`
+  by design, no loop brake exists, `thinking_token_budget` is accepted and **ignored** on NPU
+  (`npu_input_batch.py:56-59`), and DeepSeek-V4's `reasoning_effort` is a prompt prefix that
+  amplifies deliberation rather than capping it; the ordered ladder is the #16116 section.
 - `quantized-checkpoint-conversion.md` — per-layer loss tables and bad artifacts from
   msmodelslim conversion: the two gates (engine version plus the msit branch, which
   differs between doc pages), the published-checkpoint split test, layer-localization by

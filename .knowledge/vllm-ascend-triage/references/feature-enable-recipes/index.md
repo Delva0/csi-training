@@ -123,6 +123,16 @@ Rules for this topic:
    checkpoint", graph mode "not supported at the pinned ref and no committed date" —
    `../soc-platform-paths/atlas-300i-310p.md`.
 
+10. A **graph-mode enable** question or crash on a DeepSeek/MLA model — "如何开启 torchair 图模式",
+   `additional_config={"torchair_graph_config": …}` present, and the first request dying with
+   `UnboundLocalError: local variable 'decode_hs_or_q_c'` in `vllm_ascend/attention/mla_v1.py`
+   (or, after a hand patch, `decode_k_pe` / `TypeError: 'NoneType' object is not subscriptable`) —
+   is answered from the pinned tree's own two statements before any scheduler reasoning: torchair
+   does not work with chunked prefill at that ref, and `ascend_scheduler_config.enabled: true`
+   (exact spelling; unknown `additional_config` keys are silently ignored) is the half that turns
+   chunked prefill off. Do not re-derive the mixing step from prompt sizes — the paste has no
+   per-step batch composition → `torchair-mla-graph-and-chunked-prefill.md`.
+
 Pages:
 
 - `per-soc-recipe-and-quantized-weights.md` — the model's only validated recipe and
@@ -161,3 +171,11 @@ Pages:
   and `cp_kv_cache_interleave_size` gates, the `VLLM_ASCEND_ENABLE_CONTEXT_PARALLEL`
   requirement of the MoE path, what the pinned tree actually validates for A2, and
   the PCP-defect precedent family (#8578/#8579/#8580/#7375).
+- `torchair-mla-graph-and-chunked-prefill.md` — torchair graph mode on DeepSeek/MLA
+  (v0.9.1rc1 `c30ddb8`), worked for #1369: the `decode_hs_or_q_c` UnboundLocalError at
+  `mla_v1.py:1099` explained by the `running_in_graph` binder structure (`:1040,1065-1075`),
+  the doc/CI comment "only work without chunked-prefill" plus the `ascend_scheduler_config`
+  pair (`graph_mode.md:50-51`, `test_torchair_graph_mode.py:46-60`,
+  `schedule_config.py:26,43`), the no-startup-guard fact (`ascend_config.py:131-147`), the
+  silent-typo / cached-config check (`ascend_config.py:34-37,92-101`) and the guard must key
+  on `running_in_graph`, not `torchair_graph_enabled`.

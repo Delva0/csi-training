@@ -15,7 +15,12 @@ A Triton-Ascend kernel that fails to *compile* — `MLIRCompilationError`,
 exit status 1` with `vllm_ascend/ops/triton/**` frames — is **not** this lane even when
 the reporter words it as "failed to compile custom operators": nothing here touches
 the AscendC extension, and the owner is the installed wheel/compiler pair
-(`../image-dependency-faults/triton-ascend-pair.md`).
+(`../image-dependency-faults/triton-ascend-pair.md`). A Triton-Ascend kernel that
+*compiles and runs but returns the wrong values* (a bf16 `extract_slice`/
+`insert_slice` at an unaligned start, a hand-written extension-op kernel) is not this
+lane either: no `csrc/` operator is involved, so the owner is the wheel and the audit
+is the in-tree Triton call sites —
+`../image-dependency-faults/triton-extension-op-silent-miscompute.md`.
 
 ## Rules
 
@@ -55,7 +60,12 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
   EZ9999 … Parse dynamic kernel config fail`, `AclOpKernelInit failed opType`,
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed`) is not a custom op at all: the
   image's CANN kernel package does not cover the running SoC —
-  `../soc-platform-paths/kernel-package-vs-card.md`.
+  `../soc-platform-paths/kernel-package-vs-card.md`. The `EZ9999 [PID: …] Op <Op>
+  does not has any binary` wording (beside `call aclnn<Op> failed, error code is
+  561000` and `ERR00100 PTA call acl api failed`) is the same drawer and takes the
+  same answer, on 310P most often for a torch_npu *built-in* (`aclnnIsNegInf` on a
+  VL/vision path, recorded #6082) — where the Python caller is in no pinned tree, so
+  one `rg` is the whole budget before the standalone op probe on that page.
 - **A garbled MoE output or an AI-Core invalid-GM-address under
   `enable_fused_mc2=1` is a workspace/stride question inside one of three op variants,
   and the variant is the lever.** `csrc/mc2/dispatch_ffn_combine{,_bf16,_w4_a8}/` share a

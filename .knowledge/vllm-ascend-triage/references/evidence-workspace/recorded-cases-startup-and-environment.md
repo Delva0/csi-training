@@ -31,6 +31,40 @@ axis owns the extra sync (and the bf16 EP path's own `bincount` at
 delivered its ranked answer on the 12th turn. Page:
 `../startup-failures/captured-stream-host-sync.md`.
 
+**#2064** vllm-ascend reported as `v0.9.2rc1(e7d32ed3f18d)` with vllm v0.9.2, image
+path `/__w/vllm-benchmarks/.../vllm-empty/vllm/` (a source build), OpenGVLab/InternVL3-9B,
+`--trust_remote_code`: eager dies at worker import with `ImportError: cannot import name
+'bind_kv_cache' from 'vllm.v1.worker.utils'`; graph mode dies earlier, in
+`check_and_update_config` → `update_aclgraph_sizes` → `get_max_hidden_layers` →
+`hf_config.to_dict()`, inside the checkpoint's own `configuration_internvl_chat.py:87`
+(`AttributeError: 'InternVLChatConfig' object has no attribute 'llm_config'. Did you mean:
+'sub_configs'?`). Track: version **pair** plus a composite-config read. The reporter's
+`utils.py:292/321` and `model_runner_v1.py:71` match the **v0.10.0rc1** tree (`utils.py:291-292/321`, `model_runner_v1.py:70-71`) to within one line
+(`4604882a3e2c`), whose vllm counterpart is 0.10.0 — where `bind_kv_cache` moved to
+`vllm/v1/worker/utils.py:120` (vllm 0.9.2 has it at `vllm/v1/utils.py:278`, and v0.9.2rc1's
+`model_runner_v1.py:66` imports it from there). So the printed tag is only the nearest tag.
+The recorded run answered "your build is not the release tag" and called the graph half a
+residual hypothesis; the sibling snapshot settles it — `get_max_hidden_layers` exists at
+v0.10.0rc1 and the flat read is recorded raising for InternVL2_5-38B at v0.9.0rc2 (#1276,
+`utils.py:134`), so the class is real at a pinned release. Pages:
+`../startup-failures/environment-correspondence.md`, `../startup-failures/vl-layer-count-attribute.md`.
+
+**#6082** vllm-ascend v0.10.0rc1 (`4604882a3e2c`) + vllm v0.10.0 (`6d8d0a24c02b`),
+`quay.io/ascend/vllm-ascend:v0.10.0rc1-310p`, 300I Duo ×8 (driver 25.2.0, firmware
+7.7.0.6.236), OpenGVLab/InternVL3-8B, `--dtype float16 --enforce-eager --trust-remote-code`:
+`NPU function error: call aclnnIsNegInf failed, error code is 561000`, `ERR00100 PTA call acl
+api failed`, `EZ9999 … Op IsNegInf does not has any binary`, attributed by torch_npu to
+`_execute_mm_encoder` → `scatter_mm_placeholders` (async, so the frame is a sync point). Text
+requests serve; only image requests fail. Track: built-in aclnn op with no kernel for the
+SoC — the image's CANN is `8.2.rc1-310p` (`Dockerfile.310p:18`), the 300I page states
+experimental/eager/fp16 only (`docs/source/tutorials/single_node_300i.md:4-5`), and the
+multimodal-only trigger is explained by the vision tower being the only added code
+(`vllm/model_executor/models/intern_vit.py:275`, SDPA with no mask). No precedent exists for
+the signature (0 hits in the 794-issue corpus and in the issue search). The recorded run
+spent its whole output budget hunting the `isneginf` caller across five trees (none of which
+contains it) and shipped **no answer**; the deliverable was one standalone probe plus
+`ASCEND_LAUNCH_BLOCKING=1`. Page: `../soc-platform-paths/kernel-package-vs-card.md`.
+
 **#8286** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`),
 "[Installation]: vllm & vllm-ascend torch version conflict" — two wheel commands
 (`pip install vllm==0.18.0`, then `uv pip install … vllm-ascend==0.18.0rc1` from the
@@ -766,6 +800,33 @@ framework-free `torch.npu.set_device(0)` probe. Semantics established here, not 
 reported fix: `SetPrecisionMode` only *supplies* the precision string for the SoC it
 resolved, so the numeric code is not a flag problem.
 
+**#12856** image `vllm-ascend:v0.18.0-310p-openeuler` (tree `e18643f8`), Atlas 300I Duo ×8,
+Qwen3.6-35B-A3B (`Qwen3_5MoeForConditionalGeneration`) TP4+EP, BF16 with `--dtype half`,
+`--enforce-eager`: weights load, then `profile_run` raises
+`AttributeError: 'AscendSharedFusedMoE310' object has no attribute
+'_shared_experts_part1'`. Real downstream bug — the 310P class copied A2's caller
+(`_310p/fused_moe/fused_moe.py:301-302`) without its methods
+(`ops/fused_moe/fused_moe.py:612,616`), and its `forward` also unpacks a two-tuple from a
+parent that returns a bare tensor (`:290` vs `:259`), so the reporter's two earlier
+workarounds (bf16 rejection, then the dynamo unpack) were the same class, not three
+faults. The run answered all three of their questions in one pass and left the
+upstream-`SharedFusedMoE` side open (the pinned vllm v0.24.0 no longer has that module,
+so the parent cannot be read at the reporter's pairing). Page:
+`../soc-platform-paths/310p-sibling-class-drift.md` (new).
+
+**#10303** 310P + a `vllm-omni` image tag — "310p 使用 quay.io/ascend/vllm-omni:v0.18.0
+这个镜像来创建容器部署 Qwen3-TTS 么?" (pin vllm-ascend v0.20.2rc1; vllm-omni absent from
+`SOURCES.json`). The run answered "no such 310P tag, use a `-310p` variant" from another
+issue's `collect_env`, never opening the post's own screenshot — whose OCR is the
+vllm-omni install page listing **Atlas A2 / Atlas A3 only**, the same verdict in one
+call. The reporter's later public comments (2026-07-28) supply the route that works:
+source build on a `-310p` CANN base with `SOC_VERSION=ascend310p1` (vllm `[audio]` →
+vllm-ascend → vllm-omni, triton and triton-ascend removed) plus a two-stage fp16
+`--deploy-config`. Delivery lesson: keep the tag verdict to one sentence and put the
+build+config route in the same message, because that is the next question. Pages:
+`../soc-platform-paths/310p-omni-model-deploy.md` (new),
+`templates/omni-310p-deploy-config.yaml`.
+
 **#6578** vllm-ascend v0.14.0rc1 (`52d4acfa`) + vllm v0.14.1 (`d7de043d`), Qwen3-32B on
 910B, title `no attribute qkv_rmsnorm_rope`, body's first line an
 `AttributeError: '_OpNamespace' '_C_cache_ops' object has no attribute 'reshape_and_cache'`:
@@ -826,3 +887,67 @@ backend twins, the tree's own `start_layer` pattern, the PP e2e test commented o
 CI — but spent most of its turns on a source walk to get there. Page now carries the
 mechanism, the stage-aware patch and the `--pipeline-parallel-size 1` ablation:
 `../pipeline-parallel/pp-blind-first-layer-lookup.md` (new).
+
+**#10910** vllm-ascend v0.19.1rc1 (`da421afa`) + vllm v0.19.1 (`b1388b1f`), 2 nodes × 16
+910C, Qwen3-235B-A22B: two independent symptoms with a full tested-configuration matrix
+(`TP=32` works, single-node `PP=2,TP=8` works, `PP=4,TP=8` fails with
+`KeyError: 'model.layers.47.self_attn.attn'`, `DP=2,TP=16` fails with
+`ValueError: Current node has no NPU available` and `NPU_group_9_<pgid>` labels). Track:
+**two owners**, both upstream ray plumbing, both one check each: the PP key is the
+per-worker kv-config index (`adjust_rank` rewrites only `rpc_rank`, `worker_base.py:303`
+indexes by the frozen `global_rank`; the module moved to `v1/executor/ray_utils.py:54-61`
+at this pin) and the DP message is the *free*-resource read with a live placement group
+holding the node. The recorded run confirmed the PP fingerprint on turn ~12 and kept
+walking (`launch_core_engines`, `DPMoEEngineCoreActor`, `arg_utils`) for 20+ more turns;
+it ended at the 16 384-token cap with 966 K cumulative prompt tokens and **no answer
+text**. Pages: `../pipeline-parallel/kv-config-rank-mismatch.md`,
+`../startup-failures/ray-dp-placement-group-npu-exhausted.md`.
+
+**#11498** vllm-ascend release/v0.23.0 (`79928c2`) + vllm v0.23.0, DeepSeek-V4-Flash
+w4a8 recipe on 4 cards, TP4 + `--enable-expert-parallel`,
+`VLLM_ASCEND_ENABLE_FLASHCOMM1=1` + `enable_flashcomm1: true`, DP1, PP1: engine
+start dies in `profile_run` with `RuntimeError: Promotion for Float8 Types is not
+supported, attempted to promote Float8_e4m3fn and Bool` at
+`ops/fused_moe/token_dispatcher.py:393 topk_weights = topk_weights * mask`. Track:
+W4A8-MXFP activations (quantised only on the `_prepare_with_ep_group` path, i.e.
+flashcomm1/SP) cast the routing weights to fp8 at `w4a8_mxfp4.py:202`, and the
+AllGather dispatcher multiplies them by a bool EP mask. The run derived all three
+conditions correctly and named the right owning line, but exhausted its response
+room inside its own reasoning and shipped no answer — every mechanism it needed was
+three `sed` reads plus one ablation. Page now holds them:
+`../startup-failures/fp8-topk-weights-mask-promotion.md` (new).
+
+**#12675** image v0.23.0rc1, DeepSeek-V4-Flash, TP8 + EP on one 8-card node,
+`--dtype bfloat16`, `--block-size 128`, `--additional-config` with
+`enable_dsa_cp`/`multistream_overlap_shared_expert`: every rank dies during weight
+load at `vllm_ascend/models/deepseek_v4.py:1535 param = params_dict[name]` with
+`KeyError: 'model.layers.<n>.self_attn.wkv.weight_scale'` /
+`…self_attn.indexer.wq_b.weight_scale` — a different layer per rank, only two
+module families across eight ranks. Track: the reporter is serving a plain
+`deepseek-ai/DeepSeek-V4-Flash` directory (`-v /data/models/DeepSeek-V4-Flash:/root/.cache`,
+`vllm serve /root/.cache`) with **no** `--quantization ascend`, while the tutorial
+lists only the quantised `DeepSeek-V4-Flash-w8a8-mtp` (and the PR test the w4a8
+sibling) and every documented serve line carries the flag. The recorded run
+inferred "the model must be quantised, so exactly these two modules are skipped in
+code" from the short key set and spent its budget in `modelslim_config.py`
+(`is_layer_skipped_ascend` → `create_scheme_for_layer` → `quant_prefix_mapper`)
+without ever asking for the serve command; the answer arrived in the reporter's own
+later paste. Page: `../startup-failures/weight-scale-keyerror-quant-variant.md`
+(new), whose first step is the scale-key census
+(`scripts/checkpoint-key-prefix.py --scales <dir>`).
+**#1369** vllm-ascend `v0.9.1rc1` (`c30ddb8`) + vllm `v0.9.1`, DeepSeek-R1-W8A8, 910B3 ×2,
+depth pruned to 5 layers, `torchair_graph_config.enabled` with chunked prefill left on:
+capture succeeds, then the first `llm.generate` kills both ranks at
+`vllm_ascend/attention/mla_v1.py:1099` with
+`UnboundLocalError: local variable 'decode_hs_or_q_c' referenced before assignment`. The
+recorded run had the decisive artefacts by turn 10 — `graph_mode.md:50-51` and
+`test_torchair_graph_mode.py:46-60`, both `only work without chunked-prefill`, both pairing
+`torchair_graph_config` with `ascend_scheduler_config` — and the reporter's own commented
+key misspelt `asacend_scheduler_config`, then spent the rest of the budget deciding *which*
+scheduler step mixed decode with prefill (a 13 K- and a 19 K-character block, 46 messages,
+zero delivered answer, output-truncated at 8 192 tokens). Public resolution is that
+contract: the maintainer's later comment says torchair does not work with chunked prefill
+and points at `AscendScheduler` (which disables it); after being pointed at
+`mla_v1.py#L1075` the reporter answered "I was careless". Page now carries the binder
+structure, the silent-key/cached-config check and the "patching one line moves the crash"
+follow-up: `../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md` (new).

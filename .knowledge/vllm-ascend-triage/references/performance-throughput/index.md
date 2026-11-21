@@ -21,7 +21,18 @@ NPU 空闲时间 95%", a MindStudio/`msprof` op-statistics screenshot, or an
 `msprof analyze compare` NPU-vs-GPU operator-count ratio. There the table itself is
 the first suspect (collection health, window, step normalization), not the engine —
 read `profiler-opcount-evidence.md` before doing any arithmetic, and never walk the
-quantization/linear internals for a count question.
+quantization/linear internals for a count question. **The one profiler report that is
+*not* a count question is a coverage claim** — "the W8A8 artifact is no faster than
+BF16 because *this layer class* has no quant kernel" (recorded #9443, the
+full-attention `self_attn` rows of a Qwen3.5 hybrid): there the layer class, not the
+window, is what needs checking, and `quantized-artifact-layer-coverage.md` owns it.
+
+**And this topic:** a profiler table with a *missing column* — `Input Shapes: N/A`,
+`Block Dim: 0`, `OP State: N/A` for one custom op while its neighbours carry shapes,
+usually attached to a self-diagnosed `OpCommand::SetCustomHandler` /
+`aclprofRangePushEx` fix proposal — is a **launch-lane** question, not a count one:
+read `profiler-shape-columns-custom-op-launch.md` (and run its
+`scripts/op-shape-lane.sh`) before any of the count arithmetic below.
 
 Not this topic, leave immediately:
 
@@ -82,7 +93,17 @@ Not this topic, leave immediately:
 - Never read `npu-smi` AICore%/power from an idle paste as load evidence: those
   numbers were taken while no request was running.
 - **A step change at a concurrency number is a fixed-size structure, and the
-  first candidate is the ACL-graph capture ceiling.** Running sequences ×
+  paste's own `GPU KV cache usage` at that step says which one.** Near 100 % at the
+  stepping concurrency, with `Running` plateauing below the offered count, is the
+  **KV pool**: back-solve the pool from two of the reporter's rows
+  (`footprint × running / usage`; #5859 gave ≈256 K tokens twice over a 33.8 K-token
+  request, a ceiling of ≈7.5 requests, and `Running: 8` behind 12 offered), and note
+  that V1 prices the wall by preemption — `_preempt_request` sets
+  `num_computed_tokens = 0`, i.e. a full re-prefill, and `Preemptions` is printed
+  only when non-zero (`kv-capacity-step-and-preemption.md`). At 81-84 % instead
+  (#14440), capacity and admission are out and the graph ceiling below is the
+  candidate. Decide from that column before opening any source; the two shapes look
+  identical otherwise. **The graph ceiling, when it is the owner:** Running sequences ×
   `(1 + num_speculative_tokens)` is compared with
   `max_cudagraph_capture_size`, which vllm-ascend defaults to
   `min(max_num_seqs * decode_query_len, 512)`; above it
@@ -131,6 +152,14 @@ Not this topic, leave immediately:
   treat per-step parity as the null hypothesis, with the launch-command flags that
   have no reader at the pinned ref (`VLLM_ASCEND_ENABLE_DENSE_OPTIMIZE` removed at
   v0.13.0rc1, `release_notes.md:35`) as a correction rather than a cause.
+- `profiler-shape-columns-custom-op-launch.md` — one row of the table is `N/A`:
+  `SetCustomHandler` is not the discriminator (vllm-ascend's own `EXEC_NPU_CMD` uses
+  it too, `csrc/aclnn_torch_adapter/op_api_common.h:584` at v0.18.0); the
+  `CUSTOM_OPS` build list decides whether an `aclnn<Op>` entry point exists at all
+  (`scripts/op-shape-lane.sh`), the CANN tensor-info record holds 5 tensors × 8 dims
+  (`cann/runtime/pkg_inc/profiling/aprof_pub.h:34-35,322-326`), and the aclprof
+  tensor-info API is *unverifiable* from a truncated export (`acl_prof.h` stops at
+  `aclprofMarkEx`). Recorded for #9026, where the run had every fact and no delivery.
 - `prefill-queue-and-throughput.md` — the worked #6833 block (40 concurrent
   requests, `Waiting` 35 → 0, generation throughput 8.5-38.5 tok/s during prefill
   and 1039.6 tok/s after): the arithmetic, why the queue is prefill-bound, the
@@ -138,6 +167,16 @@ Not this topic, leave immediately:
   If the paste's samples match that table line for line, the arithmetic is
   settled — cite it and spend the remaining turns on the answer, not on
   re-deriving it.
+- `quantized-artifact-layer-coverage.md` — a **quantized artifact that is no
+  faster than its BF16 sibling**, with a dump showing a whole layer class without a
+  quant kernel (#9443, Qwen3.5-122B w8a8-mtp on v0.19.1rc1): the two separate
+  quantizations (linear int8 per-layer json entry vs `fa_quant_type` int8
+  attention/KV, decode-only), why a bf16 linear layer can only come from a `"FLOAT"`
+  entry in `quant_model_description.json` (a missing key is a `KeyError`, not a
+  silent skip), why an *architectural* layer class is a family-wide converter gap
+  and not "the artifact's choice" (the reporter's own follow-up on #9443), the
+  sibling-artifact `jq` and the same-request bf16/w8a8 A/B that separate the two,
+  and the variant-coverage facts.
 - `qwen3-next-decode-throughput.md` — Qwen3-Next-80B-A3B at 4-6 tok/s on one
   request: the per-step arithmetic that rules capacity and queueing out, the
   verified v0.11.0rc2 map (`--enforce-eager` in the project's own command,
@@ -145,6 +184,14 @@ Not this topic, leave immediately:
   chunk loop, no `qwen3_next` in `tests/`), why the newer release's
   `FULL_DECODE_ONLY` tutorial command is the real lever, and the paste-hygiene traps
   (#4357: `served_model_name` contradicts the reported command).
+- `kv-capacity-step-and-preemption.md` — the same step shape owned by the KV pool
+  instead of the graph (#5859: 6/7/8/12 concurrent at 79.4/92.4/98.9/98.7 % KV):
+  the two-row pool back-solve and the per-request percentage, the pinned
+  preemption-recompute sites (`scheduler.py:316-362,759-781`, `Preemptions` printed
+  only when non-zero at `loggers.py:221-223`, the downstream SLO fork repeating it),
+  why the default capture list already contains 8, the `--max-num-seqs`-as-guard
+  ablation, the capacity levers, and the GLM-4.7 MTP-on-main-only note that collapses
+  the `×(1+K)` multiplier on a released image.
 - `sequence-count-cliff-capture-size.md` — throughput collapsing in one step as
   running sequences cross a threshold (#14440: 256 → 258 at tp=8, MTP,
   DeepSeek-V4-Flash on 910B2): the `min(max_num_seqs × (1+num_spec), 512)`

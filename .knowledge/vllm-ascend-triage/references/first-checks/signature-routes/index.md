@@ -38,7 +38,7 @@ the most specific row wins.
   (`SKILL.md` rule 10): say which token you searched for.
 - Rows are in no particular order. Scan the left column, do not read a table
   front to back. **Unsure which page?** One grep over this directory searches all
-  155 rows at once: `rg -n '<distinctive fragment>' references/first-checks/signature-routes/`
+  every row at once: `rg -n '<distinctive fragment>' references/first-checks/signature-routes/`
   — a token, not a category (SKILL.md rule 8).
 
 ## Tracks

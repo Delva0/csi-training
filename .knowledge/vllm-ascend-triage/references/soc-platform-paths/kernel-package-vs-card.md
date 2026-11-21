@@ -1,4 +1,4 @@
-# Built-in aclnn op has no kernel for the running SoC (`EZ9999 … Parse dynamic kernel config fail`)
+# Built-in aclnn op has no kernel for the running SoC (`Parse dynamic kernel config fail`, `does not has any binary`)
 
 Verified at vllm-ascend `v0.7.3` (`779eebb8021e`) and vllm `v0.7.3` (`ed6e9075d31e`),
 recorded for #1696: 910C1 host, `quay.io/ascend/vllm-ascend:v0.7.3` image,
@@ -42,6 +42,74 @@ python3 -c "import torch, torch_npu; print(torch.npu.get_device_name(0)); print(
 ```
 
 The same `EZ9999` there closes the case on the image/CANN-vs-card pairing.
+
+## Second wording of the same fault: `EZ9999 … Op <Op> does not has any binary`
+
+Verified at vllm-ascend v0.10.0rc1 (`4604882a3e2c`) and vllm v0.10.0 (`6d8d0a24c02b`),
+recorded for #6082: `quay.io/ascend/vllm-ascend:v0.10.0rc1-310p` on a 300I Duo
+(driver 25.2.0, firmware 7.7.0.6.236), `OpenGVLab/InternVL3-8B`, `--dtype float16
+--enforce-eager --trust-remote-code --compilation-config '{"custom_ops":["none",
+"+rms_norm","+rotary_embedding"]}'`. Text prompts answer; a request carrying an image
+dies:
+
+```
+RuntimeError: NPU function error: call aclnnIsNegInf failed, error code is 561000
+[ERROR] ERR00100 PTA call acl api failed
+EZ9999: [PID: …] Op IsNegInf does not has any binary.
+```
+
+The paste's own attribution is `_execute_mm_encoder` → `scatter_mm_placeholders`, with
+torch_npu's "the operator is called asynchronously, the stacktrace may be inaccurate"
+line beside it. Same drawer as above, different wording: `Parse dynamic kernel config
+fail` is kernel-*config* initialisation, `does not has any binary` is the op-package
+inventory; both mean nothing was launched, both belong to the image's CANN, and
+`csrc/`, `_cann_ops_custom`, `ASCEND_CUSTOM_OPP_PATH` and `binary_info_config.json` are
+all the wrong drawer here too.
+
+**The caller is not in any pinned tree — do not hunt it.** `rg -ni 'isneginf'` over the
+pinned vllm and vllm-ascend trees at that ref returns **nothing**; the transformers and
+pytorch exports are partial and show only a test file and a header; op-plugin declares
+`isfinite` (`op_plugin/op_plugin/ops/OpInterface.h:452`) and no `IsNegInf` anywhere. A
+torch_npu built-in of this family is reached from ATen composites (the SDPA math path's
+`nan_to_num` / `isfinite`) or from the checkpoint's remote code, neither of which the
+snapshot ships — so "who calls it" is an **open question from the turn you notice it**,
+not a grep to keep running. #6082 spent its whole output budget on five-tree `isneginf`
+greps plus a `is_310p()` call-site survey and delivered nothing
+(`../evidence-workspace/delivery-discipline.md`).
+
+Two cheap facts explain the shape:
+
+- vLLM's vision tower is the only code an image request adds, and at vllm v0.10.0 it
+  calls `F.scaled_dot_product_attention(q, k, v, scale=…)` with no mask
+  (`vllm/model_executor/models/intern_vit.py:275`). Confirm the split by serving one
+  text request and one image request on the same engine instead of reasoning about it.
+- The 310P op set is the image's: `Dockerfile.310p:18 FROM
+  quay.io/ascend/cann:8.2.rc1-310p-ubuntu22.04-py3.11`, and the 300I page says the
+  platform is experimental, eager-only and float16-only
+  (`docs/source/tutorials/single_node_300i.md:4-5`). A host driver bump does not add an
+  op the image's CANN lacks. The tree's own precedent for gating a missing 310P op in
+  Python is `vllm_ascend/sample/sampler.py:25` (`aclnnApplyTopKTopP … does not support
+  310P`, guarded by `is_310p()`).
+
+Decisive probe — same container, no vLLM, the reported op and the model's dtype
+(`float16` in that image):
+
+```bash
+python3 -c "import torch, torch_npu; x=torch.tensor([float('-inf'),0.,1.],dtype=torch.float16).npu(); print(torch.isneginf(x)); print(torch.isfinite(x))"
+```
+
+- It fails the same way ⇒ SoC op-coverage gap: no serve flag helps. Deliver that, the
+  image-CANN line, and the two honest limits — whether a later `-310p` image covers the
+  op is unverifiable when `SOURCES.json` pins one release, and the op's absence is a
+  maintainer/CANN question (no `cann/ops-*` tree in the snapshot).
+- It passes ⇒ the failure is shape/dtype/format specific, so it is **not** an op-gap
+  claim: rerun the serve with `ASCEND_LAUNCH_BLOCKING=1` (eager is already on) so the
+  traceback names the real caller, and plog the request window.
+
+Also state that the signature is new rather than citing a sibling: `history-titles.sh -i
+'IsNegInf'` and the prior-month issue search both return 0 hits. Ask for the full
+container log around the failing request (not the tail), the probe output, `npu-smi
+info`, and whether a text-only request on the same engine succeeds.
 
 ## Split the two causes before advising a fix
 

@@ -633,6 +633,19 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `quantization_config` started without `--quantization ascend` /
   `quantization="ascend"` and died in a worker (#2015) — the flag is mandatory
   exactly because upstream's auto-detection has nothing to read.
+- A serve that dies on a *quantised-lineage* model whose name carries no quant suffix
+  (`DeepSeek-V3`, `DeepSeek-R1`, `-0324`) with `quantization=ascend` in the engine line
+  and no `--quantization` in the command, or with `fp8 quantization is currently not
+  supported in npu` beside such a model (the plugin's `ascend` never registered, so the
+  checkpoint's own `fp8` reached the platform gate): one call decides whether the
+  *weights* are the limit before any quant-config walk —
+  `uv run --no-project python <skill_root>/scripts/checkpoint-key-prefix.py --dtypes <model dir>`.
+  `F8_E4M3` weight tensors = the upstream FP8 release and no flag/config edit runs it
+  (dequantize to bf16, or a msmodelslim W8A8 export); int8 + `quant_model_description.json`
+  = a converted export whose method was not selected; bf16 with a leftover
+  `quantization_config` = the declaration is the bug, one config edit
+  (`../startup-failures/quantization-method-gate.md` §E — and its §E-i when the release
+  has the name but no implementation, e.g. v0.7.1rc1).
 - A load-phase `KeyError: '<prefix>.weight_scale'` or `'…experts.w2_weight_offset'`
   (a quant **aux** tensor, not a weight): one call censuses the checkpoint before any
   `modelslim_config.py` read —

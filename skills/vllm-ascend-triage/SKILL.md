@@ -1,6 +1,6 @@
 ---
 name: vllm-ascend-triage
-description: 'Triage vLLM-Ascend issue reports; load alone first'
+description: 'vLLM-Ascend issue triage; load alone, no shell beside'
 ---
 
 # vLLM-Ascend issue, deployment and support triage
@@ -18,9 +18,10 @@ paid 39 KB / 14 KB (both forwards of one minibatch, #16365 among them), 54 KB / 
 this call in #16581 — which ended output-truncated at 1.1 M cumulative prompt
 tokens — and 4.5 KB in #13007, from `ls /workspace/repos` plus the first 100 lines
 of `SOURCES.json` batched beside this call (the line cap is the only reason it
-stayed that small). That is why the frontmatter description says "load alone first": the
-description is the only
-text the agent reads *before* this body. If something has to share it, let it be
+stayed that small). That is why the frontmatter description names the prohibition — "load
+alone, no shell beside" — instead of only the reading order: the description is the only
+text the agent reads *before* this body, so a "load alone first" that omits *what not to
+batch* is what the recorded runs above ignored. If something has to share it, let it be
 `bash <skill_root>/scripts/sources-summary.sh` (~10 lines). Then orient with
 `search_files (target='files')` on one level of
 `/workspace` plus that same summary and nothing
@@ -220,6 +221,13 @@ version, gaps stated.
   implies — `references/code-change-requests/index.md`, then `env-flag-retirement.md`.
   The delivery gates apply here too: no crash to report, so the absence verdict goes in
   the first message (recorded #1262 replay: first message text on turn 15).
+  The variant that ships a **review** instead of a plan links a main-only fix and its
+  backport PR ("问题在主线已修复 … 未回合进<branch>分支, pr已提，请review"): the first move is
+  the predicate at both pins — the fixed form on main versus what the branch still has,
+  one grep in the image's tree — then the sibling call sites and the CI test that a
+  file-local change does not select. Worked checklist, anchors and the CI gap:
+  `references/accuracy-benchmarks/first-generate-degenerate.md`, "When the ask is to
+  review the backport".
 
 Recorded cases, per-issue index and how each session ended:
 `references/evidence-workspace/recorded-cases.md`; the load-bearing
@@ -678,7 +686,9 @@ delivery pattern is rule 1.
    for the `github` issue search only when the corpus token has **no** hit: it returns
    whole issue bodies
    paginated (17 K characters in #9986 with `display_complete: false`), so read the
-   first page and stop. **Pick the bodies by whether
+   first page and stop — and skip it entirely once the corpus search returned hits or
+   the pinned source already answers the question (#10074 spent one 17 K-character
+   `/search/issues` page after its source evidence was complete, then discarded it). **Pick the bodies by whether
    the title names a mechanism, not by whether it repeats your symptom.** A title
    like "多卡ViT qkv部分权重为0导致精度异常" carries the file, the check and often the
    version flip ("rollback to 0.7.3rc2 works"); four titles that only say
@@ -885,6 +895,19 @@ delivery pattern is rule 1.
     confirmation but not the leading rank. #7180 led with it and the reporter's next
     comment pasted `temperature: 0, top_p: 1, top_k: 1` — reproducibility between
     repeated runs, not accuracy (`references/accuracy-benchmarks/repeated-run-nondeterminism.md`).
+
+    **And a control the reporter only *asserts* is a premise, not a finding.** "works on
+    灵衢直连, fails on RoCE 组网" / "works on the sibling node" / "works in eager" is the
+    reporter's claim about a run you cannot see, and it can be stale, mis-scoped or
+    already false: build the ranking so the answer still holds if it is. Recorded #9447
+    (v0.18.0rc1, GLM-5.1, 2×A3, `aclnnMoeDistributeDispatchV4` + `hccl_ret 9` at profile)
+    derived its whole answer from the fabric premise — the RoCE-only
+    `enable_mc2_hierarchy_comm` key — shipped **no message text**, and the reporter's own
+    public follow-up (2026-06-22) said 没有解决 with the direct-connect setup failing too. So
+    state one line that re-confirms which setup fails now, and prefer a control you can
+    make true locally — the **one-node** run of the same EP group, the same flags with the
+    feature off — over the fabric or node the reporter believes is healthy
+    (`references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3c).
 16. **A release candidate's experimental mode is a version question before it is a
     mechanism question.** When the mode printed its own banner
     (`FULL_DECODE_ONLY compilation enabled on NPU`, `PIECEWISE …`), every rank finished
@@ -1100,7 +1123,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
 - The action ladder, cheapest first: **the request's own sampling value**
   (`temperature`/`top_p` — on a reasoning-distill checkpoint a ≤0.1 temperature is
   itself a degeneration, so the rung *raises* it; `references/accuracy-benchmarks/
-  short-prompt-corruption.md`), an explicit `--max-model-len`, a re-run with
+  short-prompt-corruption.md`), `--dtype bfloat16` when the answer is one repeated
+  token and the reporter's own controls are clean (transformers and a GPU box
+  correct — reporter-confirmed #562, `references/accuracy-benchmarks/
+  precision-dtype-degeneracy.md`), an explicit `--max-model-len`, a re-run with
   `--enforce-eager` / `ASCEND_LAUNCH_BLOCKING=1`, `return_token_ids: true` on the
   same request body, one `num_speculative_tokens` step, `asys health -d=$i`, a
   version correction — before any patch proposal.

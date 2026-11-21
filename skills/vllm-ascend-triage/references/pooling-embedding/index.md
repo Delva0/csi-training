@@ -37,7 +37,13 @@ reading any code:
    `print(input_batch)` in the second batch: `[None,None,xxx,297]`, then
    `[None,298,299,xx]` as requests are added → `batch-index-desync.md` (which also
    carries the producer-side probe recipe: wrap `add_request` /
-   `remove_request` / `condense`, do not probe a consumer).
+   `remove_request` / `condense`, do not probe a consumer). The class also arrives
+   under a title that names nothing but the front end — `AsyncLLM output_handler
+   failed` (#4156, a Qwen2.5-VL-3B checkpoint on `/v1/embeddings`, already at
+   v0.11.0rc0) with the `KeyError` readable only in the attached screenshot — and
+   that same front-end line fronts a metric-arithmetic crash too
+   (`../kv-pool-store/prompt-token-counter-negative.md`), so read the
+   engine-core exception before choosing this lane.
 3. **The vectors are wrong for long inputs** while short inputs match the
    reference to > 0.999, the corruption is deterministic inside one serve
    session, and `--no-enable-chunked-prefill` removes it →
@@ -195,7 +201,10 @@ Three scripts serve this topic's startup classes directly:
   (`add_request` → `num_reqs`, `remove_request` without `removed_append`,
   `condense` trim-only) versus upstream's slot machinery, the exact sequence that
   leaves a `None` hole and a duplicated slot, the `KeyError` at
-  `vllm/v1/attention/backends/utils.py:798`, and that the copy is gone by v0.23.0.
+  `vllm/v1/attention/backends/utils.py:798`, that the copy is present at v0.11.0rc0
+  (`00ba071`, #4156) and gone by v0.13.0rc1 — quote the recheck
+  (`rg -n 'def condense|def add_request' vllm_ascend/worker/npu_input_batch.py`
+  returns nothing), not a version number.
 - `chunked-prefill-vector-corruption.md` — class 3. Worked case vllm-ascend
   #17797 (v0.23.0-310p, `--runner pooling`, Qwen3-Embedding-0.6B): what the
   report proves, what is verified in the pinned tree, the three Ascend-specific

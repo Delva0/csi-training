@@ -20,6 +20,7 @@ Usage:
   uv run --no-project python checkpoint-key-prefix.py model-00001-of-00002.safetensors
   uv run --no-project python checkpoint-key-prefix.py - < model.safetensors.index.json
   uv run --no-project python checkpoint-key-prefix.py --scales /model/DeepSeek-V4-Flash
+  uv run --no-project python checkpoint-key-prefix.py --dtypes /model/DeepSeek-V3-0324
 
 ``--scales`` switches to the quantisation census instead: which ``.scale`` /
 ``.weight_scale`` / ``.quant_bias`` tensors the checkpoint carries, grouped by module
@@ -31,9 +32,21 @@ ascend`` flag/method is the question) or a full-precision release whose few
 FP8-stored projections ship a per-tensor scale (then the weight *variant* is the
 question).  See references/startup-failures/weight-scale-keyerror-quant-variant.md.
 
-Exit status: 0 = weights read, 1 = root-level (unprefixed) tensor names found,
-2 = no safetensors weights could be read (ask the reporter for `ls` of the dir).
-Read the report, not just the status.
+``--dtypes`` switches to the *weight dtype* census instead: the histogram of the
+header ``dtype`` field over every shard, the module families carrying FP8
+(``F8_E4M3``/``F8_E5M2``) *weight* tensors (scale-like suffixes counted apart), and
+the two quantisation declarations beside them.  It answers "is this checkpoint
+executable on the NPU at all" — the upstream DeepSeek-V3/R1 release stores E4M3
+weights, which the 910 does not run, and ``config.json`` cannot tell you: the pinned
+conversion guide tells converters to delete those fields before a W8A8 export, so a
+directory may hold FP8 tensors with no ``quantization_config`` at all and a bf16
+directory may still carry a leftover one.  See
+references/startup-failures/quantization-method-gate.md section E.
+
+Exit status: 0 = weights read (prefix mode: no root-level names; ``--dtypes``: no
+FP8 weight tensors), 1 = root-level (unprefixed) tensor names found, or FP8 weight
+tensors found under ``--dtypes``, 2 = no safetensors weights could be read (ask the
+reporter for `ls` of the dir). Read the report, not just the status.
 """
 
 import glob
@@ -45,8 +58,8 @@ import sys
 MAX_SAMPLES = 4
 
 
-def read_headers(path):
-    """Return the tensor names of one safetensors file (header-only read)."""
+def read_header(path):
+    """Return the safetensors header dict of one file (header-only read)."""
     with open(path, "rb") as f:
         raw = f.read(8)
         if len(raw) != 8:
@@ -55,7 +68,14 @@ def read_headers(path):
         if length <= 0 or length > 100 * 1024 * 1024:
             raise ValueError(f"implausible header length {length}")
         header = json.loads(f.read(length).decode("utf-8", "replace"))
-    return [k for k in header if k != "__metadata__"]
+    if not isinstance(header, dict):
+        raise ValueError("header JSON is not a tensor map")
+    return header
+
+
+def read_headers(path):
+    """Return the tensor names of one safetensors file (header-only read)."""
+    return [k for k in read_header(path) if k != "__metadata__"]
 
 
 def names_from_index(path_or_dash):
@@ -203,14 +223,128 @@ def report_scales(names, source, path):
     return 0
 
 
+FP8_DTYPES = ("F8_E4M3", "F8_E4M3FN", "F8_E4M3FNUZ", "F8_E5M2", "F8_E5M2FNUZ")
+
+
+def safetensors_files(path):
+    if os.path.isfile(path) and path.endswith(".safetensors"):
+        return [path]
+    if os.path.isdir(path):
+        return sorted(glob.glob(os.path.join(path, "*.safetensors")))
+    return []
+
+
+def report_dtypes(path):
+    """Weight-dtype census: is this checkpoint executable on the NPU at all?"""
+    files = safetensors_files(path)
+    if not files:
+        print("no *.safetensors to read dtypes from: point this at the model "
+              "directory (or one shard), not at an index json")
+        return 2
+
+    counts, weight_f8, scale_f8, examples, dtypes_seen = {}, {}, {}, {}, set()
+    for f in files:
+        try:
+            header = read_header(f)
+        except Exception as exc:                                # noqa: BLE001
+            print(f"{os.path.basename(f)}: unreadable header ({exc}) — run "
+                  "scripts/checkpoint-header-scan.py on this directory")
+            return 2
+        for name, info in header.items():
+            if name == "__metadata__" or not isinstance(info, dict):
+                continue
+            dt = str(info.get("dtype", "?"))
+            counts[dt] = counts.get(dt, 0) + 1
+            dtypes_seen.add(dt)
+            if dt not in FP8_DTYPES:
+                continue
+            if quant_suffix(name) is not None:
+                scale_f8[name] = dt
+                continue
+            fam = module_family(name)
+            weight_f8[fam] = weight_f8.get(fam, 0) + 1
+            examples.setdefault(fam, name)
+
+    base_dir = os.path.dirname(os.path.abspath(path)) if os.path.isfile(path) else path
+    cfg = load_json(os.path.join(base_dir, "config.json"))
+    desc = load_json(os.path.join(base_dir, "quant_model_description.json"))
+    qcfg = None
+    if cfg is not None:
+        qcfg = cfg.get("quantization_config") or cfg.get("compression_config")
+
+    print(f"tensor source: {len(files)} safetensors file(s) under {base_dir}")
+    print("tensors by dtype: " + ", ".join(
+        f"{d} {c}" for d, c in sorted(counts.items(), key=lambda kv: -kv[1])))
+    if weight_f8:
+        print(f"  FP8 *weight* tensors: {sum(weight_f8.values())} in "
+              f"{len(weight_f8)} module families")
+        for fam, cnt in sorted(weight_f8.items(), key=lambda kv: -kv[1])[:15]:
+            print(f"    {fam:52} {cnt:5d}   e.g. {examples[fam]}")
+        if len(weight_f8) > 15:
+            print(f"    ... {len(weight_f8) - 15} more families")
+    if scale_f8:
+        print(f"  FP8 *scale-like* tensors: {len(scale_f8)} "
+              "(counted apart; a scale's dtype alone decides nothing)")
+
+    print()
+    print("quantisation declarations:")
+    print(f"  quant_model_description.json:  "
+          f"{'present (modelslim/msmodelslim export)' if desc is not None else 'absent'}")
+    print(f"  config.json quantization_config/compression_config: "
+          f"{qcfg if qcfg is not None else 'absent'}")
+
+    print()
+    print("verdict:")
+    if weight_f8:
+        print("  E4M3/E5M2 WEIGHT tensors are in this checkpoint: it is the upstream")
+        print("  FP8 release (DeepSeek-V3/R1 and siblings), and the 910 executes none")
+        print("  of it at the refs recorded here — no method name, config edit or")
+        print("  graph flag changes that. Reporter-confirmed rule (#3534): \"check the")
+        print("  weight dtype … if E4M3 weights are included, it can be considered")
+        print("  that this is not supported on the NPU\". Routes: dequantize to bf16,")
+        print("  or convert with msmodelslim to W8A8/W8A8_DYNAMIC and serve that with")
+        print("  `--quantization ascend`.")
+        print("  Scope: the support verdict is the *pinned release's* quant doc/support")
+        print("  matrix, not this script — re-check it before applying the rule to a")
+        print("  later release that adds an fp8 row.")
+        print("  See references/startup-failures/quantization-method-gate.md section E.")
+        return 1
+    if "I8" in dtypes_seen and (desc is not None or qcfg is not None):
+        print("  int8 weights plus a declared quantisation: a converted export. The")
+        print("  question is whether the engine selected the matching method")
+        print("  (`--quantization ascend` / the checkpoint's own quant_method) —")
+        print("  sections A and B, and section C if the load dies on a lookup key.")
+        return 0
+    if "I8" in dtypes_seen:
+        print("  int8 weights with NO declaration beside them: an export whose")
+        print("  description/method is missing, so nothing selects it and the int8")
+        print("  tensors are loaded into a dense model — section B (#2015).")
+        return 0
+    if qcfg is not None:
+        print("  no FP8/INT8 weights but `config.json` declares a quantisation: the")
+        print("  declaration is stale (the pin's guide has converters *delete* those")
+        print("  fields before a W8A8 export), yet the engine still renames the method")
+        print("  to `ascend` and hands that dict to the quant config — the section C")
+        print("  KeyError, whose fix is the one config edit. Nothing about the weights")
+        print("  is quantised.")
+        return 0
+    print("  full-precision weights and no declaration: this directory is not the")
+    print("  source of any quantisation gate — look at the served path, not the file")
+    print("  list (sections A–C).")
+    return 0
+
+
 def main(argv):
     flags = [a for a in argv[1:] if a.startswith("--")]
     positional = [a for a in argv[1:] if not a.startswith("--")]
-    if flags not in ([], ["--scales"]) or len(positional) != 1:
-        print("usage: checkpoint-key-prefix.py [--scales] "
+    if flags not in ([], ["--scales"], ["--dtypes"]) or len(positional) != 1:
+        print("usage: checkpoint-key-prefix.py [--scales|--dtypes] "
               "<model-dir|*.safetensors|*.index.json|->", file=sys.stderr)
         return 2
     path = positional[0]
+
+    if "--dtypes" in flags:
+        return report_dtypes(path)
 
     try:
         names, source, _files = collect(path)

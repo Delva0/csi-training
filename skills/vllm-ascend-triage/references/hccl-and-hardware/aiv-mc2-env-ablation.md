@@ -93,8 +93,10 @@ fault owner — so treat the ablation as done, and take the mode split instead
    | 3 | `expandable_segments` only | PASS |
    | 4 | neither (their working run) | PASS |
    Also ask for the failing rank count: AIV × MC2 fails on the MC2 op, while a
-   RoCE/rank-table fault fails on the same op with an HCCL return code instead
-   (`hccl_ret 9`, #9447) and can be reproduced by `hccl_test`.
+   transport fault fails on the same op with an HCCL return code instead
+   (`hccl_ret 9`, #9447). A **passing** `hccl_test` does not clear that lane —
+   #9447's inter-node `hccl_test` was normal while the dispatch failed at profile,
+   and the reporter's 2026-06-22 follow-up still had it open on two fabrics (row below).
 3. Answer with "workaround vs defect" clearly separated: keeping AIV and forcing
    the non-MC2 method (diagnostic selector override, as in #14928's passing row)
    is the diagnostic; dropping AIV is the workaround; the combo itself is a
@@ -110,7 +112,7 @@ fault owner — so treat the ablation as done, and take the mode split instead
 |---|---|---|
 | #14928 | A3 single node, GLM-5.2 W4A8C8, TP8/EP8, **eager**, `max_num_batched_tokens=128`, AIV on | `profile_run` hangs in `aclnnMoeDistributeCombineV4`, `107020` after ~320 s; AIV + AlltoAll override PASSES, AIV unset + MC2 PASSES, DCP 1 and 8 both fail → selector-level, not graph or DCP |
 | #13688 | 910C ×8, GLM-4.6V TP8+EP8, AIV on, NPUGraph | capture failure `rtEventRecord ... 507009` and replay deadlock (AIVector 8-16 %, AICore 0 %), plus "MC2 MoE dispatch/combine still deadlock with AIV" |
-| #9447 | v0.18.0rc1, GLM-5.1, 2×A3 over **RoCE** vs 灵衢 direct connect | `aclnnMoeDistributeDispatchV4` comm failure, `hccl_ret 9`, works on direct connect → transport variant, not AIV |
+| #9447 | v0.18.0rc1, GLM-5.1, 2×A3: RoCE 组网 fails, 灵衢 direct connect works (reporter's premise) | `aclnnMoeDistributeDispatchV4` comm failure, `hccl_ret 9` at profile. **Unresolved** — the reporter's own follow-up (2026-06-22) says 没有解决 and the direct-connect setup was failing too, so the "works on the other fabric" premise did not hold and no RoCE-only knob is confirmed. The `hccl_ret`-9 **sibling** of this family, not AIV support: `mc2-dispatch-profile-run-hang.md` §Step 3c |
 | #15195 | A3, DeepSeek-V4-Flash w8a8, 16 decode ranks, MC2/MoE stage | `EVENT_WAIT` timeout at 234 s, `rtEventSynchronize` → `107020`; restart of the decode processes restored service (no hardware fault) |
 | #12411 | 910C-560T, 4 nodes, GLM-5.1-w4a8, 1P1D | `aclrtSynchronizeEvent(event_)` / `107020` — same code, multi-node, MC2 stage |
 

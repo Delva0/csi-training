@@ -72,7 +72,11 @@ it start" and the first in-window error is `aclnnMoeDistributeDispatchV4` /
 knob changed the selected MoE communication path (AIV × MC2) — a known defect
 family, not a cabling fault: `aiv-mc2-env-ablation.md` has the single-variable
 ablation matrix, the rank arithmetic that says whether MC2 was even selected, and
-the four precedents (#14928, #13688, #9447, #15195).
+the precedents (#14928, #13688, #15195). The same op name returning an HCCL code
+(`hccl_ret 9`) instead of running into a device timeout is the **transport/comm-plane**
+sibling, not this family: #9447 was still
+unresolved on 2026-06-22 with the failure on **two** fabrics, and its passing
+`hccl_test` cleared nothing — `mc2-dispatch-profile-run-hang.md` §Step 3c.
 
 **If the report is a mode split instead of an error — "图模式算子通信报错, 只有开启单算子
 才能规避", no log, the attachment failed** — that is an execution-mode classification

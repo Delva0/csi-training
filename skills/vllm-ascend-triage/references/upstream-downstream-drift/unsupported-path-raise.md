@@ -95,6 +95,23 @@ CANN knob, `--enforce-eager` or plog can move it.
   `needs_extra_input_slots` (`:101`), which is why `draft_model` trips it while
   eagle/MTP (their proposers pass `pass_hidden_states_to_model=True`) usually do
   not.
+- **`needs_extra_input_slots` is computed once, by whichever `__init__` receives the
+  flag — so it flips with the fork's base class, and the symptom flips with it.** At
+  v0.22.1rc1 (row above) the downstream base is
+  `AscendSpecDecodeBaseProposer(SpecDecodeBaseProposer)` and the flag is `True` for
+  `draft_model`, which is what makes these init gates reachable. At **v0.17.0rc1** the
+  downstream base is `SpecDecodeBaseProposer(EagleProposer)`
+  (`vllm_ascend/spec_decode/eagle_proposer.py:89`) and its `super().__init__` is
+  upstream `EagleProposer.__init__`, which hard-codes
+  `pass_hidden_states_to_model=True` (`vllm/v1/spec_decode/eagle.py:1691-1696`); the
+  fork then reassigns `self.pass_hidden_states_to_model = False` (`:95`) without
+  recomputing `extra_slots_per_request` / `net_num_new_slots_per_request` /
+  `needs_extra_input_slots`, so the field stays `False`, none of the three gates fire,
+  and the same launch dies at **request** time instead — `RuntimeError: The expanded
+  size of the tensor … at non-singleton dimension 1` from the EAGLE fast path's
+  hidden-state copy (`../spec-decode-mtp/draft-model-serial-hidden-size-crash.md`,
+  recorded #7365). Before quoting a gate from this section, grep which `__init__`
+  computes the field at the reported ref.
 - **Read which object each gate inspects before promising a workaround.**
   `_raise_if_mrope` tests `self.draft_model_config.uses_mrope` — the **draft's**
   config — while `_warn_if_multimodal` tests the target and only warns

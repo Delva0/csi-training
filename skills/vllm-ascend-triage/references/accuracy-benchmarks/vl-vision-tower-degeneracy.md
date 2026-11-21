@@ -4,8 +4,12 @@ Scope: a **vision** request (image or video) whose answer is a long run of one
 token — `!!!!!!!!`, 感叹号, `，，，`, a single word — from the first generated
 token, with no traceback and a healthy process; often reported together with
 "特别耗时 / unusually slow". The first suspect is the downstream vision tower
-(`vllm_ascend/models/qwen2_5_vl*.py`, `qwen2_vl.py`), not the sampler — and the
-first check is one env var. Text-only prompts answered as word salad are the
+(`vllm_ascend/models/qwen2_5_vl*.py`, `qwen2_vl.py`), not the sampler — but the
+cheapest restart inside a pin the project still supports is the **dtype** lane
+(`--dtype bfloat16`, one reporter-confirmed case: `precision-dtype-degeneracy.md`),
+then one env var — while a tag two or more rcs behind the report (or a month old) is
+rung 1 ahead of both, per SKILL rule 5 and §*Fourth pin* below.
+Text-only prompts answered as word salad are the
 `short-prompt-corruption.md` / `garbled-long-context-output.md` profile instead — and a
 serve whose **every** text-only request degenerates is `short-prompt-corruption.md`
 Step 0b (recorded #6533: `prompt_tokens: 12` on `Qwen3-VL-8B-Instruct`), where the token
@@ -70,7 +74,22 @@ selects this page; a **text-only** serve whose whole answer is one repeated toke
   theorising about the tower. A `prompt_tokens` that is *smaller* by the image's token
   count is the opposite verdict and sends you to the input side.
 
-## Step 1 — the two-implementation gate (cheapest restart)
+## Step 0 — first pin (v0.7.3rc2): there is no downstream VL code to blame
+
+On a report whose environment is vllm-ascend `v0.7.3rc2` / vllm `v0.7.3` the gate
+below does not exist yet, and saying so saves the turns a recorded session spent
+looking for it: `vllm_ascend/models/__init__.py` registers only
+`Qwen2VLForConditionalGeneration`, `DeepseekV2ForCausalLM` and
+`DeepseekV3ForCausalLM`, the package holds `deepseek_v2.py` + `qwen2_vl.py` only, and
+`Qwen2_5_VLForConditionalGeneration` resolves to upstream
+(`vllm/model_executor/models/registry.py:180`). So neither `USE_OPTIMIZED_MODEL` nor
+`qwen2_5_vl.py`/`MIN_PAD_SIZE` is available as a cause at that pin, `tests/` carries
+no VL test at all (`conftest.py`, `model_utils.py`, `ops/`,
+`test_offline_inference.py`), and the single-NPU tutorial is the whole validated
+envelope. Take the **dtype** row first there — `precision-dtype-degeneracy.md`, which
+is the reporter-confirmed fix for exactly this era (#562).
+
+## Step 1 — the two-implementation gate (its own restart, after dtype)
 
 At vllm-ascend `v0.9.2rc1` (`b5b7e0e`), Qwen2.5-VL is registered **twice** and
 the choice is one env var:
@@ -81,7 +100,8 @@ the choice is one env var:
   `qwen2_5_vl_without_padding:..._Without_Padding`.
 - `vllm_ascend/envs.py:118-119` — `USE_OPTIMIZED_MODEL` defaults to **1**.
 
-So the first ablation is one restart: `USE_OPTIMIZED_MODEL=0 vllm serve ...`.
+So the first ablation **on a v0.9.2rc1-or-later pin** is one restart: `USE_OPTIMIZED_MODEL=0 vllm serve ...`
+(after row 0's dtype read above).
 Same failing request, image unchanged. Symptom flips ⇒ the optimized vision
 tower owns it and the issue is submittable with the lines below; no change ⇒ the
 padding path is exonerated and you go to rows 2-5.
@@ -109,15 +129,19 @@ checkpoints, which is exactly the precedent pattern below.
 
 | Row | Change | Corrupt here means | Clean here kills |
 |---|---|---|---|
+| 0 | `--dtype bfloat16` (and read `config.json:torch_dtype` + the log's `dtype=`) | fp16 numeric lane — reporter-confirmed #562 | every weight/shape theory below it |
 | 1 | `USE_OPTIMIZED_MODEL=0` | optimized vision tower owns it | the whole padding theory |
 | 2 | text-only request, same deployment | LM side, not the vision tower | vision tower |
 | 3 | `--tensor-parallel-size 1` | TP-split/pad interaction (#976) | TP |
 | 4 | `--enforce-eager` | ACL-graph replay path | graph mode |
-| 5 | official HF ckpt at the documented revision | checkpoint/SFT/quant side (#562) | their weights |
+| 5 | official HF ckpt at the documented revision | checkpoint/SFT/quant side (weight-name and quant rows only — #562 was the dtype, not this row) | their weights |
 | 6 | `max_tokens=256` | — | "it's sampling / it's slow" framing |
 
-Rows 1-3 are the ones that decide ownership; all six are one flag each, so the
-reporter can run the matrix in one sitting.
+Row 0 is the one reporter-confirmed fix in this family and costs a restart every
+time — run it before the matrix, together with the two reads that say whether the
+report is even in the fp16 lane (`precision-dtype-degeneracy.md`). Rows 1-3 are the
+ones that decide ownership; every row is one flag or env var, so the reporter can run
+the matrix in one sitting.
 
 ## The PD/EPD split: one instance answers the same body correctly
 
@@ -168,6 +192,62 @@ first question is whether the defect survives without the split.
   same body against a non-PD instance. Two screenshots of the same image are one
   observation — #5628's export held only the bad-result OCR under two file names.
 
+### Random characters, not fluent prose (the same lane)
+
+The topology test above does not depend on the answer being *coherent*. Recorded #4497
+(vllm-ascend v0.11.0rc2 `a2e4c3f` ↔ vllm v0.11.0 `b8b302c`, one 8×910B4 node per side,
+1P1D `MooncakeConnector` DP1/TP8 on both, Qwen2.5-VL-72B-Instruct and its w8a8 twin):
+"For some input cases, the model consistently output random chars" — reproducible per
+input, HTTP 200, no error line, `--mm_processor_cache_type shm` on **both** sides and
+`--no-enable-prefix-caching` on the decode block only. The coherence of the answer grades
+the *phase* (unrelated-but-fluent ⇒ conditioning/prompt side; random or half-formed tokens
+⇒ the token/position/embedding path), never the *owner*: the single-instance run is still
+bullet 1 above.
+
+Why the decode node is a real suspect on that shape, source-verified at that pin: the
+image positions are rebuilt **on each side from the request's own mm features** —
+`vllm_ascend/worker/model_runner_v1.py:761` `_init_mrope_positions` (`:767` asserts the
+list exists, `:769-771` **skips any feature whose `data` is `None`**, so it contributes
+no `image_grid_thw`, and `:784` then derives positions from what is left),
+completions reusing them through `mrope_position_delta` (`:913` `_calc_mrope_positions`,
+`:955`); upstream's twin is `vllm/v1/worker/gpu_model_runner.py:729`, called per new
+request at `:607`. A decode node that did not receive a feature payload therefore gets
+text-only positions for the image tokens and decodes garbage with no exception — the same
+file asserts `mm_features is not None` at `:1025` and `:1040` on the paths that *do* run a
+prompt forward, so PD's skipped forward is exactly where it goes quiet.
+
+Rows to add, one launch each, fixed prompt, `temperature: 0`:
+
+1. **Text-only request on the same P/D deployment.** Correct text ⇒ the mm
+   payload/position lane above; garbage too ⇒ the LM/quant/weights lane (rows 2-6 above).
+2. **Drop `--mm_processor_cache_type shm` on both sides** (#4497 carried it on both). It is
+   the one flag in that paste that changes where the processed feature payload comes from
+   (cross-process shared memory versus an in-process LRU), so it is the flag that can move
+   `mm_feature.data` on the side that never ran the processor; it is *not* the stale-object
+   error of
+   `../multimodal-inputs/shm-mm-cache-invalid-object.md` — no such line appears in an
+   accuracy report. Label it a hypothesis and say which side you changed.
+3. **Single-instance serve** of the same body/image/flags (bullet 1 above).
+4. **`--no-enable-prefix-caching` on both sides** (the 1P1D recipes pin it on both;
+   #4497's P block lacked it).
+
+Pin scope, so the next report is not answered with the wrong version: at v0.11.0rc2 this
+tree has **no VL-under-PD tutorial** — the PD docs are
+`multi_node_pd_disaggregation_mooncake.md` and `…_llmdatadist.md` (DeepSeek/Kimi/Qwen3-MoE
+models) while `multi_node_qwen3vl.md` is a *Multi-Node-DP* doc (`:1`, `:12`,
+`--no-enable-prefix-caching` at `:92`/`:135`) — and the PD e2e script exercises
+`AscendSimpleConnector` with a DeepSeek model only
+(`tests/e2e/pd_disaggreate/setup_pd.sh:34,62`). "VL under PD is a validated path" therefore
+cannot be claimed at that pin: quote the gap, never as the cause.
+
+What closed it, from the same issue's later public comments: the reporter reproduced the
+defect with the **Llmdatadist** backend too ("seems not directly related to Mooncake
+only"), and on 2025-12-08 reported the accuracy issue **solved by PR #4484** (the
+maintainer had asked them to apply it and offered to pick it to dev). Two consequences for
+a report pinned before that PR: the connector backend is not the axis, and the repair is
+not in the snapshot — so "re-run on the release carrying the fix" is rung 1 while the
+mechanism ranking stays open (SKILL rule 5, the rc-pin paragraph).
+
 ## Precedent in the issue corpus
 
 - `#976` — **the same file and the same padding logic**, v0.8.5rc1, 8×910B1
@@ -179,7 +259,11 @@ first question is whether the defect survives without the split.
   `0.7.3rc2` still reproduces: a model-size-dependent, not request-dependent,
   report shape.
 - `#445` — 72B `tp 8 --max-model-len 32768`, output occasionally all 感叹号.
-- `#562` — after LLaMA-Factory SFT, 全感叹号: checkpoint side, row 5.
+- `#562` — after LLaMA-Factory SFT, 全感叹号 at v0.7.3rc2/910B4, with
+  `llamafactory` inference and a V100 run both correct: **reporter-confirmed** fix was
+  the dtype (「已解决，将精度改为 bfloat16 就可以了」, 2025-04-23), i.e. row 0 — not the
+  checkpoint row, and not a maintainer's reading of it. Detail:
+  `precision-dtype-degeneracy.md`.
 - `#321` — offline inference fine, **server** inference infinite 感叹号: argues
   for request/template handling (row 2) as the alternative family.
 
@@ -336,6 +420,40 @@ v0.11.0rc3 `8ce5d319`; reported 2025-10-27): `Qwen3-VL-30B-A3B-Instruct`, video 
   than the analysis date, rung 1 is "re-run the same body on the current image"** — one line
   in the first message — and the ranking below it is the mechanism if the re-run still
   degenerates. Say plainly that the pinned tree cannot answer "is it fixed".
+
+- **Second confirmed instance, and it fixes the rung's wording: the target is the next
+  *minor release*, not merely a newer rc.** #5313 (case snapshot opened 2025-12-24; title
+  `vLLM Ascend 0.11.0`, its own `collect_env` block `0.11.0rc0` + vllm `0.11.0rc3` on
+  8×910B4): `Qwen3-VL-32B-Instruct`, video request → `!!!!!!!!`, while **text and image
+  are clean** (the reporter's own control, so the LM/template/tokenizer/sampler lanes are
+  retired). The reporter's later comment: "the issue has been resolved after updating to
+  version **0.12.0**" — so on the *newest published release* of that day the video path
+  still degenerated, and the answer that lands is "re-run on the 0.12.0-class tag", not
+  "re-run on the latest rc". The pinned tree cannot answer "is it fixed": say so.
+  Recorded #3806 (the same shape at rc0) had already made the tag rung first; #5313 is
+  what shows the grade of jump to name.
+- **The same reporter's 0.12.0 run is the matched control to ask a failing reporter for.**
+  Serve: `Qwen3-VL-32B-Instruct`, `--tensor-parallel-size 8 --max-model-len 45000
+  --limit-mm-per-prompt '{"image": 1, "video": 1}' --allowed-local-media-path
+  <dir> --gpu-memory-utilization 0.90 --dtype bfloat16`; body: one `video_url` (http mp4)
+  + "What is in this video?" at `temperature 0.1 / top_p 0.9 / top_k 40`. Response: a
+  structured description with `prompt_tokens: 11673`, `completion_tokens: 440`,
+  `finish_reason: "stop"`. Two numbers transfer to any report of this shape: a working
+  video answer carries an ~11.6 K-token prompt, and it stops normally rather than running
+  to `length` — so `prompt_tokens` far *below* that on a degenerate run means the video
+  never reached the model (input side), and `finish_reason: "length"` on the `!` run is
+  the degeneration, not truncation.
+- **What the video branch still owns at the v0.11.0 pin.** The Ascend ViT attends a video
+  frame-by-frame through the *same* code as an image —
+  `cu_seqlens = repeat_interleave(grid_thw[:,1] * grid_thw[:,2], grid_thw[:,0])`
+  (`qwen2_5_vl_without_padding.py:449-452`), and the patch embed is the conv3d weight
+  flattened into one matmul (`:351-359`) — so "the Ascend copy mishandles `T>1` inside the
+  tower" is not available off the shelf. What is video-only is the **position** path:
+  `_init_mrope_positions` reads `video_grid_thw` / `second_per_grid_ts` off `mm_features`
+  and calls `MRotaryEmbedding.get_input_positions_tensor`
+  (`worker/model_runner_v1.py:770-799`). One-command discriminator, cheaper than TP or
+  eager rows: send the **same clip's frames as separate `image` items**; clean ⇒ the
+  video/position branch owns it and the tower is exonerated.
 
 Ladder for this shape at this pin: (1) same body on the current image; (2) the same
 deployment with a **text-only** request (clean ⇒ the tower owns it); (3) an **image**

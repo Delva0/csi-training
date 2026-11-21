@@ -1,6 +1,6 @@
 # Quantization method: rejected at config time, unnameable on the CLI, never selected, or renamed onto a foreign checkpoint
 
-Four failures live on this page and they point in different directions. **A** is a
+Five failures live on this page and they point in different directions. **A** is a
 method that is named and refused before any worker starts; **B** is a method that
 was never named, on a checkpoint whose own layout deliberately carries no
 `quantization_config` — so nothing refuses it, the engine starts, and it dies in a
@@ -9,7 +9,11 @@ into a dense model; **C** is a *foreign* format
 (GPTQ/AWQ/…) that **is** named in `config.json` and is silently renamed to `ascend`,
 so the refusal never happens and the format question surfaces as a construction-time
 `KeyError` instead; **D** is a method the release supports but never named on its own
-command line, so `argparse` rejects the flag before `ModelConfig` is built at all.
+command line, so `argparse` rejects the flag before `ModelConfig` is built at all;
+**E** is a checkpoint whose *weights* are FP8/E4M3 — no method name, config edit or
+graph flag makes it run, and it surfaces as A's refusal or as C's `KeyError` depending
+on whether that install registered `ascend` at all, so read the two error messages
+together before ranking anything.
 A and D are one grep apart and are told apart by the message form alone — `… not
 supported in npu` versus `invalid choice`.
 
@@ -276,7 +280,10 @@ If the method is not `ascend` and `quant_model_description.json` is absent from 
 directory, the checkpoint format is not implemented at that ref — say so, name the
 supported routes (msmodelslim → `--quantization ascend`, W8A8/W8A8_DYNAMIC per
 section A), and do not send them looking for a layer-name bug. A newer pin in the
-snapshot may already declare more methods; that is the version scope.
+snapshot may already declare more methods; that is the version scope. **One named
+format overrides that answer**: if the census in section E finds `F8_E4M3` weight
+tensors, the limit is the dtype the NPU executes, not the format the plugin skipped —
+same `KeyError`, different verdict, so run the census before quoting either.
 ## D. Named, but never an argparse choice (`invalid choice: 'ascend'`)
 
 ```
@@ -307,6 +314,7 @@ The chain, source-verified at those two pins:
 | ref | `NPUPlatform.pre_register_and_update` | `vllm serve --quantization ascend` |
 |---|---|---|
 | vllm-ascend v0.8.5rc1 (`ec27af3`) | `platform.py:66-75` takes `parser` and never touches it (only `adapt_patch` + `import AscendQuantConfig`) | rejected by argparse, while `supported_quantization = ["ascend"]` (`:61`) would have accepted it |
+| vllm-ascend **v0.7.3.post1** (`c69ceaca`, 2025-05-29) + vllm **v0.7.3** (`ed6e9075`) | `platform.py:63-72` takes `parser` and only imports `patch_model_config` / `patch_outputs` / `patch_vllm_config` / `AscendQuantConfig`; `supported_quantization: list[str] = ["ascend"]` at `:60` | rejected, and this vllm has the same order: `--quantization` copies `[*QUANTIZATION_METHODS, None]` when the argument is added (`arg_utils.py:561-568`) while the hook runs after `add_cli_args` (`:1416`, args added `:1408`) |
 | v0.13.0 (`6281c120`) / v0.17.0rc1 (`e20f0b1a`) | appends `ASCEND_QUANTIZATION_METHOD` via `parser._option_string_actions.get("--quantization")` (`platform.py:130-141` / `:134-147`) | accepted |
 
 Procedure:
@@ -351,9 +359,159 @@ Procedure:
    quantization *works* in-process and is merely unnameable on the CLI; say both, or the
    reporter will conclude the build cannot quantize at all.
 
+### D-i. The wall behind the flag on the 0.7.3-era pair
+
+There the flag is only the first of two stops, and the second is inside the library.
+That tree has no native ascend quantizer: `AscendQuantizer.get_quantizer` returns early
+only for a name in `CUSTOMIZED_QUANTIZER_TYPE`, which is empty (`:21`), then does
+`importlib.import_module("mindie_turbo")` and raises
+`NotImplementedError("There is no available ascend quantizer.")` when that import fails
+(`vllm_ascend/quantization/quantizer.py:28-44`). The same pin's FAQ says it in words —
+w8a8 is native "on v0.8.4rc2 or heigher", and under vllm 0.7.3 it works only "with the
+integration of vllm-ascend and mindie-turbo, please use `pip install
+vllm-ascend[mindie-turbo]`" (`docs/source/faqs.md:82`); the extra is
+`extras_require={"mindie_turbo": ["mindie-turbo==2.0rc1"]}` (`setup.py:371`). Its
+FAQ item 8 also states the version lock, so the honest ladder for this era is the
+*paired* upgrade; hand over the wrapper/patch routes only with the `mindie_turbo`
+install line beside them, or the reporter clears `argparse` and returns with a
+worker-side `NotImplementedError`.
+
+### D-ii. If you write the site-packages patch yourself, guard the lookup
+
+`parser._option_string_actions.get("--quantization")` can be `None` for any parser that
+has no such option, and that is on record: the whole body of #1042 is
+`TypeError: argument of type 'NoneType' is not iterable` at `platform.py:79`, raised on
+the line `if ASCEND_QUATIZATION_METHOD not in quant_action.choices:` by a CI run of
+main. The same hook is also called with **no argument** from
+`EngineArgs.create_engine_config` (`arg_utils.py:1097`), i.e. on the offline `LLM()` path — a body that subscripts the
+lookup unconditionally breaks that path too. Two readings, both needed: take the `None`
+check rather than a direct subscript, and note that main carried this mutation in May
+2025 while the v0.7.3.post1 release tree (`c69ceaca`, 2025-05-29) had none of it — main and a release branch disagree here, so
+neither an issue body nor a branch snapshot dates the fix. Quote the two verified states
+and the one-line grep.
+
+**The custom-op warning in the same paste is not this lane.** A 0.7.3-era log usually
+also carries `WARNING:root:Warning: Failed to register custom ops, all custom ops will be
+disabled`: the extension is built only when `COMPILE_CUSTOM_KERNELS` is set
+(`setup.py:297-298`) and the warning fires for any other `ImportError`
+(`vllm_ascend/platform.py:28-37`), so on a pip install of that era it is expected. At
+v0.7.3.post1 the extension guards only the camem allocator and one `rotary_embedding` op
+(`csrc/torch_binding.cpp:95-108`), and the Python rotary path calls
+`torch_npu._npu_rotary_embedding` directly (`ops/rotary_embedding.py:45,77`), so it
+cannot produce a parse-time error. A report that makes *that* warning the question is
+`../custom-ops-runtime-faults/op-not-registered-for-soc.md`.
+
+## E. The weights themselves are FP8/E4M3: a dtype limit, not a method or format question
+
+The upstream DeepSeek-V3/R1 release is neither a GPTQ-like foreign format nor a
+quantisation someone switched on: its `config.json` carries
+`quantization_config: {quant_method: fp8, fmt: e4m3, weight_block_size: [128, 128],
+activation_scheme: dynamic}` and its shards store **F8_E4M3** weights, which the 910
+does not execute at the refs recorded here. It surfaces in two different places, and
+which one is decided by **whether that install registered `ascend`**, not by the
+version — the unconditional override exists at both pins:
+
+| state of the running install | surface |
+|---|---|
+| the quant config module was imported, so `ascend` is a registered method: `override_quantization_method` returns `ascend` for *any* declared method, fp8 included (`quant_config.py:83-88` at v0.11.0rc0 `00ba071`, `:69-74` already at v0.7.1rc1 `f17417f`) | nothing is refused; construction dies on the lookup — `KeyError: 'model.embed_tokens.weight'` at `quant_config.py:152`, reached from `ops/vocab_parallel_embedding.py:81` (recorded #3534, DeepSeek-V3-0324 on vllm v0.11.0rc3 `8ce5d31`, torchair graph mode) |
+| `ascend` never registered, so the checkpoint's own `fp8` survives to the platform gate | refused while `ModelConfig` is built: `ValueError: fp8 quantization is currently not supported in npu` (`vllm/config.py:599`; platform list `vllm_ascend/platform.py:60`, raiser `vllm/platforms/interface.py:243-251`). Recorded #119 — the reporter's later paste, on the *original* HF DeepSeek-V3 |
+
+So a reporter who first hit the config-time refusal and later meets §C's `KeyError` is
+not seeing a regression introduced by the upgrade: the two messages date which method
+the engine resolved, and the verdict (that checkpoint cannot run) is the same. Say that
+before they file it as a new bug.
+
+Mechanism at the v0.11.0rc0 pin (source-verified at those two commits):
+`AscendQuantConfig.override_quantization_method` returns `ascend` whenever
+`torch.npu.is_available()` and never reads `hf_quant_cfg` (`quant_config.py:83-88`);
+upstream takes that as the final method (`vllm/config/model.py:931,945`);
+`get_quant_config` returns the HF dict *before* it ever looks for
+`quant_model_description.json` (`vllm/model_executor/model_loader/weight_utils.py:239-250`
+— the `Cannot find the config file for ascend` raise at `:289` is unreachable on this
+branch); `AscendQuantConfig.__init__` stores that dict as `quant_description`
+(`quant_config.py:57`). An fp8 dict holds `fmt`/`weight_block_size`/`activation_scheme`
+and no weight names, so the first `is_layer_skipped_ascend` lookup dies. `embed_tokens`
+is merely the first module built — `torchair/models/torchair_deepseek_v2.py:1078-1082`
+does pass `prefix=` — which is why this is not `empty-prefix-quant-keyerror.md`.
+
+**The decisive check is the weight dtype, not `config.json`.** Reporter-confirmed on
+#3534 (2025-10-22): "check the weight dtype … If E4M3 weights are included, it can be
+considered that this is not supported on the NPU". The declaration and the tensors are
+independent facts: the pin's own guide tells converters to **delete** the quantization
+fields from `config.json` before a W8A8 export
+(`docs/source/user_guide/feature_guide/quantization.md:44-48` at v0.11.0rc0), so a
+directory can hold E4M3 tensors with no `quantization_config` at all, and a bf16
+directory can still carry a leftover one. One call censuses what is there:
+
+```bash
+uv run --no-project python <skill_root>/scripts/checkpoint-key-prefix.py --dtypes <model dir>
+```
+
+It prints the dtype histogram, the module families carrying FP8 *weight* tensors
+(scale-like suffixes counted apart) and both declarations. Reading:
+
+- **FP8 weight tensors** → the upstream FP8 release; no method name, config edit or
+  graph flag makes it run. Routes: dequantize to bf16, or convert with msmodelslim to
+  W8A8/W8A8_DYNAMIC and serve that (`--quantization ascend`, §B). Scope the verdict to
+  the recorded refs — it is the *pinned release's* quant doc/support matrix that
+  decides, so re-check it before applying the rule to a later release that adds an fp8
+  row, and label the mechanism "reporter-confirmed on #3534", not "NPU-wide".
+- **int8 weights + a declaration** → a converted export: §A/§B, and §C when the load
+  dies on a lookup key.
+- **bf16 weights + a stale `quantization_config`** → one config edit; that is exactly
+  the guide's delete-the-fields step, and the weights are innocent.
+
+### E-i. When the release carries the *name* and no implementation
+
+The same wall as §D-i, one pin earlier and without the CLI stop in front of it. At
+vllm-ascend v0.7.1rc1 the pinned tree says it twice: the release note
+(`docs/source/user_guide/release_notes.md:21` — "Added the Ascend quantization config
+option, the implementation will comming soon") and the only quantizer
+(`AscendQuantizer.get_quantizer` imports `mindie_turbo` dynamically and otherwise raises
+`NotImplementedError("There is no available ascend quantizer.")`,
+`vllm_ascend/quantization/quantizer.py:30-38`). A W8A8/W8A8_DYNAMIC report there is a
+**version answer in the first sentence** — wait for the release that ships the
+implementation (maintainer-confirmed on #119: "The detail implementation will coming
+next release"), or serve a bf16 checkpoint — not a flag hunt and not a patch. The paste
+identifies the checkpoint class by itself: a modelzoo/MindIE export carries
+`"quantize": "w8a8_dynamic"`, `"quantization_config": {"quant_method": "ascend"}` and
+`"mla_quantize": "w8a8"` beside `torch_dtype: bfloat16` (#119).
+
+**The same reporter's first error is the evidence for the second, and one detail stays
+a gap.** #119's first paste printed `Unknown quantization method: ascend. Must be one of
+[... 22 names ...]` — vllm v0.7.1's static `QUANTIZATION_METHODS` — although that tag's
+`register()` imports the config module (`vllm_ascend/__init__.py:18-24`) and
+`quant_config.py:39` decorates the class. That printed list is why the *later* paste is
+the platform's `fp8 … not supported in npu` rather than §E's `KeyError`: the two errors
+are one install state, so read them together instead of as two bugs. Which wheel
+produced it stays open (the pin is a tag, `runtime_commit_verified: false`), and it
+changes nothing in the deliverable — the implementation is absent either way. One
+command on their box separates the readings: `python -c "import
+vllm_ascend.quantization.quant_config as q; from
+vllm.model_executor.layers.quantization import QUANTIZATION_METHODS as m; print(m)"`;
+no `ascend` after an explicit import means the installed package lacks the module, not
+an import-order problem. Report it as a gap and stop: recorded #119 spent its whole
+16 384-token budget on that question and shipped no answer.
+
 ## Cost note
 
 The recorded run (#6800) reached the right answer in 10 turns / 17 tool calls, all
 of it repo greps; the classification above turns it into the three calls of the
 procedure. Nothing about the deployment (privileged container, device mounts,
 TP=8 + `--enable-expert-parallel`) mattered.
+
+The v0.7.3-era run (#2819, the same pair as the row above) then spent 25 tool calls in
+26 turns and was cut by the output cap **mid-answer** — after the evidence was complete,
+before §D-i, which is the paragraph that reporter needed. The turns that did not pay:
+three on the custom-op warning (the paragraph above says it in one line), three on the
+`vllm serve` wiring needed to write the wrapper (it is the snippet in step 3), two on
+whether a msmodelslim `quant_model_description.json` can select the method by itself
+(§B answers it). Six calls establish the whole lane: `supported_quantization` + the hook
+body, the two `arg_utils` sites, `quantizer.py`, `setup.py:371`, the FAQ line.
+
+The §E pair is instructive in both directions. #3534 shipped the right verdict (an FP8
+checkpoint cannot run) after 12 reads, but its cheapest check went to `config.json`
+first; the reporter's own rule — the weight dtype — is now the `--dtypes` call above.
+#119 had the answer two calls in (release note + `quantizer.py`) and then spent its
+entire 16 384-token budget on the `QUANTIZATION_METHODS` question, shipping no text at
+all.

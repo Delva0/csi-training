@@ -50,11 +50,16 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   *wrong* — one coarse element, boxes without text, unreadable OCR — only when the
   serve is multi-card while the single-card run of the same request is correct
   (two screenshots, no log), **or** the deployment is 1P1D/EPD and a single-instance
-  serve of the same body, image and flags answers it, **or** a vision request whose
+  serve of the same body, image and flags answers it, **or** the answer is random
+  characters / 乱码 that reproduce on the same inputs under a 1P1D split (no
+  single-instance control run yet — the split is still the first axis and the connector
+  is not: that page's §*Random characters, not fluent prose*), **or** a vision request whose
   answer is fluent but stops after a word or two (`"The"`, `completion_tokens: 2`,
   `finish_reason: stop`, no `length` — #6909) — that is not a score question and not
   the text-corruption profile: the downstream vision tower (or the split itself) owns
-  it, and one flag (`--mm-encoder-tp-mode`, v0.17.0rc1) or one env var decides it. Go
+  it, and one flag (`--mm-encoder-tp-mode`, v0.17.0rc1), one env var or the **dtype**
+  decides it — take row 0 of that page's matrix (`--dtype bfloat16`,
+  `precision-dtype-degeneracy.md`, reporter-confirmed #562) before the tower rows. Go
   to `vl-vision-tower-degeneracy.md` **first** (§*PD/EPD split* for the PD row),
   before the early-EOS page: an image in the request plus an absurdly short answer is
   graded by `usage.prompt_tokens` against the model tutorial's own sample response
@@ -90,6 +95,18 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `VLLM_BATCH_INVARIANT=1` on the same canary as the one-env-var probe →
   `sampler-side-stream-corruption.md`. A **greedy** body that differs is the sibling
   page, `repeated-run-nondeterminism.md`.
+- **A low *rate* at `temperature>0` — ~0.1% of requests in the wrong language, or one
+  off-prompt word spliced into otherwise correct text — is a sampler-implementation
+  question before it is a numerics one.** Which top-k/top-p path ran is a per-release
+  env fact and the name moved: the v0.9.1 gate is `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE`,
+  while at v0.11.0 `VLLM_ASCEND_ENABLE_TOPK_TOPP_OPTIMIZATION` defaults to **`'1'`** and
+  swaps the whole `Sampler` (`worker/model_runner_v1.py:270-275`, `envs.py:104-108`), so
+  an empty `echo` of the older name closes nothing. The fused branch is also chosen
+  **per batch** from `int(k.max())`, so one row without `top_k` sends every row to the
+  portable sort path. Measure the rate at concurrency 1 against the reported concurrency
+  first (0.1% is ~1/1000, and "under load" is often sample size), then one restart with
+  the flag `=0` — an ablation that exists only up to v0.11.x, since v0.12.0rc1 removes the
+  flag and leaves the fused path unconditionally on → `sampler-implementation-gates.md`.
 - A corruption report whose "clean" and failing commands differ by a **scheduling**
   knob — `--block-size`, `--enable-prefix-caching`, `--mamba-cache-mode`,
   `--enforce-eager` — on a **hybrid linear-attention** model (Qwen3.5/Qwen3.6 GDN and
@@ -122,6 +139,20 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   trivial prompt, captured **while still broken**, decides it →
   `constant-token-degeneracy.md` first, then the VL/sampler/first-call pages the
   scope list there excludes.
+- **A degenerate answer that a dtype change fixes is one restart, and it outranks
+  every weight/shape theory when the reporter's own controls are clean.** A serve
+  answering `!!!!!!!!` / 感叹号 / one word, no traceback, with the same checkpoint
+  correct through transformers *and* on a GPU box, is in the **fp16 lane** until the
+  log's `dtype=` line says otherwise; those controls predict a checkpoint- or
+  TP-shaped cause failing too, so rank the dtype above them (SKILL rule 15). Read the
+  checkpoint's `config.json:torch_dtype` (a merged/SFT/quantised export carries what
+  the export tool wrote, not the base model's) and the engine's own `dtype=` line,
+  then re-serve with `--dtype bfloat16` — reporter-confirmed #562 at v0.7.3rc2/910B4
+  (「已解决，将精度改为 bfloat16 就可以了」), whose own VL tutorial already spells
+  `--dtype bfloat16` (`docs/source/tutorials/single_npu_multimodal.md:147`). The
+  `INF_NAN_MODE_*` variables are isolation levers with an **era-dependent name**
+  (`INF_NAN_MODE_ENABLE=0` on torch_npu 2.5.x; it aborts on 2.8.x and names
+  `INF_NAN_MODE_FORCE_DISABLE=1`) → `precision-dtype-degeneracy.md`.
 - A **first-call-only** degenerate answer — a constant token id repeated to
   `finish_reason: "length"`, an immediate `<|im_end|>` after `<think>`, or an
   `AttributeError: 'NoneType' object has no attribute 'size'` raised through
@@ -237,6 +268,24 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 - Establish the phase before the component: a loss printed *before* the server starts is
   the quantizer's output, so attribute it to the converter (msit/msmodelslim) rather than
   to the engine, and say which of the two documented gates the reporter has not shown.
+- **`expert_tensor_parallel_size` is not a knob while `--enable-expert-parallel` is on,
+  so "tp=2 dp=2" and "tp=4" can differ in the DP replica only.** Verified at v0.9.2rc1
+  `b5b7e0e`: `vllm_ascend/platform.py:135-149` sets
+  `expert_tensor_parallel_size = tensor_parallel_size`, forces it to `1` whenever
+  `enable_expert_parallel` is set, and derives
+  `expert_parallel_size = world_size_across_dp // expert_tensor_parallel_size` — so a
+  reporter's `additional_config.expert_tensor_parallel_size` is silently ignored and must
+  not be quoted as the run's layout. Recorded #1791 (Qwen3-30B-A3B, gsm8k 5-shot,
+  identical harness flags): TP4×DP1 = 0.870/0.884 vs TP2×DP2 = 0.155/0.165, both at EP=4
+  with the same per-rank expert shard, so the DP replica is the only differing dimension
+  — that refutes the harness lane and the ETP-layout lane in one line, and the readable
+  score is the TP4 row. The project's own gate for this model is TP4 + EP on one node
+  with strict-match **0.888** (`tests/e2e/long_term/accuracy/accuracy_multicard.py:62`)
+  and runs **no** DP>1 row, so DP≥2 is off the validated matrix, not a regression. One
+  DP-only mechanism exists at that pin — the DP-wide MAX of
+  `[total_num_scheduled_tokens, with_prefill]`
+  (`vllm_ascend/worker/model_runner_v1.py:547-559`) — and #1791's cause was never
+  established: ask for the DP1/DP2 A/B with EP fixed instead of naming a kernel.
 
 ## Pages
 
@@ -348,7 +397,20 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   maintainer statement, the sleep-mode matrix and the reporter's "give the `LLM`
   some time" sync finding, the `expandable_segments` confound inside the
   `enable_sleep_mode=False` row (`platform.py:519-541`), and the version scope
-  (0.18.0/0.23.0/0.26.0rc1 broken, nightly main clean).
+  (0.18.0/0.23.0/0.26.0rc1 broken, nightly main clean). Its "When the ask is to
+  review the backport" section is the deliverable when the issue *is* a backport PR:
+  the fixed form at the main-line pin (`model_runner_v1.py:3565`), the sibling
+  `is_multimodal_model` sites, the missing `_dummy_mm_kwargs`, and the CI group that
+  leaves `test_multimodal_vl_language_model_only` unselected for a
+  `model_runner_v1.py`-only change.
+- `precision-dtype-degeneracy.md` — the `!!!!!!!!` / 感叹号 / single-word answer that a
+  dtype change fixes: the two reads that say whether the serve is in the fp16 lane
+  (`config.json:torch_dtype`, the log's `dtype=`), the one-restart `--dtype bfloat16`
+  row with its reporter-confirmed case (#562, v0.7.3rc2/910B4, LLaMA-Factory SFT
+  checkpoint, llamafactory and V100 controls both clean), why bf16 is never
+  unavailable on 910B, and the `INF_NAN_MODE_ENABLE` (torch_npu 2.5.x) vs
+  `INF_NAN_MODE_FORCE_DISABLE` (2.8.x, whose abort text the stale advice produces)
+  era split.
 - `vl-vision-tower-degeneracy.md` — VL image/video requests that degenerate into one
   repeated token, with the co-reported "very slow": the two-implementation gate
   (`USE_OPTIMIZED_MODEL`, v0.9.2rc1 `b5b7e0e` `models/__init__.py:23-33`), the head-dim
@@ -457,6 +519,14 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   filters, `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE`-gated in-place `apply_top_k_top_p` vs
   upstream's scatter), and the two-launch ladder (`VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE` echo,
   then `top_p=1.0`).
+- `sampler-implementation-gates.md` — which top-k/top-p implementation was installed at
+  the reported pin, and what turns it off: the flag's name and default per release
+  (v0.9.1 `…_TOPK_OPTIMIZE` → introduced in v0.9.2rc1 as `…_TOPK_TOPP_OPTIMIZATION` at
+  default 0 → **default `'1'` at v0.11.0**, swapping the whole sampler), the fused
+  `torch_npu.npu_top_k_top_p(logits, p, k)` condition including `top_p`-only batches, the
+  per-*batch* lane choice that lets one row without `top_k` send every row to the sort
+  path, the D2H sync on the sample path (#4771's crash line), and the rung order for a
+  0.1%-rate report (#6338).
 - `sampler-side-stream-corruption.md` — `temperature>0` output carrying `<pad>` /
   token id 0 / repeated or garbage tokens while greedy is byte-identical and the rate
   tracks concurrency: `random_sample()`'s `q` on `global_stream()`

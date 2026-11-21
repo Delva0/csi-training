@@ -13,6 +13,12 @@ Recorded **#8967** — vllm 0.18.rc1, Qwen3.5-35B-A3B-w8a8-mtp on **one** 910B3,
 
 This is not the acceptance-collapse lane: acceptance is *fine* in this shape, which
 is why `../spec-decode-mtp/acceptance-collapse.md` (Accepted: 0) does not answer it.
+Two preconditions ride on that shape, and a report missing them is **not** this page:
+the tables must expose a per-token column (TPOT) and the runs must be single-sequence.
+A **双机/PD EvalScope percentile table pasted as a screenshot** — the commonest form of
+this report — has neither, so reconcile its five stable summary fields with
+`scripts/benchmark-table-normalize.py` per `cross-run-ratio-normalization.md` and answer
+from that (see the #5605 case at the bottom).
 The deliverable is arithmetic over the reporter's own table plus the one experiment
 that measures the slope.
 
@@ -37,6 +43,16 @@ the fallback when the reporter pasted no log at all, which is the usual case her
 Do **not** use the mean ITL or the total token throughput for this: the mean is
 dragged by the near-zero intra-chunk gaps, and `Total token throughput` mixes the
 input side.
+
+**What disqualifies the derivation, in one look:** no `TPOT` row in the paste (EvalScope
+prints it as one of ten percentile rows, and OCR transposes the small ones — `9.9591`
+→ `9.09g1`), or a concurrency that is not 1 in the summary block. Then `ITL_p50 /
+TPOT_p50` is not available at all and re-deriving it from the percentile soup is how a
+recorded run spent three long reasoning blocks and shipped nothing: take the summary
+fields (`Time taken for tests`, `Output token throughput`, `Total token throughput`,
+request count, concurrency) through
+`scripts/benchmark-table-normalize.py --run … --compare A B` instead, and quote the axis
+it names (decode step vs prefill per token) rather than a tokens-per-step number.
 
 ## Step 2 — the break-even is a ratio of ratios
 
@@ -126,3 +142,43 @@ concurrency>1 run; those two turn the arithmetic into a measurement.
 Scope: pins above (vllm-ascend `da421afad719`, vllm `b1388b1fbf5a`); the reporter was
 on vllm 0.18.rc1, so every source claim needs the one-command recheck on their tree.
 The gain model is a bandwidth/dispatch argument, not a measured profile — say so.
+
+## Worked case: PD 双机, DeepSeek-R1-w8a8, MTP K=2/3 against K=1 (#5605)
+
+- **Reporter facts**: vllm 0.13.0 / vllm-ascend 0.13.0rc1, Atlas 800 A2 (910B2 × 8),
+  双机 PD, `DeepSeek-R1-W8A8` (ModelScope), and **two EvalScope screenshots** — one
+  titled `vllm-ascend 0.13 mtp=1 双机性能`, one `vllm-ascend 0.13 mtp=2 双机` — with no
+  serve command, no log and no `SpecDecoding metrics` line.
+- **What the evidence can carry**: percentile listings whose small columns are
+  OCR-unreliable, so the usable pair is wall time plus the two throughput fields per
+  run (`scripts/benchmark-table-normalize.py`). `tokens per step` is *not* recoverable
+  (no TPOT row, concurrency > 1), and K touches only the D node, so the decode axis is
+  the only axis this report is about.
+- **The pin's matrix, one grep each**: every PD/multi-node DeepSeek MTP recipe uses
+  **K=1** — `docs/source/tutorials/pd_disaggregation_mooncake_multi_node.md:255,315,375,435,504,564,624,684`
+  (most with `--enforce-eager`) and
+  `tests/e2e/nightly/multi_node/config/models/DeepSeek-R1-W8A8-A2.yaml:33,55` — while
+  the colocated page uses K=3 (`docs/source/tutorials/DeepSeek-R1.md:116,176,225`). So
+  PD + K>1 is outside the validated matrix: say coverage, never "unsupported" and never
+  "a config error".
+- **The precedent that prices it**: #3097 (A2, 2P1D, DS-R1-w8a8 MTP) measured on the D
+  node `TPS/NPU 42.67` with MTP on against `39.39` off (+8.6 % output throughput), and
+  `9.78` under 单算子下发. In PD the MTP gain is already single-digit and
+  mode-dominated, so a K that adds sequential draft steps and a wider verify on a
+  decode node with low per-card concurrency can turn the direction negative with no
+  defect at all.
+- **The answer is three rungs, no source walk**: (1) the K slope at one request count
+  (`num_speculative_tokens` 3 → 2 → 1 → off), because it measures whether step cost
+  grows linearly while accepted tokens saturate; (2) `SpecDecoding metrics: … Mean
+  acceptance length` per K — the multiplier is `1 + K`, and acceptance near 1.0 at K=3
+  is the "paid for nothing" shape of #8967; (3) the D node's graph: the multi-node
+  recipe's `--enforce-eager` costs several times the step on this model (#3097), so if
+  it was reused, both K rows are eager and the slope is the only clean measurement.
+- **Ask**: both serve commands (P and D), the EvalScope **summary text** (the tool
+  prints `Save the summary to: outputs/…`, so that file beats a screenshot), and one
+  `SpecDecoding metrics:` line per K.
+- **Recorded cost**: that session shipped **no message text at all** — three reasoning
+  blocks of 10.4 K, 10.6 K and 7.6 K characters went into reconstructing the percentile
+  rows (and into a `tokens per step` the pastes could not support), and it was cut at
+  the 16 384-token cap with the summary fields it needed sitting in the first two files
+  it had already read.

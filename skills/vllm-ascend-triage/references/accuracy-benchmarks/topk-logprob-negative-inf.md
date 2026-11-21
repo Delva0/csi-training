@@ -67,7 +67,10 @@ Both trees read at vllm-ascend `0740d10` / vllm `b6553be`:
   upstream masks a sorted copy and returns `logits_sort.scatter(...)`
   (`vllm/v1/sample/ops/topk_topp_sampler.py:184-205`) — a new tensor. A top_p-only request
   (`top_k` unset ⇒ `top_k=None`, `vllm/v1/worker/gpu_input_batch.py:584`) never reaches the
-  fused op; it takes the in-place branch.
+  fused op; it takes the in-place branch. **This is v0.9.1 only**: from v0.11.0 a different
+  flag (`VLLM_ASCEND_ENABLE_TOPK_TOPP_OPTIMIZATION`, default `'1'`) swaps the whole
+  `Sampler` and its fused branch also accepts `k is None`, so a `top_p`-only body can be on
+  it — check the pin (`sampler-implementation-gates.md`) before reusing this sentence.
 - `vllm_ascend/patch/__init__.py:153-167` *documents* patching
   `Sampler.apply_top_k_top_p`; upstream `Sampler` has no such method at v0.9.1 — quote the
   assignments, not that comment (SKILL.md rule 11).

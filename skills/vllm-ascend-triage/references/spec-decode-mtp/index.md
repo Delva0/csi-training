@@ -78,6 +78,17 @@ at request time. The shapes:
   (`atb-op-setup-failure-at-proposer.md`). Two knobs it is *not*:
   `draft_tensor_parallel_size` (no consumer under `vllm/v1/**` at v0.11.0) and the
   target-family gate (`qwen3` is accepted).
+- or the first request dies with a bare `RuntimeError: The expanded size of the tensor
+  (H_draft) must match the existing size (H_target) at non-singleton dimension 1.
+  Target sizes: […, H_draft]. Tensor sizes: […, H_target]`, deepest frame
+  `eagle_proposer.py set_inputs_first_pass` at `self.hidden_states[:num_tokens] =
+  target_hidden_states`, on `method: draft_model` **without** `parallel_drafting` and a
+  draft whose `hidden_size` differs from the target's: the fork takes its derived flags
+  from upstream `EagleProposer.__init__` (`pass_hidden_states_to_model=True`) and only
+  afterwards flips the flag, so `needs_extra_input_slots` stays `False` and the EAGLE
+  fast path copies target-width hidden states into a draft-width buffer. Which
+  `__init__` computes the flag is the one grep that decides the ref, and at v0.17.0rc1
+  the owner is downstream (`draft-model-serial-hidden-size-crash.md`).
 - or the **first** request on a launch that also sets `--pipeline-parallel-size`
   > 1 dies with a plain `IndexError`/`AttributeError` (no device record), with
   `suffix`, `ngram` or `mtp` alike and startup clean: the PP × spec-decode
@@ -360,6 +371,19 @@ from the acceptance numbers.
   the two-grep version check, the ladder, and the recorded #6509 launch (Qwen3-235B w8a8
   TP8+EP, CANN 8.5.0, `n=1`).
 
+- `draft-model-serial-hidden-size-crash.md` — `RuntimeError: The expanded size of the
+  tensor … at non-singleton dimension 1` inside `set_inputs_first_pass` on
+  `method: draft_model` (serial, no `parallel_drafting`) with a draft `hidden_size`
+  different from the target's: where `hidden_states` comes from (draft config,
+  `eagle.py:79-82,161-163`), the three-field derivation of `needs_extra_input_slots`
+  and why it runs inside the *base* init, the fork-order bug at v0.17.0rc1
+  (`SpecDecodeBaseProposer(EagleProposer)` + the flag reassigned at `:95`) versus
+  v0.22.1rc1's `AscendSpecDecodeBaseProposer` (flag `True`, so #14453's init gates fire
+  instead), why upstream is **not** the owner, the coverage fact (the only draft_model
+  e2e is `parallel_drafting: True`, K=8, PARD 2048 vs 4096), and the ladder
+  (`parallel_drafting: true` with K ≥ 2 — K=1 recomputes back to this crash — then an
+  eagle3 speculator, then ngram, then the structural fix plus its acceptance check).
+  Recorded #7365.
 - `family-proposer-parity.md` — acceptance exactly 0 % with a correct target on a model
   family the downstream dispatch has no branch for: the one-grep verdict
   (`use_gemma4_mtp` absent, `AscendStep3p5MTPProposer` as the port template), the three

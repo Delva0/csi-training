@@ -721,6 +721,22 @@ consumer table. Page `../spec-decode-mtp/dense-attn-state-gap.md`. Open: whether
 `deepseek_mtp` on a dense model fails identically (same branch, no run), and whether
 a later ref implements the state (no later ref in this snapshot).
 
+**#1791** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm `v0.9.2`, Qwen3-30B-A3B,
+`lm_eval --tasks gsm8k --num_fewshot 5 --apply_chat_template --fewshot_as_multiturn`, TP2 +
+DP2 + `--enable-expert-parallel` + `additional_config.expert_tensor_parallel_size: 2`:
+`exact_match` 0.1653 flexible / 0.1547 strict, i.e. the wrong-answer floor. Reporter's own
+control (later comment, 2025-07-14): the same body at **TP4** scores 0.8840 / 0.8704. The
+run established the decisive arithmetic — `platform.py:135-149` forces
+`expert_tensor_parallel_size = 1` under EP, so both runs are EP=4 with the same
+32-experts-per-rank shard and the DP replica is the only differing dimension — and the
+project's own gate (`tests/e2e/long_term/accuracy/accuracy_multicard.py:62`, TP4 + EP, one
+node, 0.888) with no DP>1 row, then spent its last several turns inside the DP all-reduce metadata
+path (`model_runner_v1.py:547-559`) and shipped **no final answer**: 24 turns, 37 tool
+calls, 70 K characters of reasoning against 2.1 K of message text, cut at the 8 192-token
+segment limit. Corrective: the score comparison, the EP arithmetic and the coverage gap
+already were the deliverable. Page: `../accuracy-benchmarks/index.md` (rule on
+`expert_tensor_parallel_size` under EP).
+
 **#1592** vllm-ascend v0.7.3.post1 (`c69ceac`) + vllm v0.7.3 (`ed6e907`), Kylin aarch64
 + 910B, Qwen2.5-32B: a chat request carrying `response_format: {"type":
 "json_object"}` answers `500 Internal Server Error` while plain chat works. The log
@@ -1039,3 +1055,41 @@ harness rules came from it: the sampler value is read before any engine mechanis
 on a reasoning-distill checkpoint, and a pasted `SamplingParams` is a claim about
 the run rather than the run —
 `../accuracy-benchmarks/short-prompt-corruption.md` §*Grade the symptom first*.
+
+**#562** vllm-ascend v0.7.3rc2 (`00459aea`) + vllm v0.7.3 (`ed6e9075`), torch-npu
+`2.5.1.dev20250320`, CANN 8.0.0, 8×910B4: Qwen2.5-VL-7B after a LLaMA-Factory SFT
+answers 全是感叹号, with the body's own two controls — "使用llamafactory推理是正常的，在v100上
+也是正常的" — and a screenshot as the only "log". Track: VL degeneration, but the
+controls put it in the numerics lane. **The reporter closed it themselves (public
+comment, 2025-04-23): 「已解决，将精度改为 bfloat16 就可以了」**, and an intermediate
+thread had already sent them to `INF_NAN_MODE_ENABLE=0`, which the maintainer corrected
+to `INF_NAN_MODE_FORCE_DISABLE=1` for the current device. The recorded run (38
+messages — 16 assistant turns — cut at the output cap) verified the right structural fact — at that pin
+`Qwen2_5_VLForConditionalGeneration` is upstream's, so the padding family and
+`USE_OPTIMIZED_MODEL` cannot apply — and then ranked `--tensor-parallel-size 1` and
+the checkpoint/SFT row above the dtype axis, which the reporter's clean controls
+refute, planning the whole answer inside its final reasoning block and shipping no
+text. Three harness rules came from it: the pinned tutorial's own `--dtype bfloat16`
+(`docs/source/tutorials/single_npu_multimodal.md:147`) is the axis to diff first, bf16
+is available on every 910B SKU (`IsBF16Supported()`), and the `INF_NAN_MODE_*` name is
+era-scoped (`INF_NAN_MODE_ENABLE` on torch_npu 2.5.x; it aborts with
+`shouldn't be set to 0 on the current device` on 2.8.x) —
+`../accuracy-benchmarks/precision-dtype-degeneracy.md` (new).
+
+**#7365** vllm-ascend v0.17.0rc1 (`e20f0b1a0d2f`) + vllm v0.17.0 (`b31e9326a7d9`), one
+910B3, `Qwen/Qwen3-8B` target with `{"model": "Qwen/Qwen3-0.6B", "method": "draft_model",
+"num_speculative_tokens": 5}`: the first request raises
+`RuntimeError: The expanded size of the tensor (1024) must match the existing size (4096)
+at non-singleton dimension 1. Target sizes: [5, 1024]` at `eagle_proposer.py:1008`. The
+recorded run did the mechanism well — 24 tool calls, the draft-sized `hidden_states`
+buffer (`eagle.py:79-82,161-163`), the `not needs_extra_input_slots` branch, the guarded
+sibling copy, the `parallel_drafting` route, the e2e coverage gap — and shipped a full
+ranked answer, but it read the *owner* wrong: it concluded the defect is not
+Ascend-specific and told the reporter a GPU run of the same snippet must fail identically.
+Upstream `DraftModelProposer` passes `pass_hidden_states_to_model=False` into the init that
+computes `needs_extra_input_slots` (`vllm/v1/spec_decode/draft_model.py:19-30` →
+`eagle.py:88-93`), so upstream takes the guarded branch; the fabric comes from the fork's
+base class (`SpecDecodeBaseProposer(EagleProposer)` receiving the flag `True` from
+`eagle.py:1691-1696` and the flag reassigned at `eagle_proposer.py:95`). The lesson is
+one grep at the top of the session: *which* `__init__` computes the derived flag —
+`../spec-decode-mtp/draft-model-serial-hidden-size-crash.md` (new).

@@ -155,6 +155,56 @@ no verdict, no evidence table and no repair. An arity message is a two-grep answ
 the ranked diagnosis, the patch direction and the reporter's workaround belong in the
 message that first names the mismatch.
 
+## Rule 6 — "X's interface is different from vllm's" with no traceback is a *design* question
+
+Reported #6549 as a Bug whose whole body is
+`0.13.0 Release vllm-ascend MLA interface is different form 0.13.0 vllm` plus two
+`<!-- Failed to upload … -->` images: no log, no frames, no version dump. That is not
+a signature-drift failure yet — it is a question about *which class runs*, and the
+answer is two call sites plus the registration that decides between them. Do not open
+with a crash theory the report cannot support, and do not read "different" as "broken":
+the MLA pair is **deliberately** divergent, because the Ascend impl fuses the q/kv
+down-projection, kv-norm and RoPE into CANN ops inside `forward`.
+
+The worked pair (verified at vllm-ascend `v0.14.0rc1` `52d4acfa` ↔ vllm `v0.14.1`
+`d7de043`; the report's own 0.13.0 tag is **not** in the snapshot, so state the
+generation and give the recheck `sed`):
+
+| Surface | Upstream vLLM | vllm-ascend |
+|---|---|---|
+| declared contract | `vllm/v1/attention/backend.py:693 class MLAAttentionImpl`; `forward(self, layer, hidden_states_or_cq, kv_c_normed, k_pe, kv_cache, attn_metadata, output=None, output_scale=None, output_block_scale=None)` (`:720-731`) | `vllm_ascend/attention/mla_v1.py:655 class AscendMLAImpl(MLAAttentionImpl)`; `forward(self, layer_name, hidden_states, kv_cache, attn_metadata, need_gather_q_kv=False, output=None)` (`:1448-1456`) |
+| caller | `vllm/attention/layer.py:468 class MLAAttention`; `self.impl.forward(self, q, kv_c_normed, k_pe, kv_cache, attn_metadata)` (`:848`) | `vllm_ascend/ops/mla.py:133 AscendMultiHeadLatentAttention.forward` → `torch.ops.vllm.mla_forward(...)` (`:145`) → `self.mla_attn.impl.forward(self.mla_attn.layer_name, hidden_states, kv_cache, attn_metadata, need_gather_q_kv, output)` (`:164-166`) |
+| why the upstream caller never runs | — | OOT class map `vllm_ascend/utils.py:715` `"MultiHeadLatentAttentionWrapper": AscendMultiHeadLatentAttention`; backend selector `vllm_ascend/platform.py:467` `(True, False) → vllm_ascend.attention.mla_v1.AscendMLABackend`, so no `vllm/v1/attention/backends/mla/*` impl is ever constructed on NPU |
+
+Three facts that make the diff concrete, and that a patch author needs:
+
+1. `layer` → `layer_name`: upstream hands the impl the `MLAAttention` **module**, Ascend
+   hands it the prefix **string**, in the same first positional slot — copied upstream
+   bodies therefore fail or silently build the wrong metadata.
+2. no `kv_c_normed` / `k_pe` pair: the prologue is fused, which is also why
+   `MLACommonImpl` (upstream `vllm/v1/attention/backends/mla/common.py`) is not
+   inherited — precedent `#868`: *"Why not `AscendMLAImpl` just inherit
+   `MLACommonImpl` for common functions?"*, asked at v0.8.5rc1 and still the design.
+   The **builder** side is the opposite: `AscendMLAMetadataBuilder`
+   (`mla_v1.py:202`) does subclass upstream's `MLACommonMetadataBuilder`, so "does it
+   reuse upstream?" has two different answers inside one backend.
+3. `AscendMLABackend.get_name()` returns `"ASCEND_MLA"`, or `"FLASH_ATTN"` when
+   `VLLM_USE_V2_MODEL_RUNNER` is set (`mla_v1.py:67-71`, an explicit `HACK` to dodge
+   upstream's KV-init assertion) — so code branching on the backend name behaves
+   differently on NPU, and even changes name with the runner. `get_impl_cls()`
+   switches to `AscendMlaCPImpl` under context parallel (`:82-89`), so "the signature"
+   is not one class either.
+
+Verdict shape: *yes, deliberately different; here is what each side declares and what
+actually runs; here is the surface to target if you are extending it* (the Ascend impl
+/ `AscendMLAMetadataBuilder`, or a plugin backend at the selector), and *the abstract
+`MLAAttentionImpl` contract is not honoured verbatim — that is a docs gap, not a
+hardware bug*. Then separate the two forms before ranking anything: the **crash** form
+of this subject is Rule 1 and `#3138` (`TypeError: get_attn_backend() got multiple
+values for argument 'use_mla'`, vllm-ascend's call site lagging upstream's keyword),
+which needs a traceback; the **question** form above needs none. With two uploads that
+failed, the first rung is still "paste the text of those screenshots".
+
 ## What to send back
 
 The image's `vllm_ascend/attention/` listing and `vllm_ascend/__init__.py`

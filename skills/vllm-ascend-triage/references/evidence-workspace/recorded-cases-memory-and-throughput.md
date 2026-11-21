@@ -631,3 +631,21 @@ holds no 8-card MoE recipe or throughput number — multi-card tutorials are QwQ
 `supported_models.md:8-9` prints Qwen3/Qwen3-Moe ✅ and CI covers only `Qwen/Qwen3-0.6B-Base`
 single card (`tests/singlecard/test_offline_inference.py:35`). Page (new):
 `../performance-throughput/multicard-scaling-and-vendor-baseline.md`.
+
+**#5605** vllm-ascend v0.13.0rc1 (`1b5d5abf865f`) + vllm 0.13.0, Atlas 800 A2
+(910B2 × 8) 双机 PD, `DeepSeek-R1-W8A8` (ModelScope), body = two EvalScope screenshots
+(`vllm-ascend 0.13 mtp=1 双机性能`, `… mtp=2 双机`): "compared with mtp1, mtp=2 or mtp=3
+has some negative performance". No serve command, no log, no `SpecDecoding metrics`. What
+the evidence can carry: the decode axis (K changes only the D node), the pin's matrix
+(every PD/multi-node DeepSeek MTP recipe is K=1 —
+`docs/source/tutorials/pd_disaggregation_mooncake_multi_node.md:255,315,375,435,504,564,624,684`,
+`tests/e2e/nightly/multi_node/config/models/DeepSeek-R1-W8A8-A2.yaml:33,55` — while the
+colocated page uses K=3), and #3097's pricing (+8.6 % output throughput on the D node with
+MTP on, 9.78 TPS/NPU under single-op dispatch against 42.67). The recorded run shipped
+**no message text**: 33 messages, three reasoning blocks of 10.4 K / 10.6 K / 7.6 K
+characters spent reconstructing the OCR'd percentile rows and re-deriving `tokens per
+step` from `ITL_p50 / TPOT_p50` that the paste did not contain, cut at the cap — while the
+summary fields (wall time, output tok/s, request count, concurrency) were in the first two
+files it opened. Ask for the EvalScope summary text and one `SpecDecoding metrics:` line
+per K instead of decoding a screenshot —
+`../performance-throughput/spec-decode-gain-accounting.md` §Worked case.

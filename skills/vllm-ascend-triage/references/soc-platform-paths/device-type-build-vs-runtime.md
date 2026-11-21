@@ -127,7 +127,11 @@ Fixing the package does not make the workload validated: at this pin
 Qwen3.5-397B-A17B rows at `:87-88`), and `grep -c A5` on that file returns **0**.
 So state two things separately — "the install is wrong, here is the rebuild" and
 "this model class has no A5 row at the pinned ref, so expect a second, separate
-report after it starts".
+report after it starts". The usual second report is already known and is not
+device-type-specific: on A5 `enable_custom_op()` is `False` by design, so **every**
+`torch.ops._C_ascend.<op>` raises `AttributeError` and `build_aclnn.sh` has no
+`ascend950` branch — a correct A5 install still has no custom kernels
+(`../custom-ops-runtime-faults/custom-ops-disabled-by-device-type.md`).
 
 ## Secondary lines in the same log (do not rank them)
 

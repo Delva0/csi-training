@@ -126,6 +126,9 @@ for issue, paths in by_id.items():
 if not hits:
     print(f"0 hits for '{pat}' under {root}")
     print("(the prior-month corpus is not evidence of absence for a current issue)")
+    if not body:
+        print("(title-only; an error code, op name or exception string lives in the body,"
+              " not the title - retry the same pattern with -b before concluding no precedent)")
     raise SystemExit(0)
 
 hits.sort(key=lambda h: (0, int(h[0])) if h[0].isdigit() else (1, h[0]))

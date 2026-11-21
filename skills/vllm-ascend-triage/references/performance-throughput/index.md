@@ -65,11 +65,16 @@ MC2 MoE decode path is DeepSeek-only and `VLLM_ENABLE_MC2`-gated, and there is n
 all) — `multicard-scaling-and-vendor-baseline.md`.
 
 **And this topic:** the two runs differ by one `--speculative-config` and the direction
-is **negative** ("开启 mtp 性能下降 30 %", while a sibling model on the same release
-improves). Acceptance is healthy there, so this is the token-per-step arithmetic, not
-the acceptance-collapse lane: derive tokens per step from `ITL_p50 / TPOT_p50`, compare
-it with the step-cost ratio, then price the per-step weight term to decide whether the
-model class can gain at all — `spec-decode-gain-accounting.md`.
+is **negative** ("开启 mtp 性能下降 30 %", "PD 双机 mtp=2/3 比 mtp=1 差", while a sibling
+model on the same release improves). Acceptance is healthy there, so this is the
+token-per-step arithmetic, not the acceptance-collapse lane: derive tokens per step from
+`ITL_p50 / TPOT_p50`, compare it with the step-cost ratio, then price the per-step weight
+term to decide whether the model class can gain at all — `spec-decode-gain-accounting.md`.
+When the paste is two EvalScope/AISBench **screenshots at concurrency > 1** (the PD form,
+no TPOT row), that derivation is unavailable: normalize the summary fields with
+`scripts/benchmark-table-normalize.py` per `cross-run-ratio-normalization.md`, and note
+that K>1 on a PD/multi-node DeepSeek recipe is outside the pin's validated matrix
+(every published recipe there is K=1).
 
 **And this topic:** a profiler table with a *missing column* — `Input Shapes: N/A`,
 `Block Dim: 0`, `OP State: N/A` for one custom op while its neighbours carry shapes,
@@ -383,6 +388,13 @@ Not this topic, leave immediately:
   row, the two one-grep refutations (`MTPModelTypes` → `"mtp"` normalization;
   spec-scoped `enforce_eager` touching only the drafter graph), and the
   dense-sibling-recipe provenance check.
+  Its **PD 双机** form is a different measurement: EvalScope percentile screenshots at
+  concurrency > 1 have no TPOT row to divide (the OCR transposes the small cells), so
+  reconcile the summary fields with the script and answer with the K slope, the
+  `Mean acceptance length` line and the D-node graph mode; the pin's every PD/multi-node
+  DeepSeek MTP recipe is K=1 (`pd_disaggregation_mooncake_multi_node.md:255,315,…`,
+  `DeepSeek-R1-W8A8-A2.yaml:33,55`), and #3097 prices the PD MTP gain at +8.6 % and the
+  eager step at 4× — worked #5605, which shipped no message text.
 - `moe-comm-path-when-ep-off.md` — a DP×TP MoE perf report whose command has
   `--enable-expert-parallel` missing or asymmetric (#2833, GLM-4.5 on 2×8×910B2 at
   v0.10.1rc1): the `ep_size`/`_get_fused_moe_state` table (`1` → AllGather,

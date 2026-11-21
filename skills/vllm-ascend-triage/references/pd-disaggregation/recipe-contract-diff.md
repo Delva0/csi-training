@@ -78,6 +78,50 @@ anything; two or three clean runs are not evidence, and a rate on one prompt ret
 the "this prompt always loops" row while leaving per-request state and sampling both
 open (`../accuracy-benchmarks/long-output-repetition.md`).
 
+## Hybrid families: the P/D lattice is asymmetric by design (#12792)
+
+On a **hybrid** family the two sides of the documented recipe are *meant* to differ, so
+"P and D are not identical" is not a finding. DeepSeek-V4-Pro-w4a8-mtp, Atlas 800 A2
+(64G × 8), 1P1D = 4 P + 4 D (`docs/source/tutorials/models/DeepSeek-V4-Pro.md:26,141`,
+§5.2.2 at `:846`, P block header `:956`, D block header `:1033`), verified at v0.23.0rc1
+(`f4a08bd`):
+
+| Flag / value | Prefill (`:956-1030`) | Decode (`:1033-1110`) |
+|---|---|---|
+| `--kv-transfer-config` | `MooncakeHybridConnector`, `kv_producer`, `kv_port 30000`, `engine_id 0` (`:1017-1019`) | `kv_consumer`, `30100`, `1` (`:1094-1096`) |
+| `kv_connector_extra_config` | `prefill{dp 4, tp 8}` / `decode{dp 8, tp 4}`, the same block on both sides (`:1020-1029`, `:1097-1106`) | idem |
+| `--no-disable-hybrid-kv-cache-manager` | `:1001` | `:1079` |
+| `--no-enable-prefix-caching` | `:1012` | `:1089` |
+| `--speculative-config '{"num_speculative_tokens":1,"method":"mtp","enforce_eager":true}'` | `:1013` | `:1090` |
+| top-level `--enforce-eager` | `:1011` | **absent** |
+| graph / scheduling | — | `--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'` `:1091`, `--async-scheduling` `:1077`, `--block-size 128` `:1078` |
+| `--additional-config` | `enable_dsa_cp` true (`:1014`) | `recompute_scheduler_enable` true (`:1108`; `:1177` — "enable this only on decode nodes") |
+| `--max-num-batched-tokens` / `--max-num-seqs` | `4096` / `16` (`:999`, `:1000`) | `120` / `60` (`:1075`, `:1076`) |
+
+Do not report the decode `--max-num-batched-tokens 120` or its missing `--enforce-eager`
+as deviations: both are the recipe, and the decode node is the side that keeps graph
+capture. The asymmetric 4/8 versus 8/4 geometry is legal because the TP-equality assert
+sits **inside** the `use_mamba` branch —
+`vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py:1515-1530`
+(`use_hybrid` = hybrid manager enabled ∧ a non-`FullAttentionSpec` group ∧ >1 group, then
+`assert self._prefill_tp_size == self._decode_tp_size, "… different TP size with Mamba."`),
+sizes assigned at `:1587-1598`; the only unconditional geometry gate is
+`assert self.pcp_size * self.dcp_size == 1` (`:1193`, `:1505`). So "different TP with
+Mamba" is not a contradiction of the doc unless a Mamba group exists.
+
+Coverage at that pin: `rg -l MooncakeHybridConnector tests/` returns only
+`tests/ut/kv_offload/test_mooncake_hybrid_connector.py` — no e2e row, so the A2 4P4D
+hybrid recipe is doc-only. Quote it as coverage, never as the cause.
+
+Recorded #12792 (A2 8-machine DSv4-Pro 1P1D, "请求回答乱码", body carrying no log and no
+serve command): the reporter later pasted both serve blocks and they match the table
+above flag for flag — including the P/D asymmetry, the 4/8 ↔ 8/4 extra-config and
+`VLLM_ASCEND_ENABLE_FLASHCOMM1=1` on the prefill side — so the **recipe lane closed on
+the reporter's own evidence**. The next artefacts are the decode node's log
+(`num_blocks: <N>` and `Initializing Mooncake Scheduler <engine_id>`,
+`mooncake_hybrid_connector.py:1610`, `:1187`) plus one raw request/response pair, not
+another flag diff.
+
 ## The variant with no log at all: fault only at raised scale (#9578)
 
 "Reduce `max-num-batched-tokens` / `max-model-len` / `max-num-seqs` / capture sizes and

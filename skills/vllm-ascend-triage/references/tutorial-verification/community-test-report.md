@@ -66,13 +66,16 @@ One call decides it: `rg -n '<section title>' docs/` before any grading.
 The report is a file, so write it as the sections become true, and keep each
 write small. Suggested split (three writes, ~2-2.5 K characters each):
 
-1. **Turn 2-3, one message + one file write.** Which doc page, which image, and
-   the corrected deploy script: container run line, env block, `vllm serve`
-   line, plus the audit verdict on each flag in it. This is the section a human
-   reads first, and it is already a deliverable on its own.
-2. **After the flag/path/defaults audit (checklist items 1-4).** 资料验证: the
-   defect table with `path:line`, pinned commit, severity, corrected line; then
-   the three sub-scores with the defects that justify each one.
+1. **Turn 2-3, one message + one file write: the graded section first.** 资料验证 —
+   which page (and whether the task book's own path resolves at the pin), the defect
+   table with `path:line`, tier and corrected line, then the three
+   完整性/易用性/正确性 scores with the defects that justify each. This is the 交付件
+   the reviewer scores, and it is complete as soon as one page read and one flag grep
+   are in hand. #11771 wrote 6.3 K characters of deploy/curl/accuracy sections and
+   died before this table, so the graded part never existed anywhere (see below).
+2. **After the flag/path/defaults audit (checklist items 1-4): the deploy script.**
+   Container run line, env block, the corrected `vllm serve` line, plus the audit
+   verdict on each flag in it. Bulky and the most derivable section — write it second.
 3. **After one `scripts/history-titles.sh '<Model>'` pass (item 7).** 测试报告
    剩余部分: curl + `vllm bench` commands, the doc baseline labelled as a
    baseline, the empty result slots with the exact command that fills each, and
@@ -131,6 +134,25 @@ script, five of six defect rows (the 32B tab's `SamplingParams(max_completion_to
 performance result, the doc's 0.5389 reference below the project's own 0.55 e2e
 gate, and `--random-input` for `--random-input-len`). The audit was not the
 problem; the write and message sizes above were.
+
+## #11771, the fourth run: the graded table was never written
+
+Same shape, row 15 of the same 任务书 (image `quay.io/ascend/vllm-ascend:v0.18.0`,
+8×Atlas 800I A2, weights `Eco-Tech/Qwen3.5-27B-w8a8-mtp`, page `Qwen3.5-27B.md`; its
+verified defect set is tabulated in `tutorial-command-audit.md`, "Fourth worked
+page", so a future run on this row can write section 1 on turn 2). Seventeen
+assistant turns, **409 characters of message text in total** (41 on turn 1, 368 on
+turn 8), the 16 384-token cap consumed as ~24 K characters of reasoning plus 6.3 K of
+heredoc: the file got §1 deploy script (3.3 K) and §2-3 curl + AISBench (3.0 K), then
+the cap landed on a block that was about to write §4 — the defect table. Missing from
+both the file and the transcript: the 资料验证 table, the three scores and the FAQ,
+i.e. three 交付件 items, and any concluding message.
+
+Two mechanisms, both already stated above and both repeated here: every section was
+composed **twice** (an 8.0 K-character block drafted §1-2 and was then re-typed into
+the heredoc; a 2.8 K block did the same for §2-3), and the write order put the graded
+section last. Convert the draft block into the heredoc in the turn that produces it,
+and let the table go first.
 
 ## What the report must not do
 

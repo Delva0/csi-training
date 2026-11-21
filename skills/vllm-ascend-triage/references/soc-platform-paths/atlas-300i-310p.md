@@ -86,6 +86,44 @@ this shape with the version survey the reporter asked for: at this pin
 `v0.14.0rc1-310p` is the image that reintroduced 310P, so "which tag supports
 310P" is the wrong question.
 
+## A penalty parameter crashes the test run on 310P (400/500-class, no log)
+
+Verified at vllm-ascend **v0.23.0** (`5cb98caa`) with vllm **v0.23.0** (`0fc695f`).
+Shape (#15161, Qwen3.6-35B-A3B-w8a8, aisbench, `presence_penalty: 1.5`): the engine comes
+up and every request without a penalty is fine; the first request carrying a penalty
+"一到测试阶段就会崩溃", with no traceback pasted.
+
+The branch is printed in the reporter's own log, so ask for that one line before any
+source walk:
+
+| branch | trigger | anchor |
+|---|---|---|
+| Triton-Ascend penalty kernels | `HAS_TRITON` true in that image | `vllm_ascend/sample/sampler.py:61-64` (`apply_all_penalties`, after `assert sampling_metadata.prompt_token_ids is not None` at `:63`), reached from `AscendSampler310` (`_310p/sample/sampler.py:125`, inherits `apply_penalties`) |
+| upstream torch fallback | `HAS_TRITON` false — **the shipped 310P image's own configuration** | `sampler.py:54-59` prints `[sample/sampler] Triton not available, falling back to vLLM default penalty implementation…` once, then `Sampler.apply_penalties` |
+
+The image difference is in-tree, not a registry guess: `Dockerfile.310p:63` runs
+`pip uninstall -y triton-ascend triton` and does **not** reinstall, while `Dockerfile:70-71`
+and `Dockerfile.a3:72-73` reinstall `triton-ascend==3.2.2` after the same uninstall. So on
+a `-310p` image the warning line is expected and the fallback is the live path.
+
+Two consequences for the answer:
+
+- **The #2533/#2544 precedent is not this pin's mechanism.** `AttributeError: '_OpNamespace'
+  '_C' object has no attribute 'apply_repetition_penalties_'` came from an older vLLM;
+  at v0.23.0 `vllm/_custom_ops.py:387-411` dispatches `apply_repetition_penalties` to
+  `apply_repetition_penalties_torch` whenever `not logits.is_cuda`, so the fallback runs
+  pure torch on NPU. Quote the dispatch line, not the old issue.
+- **A crash with the fallback live needs its traceback**: the remaining candidates are the
+  `prompt_token_ids` assertion (only in the Triton branch, so excluded when the warning is
+  present), an NPU-unsupported op inside the torch path, or something outside penalties
+  entirely — and only the text decides. Ask for the traceback, the warning line, and
+  `pip list | grep -i triton`; the one-request ablation (`presence_penalty: 0` on the same
+  body) confirms the penalty is even the trigger.
+
+Labels: the branch table and the Dockerfile split are source-verified at those commits;
+which branch the reporter's image took is one log line away, and the crash owner is
+**unresolved** in this snapshot — do not present either branch as the cause.
+
 ## `the socversion <A> of bin package does not match the current device socverison <B>`
 
 Recorded #2725: `openEuler23.03 aarch64`, reported v0.10.0rc1, `vllm serve

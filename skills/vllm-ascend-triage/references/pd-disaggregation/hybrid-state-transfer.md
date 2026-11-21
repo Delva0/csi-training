@@ -46,7 +46,18 @@ size with Mamba").
 
 ## 2. The `mamba_cache_mode` gate (source-verified, v0.22.1rc1 / vllm v0.22.1)
 
-`vllm_ascend/patch/platform/patch_mamba_config.py` patches
+**Older pin, before quoting any of it:** at v0.19.1rc1 (`da421af`) that file has
+**no** `_using_kv_store()` and no forced-align block — it only delegates to
+`MambaModelConfig.verify_and_update_config` and sets `mamba_block_size` at
+`:104-107` (`block_size` when prefix caching *and* `align`, else `max_model_len`).
+So on a report older than v0.22.1rc1, `align` is whatever the reporter's
+`--mamba-cache-mode` / upstream default made it, and the two consumers to read are
+`worker/model_runner_v1.py:1590` and, under PD, the connector itself —
+`distributed/kv_transfer/kv_p2p/mooncake_layerwise_connector.py:230,290` branch on
+`mamba_cache_mode == "align"`, i.e. the transport, not only the runner, changes
+behaviour with the mode.
+
+At v0.22.1rc1, `vllm_ascend/patch/platform/patch_mamba_config.py` patches
 `HybridAttentionMambaModelConfig.verify_and_update_config`:
 
 - `_using_kv_store()` (`:11-29`) returns True only for `AscendStoreConnector` (or

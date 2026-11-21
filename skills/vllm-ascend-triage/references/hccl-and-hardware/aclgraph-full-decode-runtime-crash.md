@@ -130,7 +130,82 @@ give the ablation that separates them (rung 1).
    concurrency at first fault, the `origin_op_name` / `fault kernel_name`
    lines and both serve commands.
 
-## 7. Recorded case
+## 7. A host-scalar readback frame is the owner, not the victim
+
+A variant that looks like a device fault and is not: the deepest Python frame is a
+`torch.repeat_interleave` / `bincount` / `.item()` on a **device** tensor, and the raise is
+
+```text
+RuntimeError: operator():../torch_npu/csrc/aten/common/LocalScalarDenseNpu.cpp:23
+NPU function error: c10_npu::acl::AclrtSynchronizeStreamWithTimeout(copy_stream),
+error code is 507011
+```
+
+`LocalScalarDenseNpu` is torch_npu materializing **one device value on the host** — it blocks
+`copy_stream`, so it reports whatever the model stream already did (here the same
+`507011`/`fftsplus aicore error`/MTE-OOB dump). The owner is the statement that needed a
+Python scalar from a device tensor. Two readings, and the timestamps decide between them:
+(a) the readback ran while a stream was in capture, so the refusal is the fault
+(`rtMemcpy … the current capture mode does not support this operation`, `MemCopySync …
+kind = 1, runtime result = 107030`); (b) that refusal is a **capture-window** record and the
+`507011` is the stream's death — order the timestamps first
+(`error-report-timestamps.md`, rule 13: recorded #11680 carried the capture block at
+`09:20:38` and the traceback at `09:27:19`, six minutes apart).
+
+Where the readback lives matters for the ladder. At v0.22.1rc1 (`5f6faa0`) the EP all-to-all
+dispatch preprocess mixes host and device on purpose —
+`vllm_ascend/ops/fused_moe/token_dispatcher.py:581-620`: `torch.histc` → two
+`.to("cpu").numpy()` splits (`:591`, `:604`), then
+`:612 torch.repeat_interleave(self.expert_ids_per_ep_rank, num_global_tokens_per_local_expert.ravel())`
+only when `num_local_experts > 1`, else `torch.npu.synchronize()`. And capture wraps the whole
+model forward (`compilation/acl_graph.py:206 with torch.npu.graph(aclgraph, pool=self.graph_pool)`
+→ `:209 self.runnable(...)`; the `:157-164` early return is the eager/mismatched-mode path that
+can still be nested inside an enclosing capture). So a MoE forward captured with any graph mode
+executes that readback inside the capture region. Ladder: `cudagraph_mode` → default
+`PIECEWISE`, then `additional_config` `enable_npugraph_ex: false`, then `multistream_overlap_shared_expert`
+off, then `--enforce-eager` with `ASCEND_LAUNCH_BLOCKING=1` on one request.
+
+**Recipe diff before any of that.** The pinned tree ships its own validated launch configs per
+model × SoC under `tests/e2e/<tier>/**/configs/`; find the reporter's model there and diff it
+flag by flag — the deltas are the discriminators, and a match is a version verdict:
+
+```bash
+rg -ln -i 'glm-5|glm5' tests/e2e/*/*/configs/ tests/e2e/*/*/models/ 2>/dev/null
+sed -n '1,60p' tests/e2e/weekly/single_node/configs/GLM-5_1-W8A8_A3_weekly.yaml
+```
+
+Recorded #11680: that file matches the reporter's serve command on every env var
+(`HCCL_OP_EXPANSION_MODE=AIV`, `HCCL_BUFFSIZE=200`, `VLLM_ASCEND_BALANCE_SCHEDULING=1`,
+`VLLM_ASCEND_ENABLE_MLAPO=1`), on `additional_config` (`enable_npugraph_ex`, `fuse_muls_add`,
+`multistream_overlap_shared_expert`), on `--compilation-config '{"cudagraph_mode":
+"FULL_DECODE_ONLY"}'`, on `--speculative-config '{"num_speculative_tokens": 3, "method":
+"deepseek_mtp"}'`, `--enable-expert-parallel`, `--max-num-batched-tokens 4096`,
+`--quantization ascend`, `--seed 1024` — **except** `TP16/DP1` where the reporter ran
+`--data-parallel-size 2 --tensor-parallel-size 8`, plus the reporter's added
+`--async-scheduling`. That is the cheapest single ask (run the shipped shape), and it is owed
+in the first answer, not after a source walk.
+
+## 8. Recorded case
+
+#9944 — vllm-ascend **V0.18.0** image (the snapshot pins only v0.19.1rc1 `da421af`, so
+"upstream already fixed it" is unverifiable there), two A2 nodes, Qwen3.5-397B-A17B-w4a8,
+PD disaggregation, `MooncakeLayerwiseConnector`, driver 25.5.1, and a *reproduction* rather
+than a deviation: the D node's line is the published recipe's own
+(`--compilation-config '{"cudagraph_capture_sizes":[1,4,8,12,…,128,160,172,196,200,212,232,256],
+"cudagraph_mode":"FULL_DECODE_ONLY"}'`, `--max-num-seqs 128`, `--max-num-batched-tokens 8192`,
+`--async-scheduling`, `--speculative_config '{"method":"qwen3_5_mtp","num_speculative_tokens":3}'`,
+`--no-disable-hybrid-kv-cache-manager`), while the P node is the same model with
+`--enforce-eager` and no graph. The death is the D worker on `rejection_sampler` →
+`repeat_indices_cpu.to(...)` / `synchronize_input_prep` → `SUSPECT REMOTE ERROR 507057`, plog
+`aivec error … The DDR address of the MTE instruction is out of range`, at ~concurrency 60
+under a performance test. Two consequences for this page: (a) rung 1 is a **deviation from
+the documented recipe**, so say that in those words and quote its capture list, or the
+reporter will answer "I used the official command"; (b) §4's bucket read: 60 pads to the
+**64** entry, which the list contains, and 128 covers `--max-num-seqs` — so "the concurrency
+fell outside the capture list" is excluded before the run starts, and the per-replay argument
+mismatch (§3) or the device-fault lanes are what remain. The run delivered this ranking plus
+the artefact list, and the reporter's next comment supplied exactly those two serve commands
+(the P/D scripts above), so that ask was the right one.
 
 #6018 — title says vllm-ascend `0.12.0rc1`, the environment block says
 `0.12.0rc2` (`SOURCES.json` marks the reported ref `conflicting_versions`; the
@@ -165,3 +240,17 @@ outside everything that release ran. The recorded run reached this section's run
 and the coverage verdict and delivered a ranked answer on its 11th and last turn,
 after seven of its eleven turns carried no message text at all (rule 1: a
 truncation at that point would have kept nothing).
+
+#11680 — `v0.22.1rc1 A3单机 GLM-5.1-w8a8 推理过程中 LocalScalarDenseNpu 算子报错`, image
+`quay.io/ascend/vllm-ascend:v0.22.1rc1-a3` (`5f6faa0`), DP2×TP8 + EP, `--async-scheduling`,
+`FULL_DECODE_ONLY`, `enable_npugraph_ex`/`fuse_muls_add`/`multistream_overlap_shared_expert`,
+`deepseek_mtp` ×3, 20 480 ctx. The paste's decisive artefacts: (a) the `LocalScalarDenseNpu` /
+`copy_stream` / `507011` frame under `acl_graph.py:164` → `fused_experts` →
+`token_dispatcher.py:561 → :612` (§7), (b) an `EE9999` block stamped six minutes earlier
+carrying `rtMemcpy … current capture mode does not support this operation` — a capture-window
+record, not this fault, and (c) the shipped GLM-5.1 A3 weekly recipe differing only in
+TP/DP + `--async-scheduling`. Precedent #9816 (A3, DP+EP, w8a8+MTP, `FULL_DECODE_ONLY`,
+`multistream_overlap_shared_expert`, 507011/MTE-OOB on the idle dummy batch) is the nearest
+body in the corpus. The recorded session had all three by its 8th assistant turn and then took
+"one last guard read", ending at the 16 384-token cap with **no answer message** — 51.2 K
+characters of reasoning against 2.8 K of text.

@@ -22,6 +22,7 @@ reading code:
 | marker present but the client sees no `tool_calls` | parser lane: `index.md` rule 1 and `scripts/sse-toolcall-audit.sh` |
 | markup lands in `content` and `tool_calls` is empty | no parser is consuming it — the flags are unset or the reasoning parser defaults to Identity: `index.md`, `../accuracy-benchmarks/reasoning-output-routing.md` |
 | `tool_calls[0].function.name` present, `arguments` `{}` or truncated | parameter extraction / delta arithmetic: `arg-type-gate-unquoted-value.md`, `streamed-arguments-audit.md` |
+| `content` stops **mid-turn** at a lead-in line (ends in `:`), `tool_calls` empty, `finish_reason: "stop"` | the marker *was* emitted and withheld — `_extract_content` returns nothing after an unclosed `<tool_call>` (`glm4_moe_tool_parser.py:238-283`), the region is marked `(raw, False)` (`:284-303`) and streaming `break`s with no name (`:453`) at vllm v0.23.0, so it reaches neither `content` nor `tool_calls`: parser lane, decided by `return_token_ids` — `index.md` scope (#17391), not a rate |
 | first response after start is `content: ""` with `completion_tokens: 1` | one model-issued blank/stop token: `../spec-decode-mtp/empty-first-response.md` |
 | `stream: true` returns only CoT and no `tool_calls` | #5683, reporter-confirmed A/B on `--async-scheduling`: `index.md` scope |
 

@@ -47,9 +47,14 @@ Inherit the rules in SKILL.md, plus these:
    deploy command and a three-item FAQ you have the deliverable. #11739's
    recorded run confirmed several real doc bugs and then kept auditing until the
    session ended, shipping nothing (`community-test-report.md`), and #11759
-   repeated it a batch later with the defects in hand by turn 7. If the 任务书
+   repeated it a batch later with the defects in hand by turn 7, #11771 with the
+   graded defect table still unwritten at the cap. If the 任务书
    names a section of the page, resolve that section name against the **whole**
-   docs tree before grading it missing — the two cases grade differently.
+   docs tree before grading it missing — the two cases grade differently. The same
+   resolution applies to the **page name itself**: a path that does not exist at the
+   pin (`Qwen3.5-27B-Qwen3.6-27B.md` at v0.18.0, where the page is
+   `Qwen3.5-27B.md`) is a finding to state in the first message, and the nearest
+   page is then graded *as* the nearest page.
 4. **Separate severity in the report**: breaks the command (dead flag, missing
    path, wrong device env var), stale baseline (older release, numbers
    predating the image), cosmetic (wording, a flag abbreviation that still
@@ -73,7 +78,9 @@ Conditional routes:
   `limit_mm_per_prompt` and remote-media defaults, boilerplate TP sentence vs
   sibling docs, stale baseline release, CI config as the known-good command,
   `pip install <pkg>==<ver>` against the image's own requirements pins) plus the
-  ready-made Qwen3-32B-W4A4 and Qwen3.5-397B-A17B-§5.6 defect tables, the
+  ready-made Qwen3-32B-W4A4, Qwen3.5-397B-A17B-§5.6 and Qwen3.5-27B (community
+  row 15: page-name absence, DP1/TP2-only serve line, the dropped
+  `max_completion_tokens`, the nightly yaml as the in-tree gate) defect tables, the
   `--hf_overrides` architecture string check added after #14817, and check 11
   (a tab-set's block against its own prose **and** its own `kv_connector` — the
   swapped-proxy defect of #15389; a missing `bash proxy.sh` is check 3) →

@@ -41,6 +41,20 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   the deliverable is a *rate* plus the mode/vendor-API ablations, not a parser —
   `no-tool-call-in-raw-output.md`, one call:
   `scripts/toolcall-raw-output-audit.py <attachments dir>`.
+- **no call at all, but the text stops *mid-turn* right where the call should
+  begin** — a lead-in line ending in `:` ("现在创建全局异常处理器:", "edit 工具不可用，我改用
+  bash 的 Python 脚本来修改："), `finish_reason: "stop"`, `tool_calls` empty: that cut is
+  itself the marker's fingerprint. `_extract_content` returns nothing after an
+  **unclosed** `<tool_call>` (`glm4_moe_tool_parser.py:238-283`, the
+  `pos = start; break` at `:271-274`), `_extract_tool_call_regions` marks the region
+  `(raw, False)` (`:284-303`) and streaming `break`s once no name can be cut
+  (`if not tool_name: break`, `:453`) — at vllm v0.23.0 `0fc695f`, so the region
+  reaches neither `content` nor `tool_calls`. Rank the PARSER/HOLD-BACK lane, not the
+  model-choice lane this bullet's prose shape belongs to, and decide it with
+  `return_token_ids: true` (is the `<tool_call>` id in the stream?) plus a
+  `stream: false` A/B; the same page's table row carries the split, and the
+  gen-side owner (which stop token ended it: MTP n, `--async-scheduling`,
+  `stop_reason`) follows (`no-tool-call-in-raw-output.md`, #17391).
 
 Not this topic — leave with the linked route:
 
@@ -138,7 +152,8 @@ parser puts you back on rule 1.
    comment "When num_speculative_tokens>=3, using block verify" — a threshold on
    the reported value. **Read the line at the reporter's ref first**: from
    v0.23.0rc1 it also ANDs `rejection_sampler_config.enable_block_verify`, which
-   defaults `False` (`ascend_config.py:766`), so the threshold alone may select
+   defaults `False` (`ascend_config.py:766` at v0.23.0rc1, `:797` at v0.23.0 —
+   grep `enable_block_verify`; the line moves), so the threshold alone may select
    nothing there. Where it does hold, state it as the branch, label it
    source-verified, give the n=2 A/B that confirms it, and put the mechanism
    (`mtp-block-verify-acceptance.md`) behind that A/B. The recorded #7580 run

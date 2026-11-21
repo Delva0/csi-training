@@ -20,6 +20,18 @@ Inherit the rules in SKILL.md. Conditional routes:
   from the log's own `model_runner.py:<line>`, then ask for the full `vllm serve`
   line and take the liveness checks. Do not lead with `--enforce-eager` where the
   platform already sets `simple_compile_backend = "eager"`.
+- The profiling window **does** raise, and the same error appears once per rank but the
+  driver: `EOFError: Ran out of input`, bottom frame
+  `torch_npu/distributed/distributed_c10d.py` `_gather` →
+  `dist.broadcast_object_list`, above
+  `logits_processor._gather_logits` → `tensor_model_parallel_gather`, on a TP > 1
+  dense serve whose log also prints `npu is experimental on VLLM_USE_V1=1. Falling back
+  to V0 Engine.` → `profile-run-logits-gather-eof.md` first: HCCL has no `gather`, so
+  torch_npu emulates it with an object-broadcast size handshake that handed the
+  non-destination ranks an empty size payload. The driver's `HcclAllgather` `EI0006` +
+  `DestLink` block ~120 s later is that stalled collective timing out, not a link fault,
+  and the V0 notice is an opt-in (`VLLM_USE_V1=1` is the first rung), not a platform
+  verdict.
 - Nothing raised, and the paste stops **inside** weight loading — `Loading
   safetensors checkpoint shards:   0% Completed | 0/N`, or a bar that never
   advances, with no `Loading model weights took X GB`, the port still refused and
@@ -252,6 +264,15 @@ Inherit the rules in SKILL.md. Conditional routes:
 - `AttributeError: '<Model>Config' object has no attribute '<attr>'` raised inside
   `vllm_ascend/distributed/*connector*.py` from `ensure_kv_transfer_initialized`
   (typically a VL/MoE model under PD disaggregation) → `connector-config-attributes.md`.
+- The startup `TypeError` is `linear(): argument 'input' (position 1) must be Tensor,
+  not tuple` (or `not list`) raised in `profile_run`/`determine_num_available_blocks`,
+  every failing frame inside the **pinned upstream model file** → `layers/linear.py
+  forward → quant_method.apply → F.linear`, and no `vllm_ascend/**` frame but the worker
+  → the model file assigned a fused-residual norm's `(x, residual)` return to one name,
+  then passed it to the MLP: `model-file-tuple-unpack.md`. Platform-independent (the
+  Ascend `RMSNorm.forward_oot` has the same contract), fails on decoder layer 0, so
+  `--enforce-eager`, dtype and TP change nothing; and the unpack is only half the fix —
+  the repaired upstream form also restores the layer's running-sum/2-tuple contract.
 - Python `AttributeError`/`TypeError` in a `vllm_ascend/{ops,patch,models}` frame
   whose class subclasses or re-implements an upstream vLLM/transformers class
   (e.g. `'AscendQwen2DecoderLayer' object has no attribute 'attention_type'`),

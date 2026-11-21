@@ -259,6 +259,40 @@ is source-inferred; the one command that closes it is
 `rg -n "remote_cached_tokens|EngineCore failed|EngineDeadError" <P node log>`
 over the last lines before the exit.
 
+## Fourth worked page: Qwen3.5-27B, community-test row 15, at v0.18.0 (recorded #11771)
+
+Same tree as the first two worked pages (vllm-ascend `e18643f8`, vllm `bcf2be9612`).
+The 任务书 names `docs/source/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.md`; that path
+does not exist at v0.18.0 (`rg --files -g '*Qwen3.6*'` → 0 hits; the page is
+`Qwen3.5-27B.md`, 197 lines) — that absence is finding #1 and goes into the message.
+The row asks for **dp2 tp4** on 8×Atlas 800I A2, AIME through aisbench, and a
+2048/2048 `vllm bench` baseline. Verified findings, each `path:line`:
+
+| Tier | Finding | Evidence |
+|---|---|---|
+| breaks intent (完整性) | the page documents DP1/TP2 only and carries no DP>1 recipe, while the task requires DP2×TP4 | page `:108-109`; siblings do carry it (`GLM4.x.md:150`, `GLM5.md:300`, `DeepSeek-R1.md:104`) |
+| stale baseline | every image string and the accuracy reference are `v0.17.0rc1`, one release before the task image; the accuracy table is gsm8k only | page `:9,35,166,170` |
+| breaks intent | the verification curl sends `"max_completion_tokens": 50` to `/v1/completions`, which has only `max_tokens: int \| None = 16`; `OpenAIBaseModel` is `extra="allow"`, so the field is silently dropped and the doc's own request returns 16 tokens | page `:153`; `vllm/entrypoints/openai/completion/protocol.py:57`; `vllm/entrypoints/openai/engine/protocol.py:28` |
+| completeness | the Performance section has no result table at all, and its one `vllm bench` line is 200-in with `--request-rate 1`, so it cannot serve a 2048/2048 baseline; AIME exists only in the manual | page `:172-197`; `using_ais_bench.md:133-141` (dataset), `:219` (run command) |
+| cosmetic | `--random-input 200` for `--random-input-len` — parses as an unambiguous argparse prefix (check 2), so give the right name and tier it cosmetic | page `:194`; `vllm/benchmarks/datasets.py:1565,1571` |
+| pass | `--speculative_config '{"method":"qwen3_5_mtp","num_speculative_tokens":3,"enforce_eager":true}'`, `--async-scheduling`, `--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'` and `--additional-config '{"enable_cpu_binding":true}'` all resolve at the pin | `vllm/config/speculative.py:43`; `vllm/engine/arg_utils.py:1222`; `vllm/config/compilation.py:525`; `vllm_ascend/ascend_config.py:91` (the key defaults `True`, so the flag is a no-op, not a defect) |
+
+Two things this page settles once, for the report body:
+
+- **dp2 tp4 on one node needs no extra DP flags.** With the mp backend and
+  `data_parallel_size_local` unset, vLLM infers it for internal DPLB
+  (`vllm/engine/arg_utils.py:1618-1622`), so `--data-parallel-size 2
+  --tensor-parallel-size 4` is 8 devices; `--data-parallel-address`, `-rpc-port` and
+  `-size-local` belong to multi-node or external-LB layouts. State that the recipe is
+  *derived* and that the page validates neither layout.
+- **the in-tree gate beats the doc's stale baseline.**
+  `tests/e2e/nightly/single_node/models/configs/Qwen3.5-27B-w8a8-A3.yaml` carries the
+  CI-validated `server_cmd` (TP2/DP1, `--speculative_config` + `FULL_DECODE_ONLY` +
+  `--async-scheduling`) and its own gates: `gsm8k-lite` accuracy baseline 95 with
+  threshold 5 %, perf baseline 664.6449 at threshold 0.97. Quote those as the
+  project's own gate; note TP4 appears only in
+  `tests/e2e/multicard/4-cards/test_qwen3_5.py:23-33` (`max_model_len` 4096).
+
 ## What a finding must carry
 
 `path:line` + pinned commit/ref, the exact command, the error class the reporter

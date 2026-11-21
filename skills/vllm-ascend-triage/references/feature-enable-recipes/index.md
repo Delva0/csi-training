@@ -122,6 +122,17 @@ Rules for this topic:
    #5075 (300I Pro, v0.10.0rc1): quantization answered "already, with a 310-targeted
    checkpoint", graph mode "not supported at the pinned ref and no committed date" —
    `../soc-platform-paths/atlas-300i-310p.md`.
+   The same question usually arrives as a **follow-up to a root-cause answer**
+   ("感谢回复，请问 <family> MTP 在 <SoC> 上的支持计划是什么样的？"), so put its paragraph
+   in the first answer and keep the three levels apart: the base model family at that
+   SoC (the release-note line that introduced it as *experimental*, the support-matrix
+   row, and the SoC fallback `TODO` that still bounds it), whether the **feature's**
+   branch exists at all (one grep, e.g. `use_gemma4_mtp`), and whether anything covers
+   the combination (tests, tutorials). Then the prerequisites in port order and the
+   grep whose result would change the verdict — never a date. A family documented as
+   experimentally supported at level 1 with no level-2 branch is the commonest real
+   answer; writing "the family is unsupported" collapses the two and is wrong
+   (`../spec-decode-mtp/family-proposer-parity.md`, worked #16980 for gemma4 MTP on A2).
 
 10. A **graph-mode enable** question or crash on a DeepSeek/MLA model — "如何开启 torchair 图模式",
    `additional_config={"torchair_graph_config": …}` present, and the first request dying with
@@ -132,6 +143,16 @@ Rules for this topic:
    (exact spelling; unknown `additional_config` keys are silently ignored) is the half that turns
    chunked prefill off. Do not re-derive the mixing step from prompt sizes — the paste has no
    per-step batch composition → `torchair-mla-graph-and-chunked-prefill.md`.
+
+11. A graph-mode serve that dies **at layer construction** on
+   `AssertionError: The allowed number of queries per kv … only support {32, 64, 128}`
+   (or the kernel's `EZ9999 … numHeads / numKvHeads = N, MLA only support {32, 64, 128}`)
+   is arithmetic, and the message already states the rule: MLA hardcodes `num_kv_heads=1`,
+   so the ratio is heads **per rank**, i.e. `num_heads // tp_size`. Answer with the
+   TP that passes for that head count (128-head DS-V3/R1: TP ∈ {1,2,4}), the
+   `--enforce-eager` + delete-the-key lever, and the ACL-graph-is-closed fact —
+   never with a kernel or checkpoint theory, and never believing the title over the
+   serve command → `torchair-mla-head-count-tp-gate.md`.
 
 Pages:
 
@@ -179,3 +200,10 @@ Pages:
   `schedule_config.py:26,43`), the no-startup-guard fact (`ascend_config.py:131-147`), the
   silent-typo / cached-config check (`ascend_config.py:34-37,92-101`) and the guard must key
   on `running_in_graph`, not `torchair_graph_enabled`.
+- `torchair-mla-head-count-tp-gate.md` — the `queries per kv … only support
+  {32, 64, 128}` gate at layer construction, worked for #1451 (v0.9.1rc1,
+  DeepSeek-V3 TP8×PP4 ray + torchair, title naming V2-Lite): the heads-per-rank
+  arithmetic (16 at TP8), the three sites at that pin, the eager×graph mutex and the
+  ACL-graph-deepseek refusal, the single graph e2e row (TP=4, mp, no PP), the
+  FAQ-only documentation of the rule, and the fact that the Python assert is
+  **deleted by v0.10.0rc1** while the FAQ and the kernel check remain.

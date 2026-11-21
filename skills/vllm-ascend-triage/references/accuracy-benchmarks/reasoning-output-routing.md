@@ -183,7 +183,14 @@ this one; name the field the pinned version emits.
 
 ## The thinking is in the wrong language ("回答中英混杂", "the answer came back in English")
 
-Work them in this order; a run that starts with the model's Chinese ability or the
+**Correctness first, then language.** If the text *after* `</think>` is right and only its
+field/budget is wrong, the rows below decide it. If the answer itself is wrong — the JSON
+contradicts the prompt's own rule, or the reasoning keeps re-deciding itself — routing is a
+display layer and no parser flag can repair it: that is a numerics case, and on a MoE
+(A3B) serve the recorded owner is the fused gating top-k softmax op
+(`moe-gating-topk-precision.md`, reporter-confirmed #10892 — this page's rows were the
+answer given there, and the maintainer's resolution was the gating precision fix).
+Then work them in this order; a run that starts with the model's Chinese ability or the
 GDN/RoPE kernels spends its budget on the wrong layer.
 
 1. **Is the reporter reading `reasoning`, and was it truncated?** `content: null` with
@@ -340,6 +347,19 @@ considered alternative, and rejected hypothesis…", "max": …}` (`:25-48`), pr
 So `high` cannot bound thinking — it asks for exactly the "enumerate every rejected hypothesis and
 do not stop" behaviour the captured loop shows, and the loop text (`我决定…但…不准确。` ×10) is that
 shape.
+
+**On a model with no downstream mapping, the field is the checkpoint's template.**
+vllm v0.26.0 injects `reasoning_effort` into the chat-template kwargs and derives
+`enable_thinking` from it (`rust/src/chat/src/renderer/hf/mod.rs:1100-1122`; the
+documented rule is low/medium/high → `enable_thinking = true`, none → false,
+unset → not injected, `docs/features/reasoning_outputs.md:323-329`). vllm-ascend
+maps it **only** for DeepSeek-V4 and the Kimi-K3 renderer at that pin; a GLM serve
+gets usage accounting only
+(`vllm_ascend/patch/platform/patch_glm_reasoning_usage_accounting.py:17-52`), and
+`rg -n 'reasoning_effort' vllm_ascend/` lists nothing else. So "did `max` change
+anything for model X" is a question about the checkpoint's `chat_template.jinja`,
+which no pinned tree carries: settle it with one request pair (default vs `max`)
+comparing `completion_tokens` and the rendered prompt, not with a source walk.
 
 Deliverable order: (1) classify, and say the empty `content` proves routing works (the inverse of
 the `content`-only shape above); (2) close the underspecified field in the caller's schema (a

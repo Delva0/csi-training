@@ -78,9 +78,10 @@ mode, not the model.
 
 One `scripts/history-titles.sh -i 'suffix|507035|aivec|MPU address'` (titles only) now
 returns the whole precedent set for this shape — #7301 (`suffix` +
-`full_decode_only`), #5010 (`draft_model_config is None` with suffix), #5227 (suffix +
-`PP>2` `IndexError`), #10271 (GLM-5.1 D-node `fftsplus aivector` crash), and the
-`507035` reports #2763/#3037. Open #7301 and #10271 first; do not spend a call
+`full_decode_only`), #5010 (`draft_model_config is None` with suffix), #10271 (GLM-5.1
+D-node `fftsplus aivector` crash), and the `507035` reports #2763/#3037. #5227
+(`suffix` *and* `ngram` both `IndexError` on one PP launch, no device record) belongs
+to the PP lane, not this page: `../pipeline-parallel/spec-decode-first-request.md`. Open #7301 and #10271 first; do not spend a call
 re-deriving the suffix sampler branch.
 
 ## What the frame proves, and what it does not

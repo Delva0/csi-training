@@ -43,3 +43,49 @@
   whether the observed gap is explained by the measured truncation/extraction failure rate.
 - Only after harness effects are excluded, look for engine-side causes (custom-op kernels,
   quantization path, graph mode), and prefer a clue that predicts a *uniform* drop.
+
+## Two images, one command line: matching flags is not matching the numeric path
+
+A report of the form "同样的权重、评测脚本和部署脚本; 新镜像 0.7500, 旧镜像 0.7843,
+MindIE 0.7885" is still a *no* to knob 6, because two images execute one command
+line differently: a mode or flag the older image does not implement is ignored or
+rejected there, and a default the newer image switched on is part of its serve flags
+even though it never appears on the command line. At vllm-ascend v0.19.1rc1
+(`da421afa`) the asymmetric default is the compile-time graph-fusion stack:
+
+| Fact | Evidence at v0.19.1rc1 |
+|---|---|
+| `cudagraph_mode: FULL` / `FULL_DECODE_ONLY` turns Npugraph_ex **on by default**; `PIECEWISE` and `NONE` turn it off | `docs/source/user_guide/feature_guide/graph_mode.md:18,115`; `vllm_ascend/platform.py:389-392,411` (FULL branch keeps it on, `:413-415`) |
+| that stack also flips three fusion passes on: `fuse_norm_quant=True`, `fuse_qknorm_rope=True`, `fuse_muls_add=True` (`fuse_allreduce_rms` stays `False`, `enable_static_kernel` stays `False`) | `vllm_ascend/ascend_config.py:350-353,383-388` |
+| the **narrow** ablation — keep the capture mode, drop only the FX/fusion layer | `--additional-config '{"ascend_compilation_config":{"enable_npugraph_ex":false}}'` (`graph_mode.md:159`) |
+
+`cudagraph_mode: PIECEWISE` is the *coarse* ablation: it disables Npugraph_ex too
+(`platform.py:392,411`) but also changes capture geometry and the splitting-op list,
+so it cannot separate fusions from kernels — use the `enable_npugraph_ex:false` line
+first and PIECEWISE only as the second rung.
+
+Order, and the first two cost one launch each: (1) the **noise floor** — the newer
+image twice on the same body (`repeated-run-nondeterminism.md`, #221); (2) the
+`enable_npugraph_ex:false` rerun on the newer image; (3) model-specific numerics.
+Rung 3 is where a session drowns: recorded **#9324** (QwQ-32B, TP4, A3, 0.7500 vs
+0.7843, `--reasoning-parser deepseek_r1`, `--max-model-len 131072`,
+`cudagraph_capture_sizes [1,8,24,48,60]` + `FULL_DECODE_ONLY`) reached rungs 1-2 only
+at turn 17 of 18, after turns 9-15 inside `AscendYaRNRotaryEmbedding`; the answer then
+shipped cut at ~2.7 K characters inside its fifth rung. Two hypotheses that walk
+retires, so a later session need not re-derive them:
+
+- **`--block-size 128` is not a knob between two vllm-ascend images.** It is the
+  platform's own default, and it is forced whenever prefix caching or chunked prefill
+  is on (`vllm_ascend/utils.py:1189-1216`); hybrid attention+mamba models return from
+  that function even earlier. Say so once and spend the turn elsewhere.
+- **The dense-Qwen2 YaRN path is a real divergence with a sub-token effect.** QwQ-32B
+  is a dense Qwen2 checkpoint whose published config uses YaRN (factor 4,
+  original_max 32768 — the `config.json` is not in the snapshot, so verify it with one
+  command before citing). The downstream `AscendYaRNRotaryEmbedding`
+  (`vllm_ascend/ops/rotary_embedding.py:253`, wired in at `vllm_ascend/utils.py:662`)
+  defaults `truncate=False` (`:270`, with its own "current not support actual truncate"
+  comment) where upstream defaults `True`
+  (`vllm/model_executor/layers/rotary_embedding/yarn_scaling_rope.py:31`), and the
+  factory forwards the key only when the model config carries it
+  (`rotary_embedding/__init__.py:236-278`). That moves the floor/ceil rounding of the
+  ramp band — label it a divergence, not the cause of a 3.4-point gap.

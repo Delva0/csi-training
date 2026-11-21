@@ -20,7 +20,11 @@ Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deeps
   `c8_enable_reshape_optim` in `--additional-config`) whose **prefill node stops
   answering**, whose first request is garbled, or which only loses accuracy — the flag
   algebra, the two `store_kv_block*` custom ops and the pinned per-weights recipes —
-  `c8-flags-and-kv-store-path.md`.
+  `c8-flags-and-kv-store-path.md`. When the accuracy loss is a **comparison against
+  another quantized checkpoint** ("w8a8c8 below w4a8c8"), the attribution order (control
+  row, recipe/node-count confound, the lane's 2-3 point floor, model validation) is
+  `../accuracy-benchmarks/quantized-sibling-score-gap.md`, which defers to Rule 3 here for
+  the flags.
 - the engine dies **at KV cache construction** with a bare
   `AssertionError:  assert sum_page_size_bytes % current_kv_cache_spec.page_size_bytes == 0`
   (`_reshape_kv_cache_tensors`), on a DSA model with C8 and/or DCP/MTP — a page-size

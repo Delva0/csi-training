@@ -4,7 +4,10 @@ Scope: an **offline** `LLM(...)` run (the same engine a serve's first request
 reaches) on a hybrid GDN checkpoint of a *multimodal-capable* architecture
 (Qwen3.6/Qwen3.5 — the stack shows `vllm/model_executor/models/qwen3_5.py` →
 `qwen3_next.py`), `tensor_parallel_size ≥ 2`, where call 1 is garbage or dies and
-call 2 is correct. Two independent owners are in this shape and one field of the
+call 2 is correct. The **crash** row also arrives from a `vllm serve` (#7947:
+first chat request kills the worker, so there is no call 2 to compare against);
+that variant is Step 2's mechanism reached from a different caller — read it there
+and do not require the degenerate-answer evidence the rest of this page uses. Two independent owners are in this shape and one field of the
 response decides which: a **crash/degenerate first call with a text-only run on a
 VL-capable checkpoint** (Step 2, `is_multimodal_model` drift) and a
 **first-request state/sync problem that `enable_sleep_mode=True` exposes** (Step 3).
@@ -54,6 +57,33 @@ Verified at vllm-ascend v0.18.0 `e18643f` + vllm v0.18.0 `bcf2be9`:
   `input_ids=None` and no `pixel_values`/mm kwargs; dynamo's guard evaluates
   `x.size(i)` on `None` → the `AttributeError` above, on the first request because
   that is when the size case is captured/dispatched.
+
+**The serve variant (#7947).** vllm-ascend v0.18.0rc1 (`99e1ea0fe685`),
+Qwen3.5-122B-A10B on 8×910B3, `--tensor-parallel-size 8 --max-model-len 131072
+--max-num-seqs 128 --async-scheduling --language-model-only
+--mm-processor-cache-gb 0 --additional-config '{"enable_cpu_binding":true,
+"multistream_overlap_shared_expert":true}'`: the engine starts, the first chat
+request dies with this page's stack (`model_runner_v1.py:1389` `execute_model` →
+`:1818` `_model_forward` → `qwen3_5.py:765` → `qwen3_next.py:1358` →
+`torch/_dynamo/utils.py:4656` `call_size`) and the worker exits;
+`--enforce-eager` runs correctly (~4 tok/s) and
+`--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'` still fails. The
+`vllm_ascend` frame numbers match that pin exactly, which makes the runner side
+citable even where the snapshot's vllm export (`v0.13.0`) has no `qwen3_5.py`. Three
+things to take from it:
+
+- `rg -n 'input_ids = None' vllm_ascend/worker/model_runner_v1.py` returns **one**
+  hit there (`:2429`, inside `_dummy_run`) — re-run it per ref, the site moves
+  between rc's (`:2431` at v0.18.0 `e18643f`).
+- `call_size` is a **dynamo guard** frame: the failing `.size()` is traced from a
+  real argument that arrived as `None` inside the compiled region, so the graph
+  wrapper is the call chain, not the owner, and `FULL_DECODE_ONLY` is not a
+  graph-off control (this page's #14638 row already says the same).
+- With `input_ids` supplied on the *real* request path, the `None` may instead be
+  `positions` (mrope), `intermediate_tensors` or `inputs_embeds` — keep those open
+  and ask for `sed -n '1350,1362p' vllm/model_executor/models/qwen3_next.py` and
+  `sed -n '758,770p' qwen3_5.py` from the reporter's own tree rather than guessing
+  what a newer file contains.
 
 Known issue: **#14638** "v0.18.0 branch has an unfixed incorrect use of
 `is_multimodal_model`" carries this exact stack; its body states the fix is on

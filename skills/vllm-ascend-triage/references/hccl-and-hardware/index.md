@@ -128,6 +128,22 @@ appearing only once concurrency rises, is the crash variant of the paragraph abo
 the legacy paged-attention patch path and defaults to empty), the `origin_op_name` /
 `fault kernel_name` ask, the ladder and the recorded #6018 case.
 
+**Then separate an HCCL-owned AIV collective kernel from a vllm-ascend op.** When a
+plog line reads `fault kernel_name=aiv_reduce_scatter_bfloat16_t` /
+`aiv_all_gather_*` / `aiv_all_reduce_*` beside `The DDR address of the MTE instruction
+is out of range` + `isSmmuFault is 1` + `[vector core exception]`, the name is HCCL's
+own opbase AIV template — `cann/hcomm/src/algorithm/base/alg_aiv_template/
+aiv_communication.h:227-258` generates it with `##type`, so the custom-op lane's
+`ls csrc` test is a dead end by construction. Read that line before any
+`reduce_scatter` call-site walk, then compare the `opData information is …` line
+across every attached plog (identical `index`/`count`/`src`/`dst` refutes "one rank
+passed a different size"), count the ranks by `device_id=` rather than by filename,
+and remember that `HCCL_OP_EXPANSION_MODE=AIV` is what `vllm_ascend/utils.py:506,554`
+recommends at v0.18.0 — unsetting it is the discriminator, not the fix:
+`aiv-collective-kernel-fault.md` (recorded #13527). The env-variable correlation for
+this same `AIV` family — which launch/flag combination makes it fire at all — stays
+`aiv-mc2-env-ablation.md`; this paragraph owns only the ownership split.
+
 **`507018` is not this topic's.** "The aicpu execution is abnormal" beside a
 `kernelName=<Op>, soName=libpt_kernels.so, funcName=RunCpuKernel` block is one
 operator that ran on the CPU/AICPU fallback because no AI-Core kernel matched the
@@ -163,6 +179,20 @@ same-card vs cross-card against the `npu-smi` Bus-Ids, and all-cross-card with e
 card-local edge up puts it on the host driver/CANN pairing and the container's device
 passthrough, not on the model. `transport-destlink-ipc-import.md` (#4148, #486, and the
 #5236 driver-update precedent).
+
+**Then separate a socket link that never came up from the resource refusal it is
+reported as.** If the plog carries `[Wait][LinksEstablishCompleted] is failed. ret[9]`
+/ `[Create][Sockets] … local role is client. ret[9]` / a `LINK_ERROR_INFO` table
+(`dest_ip(user_rank) | dest_port | src_ip(user_rank) | src_port | MyRole | Status |
+TlsStatus`) / `[Create][InterLinks] socket manager create connections failed, ret[9]`
+/ `[Create][CommPlane] failed, tag[…MC2MultiServer]` **before** the
+`HcclAllocComResource … ret = 4` line, no communicator was built: `4` is
+HCCL_E_INTERNAL wrapping the earlier `9`/TIMEOUT, so a title of
+`aclnnMoeDistributeDispatch… 561000` is **not** evidence for the QP/budget lane and
+`HCCL_BUFFSIZE`/gmu cannot fix it. Ask for the plog from **both** nodes and **every
+card**, then read the table wholesale-vs-subset. `link-establish-timeout.md`
+(recorded #9872, #1955, #4725; also the `[HcclSocket][Listen] … port[16666] fail`
+server half, and why `ping` between the nodes does not clear it).
 
 **Then separate a *refused resource allocation* from that link-creation failure.**
 The two share the `[Create][DestLink]Create Dest error!` sentence, so read the
@@ -288,6 +318,21 @@ debugging" caveat.
    launch-script values that reach them (`HCCL_BUFFSIZE` ≥ 1 MB, config magic word),
    the tutorial-recipe check, and the rank-asymmetry reading when a config change
    turns the error into a hang.
+10. `aiv-collective-kernel-fault.md` — the device fault is an **HCCL AIV collective
+   kernel** (`fault kernel_name=aiv_reduce_scatter_bfloat16_t`, `Task AIV` /
+   `tag[ReduceScatter_group_name_N]`, MTE `DDR address … out of range`,
+   `isSmmuFault is 1`, `retCode=0x31`): the macro that generates the name, the
+   `opData` comparison that refutes a per-rank size mismatch in one `rg`, the
+   `size == count × sizeof(dtype)` identity and the `len` the plog never prints,
+   why AIV is the configured path rather than a misconfiguration, the victim
+   `InplacePartialRotaryMul` / `Remote rank: [0]` line, the `stackcore_tracer` files
+   that are *not* a Python traceback, and the two one-axis reruns (recorded #13527).
+11. `link-establish-timeout.md` — `[Wait][LinksEstablishCompleted] is failed. ret[9]`
+   and the `LINK_ERROR_INFO` table on a multi-node start: the chain that ends as
+   `HcclAllocComResource … ret = 4` / `aclnn…Dispatch 561000`, the `src_port 0` /
+   `connecting` reading (wholesale vs subset), the `Listen … port[16666] fail` half
+   that lives in the *peer's* plog, and the device-plane checks (`hccn_tool -ip/-optical/
+   -lldp`, address variables per node) that replace `ping`.
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server
@@ -339,7 +384,9 @@ Common rules for this topic:
    was the defect.
 4. The HCCL implementation sources are usually exported as **`cann/hcomm`**, not
    `cann/hccl`: `src/framework/op_base/src/`, `src/algorithm/impl/operator/`,
-   `src/algorithm/base/alg_template/` (that is where `streamNotifyMain_` lives) and
+   `src/algorithm/base/alg_template/` (that is where `streamNotifyMain_` lives),
+   `src/algorithm/base/alg_aiv_template/` (the `aiv_*` opbase kernels the plog's
+   `fault kernel_name=` can name) and
    `src/platform/common/externalinput.cc` (env parsing). Grep `cann/hcomm` before
    saying a behaviour is undocumented, then check `SOURCES.json: unavailable` for
    the genuinely absent repos (`cann/hixl`, `cann/opbase`, `cann/ge`, `ops-*`).

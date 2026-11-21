@@ -13,7 +13,10 @@ raising. That distinction decides the next question.
     `Exception("WorkerProc initialization failed due to an exception in a
     background process. See stack trace for root cause.")`;
   - worker closed the pipe (`EOFError`, i.e. died) → the same exception with the
-    context suppressed.
+    context suppressed. This is a **pipe read** in the parent, not the
+    `EOFError: Ran out of input` raised *inside* a rank's own traceback: that one is
+    the torch_npu gather emulation's object broadcast during `profile_run` —
+    `profile-run-logits-gather-eof.md`.
   So the parent message alone cannot distinguish "raised" from "killed" — look
   for the worker-side traceback.
 - Worker side: `worker_main` wraps init in `try/except Exception` and logs

@@ -3,7 +3,8 @@
 Scope: the launch command carries `--pipeline-parallel-size 2` (or more) and the
 symptom is PP-shaped — the engine comes up and the **first request** dies on a
 non-last rank, a rank-specific `AssertionError`/`TypeError` with no device error,
-or the question is "is PP validated on this model/hardware at all?". Not the lane
+or the question is "is PP validated on this model/hardware at all?" — which
+includes "does PP work together with speculative decoding". Not the lane
 for a collective error on a PP cluster (that is `../hccl-and-hardware/index.md`)
 and not the lane for one-sided PP sizing/卡数 arithmetic
 (`../deploy-sizing/index.md`).
@@ -29,6 +30,12 @@ Inherit the rules in SKILL.md. Four that decide this topic:
    `rg -n "test_pipeline_parallel" .github/workflows/` → no hit, while
    `vllm_ascend_test_full.yaml:213-221` lists the other multicard files. So "PP is
    🟢 Functional" is a documentation claim, not a CI-backed one — quote both.
+   **Re-grep per pin**: at v0.11.0 (`2f1aed98ccdb`) `.github/workflows/_e2e_test.yaml:196`
+   *does* invoke it, so the claim narrowed to what the file covers — `Qwen3-0.6B`
+   and `DeepSeek-V2-Lite-Chat`, tp 1, pp 2, `mp`+`ray`, and **no
+   `--speculative-config`** (`test_pipeline_parallel.py:18-24,38-46`). Every spec
+   e2e in that tree is single-card (`tests/e2e/singlecard/spec_decode_v1/`), so
+   PP × spec-decode stays uncovered at either pin.
 3. **A non-last-rank failure is an interface question between the runner and the
    worker, not a model or checkpoint question.** `worker_v1.py` sends
    `output.tensors` when `not is_last_rank` (`:217-222`), so whatever came back
@@ -89,6 +96,14 @@ Conditional routes:
   `../upstream-downstream-drift/index.md` for the drift pattern (fork copied from
   an older upstream design, so the upstream file at the pinned vllm is not the
   reference implementation).
+- The first request on a PP > 1 launch that also carries a `--speculative-config`
+  dies with a plain `IndexError`/`AttributeError`/`TypeError` and no device record,
+  with `suffix`, `ngram` or `mtp` alike → `spec-decode-first-request.md`. The fact
+  that decides the whole answer: `max_concurrent_batches` is
+  `pipeline_parallel_size` when `--async-scheduling` is off
+  (`vllm/v1/executor/multiproc_executor.py:329-333`), so PP>1 already drives
+  `step_with_batch_queue` with `pp_size` batches in flight — the queue-removing
+  ablation is `--pipeline-parallel-size 1`, not "turn async scheduling off".
 - The reporter asks whether model M supports PP: `vllm/config.py` raises
   `NotImplementedError: Pipeline parallelism is not supported for this model.
   Supported models implement the SupportsPP interface.` before any worker starts

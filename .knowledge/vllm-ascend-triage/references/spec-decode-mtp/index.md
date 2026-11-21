@@ -72,6 +72,13 @@ at request time. The shapes:
   (`atb-op-setup-failure-at-proposer.md`). Two knobs it is *not*:
   `draft_tensor_parallel_size` (no consumer under `vllm/v1/**` at v0.11.0) and the
   target-family gate (`qwen3` is accepted).
+- or the **first** request on a launch that also sets `--pipeline-parallel-size`
+  > 1 dies with a plain `IndexError`/`AttributeError` (no device record), with
+  `suffix`, `ngram` or `mtp` alike and startup clean: the PP × spec-decode
+  contract, not the proposer — PP>1 gives the engine a batch queue of depth
+  `pp_size` that no flag removes, and swapping the method is the
+  proposer-innocence probe (`../pipeline-parallel/spec-decode-first-request.md`,
+  #5227: `suffix` and `ngram` both fail on the same PP=2 launch).
 - or it dies at **request time** on every rank in the same second with a bare
   `AssertionError` whose last frame is `attention_v1.py … assert
   attn_metadata.attn_mask is not None`, on a dense model with `method: ngram` (any
@@ -80,8 +87,31 @@ at request time. The shapes:
   `None` for that state (`dense-attn-state-gap.md`). The traceback may pass through
   `<eval_with_key>.N` / `unified_ascend_attention_with_output` — that is the graph
   wrapper around the same eager body, not a capture fault.
+- or it dies at **request time on every rank in the same second** with a **Python
+  `AttributeError`** on a *dense* drafter whose capture succeeded:
+  `'ForwardContext' object has no attribute 'draft_attn_metadatas'`, deepest frame
+  `attention_v1.py update_graph_params`, stack `model_runner_v1.propose_draft_token_ids`
+  → `eagle_proposer._propose` → `_update_full_graph_params` → `acl_graph.update_full_graph_params`,
+  on `cudagraph_mode: FULL_DECODE_ONLY` + `method: eagle3|eagle`. The drafter's helper
+  takes the per-step metadata list and drops it while the attention impl reads it off
+  `ForwardContext`, so no flag on the launch is the cause and `PIECEWISE` is the
+  unblock (`draft-full-graph-metadata-unwired.md`).
+- or the metrics read `Accepted: 0` / every per-position rate `0.000` / `Drafted: N > 0`
+  **while the target model's own output is correct**, on a model *family* whose
+  upstream spec decode has a dedicated proposer/speculator (gemma4, and any family the
+  `get_spec_decode_method` dispatch does not name): the family has no downstream
+  branch, so it runs on the generic single-group eagle path — `family-proposer-parity.md`.
+  This is the one acceptance-collapse shape that is decided *above* the positions and
+  block-table code, so the family grep comes before `acceptance-collapse.md`'s Step 3.
 
-Not this topic: a launch/startup failure (`../startup-failures/index.md`), a
+Not this topic: a first-request fault whose only extra axis is PP > 1
+(`../pipeline-parallel/spec-decode-first-request.md`), a launch/startup failure
+(`../startup-failures/index.md`), a drafter that refuses to **load** (a load-phase
+`AttributeError` naming a *model loader* class straight after `Loading drafter
+model...`, e.g. `'DummyModelLoader' object has no attribute 'get_all_weights'` under
+`--load-format dummy` — a loader-contract question whose object is the loader, so the
+model, checkpoint and quant config are exonerated:
+`../upstream-downstream-drift/load-format-loader-contract-drift.md`),
 collective or device fault whose sync point is **not** the drafter's count copy
 (`../hccl-and-hardware/index.md`; the copy-shaped variant stays here, because the
 frame proves the launch shape and the ablations are spec-decode rows), wrong or alternating
@@ -156,6 +186,18 @@ from the acceptance numbers.
   running is a coverage gap, not a config value and not a device fault. The recorded
   #2071 run reached that verdict only after re-reading three overlapping regions of
   `model_runner_v1.py`; the grep answers it in one call (`dense-attn-state-gap.md`).
+
+- **Check family parity before reading positions or block tables.** When acceptance is
+  exactly 0.000 with a correct target and non-zero drafts, one grep —
+  `rg -n 'use_<family>_mtp|<family>_mtp' vllm_ascend/` — decides whether the family
+  even has a downstream branch; `get_spec_decode_method` (`vllm_ascend/spec_decode/__init__.py:34-47`)
+  routes every `mtp` launch to `AscendEagleProposer` unless a family predicate claims it.
+  A family absent there is served by machinery whose base class asserts **one** KV cache
+  group for all draft layers (`vllm/v1/spec_decode/llm_base_proposer.py:1556-1574`) and
+  that takes its block size from `draft_attn_groups[0]`. Rank this above
+  `num_computed_tokens` drift whenever the report names a family and the version ships
+  that family's upstream proposer; downgrade it when the same 0 % reproduces with a
+  family that *does* have a branch (`family-proposer-parity.md`, worked #16980).
 
 ## Pages
 
@@ -235,6 +277,25 @@ from the acceptance numbers.
   `0 < temperature < 1` branch anchor in the rejection sampler with what remains
   unverified, the ladder (async off → MTP off → token step), and the upstream fix
   shape (#8724).
+- `draft-full-graph-metadata-unwired.md` — `AttributeError: 'ForwardContext' object
+  has no attribute 'draft_attn_metadatas'` on a **dense** drafter with `FULL_DECODE_ONLY`:
+  the five-site chain at v0.14.0rc1 (helper accepts the list, `acl_graph` and the
+  attention signature never take it, `attention_v1.py:439` reads it off the forward
+  context), why `using_paged_attention()` returning `False` under any
+  `speculative_config` makes the FIA branch unconditional while `mla_v1` stays healthy,
+  the tree's own **skipped** dense eagle3 e2e row (`.github/workflows/_e2e_test.yaml:128`
+  wires it) as the coverage statement, the repair threaded end to end by v0.17.0rc1 with
+  the two-grep version check, the ladder, and the recorded #6509 launch (Qwen3-235B w8a8
+  TP8+EP, CANN 8.5.0, `n=1`).
+
+- `family-proposer-parity.md` — acceptance exactly 0 % with a correct target on a model
+  family the downstream dispatch has no branch for: the one-grep verdict
+  (`use_gemma4_mtp` absent, `AscendStep3p5MTPProposer` as the port template), the three
+  family mechanisms upstream adds (per-group block tables via
+  `set_per_group_block_table`, `constant_draft_positions`, draft→target KV sharing), the
+  ngram row that splits draft-side from verify-side, the upstream `method` gate, and the
+  support-plan paragraph (three support levels, prerequisites with anchors, the flip
+  test) — worked #16980, gemma4 MTP on 910B at v0.23.0.
 - `../accuracy-benchmarks/mtp-prefix-cache-310p.md` — when spec decode is the
   *second* feature on a **310P** hybrid model: MTP over an `align`-mode prefix cache
   (per-block SSM state, `num_speculative_blocks`, `accept_token_bias`, the fp16 state

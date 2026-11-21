@@ -139,6 +139,14 @@ the arithmetic (`mc2_tokens_capacity`, `global_bs`, per-rank derivation) and for
 `HCCL_INTRA_*` reading; what changes is the lever. Recorded #5947 (v0.13.0rc1, 2×A2,
 DeepSeek-R1-0528-W8A8, DP4×TP4, EP, MTP 3, `FULL_DECODE_ONLY`, `HCCL_BUFFSIZE=200`):
 
+- **First confirm the refusal happened at all.** `ret = 4` on its own does not: on a
+  two-node start the identical `aclnn…Dispatch … 561000` +
+  `HcclAllocComResourceByTiling … ret = 4` text also appears when the MC2 comm could not
+  be *created* — the plog then carries `[Wait][LinksEstablishCompleted] is failed.
+  ret[9]`, a `LINK_ERROR_INFO` table and `[Create][CommPlane] failed, tag[…MC2MultiServer]`
+  (`../hccl-and-hardware/link-establish-timeout.md`, recorded #9872). Read the plog lines
+  above and below the `HcclAllocComResource` entry before ranking `HCCL_BUFFSIZE` or the
+  capacity arithmetic.
 - **The phase is not in that paste.** There is no Python frame and no `LoadGraph failed`
   block, so do not present `profile_run` as established: name the block you inferred it
   from (an `aclnn…Dispatch` + `HcclAllocComResourceByTiling` pair is an MC2 collective,

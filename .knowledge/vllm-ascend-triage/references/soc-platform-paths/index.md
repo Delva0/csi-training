@@ -103,12 +103,26 @@ Conditional routes:
   CPU/AICPU fallback, so the owner is the Python statement (or the un-gated config)
   that launched it, and the dmesg `devmm … should call halMemMap` is downstream of the
   fault → `310p-cpu-fallback-op-fault.md`.
+- A **penalty parameter** (`presence_penalty` / `repetition_penalty`) is what makes a 310P
+  serve fail — "加上 presence_penalty=1.5 一到测试阶段就会崩溃", often with no traceback:
+  the branch is printed by the code itself (`Triton not available, falling back to vLLM
+  default penalty implementation` ⇒ the shipped 310P image's torch fallback), and the
+  #2533/#2544 `_C.apply_repetition_penalties_` precedent no longer holds at v0.23.0 →
+  `atlas-300i-310p.md`, its penalty section.
 - A **quantized** model on 310P fails at the first quantized linear with an
   op-level dtype/layout complaint instead of a Python raise — e.g. `Bias dtype
   should be INT32, actual dtype is DT_FLOAT16` in the title alone: the
   checkpoint artifact decides (310-suffixed conversion vs the generic `-w8a8`),
   and the 310P `W8A8_DYNAMIC` scheme is the one path that forwards the model's
   fp16 bias → `310p-quant-checkpoint-soc-match.md` (three checks, no engine walk).
+- A **MoE** (A3B) checkpoint on 310P **serves and answers wrong but fluent text** —
+  mixed-language CoT, self-contradiction, a final JSON that breaks the prompt's own rule,
+  normal tokens/s and `finish_reason: stop`, no 乱码 and no repetition. That is not the
+  VL-garbage lane below and not reasoning routing: the 310P selector routes through one
+  fused op (`torch_npu.npu_moe_gating_top_k_softmax`,
+  `_310p/fused_moe/experts_selector.py:61`) whose in-tree test discards its own
+  `torch.allclose`, so probe it before any config ladder →
+  `../accuracy-benchmarks/moe-gating-topk-precision.md` (#10892, reporter-confirmed).
 - A **VL or OCR** checkpoint on 310P **serves and answers garbage** — 乱码,
   "精度有问题", "随便跑个图片识别就能复现", no traceback, while a text model on the
   same box is fine and the report names a sibling VL model that "seems OK" →

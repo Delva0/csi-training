@@ -21,6 +21,11 @@ the AscendC extension, and the owner is the installed wheel/compiler pair
 lane either: no `csrc/` operator is involved, so the owner is the wheel and the audit
 is the in-tree Triton call sites —
 `../image-dependency-faults/triton-extension-op-silent-miscompute.md`.
+The third Triton shape **is** this topic: a kernel that runs and **faults the device**,
+where the plog's `fault kernel_name=` resolves to a `@triton.jit` function in
+`vllm_ascend/` (the sampler/penalty kernels are the recorded family). The kernel is
+downstream code and the owner is the launch site's arguments —
+`triton-jit-kernel-device-fault.md`.
 
 ## Rules
 
@@ -216,6 +221,16 @@ is the in-tree Triton call sites —
   degenerate op test (`n = k = 1024`, `randint(0, 1)` scales) and the single A3 config
   that enables the feature, plus the review checklist for a self-diagnosed report
   (recorded #16561).
+- `triton-jit-kernel-device-fault.md` — the plog names a downstream `@triton.jit`
+  kernel (`fault kernel_name=token_bin_counts_and_mask_kernel_0` with `aivec error`,
+  `The DDR address of the MTE instruction is out of range`, `isSmmuFault is 1`,
+  `507035`): the name→file resolution at v0.20.2rc1 including which worker generation
+  each sampler kernel name proves (`patch/worker/__init__.py:22` skips the v2 patches
+  on exactly vllm 0.20.2), what the `[AIC_INFO] args(0 to 9)` blob does **not** pin,
+  the two decoys (the `LlmDatadistTimer` teardown segfault, the upstream tensor
+  construction chain), the four-rung ablation (penalties at defaults first), the
+  recorded #10522 case with its reporter-confirmed post-pin fix, and the three
+  skipped nightly tests that make "the op test passes" unavailable here.
 - `moe-init-routing-tiling.md` — `aclnnMoeInitRoutingV3 … 561103` (and the
   `MoeInitRoutingV2` tiling wording): the decoded EZ9999 `CheckTokenCount` check,
   which caller parameters the tiling compares, the dispatcher arithmetic that

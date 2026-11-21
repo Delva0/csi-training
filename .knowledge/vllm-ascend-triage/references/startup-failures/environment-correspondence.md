@@ -27,6 +27,15 @@ known-good path — before writing a theory about model code.
    naming a vllm file absent from the pinned tree is therefore a
    snapshot-coverage gap, not evidence about upstream — say so, ask for
    `pip show vllm`, and do not hunt for the missing line.
+   The same rule covers every library the snapshot does not carry **at all**: `torch`
+   (only the `Ascend/pytorch` `content_export` is present — it holds `torch_npu/` but no
+   `torch/`), CANN, the driver. When a traceback's deepest frames are inside one of
+   those, the emulation or wrapper line that names the component is already enough for
+   the deliverable, and the missing upstream body cannot change the ablation ladder —
+   ship the answer and label the mechanism open. Recorded cost of ignoring it: on #1579
+   the one snapshot-absent file (`torch/distributed/distributed_c10d.py`) was hunted for
+   ~10 K characters of reasoning after the owning `torch_npu` frame was already read, and
+   the session ended at the output cap with **no answer**.
 3. Recorded pairs:
    - vllm-ascend `v0.11.0rc0` (`00ba07102212c7c7a40de427f09848f2e203c498`) with
      vllm `v0.11.0rc3` (`8ce5d3198d00631a76e1aa02a57947b46bc7218c`), image
@@ -140,6 +149,20 @@ and `which npu-smi`, and ask for the actual install root before building a
 thesis on a missing component. The same rule applies to components the image
 installs but a hand-built environment must add itself (NNAL/ATB:
 `../image-dependency-faults/nnal-atb-missing-library.md`).
+
+**The `ENV Variables:` block has its own filter — read what it cannot contain.**
+`get_env_vars()` (`vllm-ascend/collect_env.py:304-316` at v0.19.1rc1 and v0.21.0rc1)
+prints only keys registered in upstream `vllm.envs.environment_variables` plus keys
+starting with `TORCH`, `PYTORCH`, `ASCEND_` or `ATB_`. `HCCL_*`,
+`GLOO_SOCKET_IFNAME`, `TP_SOCKET_IFNAME`, `MOONCAKE_*` and `OMP_*` therefore **never
+appear**, however faithfully the reporter copied the tutorial's env block. Do not rank
+"the reporter skipped `HCCL_BUFFSIZE`/`HCCL_INTRA_*`" on that absence: #10724's launcher
+exports `HCCL_IF_IP`, `HCCL_SOCKET_IFNAME`, `HCCL_BUFFSIZE`,
+`HCCL_OP_EXPANSION_MODE`, `HCCL_INTRA_ROCE_ENABLE`, `HCCL_CONNECT_TIMEOUT`,
+`OMP_NUM_THREADS` and `MOONCAKE_CONFIG_PATH`, and its ENV block (20 keys, all
+`ASCEND_*`/`ATB_*`/`TORCH*`/`PYTORCH*`) carries none of them; the recorded #9872
+triage came within one paragraph of shipping that inference as its leading cause.
+Ask for `env | grep -E 'HCCL|SOCKET_IFNAME|MOONCAKE'` on each node.
 
 ## The launch environment is one environment per worker process
 

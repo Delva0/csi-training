@@ -19,7 +19,12 @@ list is different and the newer pages will misfire.
   `vllm/v1/metrics/loggers.py:115-117` at the same pin.
 
 `Swapped`/`Pending`/`CPU KV cache usage` are printed by V0 only, so their presence in the
-paste is proof of the legacy engine — one line, no source walk. It also tells you the
+paste is proof of the legacy engine — one line, no source walk. A paste that instead
+carries `npu is experimental on VLLM_USE_V1=1. Falling back to V0 Engine.` dates itself
+the same way, and that line is **not** a platform verdict: it comes from upstream
+`_warn_or_fallback` on non-CUDA hardware and an exported `VLLM_USE_V1=1` clears it
+(`../startup-failures/profile-run-logits-gather-eof.md` §1) — so "the engine is V0
+because V1 does not work on NPU" is never a citable conclusion. It also tells you the
 *release could not have captured an ACL graph*: at v0.8.5rc1 the tree says
 `pytest.ini:60` "`VLLM_USE_V1=1` is not supported with device type=npu", and graph mode is
 torchair behind an `additional_config` key, not ACL graph (step 3).

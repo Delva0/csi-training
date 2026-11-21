@@ -47,6 +47,18 @@ after that keeps the header, not this text.
   `SetCustomHandler` lambda and never calls `EXEC_NPU_CMD`, so `N/A` is the expected
   outcome) or `unknown at this pin`. It extracts sites; it does not prove what the
   installed CANN reports.
+- `scripts/moe-gating-topk-probe.py [--experts 256] [--top-k 8] [--rows 64]
+  [--dtype float16|bfloat16|float32] [--seeds 5] [--spread 1.0 0.05] [--device npu]
+  [--atol 1e-3] [--rtol 1e-3]` — the one-command check behind "fluent but wrong answers on
+  a MoE serve" (#10892): runs `torch_npu.npu_moe_gating_top_k_softmax` against
+  `softmax(x.float(), -1).topk(k)` over several seeds and two logit spreads (a narrow
+  spread concentrates the ties), printing the worst weight error, rows whose selected
+  expert **set** differs, and rows where only the order differs (benign ties). Exit 0 =
+  within tolerance (gating lane weakened — try larger `--experts` or another `--dtype`),
+  1 = mismatch (the lane is live: report the output, no config ladder), 2 = cannot run
+  here (no torch / no `torch_npu` / no NPU — a gap, not a pass). Run it through
+  `uv run --no-project python …`; the reference is the identity the in-tree e2e test
+  asserts, at fp32 instead of the test's discarded `torch.allclose`.
 - `scripts/quant-scale-dtype-audit.py <vllm-ascend-root>` — the sibling sweep for a
   quant-scale dtype gate (`EZ1001 … Tensor scale not implemented for DT_FLOAT16`,
   `161002`): prints every weight-side scale handed to `npu_quant_matmul` /
@@ -308,4 +320,16 @@ after that keeps the header, not this text.
   emit **unquoted** (`anyOf: [string, null]` and other schemas with no top-level
   `"type": "string"`); run it on the client's own body before reading a parser
   (#12261).
+- `torchrun --nproc_per_node=<N> scripts/npu-gather-probe.py [--group] [--tokens N]
+  [--cols N] [--dtype {float16,bfloat16,float32}]` — runs torch_npu's `gather`
+  **emulation** outside vLLM (#1579): HCCL has no `gather`, so `_gather` broadcasts a
+  `recv_size_list` with `dist.broadcast_object_list` and then all-gathers. `--group`
+  takes the explicit-group branch (`distributed_c10d.py:126`, the frame in that case's
+  tracebacks), the default takes `:110`; the tensor is 2-D fp16, `--cols` divided by the
+  world size, so it matches a sharded logits shape. Exit 0 = every rank gathered and (on
+  the destination) the per-rank sums match, 1 = the primitive failed (quote
+  `type: message`), 2 = it could not import torch on this host. Run it inside the
+  reporter's image on the failing node; `EOFError: Ran out of input` here puts the owner
+  in the image's object collective, a clean run puts the logits path back in play.
+  Page: `../startup-failures/profile-run-logits-gather-eof.md`.
 

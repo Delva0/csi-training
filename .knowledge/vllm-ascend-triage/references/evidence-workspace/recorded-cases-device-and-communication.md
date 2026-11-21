@@ -9,6 +9,29 @@ mixed decode+prefill batch faults. Routes: `../custom-ops-runtime-faults/index.m
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#10522** vllm-ascend v0.20.2rc1 (`367b8e62`) + vllm 0.20.2 (`bc150f5`), GLM-5.1,
+PD with two A3 nodes as the P instance at `PP4 TP8 EP32`, CANN 9.0.0, 16 dies `OK`:
+the bad-case harness floods over-length prompts, the API server rejects a
+202753-token request (`VLLMValidationError … maximum context length is 202752`), then
+a request carrying `presence_penalty=0.5 frequency_penalty=0.5 repetition_penalty=1.1
+max_tokens=1 min_tokens=1` kills the EngineCore — `failed (engine dead)`, teardown,
+`!!!!!!! Segfault encountered !!!!!!!` with `llm::LlmDatadistTimer::ProcessTimerInContext()`
+frames — and the plog names `fault kernel_name=token_bin_counts_and_mask_kernel_0`
+with `aivec error`, `The DDR address of the MTE instruction is out of range`,
+`CheckSmmuFault:Get isSmmuFault is 1` and `507035`. Track: a device fault inside a
+**downstream Triton-Ascend** kernel, not a `csrc/` or CANN op. The recorded run found
+the owning file at its 12th tool result (`vllm_ascend/ops/triton/bincount.py:32`,
+reached only under non-default penalties) and then went upstream — reading
+`prompt_token_ids`/`output_token_ids` construction and deriving the
+`[AIC_INFO] args(0 to 9)` byte layout — for the rest of a 38-message, 16 384-token
+session whose three message texts total 230 characters: **no answer shipped**. The
+reporter closed the loop themselves the same day: "已验证该commit可修复"
+(`f95a31ec266552a73cd8443810884085ae2e3880`, i.e. after the pin), so the mechanism
+was never obtainable from this tree. What the run should have sent on that turn:
+the ownership verdict, "the chain only runs because that request sets penalties —
+retry with them at defaults", the teardown decoy retired in one line, and the ask.
+Page: `../custom-ops-runtime-faults/triton-jit-kernel-device-fault.md`.
+
 **#18345** vllm-ascend v0.23.0rc1 (`f4a08bddd0cc`) + vllm 0.23.0, triton-ascend
 v3.2.1 (`2badfc89e70a`), 8×910B3, CANN 9.1.0, torch 2.10.0 / torch_npu 2.10.0.post2:
 "`extract_slice` of triton-ascend gives wrong data when the start address is not
@@ -590,7 +613,7 @@ answer, with three of its calls empty greps for `setup failed` in trees the snap
 not carry and a mid-session 33 K-character platform-page read. Page:
 `../soc-platform-paths/310p-kv-cache-dtype.md`.
 
-- **#11542** — vllm-ascend `v0.22.1rc1` image, 2× 910B3 (A2), a fork branch
+**#11542** vllm-ascend `v0.22.1rc1` image, 2× 910B3 (A2), a fork branch
   (`qwertyjack/deepseek-v4-dspark-main`), `DeepSeek-V4-Flash-DSpark-bf16`, launching from the
   **DeepSeek-V4-Pro** tutorial's multi-node script: title `create_config /torch_npu/csrc/distributed/
   HCCLUtils.cpp:140 HCCL function error: hcclCommInitRootInfoConfig(…), error code is 1`, with the two
@@ -622,3 +645,33 @@ prompt tokens, 29 KB spent on a batched `ls`/`cat SOURCES.json`/`ls history` bes
 `skill_view` that the skill's first rule forbids). Pages now carry the phase split:
 `../hccl-and-hardware/qp-resource-exhausted-at-graph-load.md` "the phase depends on the ref"
 and `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3b.
+
+**#13527** vllm-ascend v0.18.0 (`e18643f8a4d5`), DeepSeek-V4-flash EP, 8×A2 P/D,
+  `HCCL_OP_EXPANSION_MODE="AIV"` on both sides: after serving for a while six ranks'
+  plogs carry `fault kernel_name=aiv_reduce_scatter_bfloat16_t` with MTE
+  `DDR address … out of range` / `isSmmuFault is 1` / `retCode=0x31` and one
+  `tag[ReduceScatter_group_name_3]`. The run found the fault kernel and refuted a
+  per-rank count mismatch (six identical `opData` lines) by its 10th turn and then
+  spent six more on the DSV4 registry absence and the hcomm AIV templates: 43.8 K
+  characters of reasoning vs 2.2 K of text, no ranked answer at the cap, and a close
+  call on ranking "partial participation" off the missing device 0/6 plogs. Page,
+  with the name→owner rule, the `opData` comparison and the AIV-not-a-misconfig
+  split: `../hccl-and-hardware/aiv-collective-kernel-fault.md`.
+
+**#9872** vllm-ascend `v0.19.1rc1` (`da421af`), MiniMax-M2.5 on 2×910B2 (16 dies),
+`--data-parallel-size 2 --tensor-parallel-size 8 --enable-expert-parallel`, title
+`aclnnMoeDistributeDispatchV4 failed, error code is 561000`. The DP2×TP8 = 16 arithmetic
+does select MC2 (A2: `num_experts_per_device <= 24 and ep_world_size >= 16 and num_tokens
+<= mc2_tokens_capacity`, `vllm_ascend/ascend_forward_context.py:272`), and the run spent
+12 turns proving that plus the pinned A2 dp2tp8 recipe
+(`docs/source/tutorials/models/MiniMax-M2.5.md:194-250`) — but the question it never asked
+was whether the comm existed at all: the reporter's later full-card plogs open with
+`hccl_socket_manager.cc:860 [Wait][LinksEstablishCompleted] is failed. ret[9]` and a
+`LINK_ERROR_INFO` table (device[7], port 16666, one `time out` peer and seven
+`connecting`), i.e. `ret = 4` from `HcclAllocComResourceByTiling` wraps a link timeout and
+no budget lever applies. The maintainer's own reply says the aclnn error
+"不一定是根因". Delivery: 12 assistant turns, 39 K characters of reasoning, **one**
+partial message (2.9 K) that was cut mid-answer, after it had verified everything except
+this. Pages: `../hccl-and-hardware/link-establish-timeout.md` (new),
+`../startup-failures/environment-correspondence.md` (the `collect_env` ENV filter that
+makes the missing `HCCL_*` block meaningless).

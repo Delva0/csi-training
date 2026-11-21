@@ -8,8 +8,13 @@ token, with no traceback and a healthy process; often reported together with
 first check is one env var. Text-only prompts answered as garbage are the
 `short-prompt-corruption.md` / `garbled-long-context-output.md` profile instead —
 unless only the **first** call degenerates or the run is a text-only launch of a
-VL-capable checkpoint, which is `first-generate-degenerate.md`;
-the presence of an image plus a repeated single token is what selects this page.
+VL-capable checkpoint, which is `first-generate-degenerate.md`.
+It also owns the **wrong-but-not-repeated** vision answer — a document/OCR run whose
+TP=2 reply collapses to one trivial element (`[{"bbox":[0,0,307,307],"category":
+"Picture"}]`, no text) while TP=1 returns the full box+text list. Same owner (what
+the vision tower produced), different surface: the answer is present and plausible,
+just poorer. Either way the presence of an **image** is what selects this page; the
+`AAAA…`/`!!!!` text-only profiles are `short-prompt-corruption.md`.
 
 ## Grade the symptom before theorising
 
@@ -24,6 +29,15 @@ the presence of an image plus a repeated single token is what selects this page.
   tokenizer (gpt2 only). Give the one-line check
   (`AutoTokenizer.convert_tokens_to_ids('!')`) and label it a hypothesis; do not
   put it in the headline.
+- **Open the screenshots when the report is two runs side by side.** Exported
+  attachments carry an `*.ocr.txt` per image (procedure step 2), and the pair is
+  the whole symptom description: recorded #7680's single-card OCR shows dozens of
+  `bbox`+`text` entries while the two-card one shows a single
+  `{"bbox":[0,0,307,307],"category":"Picture"}` — the layout head produced one
+  coarse box and no text. That reads as *degraded ViT features*, not as a sampler
+  tie or a template problem, so it points at the vision tower and at whatever the
+  TP size changed. Reading it costs one call; the recorded run reasoned about
+  `head_size` arithmetic for twenty turns without ever opening them.
 - Same for the model's `head_dim`: read `vision_config.hidden_size` and
   `num_heads` from the reporter's `config.json` instead of quoting a number.
   Qwen2.5-VL-7B = 1280/16 → 80 is recall; it decides whether the padding branch
@@ -125,10 +139,64 @@ worth quoting because it changes what the older precedent can be used for:
   quoted at this pin; only its symptom shape (TP-sensitive vision path) transfers.
   Say that in the answer instead of citing the weight-pad fix.
 
+## Third pin: v0.17.0rc1 — the ViT sharding lever is `--mm-encoder-tp-mode`
+
+Verified on #7680 (vllm-ascend v0.17.0rc1 `e20f0b1` ↔ vllm v0.17.0 `b31e932`). At
+this pin the ViT of a VL model is **weight-sharded by default**, so "TP=1 clean,
+TP>1 wrong" is a config question before it is a kernel question, and the report may
+paste no log at all — the two screenshots *are* the evidence.
+
+| Site | Fact |
+|---|---|
+| `vllm/config/multimodal.py:143` | `mm_encoder_tp_mode: MMEncoderTPMode = "weights"` — the default shards the vision tower across the TP group |
+| `vllm/engine/arg_utils.py:1057` | the flag is `--mm-encoder-tp-mode` (`weights` \| `data`) |
+| `vllm/model_executor/models/vision.py:127` | `is_vit_use_data_parallel()` reads `mm_encoder_tp_mode == "data"` |
+| `vllm/model_executor/models/dots_ocr.py:223-300` | `DotsVisionAttention`: `use_data_parallel ? tp_size=1 : TP world size`, `num_attention_heads_per_partition = heads // tp_size`, `QKVParallelLinear` / `RowParallelLinear` with `disable_tp=use_data_parallel` |
+| `vllm/model_executor/models/dots_ocr.py:644` | `supports_encoder_tp_data = True` on `DotsOCRForCausalLM` — so `--mm-encoder-tp-mode data` is **accepted** for dots.ocr (the models without it get `vllm/config/model.py:571-578`'s `logger.warning_once(… Falling back to … weights)`) |
+| `vllm_ascend/utils.py:652` | `AscendMMEncoderAttention` replaces `MMEncoderAttention` by class name, and is constructed with the **per-partition** head count |
+| `vllm_ascend/ops/mm_encoder_attention.py:124-136` | the replacement runs `torch_npu._npu_flash_attention_unpad(..., num_heads=self.num_heads, num_kv_heads=…)` (`:124`, `num_heads` at `:130`); its only reshape gate is a head-**dim** pad (`enable_pad = 64 < head_size < 128`, `:65`) — a dots.ocr default tower (`vllm/transformers_utils/configs/dotsocr.py:14,18`: embed 1536 / 12 heads → 128) is outside it |
+| `vllm_ascend/platform.py:697-704` | `--mm-encoder-attn-backend` is **reset to `None`** with a warning, so the ViT attention backend is not a lever on Ascend |
+
+So the first ablation row — before any `config.json` request — is
+
+```
+--mm-encoder-tp-mode data      # ViT replicated per rank, LLM still TP-sharded
+```
+
+One restart, same request, same checkpoint. Clean ⇒ the weight-sharded vision path
+owns it (per-rank head count 12 → 6 through `AscendMMEncoderAttention`, or the
+sharded qkv/proj load), and `data` is also the workaround to offer. Corrupt ⇒ the
+vision tower is exonerated and the text side becomes the suspect. Confirm the
+accepted value by grepping `supports_encoder_tp_data` in
+`vllm/model_executor/models/<model>.py` first: a model without it silently falls
+back to `weights`, which looks like "the flag did nothing".
+
+Ladder for this shape: (1) `--mm-encoder-tp-mode data`; (2) `--tensor-parallel-size 4`
+— if a larger TP is *also* wrong, the sharded path is implicated further, if TP=4 is
+clean while TP=2 is not, suspect the per-rank head count/divisibility rather than
+weights; (3) TP=1 to re-confirm the reporter's own control; (4) `--enforce-eager`
+(the `_npu_flash_attention_unpad` call inside an ACL graph); (5) answer-decode
+difference: only the boxes are wrong, or the text inside them too — that separates
+"layout head degenerated" from "everything after the tower".
+
+**Coverage statement at this pin:** `rg -ln 'dots' vllm_ascend/ tests/ docs/`
+returns nothing (no dots.ocr registration, doc or test), and the only 2-card VL test
+in `tests/e2e/multicard/2-cards/` is `test_disaggregated_encoder.py`; the nightly
+model configs (`Qwen2.5-VL-7B/32B`, `…-EPD`) are the whole VL coverage. So "no
+validated multi-card recipe for this checkpoint" is citable; it is not the cause.
+
+**Delivery note:** this shape is answered by the matrix, not by a source walk. The
+recorded #7680 session had both operands (TP=1 works, TP=2 wrong) at turn 1, then
+spent the 16 384-token cap deriving `DotsVisionConfig` head arithmetic and the
+`mm_encoder_attn_backend` reset — and shipped **no message text** on its last turn,
+so the matrix never reached the reporter. Write the verdict plus the rows above in
+the first message, then check them.
+
 ## Recheck conditions
 
 `MIN_PAD_SIZE` / `MAX_PAD_SIZE`, the two registrations, the `USE_OPTIMIZED_MODEL`
-default and the padding call sites all move between releases. Re-grep
+default, the `mm_encoder_tp_mode` default and the `is_vit_use_data_parallel()` /
+`supports_encoder_tp_data` pair, and the padding call sites all move between releases. Re-grep
 `MIN_PAD_SIZE|enable_pad|USE_OPTIMIZED_MODEL` at the pinned commit before quoting
 any of them; on a release where the class is gone, say the path does not exist
 there and ask for the version.

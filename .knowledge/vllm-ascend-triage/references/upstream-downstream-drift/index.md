@@ -55,8 +55,23 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   concurrency, `../pooling-embedding/batch-index-desync.md`. Same method as
   `patch-copy-vs-upstream.md`, different directory, and the diff is what proves
   ownership;
+- or the failing frame is an **upstream core invariant** (`assert` / `RuntimeError` in
+  `vllm/v1/core/**`) whose *state* was assembled by a patched downstream object — a bare
+  `AssertionError: prev_free_block of fake_free_list_tail should always exist` in
+  `kv_cache_utils.append_n` reached through `coordinator.remove_skipped_blocks` on a model
+  whose KV groups downstream builds (`AscendHybridKVCacheCoordinator`, compressed/SWA
+  specs). The deliverable is the ownership split plus the group/pool flags, not the
+  linked-list arithmetic: `kv-block-free-list-assert.md` (recorded #10724);
 - the error is a Python attribute/type/state error (including a `RuntimeError`
   raised by a fork's own state handling), not a device dump, not a collective.
+- **or the object named in an `AttributeError` is a model loader, not a model** —
+  `'DummyModelLoader' object has no attribute 'get_all_weights'` right after
+  `Loading drafter model...` under `--load-format dummy`: the downstream code
+  hand-pulls weights from a `DefaultModelLoader`-only API while the loader contract
+  is `BaseModelLoader`'s `download_model` + `load_weights`, and upstream builds the
+  same drafter through `get_model(...)` → `load-format-loader-contract-drift.md`.
+  The checkpoint, the model class and the quant config are exonerated by the
+  message itself.
 
 The one `NotImplementedError` that belongs to startup instead: a **custom op**
 registered by the downstream C++ extension without a Meta/fake implementation
@@ -71,7 +86,14 @@ It is the wrong entry for an aclnn/AscendC device fault
 touches downstream code at all — a traceback over `vllm/**` plus
 `site-packages/**` with no Ascend class involved (`RuntimeError: Already
 borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
-`../serving-frontend-faults/index.md`.
+`../serving-frontend-faults/index.md`. One member of that last group has a
+different owner: a **model file** that breaks its own forward at
+`profile_run` — `linear(): argument 'input' must be Tensor, not tuple` from a
+fused-residual `RMSNorm` whose return was not unpacked — is a startup-lane
+model-implementation defect (`../startup-failures/model-file-tuple-unpack.md`,
+recorded #587 at vllm v0.8.4); the contract question is still worth one grep
+(`vllm_ascend/ops/layernorm.py` `forward_oot` matches upstream here), but the
+answer is not "downstream drift".
 
 ## Rules
 
@@ -252,9 +274,27 @@ borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is
   wrapper swallows, the `MultiModalBudget` construction as the prime raise site,
   `--skip-mm-profiling` as a smoke test that is not a fix, and the v2
   `try/finally` wrapper as the discriminator.
+- `load-format-loader-contract-drift.md` — worked case vllm-ascend #2346
+  (v0.10.0rc1 `4604882a` / vllm v0.10.0 `6d8d0a24`, DeepSeek-V3 MTP drafter with
+  `--load-format dummy`): `AttributeError: 'DummyModelLoader' object has no attribute
+  'get_all_weights'` at `mtp_proposer_v1.py:257-259`, the loader contract
+  (`base_loader.py:16-46`), why `get_all_weights` (`default_loader.py:227`) is not
+  part of it, the upstream `get_model()` counterpart (`eagle.py:337-346`,
+  `config.py:3045-3046`), the guarded patch and why unifying to
+  `loader.load_weights(...)` can trip the strict check, the `-dummy-`-directory
+  escape, and the two-call recipe for any future loader-method message.
 - `unsupported-path-raise.md` — a downstream backend's own `raise`
   (`RuntimeError: Prefix cache and chunked prefill are currently not supported`, beside
   `# TODO: Will support … soon.`) reached from an RL trainer that builds `vllm.LLM(...)`
   itself: the metadata state the branch refuses (any prefill batch carrying a
   `block_tables` tensor), the V0 defaults that prove a caller enabled it, the multimodal
   auto-disable row, and the "fixes" that cannot work. Recorded #133 (v0.7.1rc1).
+- `kv-block-free-list-assert.md` — worked case vllm-ascend #10724 (v0.21.0rc1,
+  DeepSeek-V4-Flash-w8a8 MTP PD-mix on 2×A2 910B4 32G, prefix caching + hybrid KV +
+  Mooncake pool, ~3 h uptime, 1 of ~10 instances): EngineCore dies at upstream
+  `FreeKVCacheBlockQueue.append_n` (`prev_free_block of fake_free_list_tail should always
+  exist`) via `allocate_slots → remove_skipped_blocks → block_pool.free_blocks`. Who owns
+  it (upstream invariant, downstream group set; the `patch_balance_schedule.py:73`
+  pass-through proof and the `step_with_batch_queue` mode tell), the four ranked triggers
+  each with its single ablation, the stop rule for the linked-list derivation, and why the
+  plog's one-sided-service `memHandle`/`DeInit` block is teardown.

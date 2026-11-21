@@ -1,8 +1,10 @@
 # 310P hybrid (Qwen3.5/GDN) with MTP **and** prefix caching: abnormal accuracy
 
-Scope: a one-line report on **310P / Atlas 300I** ("the accuracy of the Qwen3.5
-series model with MTP and prefix cache superimposed is incorrect"), an empty
-`collect_env` block, no log, no request, no served command. Model family is
+Scope: MTP and prefix caching switched on **together** on a **310P / Atlas 300I**
+hybrid model — from the one-line version ("the accuracy of the Qwen3.5 series model
+with MTP and prefix cache superimposed is incorrect", empty `collect_env`, no log, no
+request, no serve command) to the fully pasted one (#17338: serve command, acceptance
+numbers, corrupt text); same verdict path either way. Model family is
 **hybrid** (gated-delta-net linear attention + full attention), so both features
 mutate the same mamba/SSM state, and the 310P lane replaces that state machinery
 with its own fallbacks. This page is the mechanism map, the coverage verdict and
@@ -16,9 +18,13 @@ No symptom detail means nothing is attributable yet — but the *verdict class* 
 decidable from the pinned tree in four reads, and that verdict **is** the answer:
 "each feature is covered alone on 310P, the superposition is not, and these three
 launches place the fault". Do not spend the session on kernel internals. Every
-`path:line` below is verified at vllm-ascend v0.23.0rc1 (`f4a08bddd0cc`, the pin
-for this report — its title's `v0.23.0` names no release) and upstream vllm
-v0.23.0 (`0fc695fc`).
+`path:line` below was verified at vllm-ascend v0.23.0rc1 (`f4a08bddd0cc`, the pin
+for the first report — its title's `v0.23.0` names no release) and upstream vllm
+v0.23.0 (`0fc695fc`), and **re-checked at the release pin vllm-ascend v0.23.0
+(`5cb98caa`)**: `patch_mamba_utils.py:22-23`, `:178-196` and `gdn_310.py:149-151`
+are unchanged, while `patch_mamba_config_310.py`'s align branch and its
+`HybridAttentionMambaModelConfig.verify_and_update_config` registration still sit at
+the end of the file (grep the symbol there, not `:84-85` — the interior lines drift).
 
 ## What the two features do to one state machine
 
@@ -67,6 +73,7 @@ first divergence against a run with both features **off**.
 |---|---|---|
 | 1 | both features on (reproduce) | — |
 | 2 | `--no-enable-prefix-caching` (MTP stays) | the align-mode state copy / fp16 state type owns it, not MTP |
+| 2b | MTP + prefix cache, the *same body twice* (the second request hits the cache) against a unique random prefix per request | corruption only on the cached path ⇒ the align-mode **per-block state copy** owns it (a hit copies the SSM state, a miss recomputes); corruption on both ⇒ the MTP state advance (row 4), not the copy |
 | 3 | MTP off (`--speculative-config` omitted, prefix cache stays) | prefix caching alone owns it (compare with the CI row above) |
 | 4 | both on, `num_speculative_tokens` 1 vs the reporter's value | the accept-bias/multi-token advance |
 | 5 | same checkpoint, both features on, on A2/A3 or a GPU host | the 310P fallback and fp16 state, not the model |
@@ -76,6 +83,27 @@ Rows 2 and 3 are the discriminators the reporter will not think of; without them
 does not set `mamba_cache_mode` is already in `align` (upstream `:353`), and an
 `AssertionError: Chunked prefill is required for mamba cache mode 'align'` means the
 launch never reached this path.
+
+## Second recorded report: #17338 (vllm-ascend v0.23.0 `5cb98caa`, 310P3 ×4, TP4)
+
+Richer paste of the same shape, and it moves one boundary: Atlas 300I Duo 310P3 44 GB
+×4 at TP4, `Qwen3.8-27B-w8a8-310p` (`model_type=qwen3_5`, 64 layers, 3:1 GDN:full,
+`mtp_num_hidden_layers=1`), `--mamba-ssm-cache-dtype float16 --dtype float16`,
+`--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY", "cudagraph_capture_sizes": [1,4]}'`,
+`enable_npugraph_ex: false`, `{\"method\": \"qwen3_5_mtp\", \"num_speculative_tokens\": 1}`
+plus `--enable-prefix-caching`: no error, **MTP acceptance 70-100 % (normal)**, output
+corrupt at token level (repeated insertion, 千问→谦, 500→50); dropping only
+`--enable-prefix-caching` fixes it with acceptance still >90 %.
+
+Two things this row adds. (1) **Normal acceptance with corrupt text is still this
+page**: the draft/verify math is healthy, so the fault is in the SSM state or the block
+boundary, not in the sampler — do not steer to `../spec-decode-mtp/acceptance-collapse.md`.
+(2) The two arms differ **only** by `--enable-prefix-caching`, so graph mode, the W8A8
+checkpoint, TP4 and the 64-layer 3:1 geometry are held constant: they cannot explain
+the arm difference, though they sit outside both 4B/fp16/eager CI rows and can modulate
+severity. They are rows 4-5, not causes. The hit/miss split (row 2b) is the cheapest
+sharpening available, since nothing in either report separates a cache-hit copy from a
+cache-miss recompute.
 
 ## Stop rule
 

@@ -262,6 +262,40 @@ established: a missing `--mamba-cache-mode align` is auto-supplied by upstream
 version gate (`#7094`). **Delivery cost**: 24 assistant turns, most of them bare tool
 calls, and 16.3 K completion tokens — the answer landed at the cap.
 
+**#10892** vllm-ascend `v0.21.0rc1` (`80610e4`) / vllm `v0.21.0` (`ad7125a`), 300I Duo
+(310P) ×4, Qwen3.6-35B-A3B-w8a8, `presence_penalty: 1.5`: "过度思考" — the serve had no
+`--reasoning-parser`, so 2548 completion tokens of English CoT, one `</think>` and a JSON
+tail all arrived in `message.content` while `message.reasoning` was `null`. **Answered in
+8 assistant turns / 9.8 K completion tokens** with a ranked list that was correct on the
+routing mechanics (parser gate, `enable_thinking` default, `thinking_token_budget` a
+no-op on NPU at `npu_input_batch.py:56-58`, the support-matrix gap and the 310P preview
+note) and **wrong on the lane**: it opened with "这不是 300I Duo（310P）的硬件/量化精度问题"
+and ranked `presence_penalty` only fourth. The reporter's later comments put the
+complaint where it belonged — "content 中英混杂，带着思考的内容一直思考，不能给正确的结果"
+— and the maintainer's resolution was a **precision defect in the MoE gating top-k
+softmax op**, fixed downstream (PR to reference the issue); the reporter also confirmed
+"输出很快". Calibration: the run used "text is coherent, single `</think>`,
+`finish_reason: stop`" to retire the corruption *and* numerics lanes. That evidence only
+retires truncation/repetition/乱码 — plausibility is not correctness. The free check it
+skipped is one line of the paste: the JSON tail invented a vacuous "pass" and a page
+number that the prompt's own rules do not support, so the answer was wrong, and no
+parser flag can move logits (`../accuracy-benchmarks/moe-gating-topk-precision.md`).
+
+**#15161** (same batch, sibling forward) vllm-ascend `0.23.0` on 310P, Qwen3.6-35B-A3B
+w8a8, aisbench with `presence_penalty=1.5`, "一到测试阶段就会崩溃", **no log pasted**:
+**shipped no answer** — 32 assistant turns, every message a bare tool call, zero message
+text, cut at the 16 384-token cap. Its own reads had already refuted its leading
+hypothesis (`AttributeError: '_OpNamespace' '_C' object has no attribute
+'apply_repetition_penalties_'`, precedent #2533/#2544): at vllm v0.23.0 (`0fc695f`)
+`_custom_ops.py:387-411` dispatches `apply_repetition_penalties` to a **torch** path when
+`not logits.is_cuda`, and vllm-ascend v0.23.0 (`5cb98caa`) `Dockerfile.310p:63` uninstalls
+`triton`/`triton-ascend` (`Dockerfile:70-71`, `Dockerfile.a3:72-73` reinstall
+`triton-ascend==3.2.2`), so the 310P sampler inherits `apply_penalties` and falls back to
+that torch path. Two lessons: a precedent
+op-name is not the finding until the dispatch gate in the pinned version is read, and a
+run that reaches that point with 900 characters of message text would have had something
+to hand over.
+
 **#10546** vllm-ascend `v0.20.2rc1` (`367b8e6`) / vllm `v0.20.2` (`bc150f5`),
 DeepSeek-V4-flash 1P1D, decode instance DP2×TP4 + EP, 10-way concurrency: the
 decode worker dies with `rtMemcpyAsyncEx … reason=the model stream execute
@@ -662,7 +696,36 @@ the coverage verdict (the 310P prefix-cache test and the 310P MTP test never com
 the features) and the three launches that decide it:
 `../accuracy-benchmarks/mtp-prefix-cache-310p.md`.
 
-- **#16116** — vllm `v0.26.0` + vllm-ascend `v0.26.0rc1`, 910 8-card, CANN 9.1.0:
+**#17338** vllm-ascend `v0.23.0` (`5cb98caa`) + vllm v0.23.0 (`0fc695fc`), Atlas 300I
+Duo 310P3 ×4 at TP4: "Qwen3.8-27B-w8a8-310p (GDN hybrid) with `--enable-prefix-caching`
+and MTP both on emits token-level corruption", with the serve command, the acceptance
+numbers and the sample outputs pasted. Track: the same superposition as #14339, on a
+27B W8A8 checkpoint at `FULL_DECODE_ONLY`/`[1,4]` — and the one datum the earlier
+report lacked: **acceptance 70-100 % while the text is corrupt**, which bounds the fault
+to the SSM state / block boundary and keeps `../spec-decode-mtp/acceptance-collapse.md`
+out of the answer. The run re-verified every cited `path:line` at the release pin
+(the page had been written at `v0.23.0rc1`), then delivered the coverage verdict, the
+three-launch matrix and the scope in one answer. Page:
+`../accuracy-benchmarks/mtp-prefix-cache-310p.md` (second recorded report).
+
+**#16980** vllm-ascend `v0.23.0` (`5cb98caa`) + vllm v0.23.0 (`0fc695fc`), Atlas 800T
+A2 (910B3×8): "[Bug]: gemma4 MTP speculative decoding has a 0 % draft acceptance rate —
+draft layers on multiple KV cache groups share group[0]'s block table", `gemma-4-12B-it`
+/ `-31B-it` + the matching `-assistant` draft, `num_speculative_tokens: 1`, eager,
+TP1 and TP2. Track: family parity in spec decode. The run found the decisive structure
+— upstream has `gemma4_mtp` plus a dedicated `Gemma4Proposer`/`Gemma4Speculator` with
+per-group block tables, constant draft positions and draft→target KV sharing, while
+`vllm_ascend/` has zero `use_gemma4_mtp` hits and `get_spec_decode_method` sends every
+`mtp` launch to `AscendEagleProposer` — plus the downstream port template
+(`AscendStep3p5MTPProposer`'s two overrides) and the coverage verdict (no `gemma4`
+test or tutorial). Two gaps the page now closes: it said "downstream has no gemma4
+support" where the release notes carry "experimental Gemma4 support on A2 and Ascend
+950" with a named A2/A3 512-dim-head attention fallback `TODO` (three levels, not one),
+and it shipped no support-plan paragraph — the same reporter's later public follow-up
+asks only for that ("gemma4 mtp 910B 上的支持计划是什么样的"). Page:
+`../spec-decode-mtp/family-proposer-parity.md`.
+
+**#16116** vllm `v0.26.0` + vllm-ascend `v0.26.0rc1`, 910 8-card, CANN 9.1.0:
   "[Bug]: DeepSeek-V4-Pro thinking stream loops in delta.reasoning and never emits content", a
   well-instrumented body (376 SSE chunks all `delta.reasoning`, `output_token ==
   max_completion_tokens == 77817`, an ~812-character self-rejection cycle, the request and gateway
@@ -673,3 +736,60 @@ the features) and the three launches that decide it:
   NPU (`npu_input_batch.py:56-59`), and `reasoning_effort: high` on DeepSeek-V4 is a prompt prefix
   (`patch_deepseek_v4_thinking.py:25-48,85-86`) that *asks* for the enumerated-rejection loop. Page:
   `../accuracy-benchmarks/reasoning-output-routing.md`, last section.
+
+**#17391** image vllm-ascend 0.23.0, GLM-5.2-w4a8c8 / GLM-5.3-w8a8c8, 8×A2 P/D,
+  `--tool-call-parser glm47` + `--reasoning-parser glm45`, MTP n=1 (P) / n=4 (D):
+  streaming ends at a lead-in line ending `:` with no `tool_calls`, and the reporter's
+  own harness printed `[OK] … JSON 校验通过` because `empty_arg_frags=0` — there was
+  nothing to validate. The run delivered the ranked answer in 8 turns from two
+  source facts: an unclosed `<tool_call>` is withheld from **both** `content` and
+  `tool_calls` (`glm4_moe_tool_parser.py:238-303`, `:453` at vllm v0.23.0), so the cut
+  point is the marker's fingerprint and `return_token_ids` decides it — not the
+  model-choice/rate lane the "empty call" entry shape otherwise implies. Page:
+  `../tool-call-streaming/index.md`, `no-tool-call-in-raw-output.md` table.
+
+**#15925** vllm-ascend v0.26.0rc1 (`f2f74a1c`) + vllm v0.26.0 (`568afb3a`),
+4 machines in a 1×2P / 1×2D PD layout on Atlas 800 A3, GLM-5.3-w8a8c8 vs GLM-5.2-w4a8c8, an
+ifbench-style strict/loose instruction-following benchmark with
+`reasoning_effort: "max"`: "the w8a8c8 weights score lower than the w4a8c8
+weights". Track: a quantized-sibling score gap, not a kernel defect. What the
+recorded run got right: the classification, the three-variable count (model ×
+quant format × release label, with the env dump saying 0.26.0rc1 while the table
+rows say 0.23.0), the within-model control (GLM-5.2-w8a8 73.67/76.67 against
+w4a8c8's 73.67/76.5 — the row that retires "8-bit is 18 points worse"), the
+loose−strict arithmetic (9.66/8.83 against 3.33/2.83, i.e. a widened spread), the
+pinned recipes (`GLM5.2.md:211,261` sfa_c8 off vs `:505,579` all three on), the
+release's model-restricted validated list, and the fact that `reasoning_effort`
+has no downstream mapping for GLM. What it cost: the recipe diff and the lane's noise floor live in
+the C8 page and were reached only around the tenth tool block, so the answer was
+cut mid-sentence at the 16 384-token output cap (786 K cumulative prompt tokens,
+3 975 characters delivered) and ranks 2+ plus the whole ablation ladder never
+shipped — and the 38 KB accuracy index it opened first carried no route to them.
+The page above now opens with the variable count and the control row and routes
+to the flag authority in one line: `../accuracy-benchmarks/quantized-sibling-score-gap.md`.
+
+
+**#4962** vllm-ascend 0.11.0rc2 as reported, pinned at v0.11.0rc3 (`b6d63bbd`) +
+vllm v0.11.0 (`b8b302cd`), one Atlas 800 A3 node, two dies exported
+(`ASCEND_RT_VISIBLE_DEVICES=14,15`, `--data-parallel-size 2`, `--async-scheduling`,
+no `--enforce-eager`), Qwen2.5-Omni-7B served as `qwen-omni`: an `audio_url`
+request asking for a transcript comes back with a plausible first clause, then
+repeats "然后呢，嗯，" to `finish_reason: "length"` at `temperature: 0`
+(`prompt_tokens: 775`, `completion_tokens: 256`). Track: corruption/degeneration on
+a modality route. What the recorded run got right: the shape ("退化循环", not a
+score), the doc-vs-code gap that is the actual finding — the pinned tutorial's
+online section says the OpenAI-compatible server does not support audio inputs
+(`docs/source/tutorials/single_npu_audio.md:122`, citing vllm#19977) while upstream
+vllm v0.11.0 does parse `audio_url` (`chat_utils.py:69,77,816-904`) — the ownership
+split (only `self.visual` is replaced downstream, so a pure-audio request never
+touches the Ascend vision tower or `USE_OPTIMIZED_MODEL`), the `prompt_tokens`
+placement argument, and the ladder (offline `LLM()` tutorial path, then
+`--enforce-eager`, then `--async-scheduling`, then DP=1). What it cost: its last
+two blocks went into the `audio_feature_lengths` tensor-vs-list hazard in
+`model_runner_v1.py:774-801` → upstream `mrope.py:1082`; the run correctly refused
+to publish it as a bug, so the turns bought no claim, and it never took the two
+one-grep coverage facts that would have hardened the verdict (the audio encoder is
+`transformers`' `Qwen2_5OmniAudioEncoder`, whose modeling file is absent from the
+partial export; the only audio e2e at the pin is offline Qwen2-Audio,
+`tests/e2e/singlecard/test_vlm.py:92-124`, `max_tokens=10`, assert-not-empty).
+Page: `../accuracy-benchmarks/omni-audio-chat-degeneration.md`.

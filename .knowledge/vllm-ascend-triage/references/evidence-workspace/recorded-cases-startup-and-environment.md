@@ -951,3 +951,28 @@ and points at `AscendScheduler` (which disables it); after being pointed at
 `mla_v1.py#L1075` the reporter answered "I was careless". Page now carries the binder
 structure, the silent-key/cached-config check and the "patching one line moves the crash"
 follow-up: `../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md` (new).
+
+**#1579** vllm-ascend v0.9.1rc1 (`c30ddb8`), vllm v0.9.1
+(`b6553be`), torch_npu `v7.1.RC1.alpha002` (`d33df55`), image
+`quay.io/ascend/vllm-ascend:v0.9.1rc1-310p`, one 310P node × 8, Qwen3-32B dense,
+`--tensor-parallel-size 8 --enforce-eager --dtype float16`, no `--max-model-len`
+(40960 default). The paste opens with a passing `hccl_test all_gather_test`; engine
+start then dies in the memory-profiling window: ranks 1-7 raise
+`EOFError: Ran out of input` at the same second from
+`worker/worker.py:288 determine_num_available_blocks` → `model_runner.py:1205
+profile_run` → `:1472 compute_logits` → `logits_processor.py:99 _gather_logits` →
+torch_npu `distributed_c10d.py:126` `dist.broadcast_object_list` →
+`_tensor_to_object`, and the driver follows 119 s later with `HcclAllgather` `EI0006`
+socket timeout / `DestLink` (the collective it was left waiting in). Track: the
+gather **emulation**, not the fabric — HCCL has no `gather`, so `_gather` broadcasts
+the per-rank sizes first and the non-destination ranks unpickled an empty payload;
+the V0 notice above it is upstream `_warn_or_fallback` on non-CUDA hardware and
+`VLLM_USE_V1=1` is a live lever (`supports_v1()` returns True there). The recorded run
+read the torch_npu frame by turn 5, then spent nine turns inside torch's own
+`distributed_c10d.py` — which this snapshot does not contain — and ended at the output
+cap with zero answer text (14 turns, 16 384 completion tokens of reasoning). Public
+follow-up: a third party reported the same setup starting with `VLLM_USE_V1=1`, the
+reporter said they would try and later reported it **unresolved**, having moved
+Qwen3-32B to MindIE on a 310P T18 image. Page (new):
+`../startup-failures/profile-run-logits-gather-eof.md`.
+

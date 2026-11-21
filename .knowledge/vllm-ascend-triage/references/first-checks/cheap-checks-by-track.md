@@ -631,6 +631,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   server, weights and serve flags before choosing a culprit
   (`../accuracy-benchmarks/index.md`); for a garbled prompt, get the
   ablation matrix (`../accuracy-benchmarks/garbled-long-context-output.md`).
+  When the two numbers are **two quantized checkpoints** of one family, the
+  same-model row in the reporter's table is the control and the two formats'
+  pinned C8 recipes differ with the width too
+  (`../accuracy-benchmarks/quantized-sibling-score-gap.md`); when the request
+  carries **audio**, `usage.prompt_tokens` places the modality and the
+  offline-vs-online row owns it
+  (`../accuracy-benchmarks/omni-audio-chat-degeneration.md`).
 - An **embedding / pooling** checkpoint that never starts: read the launch line for
   `--task embed` (`--runner pooling`) and the init line for `pooler_config=None`
   before any source; `ValueError: There is no module or parameter named

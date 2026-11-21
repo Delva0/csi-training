@@ -39,6 +39,12 @@ Not this lane:
   config → `mc2-dispatch-profile-run-hang.md` §Step 1: same refusal, different phase
   (the process's first MC2 collective, which on v0.13.0rc1 precedes the KV pool), so the
   KV budget is *not* the lever. Recorded #5947.
+  **But read the plog before ranking any lever:** if that paste has no `EI0007` /
+  `Failed to allocate resource[qp]` line at all and instead carries
+  `[Wait][LinksEstablishCompleted] is failed. ret[9]`, a `LINK_ERROR_INFO` table or
+  `[Create][CommPlane] failed`, then the `ret = 4` is HCCL_E_INTERNAL wrapping a link
+  timeout — the comm was never created and no `HCCL_BUFFSIZE`/gmu value changes it
+  (`link-establish-timeout.md`, recorded #9872).
 
 ## Read it in this order
 

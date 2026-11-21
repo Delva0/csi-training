@@ -198,3 +198,21 @@ per-request lookup RPC, and the doc trap that the sample `mmc-local.conf` sets
 run reopened with "Final answer — one correction …" and was cut mid-sentence, so the
 A2 correction never reached the reporter. Route now:
 `../kv-pool-store/pool-attached-cold-request-cost.md` (same-prompt-twice is check 1).
+
+**#10724** vllm-ascend `v0.21.0rc1` (`80610e44`) + vllm v0.21.0, DeepSeek-V4-Flash-w8a8
+MTP in PD-mix on 2×2 Atlas 800 A2 (910B4, 32 GB) with Mooncake `AscendStoreConnector`
+`kv_both`, `--enable-prefix-caching`, `--no-disable-hybrid-kv-cache-manager`,
+`--async-scheduling`, MTP 3, `--block-size 16`; healthy ~3 h, then 1 of ~10 instances dies
+with `AssertionError: prev_free_block of fake_free_list_tail should always exist` at
+upstream `vllm/v1/core/kv_cache_utils.py:337 append_n`
+(`allocate_slots → remove_skipped_blocks → block_pool.free_blocks`), the APIServer side
+repeating `EngineDeadError`. Both node scripts were already folded into the opening body,
+and the plog the reporter later supplied is the teardown of the one-sided service
+(`one_sided_service_adapt.cc … memHandle is invalid`,
+`[HcclOneSidedService][DeInit] There are memories still bound to this comm`,
+`rtFreeHost … 507899`) — a consequence, not the cause; the thread closed non-reproducible
+after the reporter changed the deployment. Delivery: 19 assistant turns, 50.6 K characters
+of reasoning deriving the free-list invariant from the paste, **100 characters** of
+message text, cut inside a block that began "Let me step back and decide: budget." Pages:
+`../upstream-downstream-drift/kv-block-free-list-assert.md` (new — it carries the stop rule
+and the four per-trigger ablations).

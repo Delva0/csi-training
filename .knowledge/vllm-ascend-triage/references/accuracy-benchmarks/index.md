@@ -42,9 +42,13 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   corruption on this page — go to `../tool-call-streaming/index.md` and run its
   audit on the raw SSE first.
 - A **vision** request answered as a long run of one token (`!!!!!!!!`, 感叹号,
-  `，，，`) with "and it is very slow", on a VL model — that is not a score
-  question and not the text-corruption profile: the downstream vision tower owns
-  it, and one env var decides it. Go to `vl-vision-tower-degeneracy.md`.
+  `，，，`) with "and it is very slow", **or** a VL/OCR answer that is merely
+  *wrong* — one coarse element, boxes without text, unreadable OCR — only when the
+  serve is multi-card while the single-card run of the same request is correct
+  (two screenshots, no log) — that is not a score question and not the
+  text-corruption profile: the downstream vision tower owns it, and one flag
+  (`--mm-encoder-tp-mode`, v0.17.0rc1) or one env var decides it. Go to
+  `vl-vision-tower-degeneracy.md`.
 - A **VL or OCR** checkpoint on **310P / Atlas 300I** answers garbage while a text
   model on the same box is fine: the support verdict and the layout → recognise
   *pipeline* come first, because the VLM alone is one stage of a document-parsing
@@ -72,8 +76,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 - A **first-call-only** degenerate answer — a constant token id repeated to
   `finish_reason: "length"`, an immediate `<|im_end|>` after `<think>`, or an
   `AttributeError: 'NoneType' object has no attribute 'size'` raised through
-  `compilation/acl_graph.py` — on an offline `LLM` at TP≥2, with call 2 correct, is
-  not a numerics question: a constant-tie logits vector retires weights,
+  `compilation/acl_graph.py` or traced at `torch/_dynamo/utils.py::call_size` — on
+  an offline `LLM` at TP≥2 with call 2 correct, **or** on a `vllm serve` whose
+  first request kills the worker while `--enforce-eager` runs clean (#7947, no call
+  2 exists there) — is not a numerics question: a constant-tie logits vector retires weights,
   quantization, tokenizer, block size and prefix caching at once, and the two real
   owners are the text-only-multimodal `is_multimodal_model` drift and the
   first-request state that `enable_sleep_mode=True` exposes.
@@ -87,12 +93,14 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   validated row is `-Chat`, not the base model) and keep the two V2-Lite-only
   branches (`q_proj` when `q_lora_rank is None`, the `global_num_experts == 256`
   MoE gate) as labelled suspects rather than causes.
-- A one-line accuracy report on **310P** naming **MTP *and* prefix caching together**
-  ("Qwen3.5 series + MTP + prefixcache 精度异常") with an empty `collect_env` and no log:
+- An accuracy report on **310P** naming **MTP *and* prefix caching together** — the
+  one-line form ("Qwen3.5 series + MTP + prefixcache 精度异常", empty `collect_env`) or the
+  full paste with acceptance numbers pasted beside the corrupt text (token-level breakage
+  at **normal** acceptance, clean with prefix caching off):
   on a hybrid GDN model both features move the same per-block SSM state, and 310P is the
   one lane whose state copy/postprocess is a torch/numpy fallback with an fp16 SSM state.
   The deliverable is the coverage verdict — two 310P CI tests, each feature alone, never
-  the combination — plus the three launches, `mtp-prefix-cache-310p.md`.
+  the combination — plus the launches and the hit/miss split, `mtp-prefix-cache-310p.md`.
 - First question: **did both numbers come from the same server, weights and serve flags?**
   If yes, sampling, decoding budget, output routing, extraction and aggregation are the
   attributable knobs — but **"same server" does not mean identical logits on Ascend**: on a
@@ -100,7 +108,11 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (a single-sample comparison then differs by luck), so before drawing a score conclusion
   from one run per side, check the repeat-run pattern
   (`repeated-run-nondeterminism.md`). If no, nothing is attributable until the serve flags
-  are matched; list them as candidates instead of choosing a culprit.
+  are matched; list them as candidates instead of choosing a culprit. When the two sides are
+  two **images**, identically-spelled commands are not matched flags — the newer image's
+  default-on graph-fusion stack (`npugraph_ex` under `FULL`/`FULL_DECODE_ONLY`) is part of
+  its run, so the noise floor and that one ablation come first
+  (`harness-vs-engine-attribution.md`, "Two images").
 - Compare the *pattern*, not only the mean. Bidirectional or subset-specific gaps (some
   subsets up, others down several points) are characteristic of harness-level effects
   (truncation, answer extraction, thinking output routing). A uniform drop accompanied by
@@ -109,6 +121,17 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 - Recompute aggregates from the reported numbers before comparing them: micro (sample
   weighted) vs macro (subset mean) can differ by a point or more on MMLU-Pro, and the two
   averages are often printed side by side. Show the arithmetic.
+- A score comparison **across two quantized formats of the same model family**
+  (`w8a8c8` vs `w4a8c8`, `w4a8` vs `w8a8`) is not a quant-width test: the two formats
+  ship *different* documented `--additional-config` sparse-C8 recipes and usually a
+  different node count, and this lane's own noise floor is 2-3 points run to run
+  (`release_notes.md:270`, #14378). Take the reporter's same-model row as the control,
+  then ablate the recipe — `quantized-sibling-score-gap.md`.
+- A corruption report whose request carries **audio** — `audio_url`, a `file://` media
+  path, a data URL — is a modality-pipeline question before it is a text-MoE one, and
+  `usage.prompt_tokens` is what says the audio got in. At v0.11.0rc3 the online audio
+  route is accepted by upstream but has no e2e and the tutorial says it is unsupported
+  — `omni-audio-chat-degeneration.md` (its Rule 4 ladder, not the MoE matrix).
 - No numeric claim from OCR screenshots without a cross-check (a log line, caption or
   reproducible sum). Screenshot tables lose row/label alignment; annotate the caveat.
 - Prefer `finish_reason`, `content`, `reasoning` and dump-file statistics over speculation:
@@ -132,10 +155,15 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   missing `--reasoning-parser` (default `""`), that the chat field is now `reasoning`
   with `reasoning_content` only a deprecated input alias, and that the Qwen3.6 tutorial
   omits the flag while seven sibling pages pass it. (c) A "thinking is in the wrong
-  language / 回答中英混杂 / the answer is in English" report, in this order: routing plus
-  `finish_reason` budget, then model/template thinking language (`#6848`), then a
-  hand-written `--hf-overrides` rope block (`#10405`, hypothesis row), then the version
-  gate before recommending `enable_thinking: false` (`#7094` / `#7061`, upstream PR 34779).
+  language / 回答中英混杂 / the answer is in English" report: first **is the text after
+  `</think>` right at all?** If it is wrong, or the reasoning keeps re-deciding itself,
+  routing is display only and the lane is numerics on a MoE serve
+  (`moe-gating-topk-precision.md`, #10892 — the maintainer's resolution there was a
+  gating top-k softmax precision fix, while the run had answered with this page's rows).
+  If it is right: routing plus `finish_reason` budget, then model/template thinking
+  language (`#6848`), then a hand-written `--hf-overrides` rope block (`#10405`,
+  hypothesis row), then the version gate before recommending `enable_thinking: false`
+  (`#7094` / `#7061`, upstream PR 34779).
   (d) A **boot-time parser `KeyError`**: `Reasoning parser '<name>' not found. Available
   parsers: …` or `invalid reasoning parser: <name> (chose from {…})`, typically right
   after a name copied from the reporter's `--tool-call-parser` line (`qwen3_coder`) —
@@ -156,6 +184,29 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   by design, no loop brake exists, `thinking_token_budget` is accepted and **ignored** on NPU
   (`npu_input_batch.py:56-59`), and DeepSeek-V4's `reasoning_effort` is a prompt prefix that
   amplifies deliberation rather than capping it; the ordered ladder is the #16116 section.
+- `quantized-sibling-score-gap.md` — "w8a8c8 scores N points below w4a8c8" on a
+  GLM-5.x/DSA-sparse family model in a multi-machine PD deploy: the variable count in
+  the reporter's own table and the within-model control row, the two formats'
+  non-interchangeable C8 recipes (`GLM5.2.md:211,261` vs `:505,579`) and the 4-node e2e
+  split, the lane's documented 2-3 point run-to-run floor plus the DCP-symmetry rule
+  (#14378/#14322/#14011/#14329), the release's model-restricted validated list,
+  strict/loose arithmetic as a truncation hypothesis, and where `reasoning_effort` is
+  actually handled at the pin (upstream template kwarg; vllm-ascend only for DeepSeek-V4).
+- `omni-audio-chat-degeneration.md` — an Omni/audio request over
+  `/v1/chat/completions` that loops a phrase to `finish_reason: length` or returns
+  garbage: the stage/owner table (audio encoder = `transformers` and absent from the
+  partial export; only `self.visual` is downstream), the pinned doc's "OpenAI server
+  doesn't support audio inputs" (`single_npu_audio.md:122`) against upstream's
+  `audio_url` parsing, the pin's offline-only 10-token audio e2e, `prompt_tokens` as
+  the placement test, and the offline-vs-online / eager / async / DP ladder.
+- `moe-gating-topk-precision.md` — fluent but **wrong** answers on a MoE (A3B) serve:
+  mixed-language CoT that keeps re-deciding, a final JSON that contradicts the prompt's
+  own rule, normal tokens/s. A parser/`enable_thinking` change cannot move logits, so a
+  correctness gate decides the lane; then the 310P selector's fused
+  `torch_npu.npu_moe_gating_top_k_softmax` (`_310p/fused_moe/experts_selector.py:61`),
+  the `torch.allclose` its e2e test computes and discards
+  (`test_gating_top_k_softmax.py:36-37`), the fp32 probe
+  (`scripts/moe-gating-topk-probe.py`), and #10892's reporter-confirmed resolution.
 - `quantized-checkpoint-conversion.md` — per-layer loss tables and bad artifacts from
   msmodelslim conversion: the two gates (engine version plus the msit branch, which
   differs between doc pages), the published-checkpoint split test, layer-localization by
@@ -186,7 +237,11 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (`USE_OPTIMIZED_MODEL`, v0.9.2rc1 `b5b7e0e` `models/__init__.py:23-33`), the head-dim
   padding branch (`MIN_PAD_SIZE`/`MAX_PAD_SIZE` 64/128, `enable_pad`, weight-name-keyed
   `load_weights`), the six-row ablation matrix, the #976 / #131 / #445 / #562 precedent
-  family, and why "`!` is token id 0" and a recalled `head_dim` must stay labelled.
+  family, why "`!` is token id 0" and a recalled `head_dim` must stay labelled, and a
+  **third pin** (v0.17.0rc1) where the tower is weight-sharded by default: the
+  `--mm-encoder-tp-mode data` row, its `supports_encoder_tp_data` gate, the
+  `AscendMMEncoderAttention` consumer, and the two-screenshot reading of the
+  TP=1-vs-TP=2 shape (#7680).
 - `early-eos-short-output.md` — "only tens of tokens / 输出被截断, worked before I added a
   flag": `finish_reason` decides the lane (length = budget, stop = early stop), an
   integer `stop_reason` names the *declared* stop id that ended it (and not why the
@@ -273,5 +328,8 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `_can_launch_triton_batch_memcpy() = not is_310p()` swaps the Triton copy for
   torch/numpy fallbacks (`patch_mamba_utils.py:22-23,108-183`), and the GDN op forces an
   fp16 SSM state (`_310p/ops/fla/gdn_310.py:134-151`). Coverage verdict from the two 310P
-  PR-lane tests that never combine the features, the five-row launch matrix, and the stop
-  rule that cost #14339 its answer (42 K characters of reasoning, no text on 17 turns).
+  PR-lane tests that never combine the features, the launch matrix (incl. the cache-hit vs
+  cache-miss split), the stop rule that cost #14339 its answer (42 K characters of
+  reasoning, no text on 17 turns), the re-check at the release pin `5cb98caa`, and the
+  second recorded report #17338 (27B W8A8, TP4, `FULL_DECODE_ONLY`) where the corruption
+  arrives at 70-100 % acceptance.

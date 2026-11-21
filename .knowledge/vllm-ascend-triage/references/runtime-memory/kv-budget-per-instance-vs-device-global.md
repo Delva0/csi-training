@@ -155,6 +155,12 @@ self.available_kv_cache_memory_bytes = (
    `--kv-cache-memory=…`. Never offer that flag as the workaround here; report it
    as a separate gap, since it deletes the manual escape hatch on the SoC where
    co-tenancy makes it most useful.
+   The gap is not 310P-only at older refs: the **generic** Ascend worker also has no
+   fast path at v0.13.0rc1 (#6299) and v0.18.0rc1 (#9372) — upstream reads the key
+   only inside `vllm/v1/worker/gpu_worker.py` (`:362-380` at v0.18.0), which the
+   Ascend `determine_available_memory` override replaces, and
+   `rg -n 'kv_cache_memory' vllm_ascend/` returns only the profiling variable. Grep
+   the ref before recommending the flag either way (`index.md` rule 5).
 4. **No NPU/ACL-graph estimate term either** (the generic worker subtracts
    `npugraph_memory_estimate_applied`). Re-derive when 310P gains one — see
    `index.md`, `## Reading a v0.21+ startup memory block`.

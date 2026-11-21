@@ -793,3 +793,54 @@ one-grep coverage facts that would have hardened the verdict (the audio encoder 
 partial export; the only audio e2e at the pin is offline Qwen2-Audio,
 `tests/e2e/singlecard/test_vlm.py:92-124`, `max_tokens=10`, assert-not-empty).
 Page: `../accuracy-benchmarks/omni-audio-chat-degeneration.md`.
+
+**#1798** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`),
+DeepSeek-V3-0324-w8a8, 8×910B-64GB × 2 nodes, `DP4 TP4` + EP, torchair graph and
+the Ascend scheduler on: the pasted test script sends **no** `tools` field and the
+serve line carries **no** `--enable-auto-tool-choice --tool-call-parser
+deepseek_v3`, so the model's `<｜tool▁calls▁begin｜>…<｜tool▁calls▁end｜>` text comes back in
+`content`; the screenshot's OCR shows 7/10 requests well-formed and 2/10 looping
+on the opening marker. The recorded run read the OCR, pinned the parser gate
+(`serving_chat.py:495`, `cli_args.py:311`) and ranked sampling degeneration for the
+loops correctly, but its action ladder ended at "add the two flags". The reporter's
+follow-up refutes that as a complete fix: with `--tool-call-parser deepseek_v3
+--chat-template tool_chat_template_deepseekv3.jinja --enable-auto-tool-choice` the
+failing case returns **both** `content` and `tool_calls` empty — the DeepSeek-V3
+parser's silent drop, i.e. start marker seen, strict fenced-call regex unmatched,
+`tools_called=True, tool_calls=[], content=None` (`deepseekv3_tool_parser.py:84-107`
+at vllm v0.9.2) — so the deliverable for the second shape is the raw text vs the
+regex comparison, not another flag
+(`../tool-call-streaming/deepseek-parser-silent-drop.md`, new). The reporter's own
+parser-free route (tool schemas in the system prompt, read `content`, verified on
+H200) is recorded there with its scope.
+
+**#6525** reported 0.14.0rc1; snapshot pins vllm-ascend v0.14.0rc1 (`52d4acf`) ↔ vllm
+v0.14.1 (`d7de043`). Qwen3-VL-235B-A22B-Instruct, 双机 deployment, body = one sentence
+("循环输出问题如何解决，重复惩罚参数无法解决") plus an **empty** `collect_env` block: no
+log, no serve command, no request body. Track: output degeneration with no evidence
+(“答案 = 排序原因 + 消融矩阵 + 缺失物料”, not a mechanism).
+
+What the recorded run got right: the verdict that `repetition_penalty` cannot fix a
+logits collapse (and the check that makes it a fact rather than an opinion:
+`rg 'repetition_penalty|penalties' vllm_ascend/sample/` is empty at the pin, so the
+penalty is upstream's and "it did nothing" is not a penalty bug); the discovery that the
+pin ships **two** two-node recipes for this exact checkpoint — the tutorial's MP
+DP2×TP8 + EP + `--async-scheduling` (`docs/source/tutorials/Qwen3-VL-235B-A22B-Instruct.md`)
+and the only multi-node nightly, which is PD with an asymmetric pair
+(`tests/e2e/nightly/multi_node/config/Qwen3-VL-235B-disagg-pd.yaml`: P DP2×TP8, D
+DP4×TP4 + FULL_DECODE_ONLY, `--max-num-batched-tokens 8192`,
+`--no-enable-prefix-caching`, MooncakeConnectorV1) — so "which topology" is the first
+question; and the ViT-sharding row (`--mm-encoder-tp-mode data`, accepted because
+`vllm/model_executor/models/qwen3_vl.py:1246 supports_encoder_tp_data = True` at this
+ref) together with `USE_OPTIMIZED_MODEL=0` for the head-dim activation pad
+(`vllm_ascend/ops/mm_encoder_attention.py:102-112`, gate at `envs.py:71`).
+
+What it cost: the second-ranked cause was the chunked-multimodal-input chain
+(`--disable-chunked-mm-input` under the recipe's `--max-num-batched-tokens 4096`) — a
+real code path (`vllm/config/scheduler.py:110` default False, Ascend forces nothing,
+CUDA only forces it for `is_mm_prefix_lm` at `vllm/platforms/cuda.py:236-249`) but one
+the report does not select, since nothing says the request contained an image. It also
+never read `../accuracy-benchmarks/long-output-repetition.md`, and it invented a
+Qwen3-VL vision `head_dim` from memory before noticing the export has no such config —
+both avoidable. Page: `../accuracy-benchmarks/vl-vision-tower-degeneracy.md`
+(“The lever is older than this pin”, “A 双机 / multi-node VL report”).

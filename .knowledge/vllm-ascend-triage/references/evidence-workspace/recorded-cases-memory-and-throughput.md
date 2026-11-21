@@ -10,6 +10,20 @@ overhead. Routes: `../runtime-memory/index.md`, `../performance-throughput/index
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#8940** vllm-ascend v0.15.0rc1 (`3d43ed99`) + vllm v0.15.0 (`f176443`), Qwen3.5-0.8B on
+910B4, no log: "为什么 Qwen3.5 的 linear attention 在 Ascend 上不能像 CUDA 一样融合成一个更大的
+算子" — design intent (platform limit vs engineering tradeoff) plus "any plan to fuse". The
+recorded answer corrected the reporter's own links (`main` paths `vllm_ascend/ops/gdn.py`,
+`patch/worker/patch_qwen3_5.py` and the `releases/v0.19.1` CUDA links do not exist at 0.15.0rc1),
+then source-verified the per-lane stage map (`chunk_gated_delta_rule` prefill at `:248`, the single
+`fused_sigmoid_gating_delta_rule_update` decode kernel at `:279`, the `is_cuda_graph and
+divide_grid < 65536` gate on `fused_qkvzba_split_reshape_cat` at `:58-60`) and refuted "Ascend
+splits more" against upstream v0.15.0. Delivered at turn 21. What it could not know (and the
+maintainers' later public reply supplied): the roadmap is a mega GDN fusion op (PR #8872)
+replacing the chunk op, and the reporter's next question targets the decode lane — that op is
+prefill-only, decode falls back to Triton. That per-lane roadmap split belongs in the first
+answer. Route: `../performance-throughput/gdn-fusion-lanes-and-roadmap.md`.
+
 **#12534** vllm-ascend v0.23.0rc1 (`f4a08bbd`, `v0.23.0rc1-310p-openeuler` image),
 torch_npu 2.10.0.post2, CANN 9.1.0-beta.1, Ascend310P3 ×4, Qwen3.5-35B-A3B w8a8 with
 MTP: engine start died on all four ranks in `torch.npu.empty_cache()` with
@@ -417,3 +431,81 @@ confirmation: the later message only answered the checkpoint-provenance and
 MTP-version questions (GLM-4.7 MTP needs main; 0.11-0.13 run without it), which is
 why the MTP-era graph candidate is retired for that image but the preemption check
 stays owed.
+
+**#2833** vllm-ascend v0.10.1rc1 (`7e16b4a7cdb1`) + vllm v0.10.1 (`aab5498`), 2 nodes
+× 8×910B2, GLM-4.5 (MoE, `glm4_moe`), `--data-parallel-size 2
+--data-parallel-size-local 1 --tensor-parallel-size 8`, `--max-num-batched-tokens
+2048`, `--no-enable-prefix-caching`, no `--quantization`, and `--enable-expert-parallel`
+on **node 1 only**: "性能较差" against an H800 run of the same eval, three screenshots
+and no log. The body also carries the half the reporter did not ask about — "用
+tp+dp+ep 会胡言乱语，所以改成 tp+dp" — i.e. the reported configuration is an accuracy
+workaround, and it is what moved every MoE layer off MC2. Source at the pin:
+`ep_size = get_ep_group().world_size if enable_expert_parallel else 1`
+(`ascend_forward_context.py:87-88`) → `1` = `NaiveMulticast` prefill / `AllGather`
+decode, `1<ep_size<16` or any prefill = `All2All`, `≥16` decode = `MC2`
+(`_get_fused_moe_state:26-40`), and **nothing logs the choice** at this ref. Recipe
+anchor: `release_notes.md:140` points GLM-4.5 at `tutorials/multi_node_kimi.md`
+(DP4/2 local, TP8, EP, `--quantization ascend`, mbt 4096, `HCCL_BUFFSIZE=1024`), whose
+`torchair_graph_config: {enabled: true}` **raises** for `glm4_moe`
+(`ascend_config.py:20-28,189-196`), leaving the experimental aclgraph path
+(`:211-215`); no MTP proposer for the family either (`worker/mtp_proposer_v1.py:20-28`
+imports only `CustomDeepSeekMTP` while vllm registers `glm4_moe_mtp`,
+`registry.py:267`). The EvalScope screenshots reconcile to per-request 4094/100
+(Ascend, step 138.7 ms) vs 2041/1026 (H800, step 68.5 ms) and prefill 0.80 vs 1.01 ms
+per input token — decode is the axis, so the 2× is the MoE comm path, not prefill
+tuning. Delivery: 22 assistant turns, the full 16 384-token budget, 656 characters of
+message text and **no ranked answer**; the two fragments shipped were
+"The report has two halves …" and "Verified the key source facts". Routes:
+`../performance-throughput/moe-comm-path-when-ep-off.md` and
+`../performance-throughput/cross-run-ratio-normalization.md`; the garbled EP output
+stayed a reporter-confirmed symptom (its later comment is a screenshot of it) with the
+mechanism unestablished.
+
+**#14291** reported vllm-ascend 0.24.0rc1 vs 0.23.0rc1 (snapshot pins only
+v0.23.0rc1 `f4a08bdd` + vllm v0.23.0 `0fc695f`), A3, GLM-5.2-w4a8c8 PD split
+(P DP2 TP16 + `num_speculative_tokens 1`, D DP16 TP2 + `num_speculative_tokens 3`,
+`FULL_DECODE_ONLY` capture `[4,8]`, `--max-num-batched-tokens` 8192/128,
+`--enforce-eager` on P, DSA c8 flags in `--additional-config`): a `1+1=?` request
+returns in 12 s on 0.24.0rc1 against 4 s on 0.23.0rc1, and w8a8c8 is also 12 s. Track:
+measurement. The run's ranking (completion_tokens/thinking length first, then the
+`num_speculative_tokens:3` acceptance multiplier, then a fixed per-request cost in the
+PD chain, then a 0.24 default flip) needed no source and shipped as a full answer in
+9 turns; what it could not do is name a 0.24 change — that build is absent from the
+snapshot, so the deliverable is the diff command plus the two numbers. Its own
+control-finding is the reusable part: w8a8c8 was never run on 0.23.0rc1, so "both
+quant widths are 12 s" retires the quant hypothesis and nothing about the version.
+Routes: `../performance-throughput/cross-run-ratio-normalization.md` and
+`../spec-decode-mtp/acceptance-collapse.md` (the degraded-acceptance row).
+
+**#6299** vllm-ascend v0.13.0rc1 (`1b5d5ab`) + vllm v0.13.0 (`72506c9`), CANN 8.3.RC2,
+`torch==2.8.0+cpu` / **`torch_npu==2.8.0`**, 8×910B3 serving GLM-4.7-W8A8 TP8 + EP
+with `--gpu-memory-utilization 0.9` and `FULL_DECODE_ONLY` capture sizes: "memory leak
+… Memory used keeps increasing", with a `top` paste of eight `VLLM::Worker_TP` rows at
+172.8-175.6 GB RES and `npu-smi` flat at `59718/65536 MB` on every chip. The recorded
+run classified the paste correctly as host-memory (not device OOM), then spent the
+session on per-rank RSS arithmetic, an `RssAnon`/`RssFile` split recipe and a
+dead-`additional_config`-key finding, ranked as an unverified hypothesis — and never
+read the pta line. The pinned tree already carried the answer:
+`docs/source/user_guide/release_notes.md:197` (under `## v0.11.0rc1`) says "The memory
+may be leaked and the service may be stuck after long time serving. This is a bug from torch-npu, we'll upgrade and fix it
+soon." What settled it publicly: `--no-enable-prefix-cache` changed
+nothing, then the maintainer's "upgrade torch-npu to 2.8.0.post1 or 2.8.0.post2. There
+is a known issue that 2.8.0 will lead mem leak", then "upgraded pta to 2.8.0.post2 and
+rebuilded vllm-ascend. Bug fixed." The ref's own `requirements.txt:31` pins the leaking
+`torch-npu==2.8.0`, so the version table matched the release exactly and still carried
+the defect. Route: `../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0 (the pta
+line before the arithmetic); the dead-key half is still valid and now checked against
+`tests/` too (`../runtime-memory/index.md` rule 5).
+
+**#9372** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be96`), a 32 GB vNPU
+serving Qwen3-14B at `--max-model-len 4096 --enforce-eager`: `[Misc]` request to make
+the memory message actionable, because `Loading model weights took 27.5376 GB` is
+followed by `Available KV cache memory: -0.87 GiB`. The answer shipped complete and
+is the reference for this shape: the number is bookkeeping-correct (gmu × 32 GiB
+requested vs weights + peak activation + non-torch ≈ 29.7), the *message* comes from
+vllm-ascend's own `determine_available_memory` (`worker/worker.py:355-359`, mirrored in
+`_310p/worker_310p.py:91-101`, both needing the fix), and a ≤ 0 budget already reaches
+upstream's `_check_enough_kv_cache_memory` `ValueError` with suggestions — so the
+missing traceback, not the missing text, is what the reporter should check next. Side
+finding kept in `../runtime-memory/index.md` rule 5: `--kv-cache-memory` is accepted
+and ignored on the Ascend worker at this ref.

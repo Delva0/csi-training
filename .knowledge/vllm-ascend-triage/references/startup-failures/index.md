@@ -362,6 +362,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   known issue are the two checks before any patch. On a full-precision 671 B MoE
   the per-rank KV budget on the paste's own `Available memory: <N>, total memory:
   <M>` line is a co-equal cause, not a footnote.
+- The worker raises while the **model forward is being compiled**, not at load
+  and not at capture: `torch._dynamo.exc.Unsupported: Attempted to call function
+  marked as skipped`, `Explanation: Dynamo does not know how to trace the builtin
+  posix.putenv.`, `Developer debug context: module: posix, qualname: putenv`,
+  and a `from user code` block whose innermost `vllm_ascend` line is an
+  `os.environ[...] = ...` (recorded #8224: `ops/rotary_embedding.py:500`
+  `TRITON_ALL_BLOCKS_PARALLEL`, reached from `profile_run` → `_dummy_run`) →
+  `env-write-in-compiled-forward.md`: vLLM compiles with `fullgraph=True`, so the
+  untraceable Python builtin is a hard error; the launch-side fix (pre-set the
+  variable) beats any source patch, and a larger `--max-num-batched-tokens` is
+  what selects the branch.
 - The engine dies at **weight load** on
   `call aclnnMatmulWeightNz failed, error code is 161002` +
   `AclNN_Parameter_Error(EZ1001): Not support mat2 n = 1 or k = 1 when format is

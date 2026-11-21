@@ -5,7 +5,9 @@ the mode printed its own banner, every rank finished capture, requests are being
 served — and then, typically once concurrency rises rather than on the first
 request, the worker dies with `507011`, `fftsplus aivector error`,
 `Illegal instruction, which is usually caused by unaligned UUB addresses`,
-`mte error`, and/or `sqe_type=7(notify wait) … sq sw status error`.
+`mte error`, and/or `sqe_type=7(notify wait) … sq sw status error` - or it dies at
+the **first replay** with a Python-level `ValueError: not enough values to unpack
+(expected 13, got 9)` from `attention_v1.update_graph_params` (section 9).
 
 Sibling lanes: the **hang** variant of the same mode is
 `aclgraph-full-decode-runtime-hang.md`; a failure during capture is
@@ -254,3 +256,45 @@ TP/DP + `--async-scheduling`. Precedent #9816 (A3, DP+EP, w8a8+MTP, `FULL_DECODE
 body in the corpus. The recorded session had all three by its 8th assistant turn and then took
 "one last guard read", ending at the 16 384-token cap with **no answer message** — 51.2 K
 characters of reasoning against 2.8 K of text.
+
+## 9. A replay-time unpack error is a capture/replay dispatch mismatch, not a model defect
+
+Signature (recorded #8370, Gemma4 hybrid `sliding`+full attention, TP=4, 910B1,
+vllm-ascend v0.18.0rc1 `99e1ea0f` / vllm v0.18.0 `bcf2be96`): capture with
+`cudagraph_capture_sizes=[1]` completes (`Graph capturing finished in 4 secs`), the
+first request logs `Replaying aclgraph`, then `ValueError: not enough values to
+unpack (expected 13, got 9)` from `compilation/acl_graph.py update_full_graph_params`
+-> `attention_v1.py update_graph_params`, killing the engine.
+
+Source-verified at that pin: the two sides pick the attention primitive by
+**different predicates**, and the captured tuple's arity follows the choice.
+- Capture: `attention_v1.py:920-926` takes paged attention only when
+  `attn_state == DecodeOnly` **and** `using_paged_attention(num_tokens, vllm_config)`
+  **and** `self.sliding_window is None`; `full_graph_pa` (`:626`) appends a
+  **9**-field tuple (`:657-670`) and closes its task group at `:672-685`.
+- Replay: `update_graph_params:397` takes paged attention on
+  `using_paged_attention(num_tokens, vllm_config)` **alone** - the
+  `sliding_window is None` term is missing - and the FIA branch unpacks **13**
+  fields (`:470-493`).
+- `using_paged_attention` (`attention/utils.py:44-55`) needs
+  `cudagraph_mode == FULL_DECODE_ONLY`, no `speculative_config`, a non-A5 SoC and
+  `num_tokens in pa_shape_list`, whose default is `[]` (`ascend_config.py:127`).
+
+So `expected 13, got 9` means replay entered the FIA branch over a key capture filled
+from the PA path. Discriminating checks: the reporter's `cudagraph_capture_sizes`,
+whether `--additional-config '{"pa_shape_list": [...]}'` covers those same sizes
+(docs describe it as a temporary PA-vs-FIA tuning knob,
+`docs/source/tutorials/models/Qwen3-Dense.md:196`; `faqs.md:270` warns that setting it
+swaps the operator), and whether the layers carry per-layer `sliding_window` - a
+hybrid sliding/full stack is exactly where the two predicates diverge. Ladder: set
+`pa_shape_list` to the captured sizes; else move `FULL_DECODE_ONLY` to `PIECEWISE`;
+else `--enforce-eager`. Name the predicate you verified instead of a model defect.
+
+Capture-side sibling in the same report: `[1,2,4,8]` failed at `AclmdlRICaptureEnd ...
+error code is 107033` / `EE9999 ... reason=task group status error` while `[1]`
+captured - a task-group close failure at multi-size capture on the same PA path
+(`graph_task_group_begin/end` at `:672-685`); worth the `acl-graph-capture.md` Step 3
+size-set check, not a confirmed mechanism. Coverage note: neither tree in that
+snapshot registers `Gemma4ForConditionalGeneration`
+(`vllm/model_executor/models/` stops at `gemma3n`), so that pair carries no validated
+FULL-graph path for the model at all - state it as the coverage gap, not the cause.

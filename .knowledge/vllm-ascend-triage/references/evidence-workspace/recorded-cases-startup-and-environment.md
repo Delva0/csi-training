@@ -10,6 +10,46 @@ document cases and `[Community Test]` reports. Routes: `../startup-failures/inde
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#8224** image v0.18.0rc1 + vllm v0.18.0 (`bcf2be96`), Atlas 800I A2,
+Qwen3-VL-8B-Instruct in graph mode: engine dies in `profile_run` → `_dummy_run`
+with `torch._dynamo.exc.Unsupported: Attempted to call function marked as
+skipped` (`posix.putenv`) raised from `ops/rotary_embedding.py:500`
+`os.environ["TRITON_ALL_BLOCKS_PARALLEL"] = "1"` behind `query_shape[0] > 65535`,
+with `--max-num-batched-tokens 81920`. The model is fine and the reporter's
+Qwen2.5-VL control never enters `forward_triton` (no `mrope_interleaved`). This
+run found the owning line, the `fullgraph=True` wrapper and the coverage gap, and
+shipped a complete ranked answer; the dispatch condition, the launch-side rung
+and the check that the code is unchanged at v0.23.0rc1 are on
+`../startup-failures/env-write-in-compiled-forward.md`.
+
+**#13199** image v0.23.0rc1 `-310p` on x86 310P3, Qwen3-VL-8B: `import torch`
+dies with `AttributeError: module 'triton' has no attribute 'language'` inside
+`torch/_dynamo/utils.py` (`common_constant_types.add(triton.language.dtype)`),
+no `vllm_ascend` frame anywhere; the `-310p` Dockerfile removes
+`triton`/`triton-ascend` on purpose (`:45-63`, plus
+`docs/source/tutorials/hardwares/310p.md:7`), so a resolving `triton` is
+uninstall residue or a shadow directory. The run held both facts by
+mid-session, spent its whole budget deriving *why* a module can lack `language`
+(a property of the reporter's site-packages) and shipped no answer —
+`../image-dependency-faults/triton-module-residue.md`.
+
+**#11308** vllm-ascend v0.21.0rc1 (`80610e4438db`) + vllm v0.21.0 (`ad7125a431e1`),
+Atlas 300I Duo, Qwen3.5-35B-A3B-w8a8 + MTP, image CANN hand-upgraded to 9.1.0.beta3: engine
+start reaches `Capturing CUDA graphs (decode, FULL)` and a rank dies with `aclrtMemcpy, error
+code is 107030` + `ERR00100 PTA call acl api failed` + the canned `EE1006 … Upgrade the CANN
+software version` block, deepest frames `_310p/attention/attention_v1.py:293` →
+`_310p/attention/attention_mask.py:90 get_splitfuse_mask` → `query_start_loc.to("cpu")`. Track:
+capture-phase host readback in the *fallback* splitfuse mask; `:273`'s capture-safe compressed
+branch is gated on `hasattr(torch_npu,'_npu_flash_attention_v3') and
+hasattr(torch_npu,'_npu_paged_attention_splitfuse_v2')`, so the traceback itself proves the gate
+was False and no toolkit/CANN install flips it; MTP is what reaches that branch
+(`_310p/model_runner_310p.py:599-607` → `:191-193` forces `SpecDecoding`). The first run was cut
+on output tokens with only verdict + ladder head typed (825 characters of message text against
+~40 K of reasoning across 17 steps); the reporter's follow-up ("单独 eager mode 可以启动", PR
+#10309 promised graph+MTP) was answered in the second run with the coverage-gap table. Routes:
+`../soc-platform-paths/310p-mtp-graph-splitfuse-mask.md`,
+`../startup-failures/captured-stream-host-sync.md`.
+
 **#2473** vllm-ascend v0.10.0rc1 (`4604882a3e2c`) + vllm v0.10.0
 (`6d8d0a24c02b`), Qwen3-30B-A3B-W8A8 (msmodelslim) on 910B4 ×8, TP8 +
 `--quantization ascend` + `--enable-expert-parallel`, `--max-model-len 4096

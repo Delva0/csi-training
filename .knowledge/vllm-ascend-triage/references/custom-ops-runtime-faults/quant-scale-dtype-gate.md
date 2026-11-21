@@ -1,4 +1,4 @@
-# Quant-matmul scale dtype gate: `161002`, `aclnnQuantMatmulWeightNz` / `aclnnGroupedMatmulWeightNz`
+# Quant/grouped-matmul dtype gate: `161002`, `aclnnQuantMatmulWeightNz` / `aclnnGroupedMatmulWeightNz` / `aclnnGroupedMatmulV5`
 
 ## Signature
 
@@ -96,6 +96,52 @@ command is the one-line confirmation of the mechanism.
 Precedent: a titles-only search for `DT_FLOAT16|scale not implemented` over the
 prior-month corpus returns 0 hits — a corpus gap, not evidence the defect is new.
 
+## Rule 5 — read which operand the gate names: a rejected **`y`** is an activation-dtype fault, not a scale one
+
+The other `161002` on a grouped matmul rejects the **output**. Recorded #2807
+(v0.10.1rc1 official image, Qwen3-30B-A3B-W8A8, `--quantization ascend`,
+`-tp 4 --enable-expert-parallel`, aclgraph default):
+
+```
+RuntimeError: npu_grouped_matmul … NPU function error: call aclnnGroupedMatmulV5 failed, error code is 161002
+EZ1001: [PID: 7114] … Tensor … dtype is DT_BFLOAT16 but found DT_INT32.
+GMM:y dtype does not match with required dtype[DT_BFLOAT16]
+```
+
+`y` is required to be the *activation's* dtype here, and the code that asks for
+`int32` is found in one grep at the launch, not in the scale:
+
+| Fact | Anchor (v0.10.1rc1 `7e16b4a7cdb1`) |
+|---|---|
+| gmm1 asks for the quantized-output dtype unconditionally for W8A8 | `vllm_ascend/ops/common_fused_moe.py:99-107`, `output_dtype=torch.int32 if use_int8_w8a8 else None` (`:106`) |
+| `x` is whatever `moe_comm_method.permute(...)` returned | `:95-97`, called with `use_int8_w8a8 or use_int4_w4a8` as `apply_a8_quantization` |
+| that flag decides the activation dtype only in **MC2**: `quant_mode = 2 if apply_a8_quantization else 0` | `vllm_ascend/distributed/moe_comm_method.py:398` |
+| `AllGatherCommImpl.permute` takes `apply_a8_quantization` (`:166`) and **never reads it**; it hardcodes `quant_mode=-1` (`:195`) and returns `None` as the dynamic scale (`:202`) | same file, class at `:101` |
+| a single-node serve lands there regardless of the flag: `if self.moe_config.ep_size < 16: moe_comm_method_name = "allgathercommimpl"` | `ops/common_fused_moe.py:487-490` |
+| the only W8A8 e2e case at this ref runs the **eager** path: TP2 + `enforce_eager=True` (the ACL-graph cases are bf16) | `tests/e2e/multicard/test_qwen3_moe.py:59-71` vs `:90+` |
+
+So the contract has two owners and the gate compares them: the launch's `output_dtype`
+and whatever actually quantized the activations. On the graph path the eager MoE
+(`quantization/w8a8_dynamic.py:113 apply_mlp`, which quantizes per token first and takes
+`_output_dtype` from `w2_scale`, `:157`) is the working control — which is exactly why
+`--enforce-eager` (and, per the validated test, TP2) is rung 1, before any patch.
+
+**The one thing not knowable locally: `quant_mode` semantics.** `-1` versus `2` is a
+torch_npu/CANN attribute meaning, and no export carries it — in this case view
+`rg -ln 'moe_init_routing' Ascend/` is empty and the only `quant_mode` hit in
+`Ascend/` is an unrelated HIVM fixpipe attr (`HIVM_FixpipePreQuantModeEnum`). Do not
+spend turns deciding whether
+`-1` means "dynamic quant" or "input already quantized" (recorded #2807 spent its
+entire output budget there and shipped no answer): state the two readings, note the
+local contrast above, and give the reporter the one-line check that ends it —
+`print(permuted_hidden_states.dtype)` at the failing launch, or
+`python -c 'import torch_npu; help(torch_npu.npu_moe_init_routing_v2)'` on their image.
+Everything else in the ranked answer (dtype mismatch at `:106` vs the permute, the
+`ep_size < 16` selection, the eager control, the CI coverage gap) is already verified.
+The same `ep_size < 16` selector is also what a *performance* report citing this model
+pair has to be priced from (EP off puts every MoE layer on that all-gather path):
+`../performance-throughput/moe-comm-path-when-ep-off.md`.
+
 ## Do not chase the neighbours in the same paste
 
 `Node[TransposeKvCacheByBlock]: failed to initialize … input2.blockIDs. Tensor scale
@@ -112,4 +158,9 @@ executed here (no NPU in the case view). Recheck condition: re-run the audit scr
 or `rg -n 'weight_scale_fp32|w2_weight_scale' vllm_ascend/quantization/methods/w8a8_dynamic.py`
 on the reporter's own tree — if `apply()` now reads a `_fp32`/`_fp32_list` tensor and
 the MoE output dtype is no longer taken from the scale, the repair has landed and
-this page describes an older ref.
+this page describes an older ref. Rule 5's anchors are a different, earlier ref
+(v0.10.1rc1 `7e16b4a7cdb1`): there `ops/common_fused_moe.py` is the only MoE path and
+`quantization/methods/` does not exist yet, so re-locate `output_dtype=` and the
+`ep_size < 16` line in whatever layout the reported tree has, and re-grep
+`apply_a8_quantization` — if the AllGather `permute` reads the flag, rule 5's mechanism
+is repaired.

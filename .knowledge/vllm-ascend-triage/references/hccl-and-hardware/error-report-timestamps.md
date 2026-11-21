@@ -114,16 +114,51 @@ during task execution, stream_id:9, sq_id:9, task_id:..., stuck notify num:1, ti
 [FUNC:ProcessStarsHcclFftsPlusTimeoutErrorInfo][FILE:device_error_proc.cc][LINE:1788]
 ```
 
-- `timeout=1836s` is the *elapsed wait* on one notify, whose default is
-  `HCCL_EXEC_TIMEOUT` 1800 s (`cann/hcomm/src/common/error_code/error_code.cc:38`,
-  the EI0002 text: "default 1800s, You can set the interval by using
-  HCCL_EXEC_TIMEOUT"); the extra ~36 s is dispatch/collect overhead. So the
+- `timeout=<N>s` is the **armed notify-wait bound**, i.e. `HCCL_EXEC_TIMEOUT`, not
+  a measured elapsed time. Its compiled default in this snapshot *is* 1836 s:
+  `constexpr s32 NOTIFY_DEFAULT_WAIT_TIME = 27 * 68;   // notifywait默认1836等待时长`
+  (`cann/hcomm/src/pub_inc/hccl_common.h:84`), which `SetDefaultParams` assigns to
+  `execTimeOut` (`src/platform/common/externalinput.h:131`) and the init line
+  reports as `HCCL_EXEC_TIMEOUT set by default to [1836]s`
+  (`src/platform/common/externalinput.cc:542`); `DispatcherPub::GetNotifyWaitTime`
+  then arms `hrtNotifyWaitWithTimeOut(...)` with `execTimeOut_`
+  (`src/platform/task/dispatcher.cc:293-316`). The EI0002 catalogue text's
+  "default 1800s" (`src/common/error_code/error_code.cc:38`) is stale doc wording,
+  not the constant — **do not add a ~36 s "overhead" to reach 1836**. So the
   printed clock time is the expiry: **stall start = report time − `timeout=`**.
   In dump 1, `21:43:11 − 1836 s = 21:12:35`, and that instance's last
   `POST /v1/chat/completions ... 200 OK` is `21:12:11` — a 24 s match, which is
   what makes the arithmetic worth one call instead of a mechanism hunt.
+- Two consequences of it being a *configured* bound, not an elapsed one. (a) Read
+  the paste's own HCCL init line before subtracting: a reporter who exported
+  `HCCL_EXEC_TIMEOUT` gets **their** value here (`set by environment to [%.2f]s`,
+  same file `:1000`), so `timeout=600s` is not evidence of a 10-minute stall.
+  (b) The accepted range is SoC-dependent — on 910B/910_93 `0`–`2147483647` s with
+  `0` documented as never timing out, elsewhere 1–17340 s
+  (`externalinput.cc:961-984`) — so raising it changes when the hang surfaces, not
+  whether it does (`aiv-mc2-env-ablation.md`).
+- The device block is not the only clock in the paste. Two vLLM timers date the
+  same stall independently: the 300 s RPC watchdog
+  (`TimeoutError: RPC call to <method> timed out`, `rpc-watchdog-timeouts.md`) and
+  the `No available shared memory broadcast block found in 60 seconds` line from
+  each EngineCore. Recorded #16646 (same shape as #16652: GLM-5.3 W8A8C8, 2×16
+  910B co-located, v0.23.0) reports the fftsplus block at `19:54:23` and
+  `19:54:23 − 1836 s = 19:23:47`, exactly the reporter's own "开始出现 ≈19:23:47";
+  the same log's `TimeoutError: RPC call to sample_tokens timed out` is stamped
+  `19:28:38` (= `19:23:38 + 300 s`) and its `60 seconds` warnings start `19:24:37`.
+  So when a paste has no `200 OK` boundary, use those two lines: they bracket the
+  stall to a few seconds and turn a single subtraction into a corroborated one.
 - Eight chips reporting the same instant (`chipId:0..7`) is one process-group
   stall, not eight faults.
+- The code beside it is a messenger, and its **count is bookkeeping**: in #16646
+  the same chips print 80 × `error code is 507048`, each paired with
+  `rtEventSynchronize execution failed, reason=fftsplus timeout` /
+  `rtStreamSynchronizeWithTimeout execution failed, reason=fftsplus timeout`
+  (`FUNC:FuncErrorReason][FILE:error_message_manage.cc][LINE:65]`) in
+  `multiproc_executor.py` — i.e. each worker's host-side synchronize reporting
+  the device's expiry, ten lines per chip. Read it as "this rank was waiting
+  when the bound expired", never as 80 faults and never as an owner: the
+  device block above it owns the mechanism.
 - `[TaskExecStage][HeartbeatAbnormal] Cluster Exception Location[IP/ID]:[...],
   Arrival Time:[...], ExceptionType:[Heartbeat Lost Occurred], Possible Reason:
   1. Process has exited, 2. Network Disconnected` arrives at a **single** instant

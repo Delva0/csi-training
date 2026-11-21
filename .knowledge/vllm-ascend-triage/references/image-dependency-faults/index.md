@@ -51,6 +51,16 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   is absent by design while its ungated consumer still runs. Grep the log for
   `Triton not installed or not compatible`, then turn the pass off →
   `../startup-failures/missing-triton-op-in-compile-pass.md`.
+- `import torch` itself dies with `AttributeError: module 'triton' has no
+  attribute 'language'` at `torch/_dynamo/utils.py` (`common_constant_types.add(
+  triton.language.dtype)`), reached from `torch_npu/utils/_dynamo.py`, with **no
+  `vllm_ascend` frame** and a `-310p`/310P box in the dump → `triton-module-residue.md`.
+  A complete triton or triton-ascend binds `language` in its own `__init__`
+  (`python/triton/__init__.py:26` / `:25`), and the `-310p` Dockerfile uninstalls
+  both on purpose (`docs/source/tutorials/hardwares/310p.md:7`), so the module
+  that resolved is a leftover/shadow, not a version-pin problem: one `python -c`
+  printing `triton.__file__` / `__path__` / `__version__` decides it, and the
+  repair is removal, never `pip install triton-ascend`.
 - The **platform plugin fails to import**: `vllm serve` prints
   `ERROR Failed to load plugin ascend` + `ModuleNotFoundError: No module named
   'vllm_ascend'`, then `No platform detected, vLLM is running on

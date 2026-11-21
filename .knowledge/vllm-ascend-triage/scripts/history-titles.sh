@@ -17,6 +17,12 @@
 # reporter's exact `ACL stream synchronize failed, error code:507035`). Pass `-b`
 # when you *want* a body search, and prefer one distinctive token (an op name, an
 # error string, a code) over an alternation that mixes one in with a plain word.
+# The case for `-b` is strongest exactly where the title search looks empty: a
+# **code identifier or exception string** never appears in a title but does appear
+# in the traceback and in the reporter's launch block. Recorded #8224: `-i
+# 'TRITON_ALL_BLOCKS|putenv|marked as skipped'` returned 1 title hit, the same
+# pattern with `-b` returned 8 and named the `export TRITON_ALL_BLOCKS_PARALLEL=1`
+# line that five other reporters already carry. Env-dump words stay title-only.
 #
 # `-i` makes the match case-insensitive (issue titles capitalise tokens:
 # `reranker` vs `Reranker`).

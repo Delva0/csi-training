@@ -98,6 +98,17 @@ output, or did no request ever reach a decode engine?**
   queue means `--async-scheduling` (or PP>1) on the prefiller — and the assert
   names no id, so the two DEBUG lines (`Delaying free …`, `Finished sending …`)
   decide the branch → `prefill-scheduler-kv-xfer-assert.md`.
+- The **prefiller's** worker dies inside `start_load_kv` at the
+  `_get_kv_split_metadata(...)` call (`mooncake_layerwise_connector.py:1627` at
+  v0.23.0), the traceback cut at that line with no exception class, while D stays
+  alive — physical TP/DP the same on both sides, typically a hybrid attn+mamba
+  model (Qwen3.5/3.6) with MTP under chunked prefill. That paste carries no
+  message, so the answer is the throw-site inventory (`:1496` on this path;
+  `:1553` belongs to the MambaSpec sibling, `kv_transfer/utils/utils.py:96/98-100/108/118/129/290/291-294/304`), the
+  `VLLM_LOGGING_LEVEL=DEBUG` line that prints its inputs, and the three
+  single-axis ablations → `layerwise-split-metadata-crash.md`. Symmetric TP means
+  `asymmetric-tp-pull-count.md` (different TP sizes, non-layerwise connector) is
+  not this page.
 - The **decode** worker dies before any byte moves when P and D use different TP
   sizes (P `TP=8`, D `TP=2`) on an MLA (DeepSeek/Kimi) or DSA-sparse model:
   `chosen_rank_list([…]) does not match num_group_pulls(…) and prefill pp size(1)`
@@ -235,6 +246,17 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   `_is_hma_required` true (and why turning Eagle3 off is not predicted to help),
   and why the assertion is load-bearing. Verified at vllm-ascend v0.22.1rc1
   `5f6faa0cb883` / vllm v0.22.1 `0decac0d96c4` (#11877).
+- `layerwise-split-metadata-crash.md` — the **producer's** `start_load_kv` dies in the
+  layerwise connector and the paste stops at the call line: how `:1627` (full
+  attention) differs from the MambaSpec sibling `:1623-1625`, the nine throw sites with
+  their exception texts, why a symmetric 16/16 deployment makes the bare head-group
+  asserts unlikely and the block-count `IndexError`/`KeyError` family the active one
+  (`remote_tp_size` read from the reporter's own `decode.tp_size`), the
+  `chunk_finish = True` mutation at `:1479-1480`, the DEBUG lines that print every
+  input (`build_connector_meta` `:1066-1079`, `:1485`, `:1508-1514`, `utils.py:253-262`,
+  `:305`), and the attn+mamba truncation/trim contract (`need_truncate` `:819`,
+  `_trim_hybrid_remote_block_ids` `:881-899`) that the ablations isolate. Verified at
+  v0.23.0 `5cb98caaadef`; #15394's cause left open.
 - `llmdatadist-done-signal-and-ttft.md` — `LLMDataDistCMgrConnector` serves but TTFT is
   slow and/or the prefiller logs `fail to receive KV Cache transfer done signal in 120s`
   (`VLLM_LLMDD_ABORT_REQUEST_TIMEOUT`, default 120): where the warning is emitted, the

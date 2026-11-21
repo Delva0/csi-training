@@ -15,9 +15,22 @@ Trailing frames are the capture wrapper, e.g. `vllm_ascend/compilation/piecewise
 __call__` → `output = entry.runnable(*args)` → `torch/fx/graph_module.py:830 call_wrapped`.
 
 Sibling lanes: `rtMemcpy:ErrCode=107030` / `MemCopySync` in the same phase is the
-*device-bound* copy refusal — `acl-graph-capture.md` Step 2; the opaque
+*device-bound* copy refusal — `acl-graph-capture.md` Step 2 (on 310P the same code
+comes from the fallback splitfuse mask under MTP + `FULL_DECODE_ONLY`:
+`../soc-platform-paths/310p-mtp-graph-splitfuse-mask.md`); the opaque
 `npuSynchronizeDevice … 507015` with a device dump is the addressing-fault lane —
 `acl-graph-capture.md`, v0.21–v0.23 section.
+
+**Scope gate - this lane needs the CANN sentence, not just the number.** Only
+`AclrtSynchronizeStreamWithTimeout(copy_stream)` **plus**
+`EE9999 ... Not allow to synchronize captured-stream, stream_id=N` puts a report
+here. A bare `RunOpApiV2:.../compiler_depend.ts:N ... AclrtSynchronizeStreamWithTimeout(stream),
+error code is 107027` with no CANN sub-message is a stream-synchronize failure
+whose owner the frame does not decide: the sync is ordinary op plumbing
+(`torch_npu/csrc/framework/OpCommand.cpp:241-242` syncs after every op when
+`ASCEND_LAUNCH_BLOCKING=1`; `:210` and `:251` sync unconditionally when the call
+passes `sync=true`), so the code reports whatever killed the stream. That lane is
+section 6.
 
 ## 1. What the code means, and what it rules out
 
@@ -114,3 +127,53 @@ Line numbers are the v0.10.0rc1 pin. Re-grep the three sync sites
 before reusing them; whether a later release fixed it is not in this snapshot.
 Same reading applies to any quant method whose capture path computes a
 data-dependent count — the rule is the readback, not this model.
+
+## 6. The bare `107027` (no `copy_stream`, no CANN sentence): the blocking-env lever, both directions
+
+Recorded #2138 - vllm-ascend **v0.9.2rc1** (`b5b7e0ec`), vllm 0.9.2 (`a5dd03c1`),
+dense Qwen3-32B, TP=2 on 2x910B3, CANN 8.1.RC1, torch_npu 2.5.1.post1.dev20250619,
+`--max-model-len 32768 --max-num-batched-tokens 32768 --max-num-seqs 24
+--block-size 128`, graph mode at its default:
+
+```
+RuntimeError: Worker failed with error 'RunOpApiV2:build/CMakeFiles/torch_npu.dir/compiler_depend.ts:243
+NPU function error: c10_npu::acl::AclrtSynchronizeStreamWithTimeout(stream), error code is 107027'
+```
+raised out of `vllm/v1/executor/multiproc_executor.py:224 get_response`.
+
+**The reporter-confirmed resolution is the opposite of the instinct: setting the env
+fixed it.** The original reporter's own later comment, same day: "turns out set the
+env `ASCEND_LAUNCH_BLOCKING=1`". So do **not** answer *unset it* on this shape - one
+recorded run led with "the trigger is your own `export ASCEND_LAUNCH_BLOCKING=1`" and
+spent its ladder telling the reporter to remove the env.
+
+Two source-verified facts that make the direction non-obvious at that pin:
+- **No incompatibility guard on the 0.9 line.** `rg -n ASCEND_LAUNCH_BLOCKING
+  vllm_ascend/` at `b5b7e0ec` returns only `examples/run_dp_attention_etp16.sh`, and
+  `check_ascend_config` (`vllm_ascend/ascend_config.py:126`) validates only the
+  torchair/eager combinations; graph mode is default PIECEWISE -> ACL Graph
+  (`vllm_ascend/platform.py:154-181`). The
+  `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING=1` refusal
+  belongs to **later** refs (`graph-mode-not-applied.md`) - quote it only after
+  checking the reported version.
+- **The frame does not prove the env was on.** `RunOpApiV2` is `OpCommand.cpp:214`;
+  `:241-242` syncs *iff* `CheckBlockingEnable()` (env parsed at
+  `register/OptionsManager.cpp:98-101`), while `:210` and `:251` sync
+  unconditionally for `sync=true`. The same traceback appears with the env off.
+
+Ladder, cheapest first:
+1. **Env off -> turn it on**: `export ASCEND_LAUNCH_BLOCKING=1`, same command. One
+   launch, reporter-confirmed to make this serve work; it re-attributes
+   asynchronously reported errors and serialises the stream, so report success as a
+   *workaround*, not a fix - a defect that vanishes under a device-wide sync is an
+   ordering symptom.
+2. **Env on and the serve still dies here -> turn it off** (`=0`) and, if capture is
+   then what fails, add `--enforce-eager`; that pair is legal on every pin, the env
+   alone is not legal with graph mode on newer refs.
+3. **Ask which run produced the traceback.** The pasted launch block can already
+   carry the env because the reporter edited in the fix (this case's block does), so
+   "your env is the cause" is unprovable from the paste. The full worker log
+   (`Starting to load model` -> `PIECEWISE compilation enabled on NPU` ->
+   `Graph capturing finished` or the first error) plus the plog's
+   `[AIC_INFO] ... fault kernel_name=` line decide whether a real device fault sits
+   under the wrapper.

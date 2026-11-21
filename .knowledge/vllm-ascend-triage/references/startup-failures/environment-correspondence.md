@@ -42,6 +42,20 @@ known-good path — before writing a theory about model code.
      `quay.io/ascend/vllm-ascend:v0.11.0rc0`.
    - vllm-ascend `v0.17.0rc1` (`e20f0b1a...`) with vllm `0.17.0+empty`,
      `torch`/`torch_npu` 2.9.0, driver 25.2.0, `ascend-toolkit`/`nnal` 8.5.1.
+   - vllm-ascend `v0.13.0rc1` (`1b5d5abf`) with vllm `0.13.0`, `torch==2.8.0+cpu`,
+     **`torch-npu==2.8.0` (`requirements.txt:31`)**, CANN 8.3.RC2 (#6299).
+
+   **The `torch_npu` line has its own history and is not cleared by the release
+   matrix.** A pta patch release can carry a fix the base version lacks: `2.8.0`
+   leaks memory and `2.8.0.post1`/`.post2` fix it (reporter-confirmed on #6299,
+   where the reporter's `torch_npu==2.8.0` was exactly the release's own pin and a
+   `.post2` install + vllm-ascend rebuild ended the growth). Read the paste's pta
+   line against the known-good patch releases for that pta minor, and treat
+   "everything matches the release table" as no evidence in either direction —
+   a source-built install inherits the pin, including its defects. The rebuild is
+   part of the recipe because the extension is compiled against the installed pta
+   (`setup.py:324-333`, `-DTORCH_NPU_PATH` from `pip show torch-npu`). Route:
+   `../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0.
 
 ## A `vllm_ascend/**` frame the pin does not contain: vendored file, not a gap
 
@@ -73,6 +87,37 @@ code**, and the finding is that the release does not own the failing path.
   reproduces with the release's own class. Do not reconstruct their module from
   the log's debug prints; the printed shapes and values are their instrumentation,
   not the framework's.
+
+## A `SyntaxError` the pin's own file cannot produce: file integrity, not a parser question
+
+- Trigger: the run dies during `adapt_patch(is_global_patch=True)` (or any import of
+  `vllm_ascend`) with `File "…/vllm_ascend/….py", line N` / the quoted source line /
+  `SyntaxError: invalid syntax` — or `IndentationError: expected an indented block
+  after 'try'` — before any device open, weight load or graph capture. A source
+  checkout in the image (`/vllm-workspace/vllm-ascend`) is what makes this possible;
+  a wheel install cannot have it.
+- One call decides whether the tag can raise it: parse the **pinned** copy and print
+  the reported range: `python3 -c "import ast; ast.parse(open('<file>').read())"`,
+  `wc -l <file>`, `sed -n '18,32p' <file>`. Recorded #3920 at vllm-ascend
+  v0.11.0rc0 `00ba07102212`:
+  the reported `except RuntimeError:` at `patch_mamba_config.py:28` does not exist
+  (`ast.parse` exit 0, 100 lines, no `try`/`except` anywhere in the file) while the
+  other four frames of the same traceback match the pin line for line
+  (`platform.py:67` `adapt_patch`, `utils.py:246`, `patch_common/__init__.py:20`) —
+  the mismatch is that one file on the reporter's disk, and the four matching frames
+  are the evidence that the rest of the image is the tag they named.
+- Verdict and ladder in the first message, as a file-integrity answer:
+  `python -c "import vllm_ascend.patch.platform.patch_common.patch_mamba_config"`
+  reproduces in a second with no NPU; then
+  `git -C /vllm-workspace/vllm-ascend rev-parse --short HEAD; git status --short`;
+  `git checkout -- <file>` (or the tag) restores it. Nothing about the model,
+  CANN or the device is involved, and the reported `file:line` is the only artefact
+  needed to say so.
+- Do not spend turns on a synthetic parser-case matrix. The recorded run built one
+  (`orphan except` → `SyntaxError` line 3, empty `try` body → `IndentationError`) to
+  confirm the corruption shape after the verdict was already established, and
+  finished at 86 % of the output cap (14 088 / 16 384 completion tokens) — the
+  `sed`/`ast.parse` output had already answered it.
 
 ## The version string names the nearest tag; the tree can be a later line
 

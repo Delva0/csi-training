@@ -55,6 +55,14 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   `stream: false` A/B; the same page's table row carries the split, and the
   gen-side owner (which stop token ended it: MTP n, `--async-scheduling`,
   `stop_reason`) follows (`no-tool-call-in-raw-output.md`, #17391).
+- **`content` null and `tool_calls: []` in the same message**, `finish_reason:
+  "tool_calls"`, on a serve that *does* pass `--tool-call-parser deepseek_v3`
+  (`--enable-auto-tool-choice` on), often right after the reporter added exactly
+  those flags to a report whose raw markers were showing in `content` — the
+  DeepSeek-V3 extractor saw the start marker, matched no complete call, and
+  returned `tools_called=True` with zero calls and `content=None`
+  (`deepseek-parser-silent-drop.md`). Both halves are the answer: the first
+  shape is a missing parser, the second is a parse failure, not a fix.
 
 Not this topic — leave with the linked route:
 
@@ -134,10 +142,14 @@ parser puts you back on rule 1.
    (`chat_completion/serving.py:1303`, also `:1492`, `:1701`). A pasted
    `"stop_reason":154829` beside an empty `arguments` fragment says "a stop token
    ended the request here" and nothing about the JSON error.
-3. **`finish_reason: "tool_calls"` does not prove the arguments were complete.**
-   It is set from `auto_tools_called` when the parser streamed any tool call
-   (`chat_completion/serving.py:1290-1297`), so a call whose tail never arrived
-   still ends with that finish reason. Read it as "a call was started".
+3. **`finish_reason: "tool_calls"` does not prove the arguments were complete —
+   and it does not prove a call exists.** It is set from `auto_tools_called` when
+   the parser streamed any tool call (`chat_completion/serving.py:1290-1297`), so a
+   call whose tail never arrived still ends with that finish reason; and the
+   non-streaming path copies the parser's `tools_called` through unchanged, so a
+   parser that matched only the opening marker reports no calls and no content
+   *under that same finish reason* (`deepseek-parser-silent-drop.md`). Read it as
+   "a call was started, or the parser thought one was".
 4. **One request decides engine-vs-assembly: add `return_token_ids: true` to the
    same body.** The stream choice then carries vLLM's per-chunk `token_ids`
    (`protocol.py:98`; filled at `serving.py:1307-1310` only under
@@ -207,6 +219,12 @@ parser puts you back on rule 1.
   the dumps exclude (`patch_deepseek_v4_tool_call_parser.py`,
   `patch_deepseek_v4_thinking.py`, `patch_tool_choice_none_content.py`'s
   dropped `tool_calls: []`, `finish_reason` set only when a call was seen).
+- `deepseek-parser-silent-drop.md` — `content` null **and** `tool_calls: []` on a
+  `--tool-call-parser deepseek_v3` serve: the one branch that produces it
+  (`deepseekv3_tool_parser.py:84-107` at vllm v0.9.2 — start marker seen, strict
+  fenced-call regex unmatched, `tools_called=True`), the regex's three required
+  pieces as the comparison that names the missing element, the `stream: true`
+  witness, and the reporter's parser-free system-prompt workaround with its scope.
 - `detokenizer-text-delta.md` — the third owner, for damage **inside the text**:
   missing head plus a repeated fragment at a script boundary, `stream: false`
   clean. The two incremental-detokenizer paths at v0.23.0

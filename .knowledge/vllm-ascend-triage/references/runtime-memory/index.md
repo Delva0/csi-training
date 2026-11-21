@@ -57,9 +57,22 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    defect (`kv-init-and-format-cast-alloc.md`); an *unmap* failure is the same
    class of statement about a release site
    (`allocator-expandable-segments-unmap-crash.md`).
-3. **Ask for two timestamped samples**, not one `npu-smi` dump: monotonic growth
+3. **Read the stack's `torch_npu` (pta) line in the same paste before any growth
+   arithmetic.** pta leaks are real, the fix is one install, and the release's own
+   pin can *be* the leaking version: at v0.13.0rc1 `requirements.txt:31` pins
+   `torch-npu==2.8.0` — the leaking line the tree's own release notes name
+   (`docs/source/user_guide/release_notes.md:197`, "a bug from torch-npu") and
+   which `2.8.0.post1` / `2.8.0.post2` fix (reporter-confirmed on #6299: with
+   `--no-enable-prefix-cache` the growth continued unchanged; installing `.post2`
+   **and rebuilding vllm-ascend** ended it). So an env dump whose every number
+   matches the release is exactly the paste that carries it, and a vllm-ascend
+   source walk cannot refute it — the allocator layer it calls is not in the
+   snapshot. `host-ram-and-per-rank-rss.md` §"Step 0" has the recorded case, the
+   matching rule and the line that closes the lane (`torch_npu` already at
+   `.post1`/`.post2` or a later pta line).
+4. **Ask for two timestamped samples**, not one `npu-smi` dump: monotonic growth
    and a flat near-full pool look identical in a single sample.
-4. **Check flag liveness before attributing behaviour to a flag.** On pre-migration
+5. **Check flag liveness before attributing behaviour to a flag.** On pre-migration
    refs vllm-ascend silently ignores unknown `--additional-config` keys (since the
    `@config` migration a pydantic `ValidationError` rejects them before any worker:
    `../startup-failures/additional-config-schema.md`), and graph/scheduler keys
@@ -67,9 +80,19 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    pinned commit is one call and prevents a whole wrong hypothesis. A multimodal
    model's `--mm-processor-cache-gb` / `--disable-mm-preprocessor-cache` size a host
    shm buffer, so their state says nothing about HBM (`hbm-growth-and-oom.md` 4b).
-5. Everything here is about the reporter's host: local `npu-smi` output is not
+   Worked instance: **`--kv-cache-memory` / `--kv-cache-memory-bytes` is accepted by
+   the CLI and inert on the NPU worker at v0.13.0rc1 (#6299) and v0.18.0rc1
+   (#9372)** — upstream honours it only in `vllm/v1/worker/gpu_worker.py:362-380`,
+   which the Ascend `determine_available_memory` override replaces, and
+   `rg -n 'kv_cache_memory' vllm_ascend/` returns only its own profiling variable.
+   It is live by v0.22.1rc1 — the generic worker gains the fast path at
+   `worker.py:477-490` there (`kv-budget-per-instance-vs-device-global.md` 3), which
+   is the same version family as the v0.21+ log text that *recommends* a
+   `--kv-cache-memory=<bytes>` value. So re-grep per ref and never quote the flag on
+   a v0.18-or-older serve.
+6. Everything here is about the reporter's host: local `npu-smi` output is not
    evidence about their memory behaviour.
-6. **A KV budget that comes out at ~0 or negative is a bookkeeping error before it
+7. **A KV budget that comes out at ~0 or negative is a bookkeeping error before it
    is a small card.** When a device with free HBM hands the engine
    `Available KV cache memory: 0.09 GiB (halved for workspace)` (310P) or
    `Available memory: 0` / `-1.33GB` (the second of two co-tenant engines), the
@@ -78,6 +101,14 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    offending term; `gpu_memory_utilization` is a **per-instance** limit
    (`vllm/config/cache.py:66-74` at v0.22.1), so "raise the ratio, it includes the
    other instance" is not the fix — `kv-budget-per-instance-vs-device-global.md`.
+   On a *negative* budget the log line is not the whole user-visible surface: the
+   scheduler path reaches upstream's `_check_enough_kv_cache_memory`, which already
+   raises `ValueError("No available memory for the cache blocks. Try increasing
+   `gpu_memory_utilization` …")` with an estimated max length, so a request to
+   "add actionable suggestions" is measured against that text before any patch
+   proposal (#9372: the recorded run quoted both the vllm-ascend line and that
+   ValueError, and kept the deliverable a diagnosability finding rather than a
+   crash).
 
 ## Reading a v0.21+ startup memory block
 
@@ -88,7 +119,7 @@ lines beside `Available KV cache memory` (#10700, 2× A2, DP2 × TP8, `gmu=0.92`
 |---|---|
 | `ACL graph memory profiling is enabled (default since v0.21.0). The current --gpu-memory-utilization=0.9200 is equivalent to --gpu-memory-utilization=0.9103 without ACL graph memory profiling. … increase … to 0.9297. To disable, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0.` | `--gpu-memory-utilization` no longer maps 1:1 onto KV: ~1 % of the budget goes to the graph pool. On that log the equivalent ranged `0.9101`-`0.9104` across TP ranks. |
 | `ACL graph pool memory: 0.44 GiB (actual), 0.59 GiB (estimated), difference: 0.15 GiB (33.8%).` | estimate error of the pool (30-40 % of a sub-GiB number is normal here); it is the delta any KV arithmetic has to absorb, not a defect. |
-| `Free memory on device (60.6/60.96 GiB) … Desired GPU memory utilization is (0.92, 56.08 GiB). Actual usage: 30.16 GiB for weights, 2.0 GiB for peak activation, 2.07 GiB for non-torch memory, 0.44 GiB for NPU graph memory. Replace gpu_memory_utilization with --kv-cache-memory=22829425254 (21.26 GiB) to fit into requested memory, or … (25.78 GiB) to fully utilize NPU free memory.` | a complete budget split plus a byte-exact alternative to gmu. Quote it instead of re-deriving weights/activation/KV with `scripts/oom-budget-split.sh`, and prefer `--kv-cache-memory` when the reporter needs a deterministic KV size. |
+| `Free memory on device (60.6/60.96 GiB) … Desired GPU memory utilization is (0.92, 56.08 GiB). Actual usage: 30.16 GiB for weights, 2.0 GiB for peak activation, 2.07 GiB for non-torch memory, 0.44 GiB for NPU graph memory. Replace gpu_memory_utilization with --kv-cache-memory=22829425254 (21.26 GiB) to fit into requested memory, or … (25.78 GiB) to fully utilize NPU free memory.` | a complete budget split plus a byte-exact alternative to gmu. Quote it instead of re-deriving weights/activation/KV with `scripts/oom-budget-split.sh`. A log printing it comes from a ref that reads the key, but on refs where the override does not (v0.18 and older, rule 5) the flag is inert — check the ref before passing the advice on. |
 
 These lines are also the **presence test** for whether the graph pool was reserved
 in *that* log: at v0.23.0rc1 neither pinned tree carries them (upstream still says
@@ -132,6 +163,10 @@ Conditional routes:
   first. The format cast is the allocation site, not the defect; a 310P host adds
   the `FRACTAL_NZ` copy and the 300I allocator prescription
   (`../soc-platform-paths/atlas-300i-310p.md`).
+- Any "memory leak" / "内存持续增长" report whose env dump carries
+  `torch_npu==2.8.0` (or an unqualified `2.8.0`) → `host-ram-and-per-rank-rss.md`
+  §"Step 0" first: the known pta leak, `2.8.0.post1`/`.post2` plus a vllm-ascend
+  rebuild as the cheapest action, and the line that closes the lane.
 - "The machine crashed" / ssh lost / a `top` paste whose python3 ranks each hold
   tens of GiB RES on one host, with no NPU-side error → `host-ram-and-per-rank-rss.md`
   and `bash <skill_root>/scripts/host-ram-check.sh <paste|->` (worked: #3902,

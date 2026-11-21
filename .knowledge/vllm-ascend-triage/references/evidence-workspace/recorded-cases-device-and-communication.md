@@ -500,7 +500,7 @@ after 50 turns (1.1 M cumulative prompt tokens — its first block `cat`-ed a 25
 `SOURCES.json` plus the history listing inside one 62 K-character tool result),
 verdict and both ranked lists shipped, the action ladder cut mid-item. Lane:
 runtime device fault (lane C) / PD decode MC2, plus a second int64-index write
-family — `../release-known-issues/index.md` (new topic), and rule 6 there on
+family — `../release-known-issues/index.md` (new topic), and rule 7 there on
 splitting a two-issue bulletin across messages.
 
 **#2349** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm `v0.9.2` (`a5dd03c`), reporter's
@@ -675,3 +675,118 @@ partial message (2.9 K) that was cut mid-answer, after it had verified everythin
 this. Pages: `../hccl-and-hardware/link-establish-timeout.md` (new),
 `../startup-failures/environment-correspondence.md` (the `collect_env` ENV filter that
 makes the missing `HCCL_*` block meaningless).
+
+**#17082** vllm-ascend `v0.23.0rc1` (`f4a08bd`) + vllm v0.23.0, Atlas 300I Duo
+310P3 (one logical NPU), image `v0.23.0rc1-310p` with CANN `9.1.0-beta.1`,
+`Eco-Tech/Qwen3.5-9B-W8A8-310P` (`W8A8_DYNAMIC`, `--quantization ascend`), TP1,
+fp16, `--enforce-eager`: all weights load, then
+`EngineCore.determine_available_memory -> profile_run` dies and the device DFX
+block names `QuantBatchMatmulV3_NZ_NZ_int8_int8_fp16_high_performance_21`
+(kernel hash `5247287448945562503`), `runtime error: 507015`, `error: L0C
+read/write conflict`, while the Python frame differs per attempt
+(`aclnnDynamicQuantV2`, `aclnnRmsNorm`). The recorded run answered in 12 turns
+and was right that no in-tree flag reaches it (`Dockerfile.310p:18`'s CANN base,
+no `507015`/`L0C`/`QuantBatchMatmul` string in the tree), but it told the
+reporter **not** to add `VLLM_USE_V2_MODEL_RUNNER` and left the retest as
+"rebuild with a newer CANN base". The reporter's later public retest passed on
+`quay.io/ascend/vllm-ascend:nightly-main-310p` (CANN 9.1.0, vLLM 0.29.0,
+vllm-ascend `0.19.1rc2.dev2294+gc173a64a4`) with
+`VLLM_USE_V2_MODEL_RUNNER=1` and the banner `Using NPUWorker310 and
+NPUModelRunner310V2`, 8 workload cases / 100 measured requests, prefix caching
+off — with CANN **and** runner both changed, so neither axis is isolated and the
+V1-path question stays open. The 310P runner is a version-gated opt-in, so on the
+reported pin the flag was indeed inert; the transferable corrective is to offer
+both version axes with the banner as the activation proof
+(`../soc-platform-paths/310p-int8-matmul-startup-fault-and-runner-v2.md`).
+
+**#7239** image `quay.io/ascend/vllm-ascend:v0.16.0rc1`, pinned at vllm-ascend
+v0.16.0rc1 (`a78a00e`) ↔ vllm v0.16.0 (`89a77b1`), 910B4 (32 GB dies), TP4,
+`--max-model-len 512 --max-num-seqs 10 --async-scheduling`, an explicit
+`--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":
+[1,2,4,6,8,10]}'`, and **no** `--enable-expert-parallel`; Qwen3-Omni-30B-A3B-Instruct.
+Every rank loads weights (14.92 GB), then one rank reports inside
+`worker.py:337 determine_available_memory` → `model_runner_v1.profile_run:2475` →
+upstream `gpu_model_runner.profile_run:5156 embed_multimodal` →
+`qwen3_omni_moe_thinker.py:1789 _process_video_input` (defined in
+`qwen2_5_omni_thinker.py:942`) → `qwen2_5_vl.py:395 self.attn` →
+`vllm_ascend/ops/mm_encoder_attention.py:108 seq_lens_cpu =
+torch.diff(cu_seqlens).to("cpu")`, with `RuntimeError: The Inner error is reported as
+above … the current working operator name is HcclAllreduce` and `ERR00100 PTA call acl
+api failed`. Track: lane C, the **first** collective of the profile run.
+
+What the recorded run got right, cheaply: the sync-point rule in one read (it found
+the page's #7477 instance — same `:108` frame, blocking mode landing in
+`vocab_parallel_embedding.py:204 maybe_pad_and_reduce`), the fact that the pinned tree
+carries that chain (`vocab_parallel_embedding.py:185,204`), the blocking-mode guard at
+this ref (`platform.py:332-343`, so `--enforce-eager` must accompany
+`ASCEND_LAUNCH_BLOCKING=1` because the reporter set FULL_DECODE_ONLY), and the config
+contrast with the pin's own `tests/e2e/models/configs/Qwen3-Omni-30B-A3B-Instruct.yaml`
+(TP4 **with** `enable_expert_parallel: True`, `max_model_len 8192`, Atlas A2).
+
+What it cost: the TP3 `image` vs TP0-2 `video` line in the paste became a
+rank-divergent-dummy-profile theory that took several turns — including one call on the
+invented path `vllm/multimodal/budget.py` — to refute with
+`vllm/multimodal/encoder_budget.py:181-185` (`max()` over an insertion-ordered dict, so
+identical on every rank) and a `PYTHONHASHSEED` tie-break hypothesis it had to withdraw.
+It also never asked for the inner-error block that the paste itself points above
+(“The Inner error is reported as above”), and its last message was cut mid-ladder by the
+output cap. Page, with the four-line rank-parity ask and both artefacts:
+`../hccl-and-hardware/collective-error-chain.md` “First collective inside
+`profile_run`'s multimodal encoder”.
+
+**#2807** — vllm-ascend `v0.10.1rc1` official image (`m.daocloud.io/quay.io/ascend/vllm-ascend:v0.10.1rc1`,
+tree `7e16b4a7cdb1`), Qwen3-30B-A3B-W8A8 on 4 devices, `vllm serve --quantization ascend -tp 4
+--enable-expert-parallel` (both also self-quantized with MindStudio 8.1RC2, same error): OCR-garbled paste of
+`call aclnnGroupedMatmulV5 failed, error code is 161002`, `EZ1001 … Tensor … dtype is DT_BFLOAT16 but found
+DT_INT32` and `GMM:y dtype does not match with required dtype[DT_BFLOAT16]`, deepest frame
+`vllm_ascend/ops/common_fused_moe.py:99` `gate_up_output = torch_npu.npu_grouped_matmul(` — which matches that
+line in the pinned tree exactly, so the failing call is the MoE's first grouped matmul and not the scale
+operand. The recorded run correctly separated the two `161002` families, read the launch's
+`output_dtype=torch.int32 if use_int8_w8a8` (`:106`), the `ep_size < 16 → allgathercommimpl` selection
+(`:483-490`) whose `permute` ignores `apply_a8_quantization` and hardcodes `quant_mode=-1`
+(`moe_comm_method.py:166/195/202`), and the e2e coverage gap (the only W8A8 case is TP2 + `enforce_eager=True`)
+— then spent the remaining budget deciding what `quant_mode=-1` *means*, which no export carries
+(`rg -ln 'moe_init_routing' Ascend/` is empty in that case view), and shipped **no message text at all**. Page:
+`../custom-ops-runtime-faults/quant-scale-dtype-gate.md` rule 5 (the two owners, the effective anchors, the
+`--enforce-eager` rung, and the "do not derive an op attribute's semantics locally" stop).
+
+**#2387** image `v0.10.0rc1` (vllm-ascend `4604882a3e2c` + vllm `6d8d0a24c02b`),
+4×910B4, `Qwen3-32B-w8a8` served with no `--dtype` (so the checkpoint's
+`torch_dtype: float16`), `--max-model-len 10240 -tp 4`. The engine gets through
+weight load and `torch.compile takes 12.21 s in total`, then all four ranks die in
+the same second: `NPU function error: call aclnnAddRmsNormQuant failed, error code
+is 561000` + `ERR00100 PTA call acl api failed` + `EZ9999 … Cannot find bin of op
+AddRmsNormQuant, integral key 0/1/|float16/ND/float16/ND/float16/ND/float16/ND/int8/ND/int8/ND/float16/ND/.`
++ `Kernel Run failed. opType: 31`. Track: a pre-launch **kernel-binary** gap for one
+dtype key — the op is registered (no `EZ1001`), so neither the registry lane nor
+`npu-smi`/image-tag lane applies, and the `561000` token is what sent the early
+turns through the `does not has any binary` (#6082) and MC2/HCCL precedents. What
+settles it is the key's own dtype list against the engine's `dtype=torch.float16`
+line, then `--dtype bfloat16`; the fused-op caller is `models/qwen3.py:47-57` →
+`ops/layernorm.py:49-54` with the scale in `params_dtype` (`w8a8.py:60-64,125-135`),
+and no env switch exists at that ref. Delivery: 15 assistant turns, 35 K
+characters of reasoning against 6.2 K delivered, **twelve of the turns carrying no
+message text at all** and the first fourteen no verdict line — the ranked answer
+exists but arrived on the last turn with ~1.7 K tokens of the cap left. Page:
+`../custom-ops-runtime-faults/cannot-find-bin-integral-key.md` (new).
+
+**#393** vllm-ascend `v0.7.3rc1` (`f025df05f614`) + vllm `0.7.3`
+(`ed6e9075d31e`), torch-npu `2.5.1.dev20250308`, ms-swift 3.2.1 GRPO whose rollout
+engine is the **V0** engine, Qwen2.5-class model. After ~5 steps
+(`Train: 0%|… 5/8724 [02:25<69:44:50]mki_log log dir:/root/atb/log exist`) every
+rank dies with a bare `RuntimeError: setup failed!` whose deepest `vllm_ascend`
+frame is `attention.py:869` `torch_npu._npu_flash_attention_qlens`. Track: host-side
+ATB operation setup refusing the pack — nothing launched. The reading that paid:
+the branch (`:866-876`) requires a prefix-cache hit with chunked prefill off, and
+upstream defaults `enable_prefix_caching` to `bool(VLLM_USE_V1)` = False on V0
+(`vllm/engine/arg_utils.py:217-220`), so the rollout engine set it explicitly; the
+mask it passes is a literal `128` one-block `[128, 128]` (`:612-617`, `platform.py:120-123`,
+`model_runner.py:614-645`) while a partial hit's `query_lens` and a full hit's
+`context_lens` are unbounded. Two cheap discriminators (prefix caching off, or
+chunked prefill on) plus the honest gap: ATB's validation text is in no export, so
+the emission reason stays a hypothesis. Delivery: 9 turns, 7 of them carrying text, the
+ranked answer on the 9th (5.9 K characters against 41.9 K of reasoning) — the
+answer shipped because the session stopped there, not because the reasoning/text
+ratio was healthy; the reason `#3128`/`#4178` above do not ship at 9 turns is that
+they keep opening new areas once the cause is named. Page:
+`../custom-ops-runtime-faults/setup-failed-call-site.md` (new).

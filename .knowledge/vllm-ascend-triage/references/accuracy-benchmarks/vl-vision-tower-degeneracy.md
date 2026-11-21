@@ -146,6 +146,17 @@ this pin the ViT of a VL model is **weight-sharded by default**, so "TP=1 clean,
 TP>1 wrong" is a config question before it is a kernel question, and the report may
 paste no log at all — the two screenshots *are* the evidence.
 
+**The lever is older than this pin — do not answer "upgrade" to a 0.13/0.14
+report.** Checked on #6525 (vllm-ascend v0.14.0rc1 `52d4acf` ↔ vllm v0.14.1
+`d7de043`): `mm_encoder_tp_mode` already defaults to `"weights"`
+(`vllm/config/multimodal.py:111`), the CLI flag already exists
+(`vllm/engine/arg_utils.py:981`, `--mm-encoder-tp-mode`), and Qwen3-VL already opts
+in with `supports_encoder_tp_data = True` (`vllm/model_executor/models/qwen3_vl.py:1246`),
+so `--mm-encoder-tp-mode data` is a runnable first ablation there too. What that pin
+lacks is any Ascend-side use of it: `rg -c 'mm_encoder_tp_mode' vllm-ascend/` returns
+nothing (source, tests, docs), so quote the absence as coverage — never as the cause —
+and call the row experimental rather than an official recipe.
+
 | Site | Fact |
 |---|---|
 | `vllm/config/multimodal.py:143` | `mm_encoder_tp_mode: MMEncoderTPMode = "weights"` — the default shards the vision tower across the TP group |
@@ -178,6 +189,21 @@ weights; (3) TP=1 to re-confirm the reporter's own control; (4) `--enforce-eager
 (the `_npu_flash_attention_unpad` call inside an ACL graph); (5) answer-decode
 difference: only the boxes are wrong, or the text inside them too — that separates
 "layout head degenerated" from "everything after the tower".
+
+**A 双机 / multi-node VL report: settle the topology before ranking causes.** "Two
+nodes" has two different owners, and the pin above ships one validated recipe for each:
+the tutorial `docs/source/tutorials/Qwen3-VL-235B-A22B-Instruct.md` (MP: DP2×TP8 +
+`--enable-expert-parallel --async-scheduling --max-model-len 262144
+--max-num-batched-tokens 4096`) and the only multi-node nightly
+`tests/e2e/nightly/multi_node/config/Qwen3-VL-235B-disagg-pd.yaml` (PD Mooncake:
+P DP2×TP8 / D **DP4×TP4** + `FULL_DECODE_ONLY`, `--max-model-len 8192`,
+`--no-enable-prefix-caching`). The decode side's `TP4` versus the prefill side's `TP8`
+is the first thing to diff when only the answer quality is wrong, and `双机` alone does
+not say which one was run: make that the first question in the answer, then give one
+check per branch. A repeat/loop complaint on such a serve ("循环输出", repetition
+penalty has no effect) is still this page only if an image is in the request — the
+two-row split is a text-only request on the same deployment (text also loops ⇒ the
+vision tower is exonerated) and `finish_reason` on the looping answer.
 
 **Coverage statement at this pin:** `rg -ln 'dots' vllm_ascend/ tests/ docs/`
 returns nothing (no dots.ocr registration, doc or test), and the only 2-card VL test

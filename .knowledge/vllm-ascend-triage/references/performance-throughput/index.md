@@ -11,6 +11,13 @@ metrics block (`Avg prompt throughput`, `Avg generation throughput`, `Running`,
 `Waiting`, `GPU KV cache usage`, `Prefix cache hit rate`, sometimes
 `Preemptions`), the serve command, and the prompt lengths of the load driver.
 
+**Also this topic:** the report is a *version comparison* instead of a measurement —
+"[Bug]: <model>相同条件下性能测试不如0.7.3版本", "升级后吞吐掉了", the new image's env dump
+as the only evidence, no numbers on either side. Then the baseline may carry an
+accelerator the new image no longer ships and a weight layout whose default flipped
+twice inside three releases, so the deliverable is the one-launch A/B list plus the
+removed-switch checklist, not a mechanism: `upgrade-vs-older-baseline.md`.
+
 This is a *measurement* track, not a defect hunt: no `WorkerProc` line, no device
 dump, no traceback. The deliverable is arithmetic over the pasted numbers, the
 one or two flags that move each number, and the artefacts that are missing.
@@ -26,6 +33,16 @@ quantization/linear internals for a count question. **The one profiler report th
 BF16 because *this layer class* has no quant kernel" (recorded #9443, the
 full-attention `self_attn` rows of a Qwen3.5 hybrid): there the layer class, not the
 window, is what needs checking, and `quantized-artifact-layer-coverage.md` owns it.
+
+**Also this topic:** the report compares **two runs** — two platforms, two images, or two
+releases on one command line — and pastes one number per run ("12s vs 4s", "吞吐高了一倍",
+an EvalScope/AISBench table or a screenshot of one). Convert those into rates on a stated
+axis before ranking anything: `cross-run-ratio-normalization.md`, one script call.
+
+**And this topic:** a MoE serve whose own command omits `--enable-expert-parallel`
+(usually because "开 EP 会胡言乱语") has moved every MoE layer onto the TP all-gather
+path — the perf complaint and the garbled-output complaint are one decision:
+`moe-comm-path-when-ep-off.md`.
 
 **And this topic:** a profiler table with a *missing column* — `Input Shapes: N/A`,
 `Block Dim: 0`, `OP State: N/A` for one custom op while its neighbours carry shapes,
@@ -59,6 +76,16 @@ Not this topic, leave immediately:
   `pre-graph-mode-eager-era.md`. It also answers the usual "what caps my concurrency"
   question for free: `Pending: 0` with KV usage near 0 % means nothing was queued and the
   running count is what the client offered.
+- **A cross-release comparison is priced from the new pin's own release notes
+  before any flag is proposed.** `docs/source/user_guide/release_notes.md` at the new
+  commit is cumulative — the v0.13.0rc1 file still holds `## v0.7.3` — so the old
+  baseline's documented levers are in-tree, and a removed switch (torchair block,
+  `VLLM_ASCEND_ENABLE_DENSE_OPTIMIZE`) or an absorbed accelerator (MindIE Turbo,
+  "Qwen 2 series", `release_notes.md:728` vs `:342`) makes "same conditions" false
+  without any log. Date each hit by its own `## vX` header (the sections are **not**
+  in date order) and treat the same env var's contradictory lines
+  (`VLLM_ASCEND_ENABLE_NZ` at `:125` vs `:37`) as a multi-value A/B, never as a
+  default to quote — `upgrade-vs-older-baseline.md`.
 - **Read the metric block arithmetically before any source.** Four numbers carry
   the whole answer: `Waiting` (queue depth, and whether it *drains*), `GPU KV
   cache usage` (capacity), the ratio `Avg generation throughput / Running`
@@ -125,6 +152,15 @@ Not this topic, leave immediately:
   nothing and the answer is the version ladder — `qwen3-next-decode-throughput.md`.
   Do not promise the flag flip as a fix: it is a hypothesis with a named log line to
   confirm.
+- **"Why is this path many ops instead of one — platform limit or engineering
+  choice?" is an intent question, and it is answered per phase.** On a hybrid
+  linear-attention (GDN) family the prefill/chunk lane and the decode lane have
+  different owners, different kernels and different fusion status; a source walk
+  can state the current shape and the tiling limits, but the *plan* is a
+  maintainer statement that must be labelled as one — and a fusion op announced
+  for the chunk/prefill pipeline usually leaves decode on the Triton kernel, which
+  is what the reporter asks next. Lane map, per-phase checks and the recorded
+  #8940 roadmap reply: `gdn-fusion-lanes-and-roadmap.md`.
 - **An op count or an "NPU idle %" is a property of the collection window until
   proven otherwise.** Recover the window's step count from the table's own ratios
   (`scripts/opcount-reconcile.py`), reconcile `count × avg` against the elapsed
@@ -140,6 +176,24 @@ Not this topic, leave immediately:
   block — `../lora-adapters/decode-overhead-vs-base-model.md`. It is still this
   track's arithmetic: convert both rates to ms/step and price the feature's
   FLOPs before calling the gap overhead.
+
+- **A reported ratio between two runs is a rate question first.** Whatever the two
+  sides are (two platforms, two images, two releases, P vs D), the number in the body
+  is a wall clock, a total throughput or an OCR'd table cell, and none of those is the
+  quantity the reporter thinks it is: totals mix input and output lengths, wall clock
+  moves with the token count, and the small columns of a screenshot table get
+  transposed. One call —
+  `bash <skill_root>/scripts/benchmark-table-normalize.py --run … --compare A B` —
+  gives per-request token counts, the decode step, the prefill cost per input token
+  and which axis actually moved; rank causes on that axis only. Two recorded shapes:
+  a cross-platform table whose per-request lengths differed 4 K/100 vs 2 K/1024, and a
+  two-release PD report at "12s vs 4s" with `num_speculative_tokens: 3` on the decode
+  side and no token counts anywhere (`cross-run-ratio-normalization.md`).
+- **A MoE serve with EP off is not a tuning question.** When the command drops
+  `--enable-expert-parallel` (or keeps it on one node only), every MoE layer runs the
+  TP all-gather path instead of MC2 dispatch/combine at the same card count — one
+  grep of the selector plus the two step times is the answer, and the garbled EP run
+  is the defect to chase (`moe-comm-path-when-ep-off.md`).
 
 ## Pages
 
@@ -167,6 +221,14 @@ Not this topic, leave immediately:
   If the paste's samples match that table line for line, the arithmetic is
   settled — cite it and spend the remaining turns on the answer, not on
   re-deriving it.
+- `gdn-fusion-lanes-and-roadmap.md` — "why isn't linear attention one big op
+  on Ascend, and will it be fused" (#8940, Qwen3.5-0.8B on 910B4, v0.15.0rc1):
+  the per-lane stage map (`chunk_gated_delta_rule` prefill vs the single
+  `fused_sigmoid_gating_delta_rule_update` decode kernel), why "Ascend splits it
+  more" is refutable at the pin, the UB/grid constants that really bound each
+  kernel, the maintainer roadmap split (mega GDN fusion op #8872 for prefill,
+  decode still Triton) and the traps: `main` vs pinned paths, `--enforce-eager`
+  moving the baseline, layer types that are not comparable per forward.
 - `quantized-artifact-layer-coverage.md` — a **quantized artifact that is no
   faster than its BF16 sibling**, with a dump showing a whole layer class without a
   quant kernel (#9443, Qwen3.5-122B w8a8-mtp on v0.19.1rc1): the two separate
@@ -212,3 +274,26 @@ Not this topic, leave immediately:
   platform line with its two silent graph-mode gates (`supports_dynamo()`,
   `VLLM_USE_V1`), the torchair opt-in that is the real lever there, and why AICore % is
   a decode-shaped number rather than a defect meter.
+- `cross-run-ratio-normalization.md` — two runs, one number each (#2833 Ascend-vs-H800
+  EvalScope screenshots; #14291 v0.23→v0.24 PD "12s vs 4s"): the reconcile step and
+  what each field survives OCR, `step = concurrency / output tok/s` vs
+  `TTFT / input tokens` as the two axes, the wall-clock closure check, the two
+  innocent explanations for a release-to-release wall-clock ratio (thinking length,
+  the `1 + num_speculative_tokens` budget with `Mean acceptance length` as the
+  logged multiplier), the missing-control list, and the version-absent-from-snapshot
+  diff command.
+- `moe-comm-path-when-ep-off.md` — a DP×TP MoE perf report whose command has
+  `--enable-expert-parallel` missing or asymmetric (#2833, GLM-4.5 on 2×8×910B2 at
+  v0.10.1rc1): the `ep_size`/`_get_fused_moe_state` table (`1` → AllGather,
+  `≥16` decode → MC2) at the ref where the choice is logged **nowhere**, the tutorial
+  the release note points at and why its `torchair_graph_config` block raises on
+  `glm4_moe`, the absent MTP proposer, and the four-rung ladder that puts EP back on
+  both nodes before any tuning.
+- `upgrade-vs-older-baseline.md` — "新镜像比 0.7.3 慢" with no numbers (#6119,
+  910B 32G, Qwen2.5-72B BF16, vLLM 0.13.0rc1 image): the cumulative-notes grep that
+  dates every default flip, the silent no-op table for a 0.7.3-era command
+  (`torchair_graph_config`, `ascend_scheudler`, `DENSE_OPTIMIZE`, TOPK_TOPP now
+  default-on), the MindIE-Turbo pair that makes a Qwen2-series comparison
+  incomparable (`:728` vs `:342`, probe line `utils.py:180`), the three-value
+  `VLLM_ASCEND_ENABLE_NZ` A/B with its four dated, contradicting note lines, and the
+  artefacts both runs owe before any arithmetic.

@@ -44,7 +44,9 @@ Not this lane — same code family, different owner:
   direction. The verb above it names the operation (`rtsIpcMemImportByKey`,
   `AclrtUnmapMem`, `rtGetDeviceCount`), so quote the operation. When the same code appears
   before any model op (`rtGetDeviceCount:ErrCode=507899`), the device stack is already
-  unusable — that is the driver, not HCCL.
+  unusable — that is the driver, not HCCL; when the paste also shows `npu-smi` itself
+  failing (no engine at all), that reading is
+  `../startup-failures/no-npu-in-container.md`.
 - **The two addresses being identical is not a duplicate-`device_ip` finding.** A recorded
   precedent prints the local rank's own address on *both* sides —
   `localIpAddr[11.254.19.30] … remote_ip_addr[11.254.19.30]` for a rank1 fan-out (#486) —

@@ -16,7 +16,11 @@ nothing drains — so it is a scheduler/KV-*state* failure and its page is
 
 This topic owns the **admission decision**: which request gets blocks from the KV
 pool, what happens to the queue when one request cannot have them, and the
-counters that show it. Throughput/queue arithmetic on an engine that keeps
+counters that show it. It also owns the crash a *forked* scheduler raises while
+taking that decision — `vllm_ascend/core/scheduler.py` reaching into upstream's
+`KVCacheBlocks` (`scheduler-fork-block-index.md`) — which is fork drift in
+origin and a scheduling-decision failure in the report
+(`../upstream-downstream-drift/index.md` keeps the general fork method). Throughput/queue arithmetic on an engine that keeps
 draining is `../performance-throughput/index.md`; a worker that stopped
 answering mid-collective is `../hccl-and-hardware/index.md`.
 
@@ -54,6 +58,13 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   `break` that head-of-line blocks the queue, the compressed-MLA / recycling
   admission cap downstream re-applies, and the checks that separate "the pool can
   never hold this request" from "the abort never arrived".
+- `scheduler-fork-block-index.md` — `IndexError: tuple index out of range` at
+  `blocks = new_computed_blocks.blocks[0]` in `AscendScheduler.schedule()` (recorded
+  #4207, v0.11.0rc0 image): the fork's own body runs whenever chunked prefill is off,
+  which `AscendSchedulerConfig` forces (`schedule_config.py:48`), and the guard is one
+  expression because the consumer already normalises empty (`scheduler.py:512`, `:178`).
+  The pinned upstream cannot produce an empty tuple, so the producer is the reporter's
+  vllm build — print it, do not derive it.
 - `kv-block-lifetime-async-scheduling.md` — requests stay `Running` while generation
   stops, with no error and per-rank (recorded #13964, fixed by vllm-ascend #13518):
   the skip-block prune runs on `num_computed_tokens`, which async scheduling

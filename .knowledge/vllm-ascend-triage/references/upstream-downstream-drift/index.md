@@ -244,6 +244,18 @@ answer is not "downstream drift".
    #14618): `rg -n '<flag>' <module>` in the image's tree answers "predates the
    fix" in one call, and the answer is a backport request, not a code walk.
    Behaviour page: `../accuracy-benchmarks/first-generate-degenerate.md`.
+   When the ask is *review that backport*, the fixed form is in the main-line pin
+   (v0.23.0 `5cb98ca`): `_dummy_run` at `model_runner_v1.py:3565` gates on
+   `self.supports_mm_inputs and not self.model_config.is_encoder_decoder or
+   self.enable_prompt_embeds` (`:3566 input_ids = None`),
+   and `is_multimodal_model` survives only at `:363`/`:1020`; a `_dummy_run`-only
+   change also selects **no** language-model-only e2e (`test_vlm.py:73` sits in the
+   `ops_vl` CI group keyed on `ops/conv.py`), so name `/e2e … test_vlm.py`. The
+   reviewer checklist — substitution not guard, the sibling
+   `spec_decode/llm_base_proposer.py:2016/:2038` sites, the missing
+   `_dummy_mm_kwargs`, and the frame numbers that date the branch — is
+   `../accuracy-benchmarks/first-generate-degenerate.md`, "When the ask is to review
+   the backport".
 
 11. **An attribute assigned unconditionally in the upstream `__init__` cannot be
    "missing" — the constructor was interrupted.** When the message is
@@ -315,7 +327,14 @@ answer is not "downstream drift".
   (`platform.py:713-725`), the CI gap (`rg -ln 'SchedulerDynamicBatch' tests/` = 0 hits,
   `test_platform.py:58` pins `-1`), the `profile_table.csv` degrade path that makes
   "it starts" ≠ "the feature works", and the one-call sweep script.
-- `impl-and-oot-signature-drift.md` — `TypeError: AscendAttentionBackendImpl.__init__()
+- `impl-and-oot-signature-drift.md` — the **question** form of this topic as well as the crash
+  forms (Rule 6: "0.13.0 vllm-ascend MLA interface is different from 0.13.0 vllm" with
+  two failed image uploads is answered by the two call sites — upstream
+  `MLAAttentionImpl.forward(layer, hidden_states_or_cq, kv_c_normed, k_pe, …)` vs
+  `AscendMLAImpl.forward(layer_name, hidden_states, kv_cache, attn_metadata, …)` — plus
+  the OOT map and backend selector that make the upstream caller dead code on NPU, not by
+  a crash theory; #868 is the precedent that asked the same design question). Also
+  `TypeError: AscendAttentionBackendImpl.__init__()
   got an unexpected keyword argument 'q_lora_rank'` at vllm-ascend `v0.7.3`: the V1
   branch of `platform.py:167-172` returns the generic backend for *any* model before the
   `use_mla` branch, that impl declares ten arguments with no `**kwargs`, and the MLA impl

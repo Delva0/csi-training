@@ -45,6 +45,15 @@ same text). That is `mmap` returning ENOMEM because the **per-process mapping co
 (`vm.max_map_count`, default 65 530) is exhausted by leaked `dlopen` handles, not because
 memory, disk or `/tmp` permissions are short — `dlopen-map-count-exhaustion.md`.
 
+Scope, part 7: the process is **gone** and the card still reads occupied — the serve
+died (OOM, crash, `pkill`), `npu-smi` keeps showing tens of GB, and the next serve cannot
+take the card; often with the ask "register SIGTERM/SIGINT handlers so an abnormal exit
+releases ACL resources". That is a process-attribution question before it is a memory
+one: a row in the process table is a live context, and at v0.18.0 there is no exit-time
+device release in vllm-ascend to add
+(`../deploy-sizing/node-processes-and-device-attribution.md`, its "after the engine is
+gone" section). Do not route it to the growth page: nothing here grew.
+
 Not an accuracy or corruption report, and not a collective error even when the
 crash text names one (`HcclAllGather` in a late OOM is the allocation site); go
 to `../hccl-and-hardware/index.md` first only when a real collective failure
@@ -175,9 +184,15 @@ GiB numbers differ by ~0.02 GiB between ranks. Neither is growth.
 
 Conditional routes:
 
-- Any memory-growth or "VRAM not released then crash" report →
-  `hbm-growth-and-oom.md` (the split, the allocator environment gate, the KV /
-  profile-peak arithmetic, the dead-key check, the precedent family).
+- Any memory-growth report, or "VRAM not released then crash" where the process is
+  still running → `hbm-growth-and-oom.md` (the split, the allocator environment gate,
+  the KV / profile-peak arithmetic, the dead-key check, the precedent family).
+- The service is **already dead** and `npu-smi` still shows HBM, so the next serve cannot
+  start (or the reporter proposes a SIGTERM handler to "release ACL resources") →
+  `../deploy-sizing/node-processes-and-device-attribution.md` §"After the engine is gone
+  the card still shows HBM" first: attribute the PID, kill the process group, and note
+  that vllm-ascend installs no exit-time device release (its only `atexit` unsubscribes
+  print streams) while the upstream parent-death pipe only fires at a child's read point.
 - The crash instead happens during `profile_run`/`determine_available_memory`
   before the server is ready → `../startup-failures/index.md`
   (`max-model-len-budget.md`) — that is a configuration budget, not a leak.

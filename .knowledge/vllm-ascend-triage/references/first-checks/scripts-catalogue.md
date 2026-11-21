@@ -169,6 +169,15 @@ after that keeps the header, not this text.
   are populated for a multimodal config, and the one probe that decides it (#11936,
   `../soc-platform-paths/310p-vl-ocr-garbage-output.md`). Exits 2 rather than
   guessing when `head_size` cannot be derived.
+- `scripts/init-none-attr-probe.py FILE [FILE ...]` — which `self.<x> = None`
+  declared in a class `__init__` is **never assigned again** in that file, with the
+  lines that read it. Run it on a failing impl *and* its sibling impl in the same tree
+  (torchair vs eager, graph vs non-graph, MLA vs non-MLA): the sibling's extra
+  assignment is the fix. Answers the ATB `tensor dimNum 0 … inTensor [N]` family, where
+  the op names the victim and the caller passed `None` — at v0.10.1rc1 it prints
+  `torchair_attention.py:305: self.key_cache = None …, read at line(s) 416`
+  (`../custom-ops-runtime-faults/atb-input-dim0-none.md`, recorded #2779). Exits 1
+  when it finds one, 0 when the file is clean.
 - `scripts/qwen2-body-drift-probe.py [--config DIR|config.json] [--lines N]` — is a
   downstream *copied* forward written against the installed library body? Prints the
   interpreter's `transformers` version/file, the checkpoint's `layer_types` /
@@ -393,7 +402,14 @@ after that keeps the header, not this text.
   `quantization_config`; it separates "quantised export, wrong/absent method" from
   "full-precision release whose few FP8-stored projections carry a scale" behind a
   load-phase `KeyError: '<prefix>.weight_scale'`
-  (`../startup-failures/weight-scale-keyerror-quant-variant.md`).
+  (`../startup-failures/weight-scale-keyerror-quant-variant.md`). `--dtypes` switches
+  it to the **weight-dtype** census instead: the header `dtype` histogram over every
+  shard, the module families carrying `F8_E4M3`/`F8_E5M2` *weight* tensors (scale-like
+  suffixes counted apart), and `quant_model_description.json` / `config.json` side by
+  side; exit 1 = FP8 weight tensors, i.e. the upstream DeepSeek-V3/R1 release that the
+  910 does not execute — the answer `config.json` cannot give, since the conversion
+  guide has converters delete those fields first
+  (`../startup-failures/quantization-method-gate.md` §E).
 - `scripts/checkpoint-header-scan.py <model-dir|*.safetensors>` — is each shard a
   safetensors *container*: per file the size, whether the first 8 bytes are a Git-LFS
   pointer / zeros / HTML, the decoded header length, the tensor count and a `BAD`

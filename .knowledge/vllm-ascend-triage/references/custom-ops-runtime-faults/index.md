@@ -91,7 +91,9 @@ downstream code and the owner is the launch site's arguments —
   `cannot-find-bin-integral-key.md`, recorded #2387; and a bare **`setup failed!`**
   (no op name, no code) is the caller's own mask/size argument, read at the deepest
   `vllm_ascend` frame — `setup-failed-call-site.md` (recorded #393; the `<Op>Operation
-  setup failed!` forms route to their own pages from there); and **`aclnn<Op> or
+  setup failed!` forms route to their own pages from there, and the `tensor dimNum 0
+  is invalid` wording inside it is an **uninitialised operand**, not a wrong shape —
+  `atb-input-dim0-none.md`); and **`aclnn<Op> or
   aclnn<Op>GetWorkspaceSize not in libopapi.so`** is the *dlsym* root: the symbol was
   not in the vendored `libcust_opapi.so` nor in the toolkit's `libopapi.so`, so the
   container's custom-op package is the first suspect and the CANN release the last —
@@ -293,6 +295,16 @@ downstream code and the owner is the launch site's arguments —
   degenerate op test (`n = k = 1024`, `randint(0, 1)` scales) and the single A3 config
   that enables the feature, plus the review checklist for a self-diagnosed report
   (recorded #16561).
+- `custom-ops-disabled-by-device-type.md` — `AttributeError: '_OpNamespace'
+  '_C_ascend' object has no attribute '<op>'` where **every** op is absent because
+  the gate, not the build, says so: `enable_custom_op()` returns `False` for
+  `AscendDeviceType.A5` and for `VLLM_BATCH_INVARIANT` (`utils.py:293-295`, FIXME →
+  vllm-ascend#7157) **before** importing `vllm_ascend_C`, so no
+  `Failed to register custom ops` warning is printed and the lazy import
+  (`platform.py:575-596`, `sfa_v1.py`'s eight ungated `torch.ops._C_ascend` calls)
+  reaches an empty namespace. Carries the three-gate capability verdict (device-type
+  gate → `build_aclnn.sh` branch → `<op>_def.cpp` `AddConfig`) recorded on #10074's
+  "is SFA ready on a5" question at v0.19.1rc1.
 - `opapi-symbol-absent.md` — `aclnn<Op> or aclnn<Op>GetWorkspaceSize not in
   libopapi.so` from a `torch.ops._C_ascend.<op>` call (recorded #16379: DeepSeek-V4-Flash
   `hc_pre` on A3 at `profile_run`): the `EXEC_NPU_CMD` three-root dlsym search, the
@@ -354,6 +366,16 @@ downstream code and the owner is the launch site's arguments —
   that proves the engine set `enable_prefix_caching=True` with chunked prefill off,
   the hard-coded `128` compress mask at `attention.py:612-617` against the
   `query_lens`/`context_lens` the same branch can carry, and the two-flag ladder.
+- `atb-input-dim0-none.md` — `SelfAttentionOperation setup failed!` + the ATB log's
+  `tensor dimNum 0 is invalid … inTensor [1] CheckTensorShape failed`: the slot was
+  never filled (Python `None`), not a size or mask limit. Recorded #2779
+  (v0.10.1rc1, Qwen2.5-72B TP4, torchair graph + Ascend scheduler +
+  `--enable-prefix-caching`): the torchair impl declares `self.key_cache`/`self.value_cache`
+  and never binds them (`torchair_attention.py:305-306`) while the eager sibling binds
+  them at `attention_v1.py:534-536`, so the `PrefillCacheHit` branch passes `None` into
+  `_npu_flash_attention_qlens` — first prefix-cache hit after minutes of clean serving.
+  The one-command probe (`scripts/init-none-attr-probe.py`), the `_build_attn_state`
+  reachability and the ladder.
 - `gather-index-out-of-range.md` — the `ascendc/gather_v3/gather_v3_base.h:137`
   `Index N out of range[0 M)` assert (v0.9.2rc1 #2349): the bound is a table row
   count, the four candidate tables, the verified `config.max_position_embeddings`

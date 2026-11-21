@@ -27,6 +27,13 @@ Reports on the DSA / SFA sparse-attention families — DeepSeek-V3.2-Exp
   / `aclnn_input_offset` at `sfa_v1.py:707` (`_init_o_proj_tp_full_params`) with
   FLASHCOMM1 or shared-expert-DP on and a W4A8/BF16 checkpoint —
   `o-proj-quant-attribute-crash.md`.
+- the first request dies at `torch.ops._C_ascend.npu_sparse_flash_attention`
+  (`sfa_v1.py:1049`, `AttributeError: '_OpNamespace' '_C_ascend' object has no
+  attribute …`) on an **A5/950** host or with `VLLM_BATCH_INVARIANT` exported — the
+  namespace is empty because the device-type/BI gate never imports the extension, so
+  no op-specific build question exists; the three-gate verdict (device gate →
+  `build_aclnn.sh` branch → `AddConfig` list) is
+  `../custom-ops-runtime-faults/custom-ops-disabled-by-device-type.md`.
 - an SFA/LI **C8** deployment (`enable_sparse_sfa_c8`, `enable_sparse_li_c8`,
   `c8_enable_reshape_optim` in `--additional-config`) whose **prefill node stops
   answering**, whose first request is garbled, or which only loses accuracy — the flag

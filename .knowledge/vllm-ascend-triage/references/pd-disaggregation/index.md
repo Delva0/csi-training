@@ -63,12 +63,17 @@ output, or did no request ever reach a decode engine?**
   after **D** produces one (#3099) — so the answer is the term split, the pinned
   tutorial's own PD anchor, and the flag asymmetry between the two recipes, not a
   transport mechanism → `pd-vs-colocated-ttft.md`.
-- Connected, and an **image** request returns a fluent but unrelated short answer on a
-  **VL/OCR** model (Qwen2.5-VL family, DotsOCR, olmOCR) — while a single-instance serve
-  of the same body, image and flags answers it — is not a transport case: the control
-  run, `usage.prompt_tokens` on a good and a bad run, and the `--no-enable-prefix-caching`
-  flag the 1P1D recipe pins on both sides are the checks →
-  `../accuracy-benchmarks/vl-vision-tower-degeneracy.md` §*PD/EPD split*.
+- Connected, and an **image** request returns a fluent but unrelated short answer — **or
+  random characters / 乱码 that reproduce on the same inputs** — on a **VL/OCR** model
+  (Qwen2.5-VL family, DotsOCR, olmOCR): not a transport case either way, because the
+  connector's own failure surfaces (assert, traceback, `KVCacheTransferThread` line,
+  expiry warning, the layerwise TTFT race) are absent. The checks are the single-instance
+  control, a **text-only** request on the same deployment, `usage.prompt_tokens` on a good
+  and a bad run, and `--no-enable-prefix-caching` on **both** sides →
+  `../accuracy-benchmarks/vl-vision-tower-degeneracy.md` §*PD/EPD split* and its
+  §*Random characters, not fluent prose*. Recorded #4497 (v0.11.0rc2, Qwen2.5-VL-72B
+  1P1D) later reproduced on the **Llmdatadist** backend and was fixed by an in-tree PR
+  after the pin, so the connector backend is not the axis.
 - Connected, and the decode node **repeats** the same token or phrase to the model
   cap (`finish_reason: length`, e.g. `1 + 1 = 2.` ×2048) or otherwise answers wrong
   text on a **DSA/MLA sparse** model — GLM-5/5.2 (DSA), DeepSeek-V3.x (MLA), which are
@@ -305,6 +310,22 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
    (`vllm_ascend/distributed/kv_transfer/kv_pool/lmcache_ascend_connector.py:1-5`
    at v0.23.0); an HIXL engine-id / rank-table change belongs to
    `LMCache/LMCache-Ascend` or `cann/hixl`, not to vllm-ascend.
+6. **Wrong tokens are not a `kv_p2p/` walk unless a connector surface is in the
+   paste.** Every documented way a connector corrupts an answer leaves its own
+   fingerprint — an assert or traceback out of `start_load_kv`/`register_kv_caches`,
+   a `Error in KVCacheTransferThread …` line (a half-filled request may then decode
+   on partial KV), a layerwise deployment whose TTFT of the bad requests got
+   *shorter*, or an expiry/timeout warning on one side. With none of those (HTTP 200,
+   no traceback, normal TTFT) the connector drops to a labelled hypothesis: the block
+   and pull bookkeeping is a whole-request accounting, so "wrong tokens" needs one of
+   the fingerprints above to be plausible, and the artefact that would settle it — a
+   `VLLM_LOGGING_LEVEL=DEBUG` paste carrying `kv_transfer_params` /
+   `num_need_pulls` — is something you ask for, not something you read out of the
+   source. Two greps of `kv_p2p/` are the ceiling on this shape. Recorded #4497 spent 53 turns and the
+   entire 16 384-token cap inside `kv_p2p/mooncake_connector.py`,
+   `vllm_ascend/models/qwen2_5_vl.py` and the tutorial recipes and shipped **zero
+   characters of message text**, while its deliverable was two control launches plus
+   the version question. Read the `index.md` rows, name the controls, answer.
 
 ## Pages
 
@@ -382,8 +403,14 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   the divergences that are *not* the mechanism (decode `--max-num-batched-tokens`,
   `--block-size`, `enforce_eager` inside `--speculative-config`), the one-launch-per-row
   ablation ladder, and the no-log scale-fault variant with two verified non-answers
-  (GDN chunk-meta buffer arithmetic, #7863's 310P-only masked assign). Worked for
-  #13381 and #9578 at v0.23.0rc1 / v0.19.1rc1.
+  (GDN chunk-meta buffer arithmetic, #7863's 310P-only masked assign). Its §*Hybrid
+  families* carries the **by-design asymmetric** P/D lattice of the DeepSeek-V4-Pro A2
+  (4 P + 4 D) recipe at `f4a08bd` — P `--enforce-eager` + `enable_dsa_cp` + 4096/16,
+  D `--async-scheduling` + `--block-size 128` + `FULL_DECODE_ONLY` + `recompute_scheduler_enable`
+  + 120/60, `MooncakeHybridConnector` 30000/0 vs 30100/1 — the `use_mamba` guard that
+  makes the 4/8 ↔ 8/4 geometry legal, and the UT-only coverage. Worked for
+  #13381 and #9578 at v0.23.0rc1 / v0.19.1rc1; #12792's recipe lane closed on the
+  reporter's own paste.
 - `pd-vs-colocated-ttft.md` — "PD 的 TTFT 是混部/多机部署的 2 倍" as filed (DSv3.1,
   v0.13.0, no log, no numbers): the TTFT chain (P queue + prefill + transfer + D's first
   step + proxy hop) and precedent #3099 that makes PD > colocated structural; the pinned

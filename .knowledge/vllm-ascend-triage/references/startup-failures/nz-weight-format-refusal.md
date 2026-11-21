@@ -1,8 +1,15 @@
 # `Not support mat2 n = 1 or k = 1 when format is FRACTAL_NZ`: a narrow linear cast to NZ kills the load
 
-Verified at vllm-ascend `v0.20.2rc1` (`367b8e6`) + vllm `v0.20.2` (`bc150f5`);
-recorded for #10014 (Qwen3.5-35B-A3B, TP4, A2/A3-class 910B, npu-smi 25.3.rc1,
-CANN 9.0.0, `--additional-config '{"multistream_overlap_shared_expert": true}'`).
+Verified at vllm-ascend `v0.20.2rc1` (`367b8e6`) + vllm `v0.20.2` (`bc150f5`),
+re-read at vllm-ascend `v0.22.1rc1` (`5f6faa0`) + vllm `v0.22.1` (`0decac0`).
+Recorded for #10014 (Qwen3.5-35B-A3B, TP4, A2/A3-class 910B, npu-smi 25.3.rc1,
+CANN 9.0.0, `--additional-config '{"multistream_overlap_shared_expert": true}'`) and
+for #11621 (Qwen3.6-35B-A3B bf16, TP2 + `--enable-expert-parallel`, MTP spec,
+`VLLM_ASCEND_ENABLE_NZ=2`, npu-smi 25.5.0, CANN 9.0.0, same flag; the paste's own
+frames `fused_moe.py:488/:493/:500/:501` match the v0.22.1rc1 pin line for line).
+#11621 is **reporter-confirmed cleared by `export VLLM_ASCEND_ENABLE_NZ=0`**
+(2026-07-08, "I worked around this issue by setting" it) — the same escape as
+#10014, on the newer stack (npu-smi 25.5.0).
 The third `EZ1001` text family — not the aclnn **registry** family
 (`../custom-ops-runtime-faults/op-not-registered-for-soc.md`) and
 not the **dtype × layout** family
@@ -27,6 +34,22 @@ quoted, not verified in source. `mat2` is the *transposed* weight, so
 `n = 1` is `out_features == 1` and `k = 1` is `in_features == 1`: any linear whose
 weight has a 1-length dimension is unmatmul-able in NZ, and the fix is always to
 leave that weight ND — no shape of NZ weight helps.
+
+## Read the resolved mode out of the paste, not out of the environment
+
+The mode decides this page, and the serve log prints it. `ascend_config.py:290-302`
+(`_get_config_value`) logs
+`AscendConfig.weight_nz_mode is set from additional_config with value <v>` when the
+key is present, otherwise
+`AscendConfig.weight_nz_mode falls back to environment variable
+VLLM_ASCEND_ENABLE_NZ with value <v>. Please use additional_config.weight_nz_mode
+instead …` when the env var is exported (`:295` in the #11621 log, value `2`), and
+prints **nothing** when neither is set — then the mode is the `envs.py:92` default
+`1`. So `grep 'weight_nz_mode'` on the paste settles it in one line: no question to
+the reporter, and no migration story to write.
+`Unknown vLLM environment variable detected: VLLM_ASCEND_ENABLE_NZ` is upstream
+`envs.py`'s vocabulary check, which flags `VLLM_USE_V1` too: noise, not evidence
+that the switch was ignored.
 
 ## Where it fires (which is why the obvious ablations miss)
 
@@ -70,7 +93,8 @@ modes are not interchangeable: `2` is the aggressive one and makes this certain,
 
 1. `--additional-config '{"weight_nz_mode": 0}'` (same for `VLLM_ASCEND_ENABLE_NZ=0`)
    — the project's own escape, and on an unquantised checkpoint it costs nothing
-   except NZ speed on the big GEMMs. Report the line.
+   except NZ speed on the big GEMMs. Report the line. **Reporter-confirmed on
+   #11621** (npu-smi 25.5.0, mode 2): the deployment loads after it.
 2. If they only want the narrow weights off: `VLLM_ASCEND_ENABLE_NZ=1` works
    **when the gate weight is bf16/fp16** — and the paste's own "(or 2) may avoid
    it" is inverted, say so.
@@ -93,13 +117,25 @@ modes are not interchangeable: `2` is the aggressive one and makes this certain,
 - **A dense sibling is the control.** Qwen3.5-27B has no shared-expert gate and
   runs on the same box, which is why "MoE architecture" and "HDK version" were
   both reported as causes; the gate's shape is the difference.
-- **Open, do not overclaim:** the same reporter later ran an equivalent stack
-  (CANN 9.0.0, npu-smi 25.5.0) with NZ on and served the model, and a bare
-  `F.linear` with `w.shape == (1, 2048)` under `VLLM_ASCEND_ENABLE_NZ=1`
-  succeeded — so the NZ conversion is necessary but not by itself sufficient, and
-  a runtime/driver contribution (`aclnnMatmulWeightNz` behaviour between npu-smi
-  25.3.rc1 and 25.5.0) is still possible. State that as the open question; do not
-  grade it as the cause.
+- **The mode is the discriminator, so resolve it before positing a driver.**
+  An earlier version of this page filed a runtime contribution (`aclnnMatmulWeightNz`
+  behaviour between npu-smi 25.3.rc1 and 25.5.0) as open, on a later run that served
+  the model "with NZ on" plus a bare `F.linear` whose `w.shape == (1, 2048)`
+  succeeded under `VLLM_ASCEND_ENABLE_NZ=1`. That control cannot discriminate: at
+  mode 1 a bf16 weight is never cast (`utils.py:231-232`). #11621 is the same shape
+  on npu-smi 25.5.0 **at mode 2**, it crashed, and `VLLM_ASCEND_ENABLE_NZ=0` cleared
+  it — so the conversion is necessary *and*, for a bf16 1-length weight at mode 2,
+  sufficient, and no driver difference needs to be postulated. What stays open is
+  only the code side: no release in this snapshot is known to carry a shape guard.
+- **Same body at v0.22.1rc1** (#11621): wrapper
+  `ops/fused_moe/fused_moe.py:477-491` (`wrapped_process_weights` calls
+  `_validate_shared_expert_consistency()` at `:488`), probe `:493-503`
+  (`torch.rand(10, hidden_size)` at `:495-497`, `integrated_out =
+  self._shared_experts(test_input)` at `:501` — the pasted frame), gate
+  `utils.py:209-236` (fp32 `:211-212`, meta `:215-216`, 310P `:219-220`, mode 0
+  `:227-228`, bf16 `:231-232`), mode `ascend_config.py:218-226` / `:290-302`,
+  default `envs.py:92`, cast `ops/linear.py:78-89`. Nothing added a shape test, and
+  the four pasted frame numbers date the tree to this rc.
 - **The mode and the gate are newer than the 0.11 line.** At v0.11.0rc0 there is
   no `weight_nz_mode`, no `VLLM_ASCEND_ENABLE_NZ` and no gate function in
   `utils.py` at all — the casts are inline in the quant methods and in
@@ -110,5 +146,6 @@ modes are not interchangeable: `2` is the aggressive one and makes this certain,
 - One call classifies the paste and reads the gate at their ref:
   `bash ../../scripts/nz-format-gate-check.sh <paste|-> <vllm-ascend-root>` — it
   now says "no NZ gate function at this ref" when the gate is absent, instead of
-  reporting a missing shape guard inside a function that does not exist, and it
-  suppresses the mode advice when the switch is not in the tree.
+  reporting a missing shape guard inside a function that does not exist, it
+  suppresses the mode advice when the switch is not in the tree, and it prints the
+  paste's own resolved-mode line.

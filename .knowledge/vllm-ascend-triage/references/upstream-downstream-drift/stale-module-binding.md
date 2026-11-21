@@ -84,6 +84,7 @@ How to read the three neighbouring pages with it:
 | `layer.FusedMoE` is the Ascend wrapper, `qwen3_moe.FusedMoE` is the original | this page — incomplete patch, fix by sweeping `sys.modules` |
 | the patch module is not in `sys.modules` at all (`patch-import-side-effect.md`) | the hook never ran in that process |
 | the symbol is registered by class name and the name is missing (`oot-class-registration-drift.md`) | registry drift |
+| the property's own body raised because it **selected a different module at runtime** (`model_instance.model.layers[i]…`) and a feature such as `--enable-lora` had substituted that module — the message names a class that is not the object holding the gap | `../lora-adapters/fusion-reader-vs-lora-wrapper.md` |
 
 ## Where the order breaks, and where it merely looks fragile
 

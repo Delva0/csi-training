@@ -74,6 +74,52 @@ build lacked it, not which reader is wrong —
    (`setup.py:324-333`, `-DTORCH_NPU_PATH` from `pip show torch-npu`). Route:
    `../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0.
 
+## "The docs say it is supported, but my tag cannot do it" — a release-**line** gate
+
+Trigger: the reporter is pinned to one release ("因为客观因素必须用 0.7.3.post1"), a docs
+page they link claims the combination (`/en/stable/tutorials/…`), and the paste is a
+load-phase failure. Two reads of the pinned tree's own
+`docs/source/user_guide/release_notes.md` decide it:
+
+1. `rg -n -i '<feature>' docs/source/user_guide/release_notes.md`, then date each hit
+   by the nearest `## vX.Y.Z — date` header **above** it. The file is cumulative and
+   its sections are not in version order, so position is not evidence.
+2. Compare **release lines (minors)**, not version numbers and not dates. A
+   maintenance `.postN` on an older minor is published *after* the minor that
+   introduced the feature: at v0.10.0rc1 the file lists `## v0.7.3.post1 — 2025.05.29`
+   and `## v0.8.4rc2 — 2025.04.29`, while W8A8 quantization and EP/DP support entered
+   with v0.8.4rc2 (`release_notes.md:376`, `:380` "Ascend W8A8 quantization method is
+   supported now" #580; EP/DP still experimental in the same paragraph). So
+   "0.7.3.post1 is newer than 0.8.4rc2" is true by date and **irrelevant** — features
+   do not flow back into a maintenance line. The sentence to ship is "the 0.8.4 line
+   and later carry `--quantization ascend` with DP/EP; the 0.7.3 line never did,
+   whatever its date", and a newer ref's release notes still carry both headers, so
+   this is re-verifiable at any pin.
+
+Recorded #2378: 双机 A2 16 卡, `deepseek-v3-w8a8`, reporter on `v0.7.3.post1`, linking
+`/en/stable/tutorials/multi_node.html` (at the pin that page is the 2×A2(64G×8)
+DP4×TP4 + `--enable-expert-parallel` + `--quantization ascend` recipe,
+`docs/source/tutorials/multi_node.md:60,116-133`), OOM at load. The quantization term
+is decisive because it is arithmetic and not a flag: a 671B checkpoint at TP16 is
+~42 GiB/card at 1 byte/param (int8) and ~84 GiB/card at 2 bytes/param (bf16), so a
+wall at `60.30 GiB already allocated` of `60.96 GiB` fits only the second — the
+quant method was not in effect (or the shard width was < 16;
+`../deploy-sizing/moe-load-oom-expert-shard.md` Step 0/Step 3 separates the two).
+
+Then read the whole paste instead of the flags the reporter says they used: that
+traceback runs through `vllm/engine/llm_engine.py` +
+`vllm/executor/ray_distributed_executor.py` + `vllm/worker/worker_base.py`, i.e. the
+**V0** engine with Ray TP, which cannot run the doc recipe's `--data-parallel-size`
+(DP is a V1 feature) — so "部署过程与官网一致" is false in a way the paste proves and
+the reporter cannot see. Deliverable in this order: the release-line gate, the
+`/en/v<tag>/` docs branch for their line
+(`../tutorial-verification/docs-version-space-and-image-tag.md`), the two per-card
+byte numbers, then the two artefacts that settle the residual — the serve line actually
+used on each node, and `pip show vllm vllm-ascend` (a `mindie_turbo` frame in the load
+path dates the stack by itself: the Turbo integration is a v0.8.5rc1 release note,
+`release_notes.md:336-352`, so a stack carrying it is not the 0.7.3 line it claims).
+Answering "官网骗人" or "去问维护者" is wrong: both facts are in the pinned docs.
+
 ## A self-built vllm beside an rc vllm-ascend is not the release's set
 
 Trigger: the paste's banner or `collect_env` block shows vllm-ascend at an **rc**,

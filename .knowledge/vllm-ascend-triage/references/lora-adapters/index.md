@@ -22,6 +22,15 @@ complaint is one of four shapes:
   PyTorch punica binding as the slow-decode shape, seen from the compile side:
   the adapter math is traceable, so the first compiled forward cannot guard on
   it → `pytorch-punica-compile-guard.md`.
+- **It never starts: the worker dies in the memory-profiling forward** with an
+  `AttributeError` naming a **vllm-ascend class's own attribute** — e.g.
+  `'AscendRMSNorm' object has no attribute 'next_need_quant_fusion_linear'` out of
+  `vllm_ascend/ops/layernorm.py` — on a quantized checkpoint
+  (`--quantization ascend`), one line after `Using PunicaWrapperNPU.`, while the
+  same checkpoint without `--enable-lora` serves. The name is a *property* whose
+  getter raised; the real missing name is `quant_method` on the LoRA wrapper
+  upstream swapped in for `qkv_proj`/`gate_up_proj`, which the norm+quant fusion
+  dereferences unguarded → `fusion-reader-vs-lora-wrapper.md`.
 - **The model is a VL model and the adapter covers the vision tower**
   ("LoRA（with ViT）", an RL rollout whose `target_modules` name `visual.*`), and
   the complaint is an OOM in multimodal prefill ("请求显存明显超出预估"), answers
@@ -106,3 +115,13 @@ Not this topic, leave immediately:
    grep comes back empty — and read `multimodal-vit-lora-ignored.md` for the
    `[L, 1, H]` shape anchor before treating a quoted tensor shape as the failing
    allocation.
+6. **`--enable-lora` moves the *module graph*, not only the math, so a fusion path
+   that indexes `model_instance` breaks on a launch with no other change.**
+   Upstream replaces the linear modules **in place**
+   (`vllm/lora/models.py:474-502` `replace_submodule` → `from_layer`), so a
+   `*WithLoRA` wrapper takes the place of the `LinearBase` the fusion cached and
+   exposes no `quant_method`. Before ranking a quant/fusion crash on a LoRA serve,
+   run `rg -n 'base_layer' vllm_ascend/` — no hits outside `tests/` means no
+   downstream site is LoRA-aware, so the bug is the plugin's, and the report's
+   three-command matrix (quant+LoRA fails / fp16+LoRA works / quant alone works) is
+   the whole attribution → `fusion-reader-vs-lora-wrapper.md`.

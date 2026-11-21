@@ -156,3 +156,20 @@ working-vs-failing control) — `../pd-disaggregation/hybrid-state-transfer.md`.
 emitted text on its first and last turns only (13 silent turns, ~30 K characters of
 reasoning against 6.3 K delivered); the ranked facts were in hand by the 11th turn, so
 three more confirming reads were all the margin it had.
+
+**#6549** vllm-ascend v0.14.0rc1 (`52d4acfa`) + vllm v0.14.1 (`d7de043`), report filed
+on 0.13.0: "0.13.0 Release vllm-ascend MLA interface is different form 0.13.0 vllm",
+whole body = that sentence + two `<!-- Failed to upload -->` images, no log, no version
+dump. Not a crash report — the question form of the drift topic, and the answer is
+which class actually runs: `AscendMultiHeadLatentAttention` (OOT map
+`vllm_ascend/utils.py:715`) routes through `torch.ops.vllm.mla_forward` to
+`AscendMLAImpl.forward(layer_name, hidden_states, kv_cache, attn_metadata,
+need_gather_q_kv, output)` (`mla_v1.py:1448-1456`), while upstream's
+`MLAAttention.forward` → `impl.forward(self, q, kv_c_normed, k_pe, …)` and every
+`vllm/v1/attention/backends/mla/*` impl are never reached on NPU (`platform.py:467`).
+The recorded run answered in 13 turns and delivered the table — the good shape for
+this family — and #868 ("Why not `AscendMLAImpl` just inherit `MLACommonImpl`?") is the
+earlier reporter asking the same design question; #3138 is the crash form of the same
+subject (`get_attn_backend() got multiple values for argument 'use_mla'`). The
+reporter's later public comment is two more images, so nothing was confirmed —
+`../upstream-downstream-drift/impl-and-oot-signature-drift.md` Rule 6 (new).

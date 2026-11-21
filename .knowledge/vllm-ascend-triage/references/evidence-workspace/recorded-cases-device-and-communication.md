@@ -714,6 +714,27 @@ this. Pages: `../hccl-and-hardware/link-establish-timeout.md` (new),
 `../startup-failures/environment-correspondence.md` (the `collect_env` ENV filter that
 makes the missing `HCCL_*` block meaningless).
 
+**#9447** vllm-ascend `v0.18.0rc1` (`99e1ea0`), GLM-5.1 on 2×Atlas 800I A3 (16 dies each)
+behind a 400G switch: "双机灵衢直连环境下可以正常运行，但是在双机 roce 组网下服务启动
+profile 阶段报错 `aclnnMoeDistributeDispatchV4` 算子通信失败 hccl_ret 9; 测了双机之间的
+hccl_test，通信正常". `9` is `HCCL_E_TIMEOUT` (`cann/hcomm/include/hccl/hccl_types.h:33`), so
+the op was launched and never completed — the family of
+`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`, with an HCCL code instead of a
+device timeout. The run verified the pin's selector path and found the one in-tree RoCE
+knob (`enable_mc2_hierarchy_comm`, "Enable dispatch/combine op inter-node communication by
+ROCE", default `False`, `ascend_config.py:169` / `additional_config.md:48` /
+`token_dispatcher.py:120-121`) and was about to answer with it — then spent the rest of the
+budget re-reading the A3 two-node tutorial tabs: 16 turns, 24 tool calls, 46 K characters
+of reasoning, **39** characters of message text (the opening status line) and the
+16 384-token cap. Corrective: the reporter's
+"works on the other fabric" premise is the thing to re-confirm, not the thing to answer
+from — the public follow-up (2026-06-22) says 没有解决 with the direct-connect setup failing
+too, so no RoCE-only lever is confirmed, and the *passing* `hccl_test` never covered the
+dispatch's own `MC2MultiServer` comm plane. Pages:
+`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3c (new),
+`../hccl-and-hardware/aiv-mc2-env-ablation.md` (row corrected: it is the `hccl_ret`-9
+sibling, not AIV-family support).
+
 **#17082** vllm-ascend `v0.23.0rc1` (`f4a08bd`) + vllm v0.23.0, Atlas 300I Duo
 310P3 (one logical NPU), image `v0.23.0rc1-310p` with CANN `9.1.0-beta.1`,
 `Eco-Tech/Qwen3.5-9B-W8A8-310P` (`W8A8_DYNAMIC`, `--quantization ascend`), TP1,

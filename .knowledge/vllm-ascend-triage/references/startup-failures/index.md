@@ -212,6 +212,14 @@ Inherit the rules in SKILL.md. Conditional routes:
   flag, not the model. Read the text before routing to the SoC-mismatch bullet above:
   `device-id-invalid-at-worker-init.md` (`ls /dev/davinci*` + `npu-smi info` inside the
   container, then one framework-free `torch_npu.npu.device_count()` line).
+- The report's **first** failing command is `npu-smi info` itself ("容器中获取不到NPU信息"), with
+  `dcmi model initialized failed, because the device is used. ret is -8020`, `drvRet=87` at
+  `halGetDeviceInfo`/`drvGetDevNum` and `rtGetDeviceCount … 507899`, and **no** engine or
+  `vllm_ascend` frame anywhere: the DCMI/driver userspace plus the container's device nodes own it,
+  and `AscendCheckSoCVersion: cur soc version unknown` is downstream of the failed probe (unlike the
+  resolved `PlatformInfoInit … SocVersion <name>` below). Run the same `npu-smi info` on the host
+  first — that one comparison splits "container" from "card/driver" — then the device nodes,
+  another holder, and the two sides' `driver/version.info` → `no-npu-in-container.md`.
 - `EngineCore failed to start` / `WorkerProc failed to start` whose deepest frame is
   `torch_npu` device open (`set_device` → `npu_setDevice`) and whose text is
   `RuntimeError: SetPrecisionMode: … aclrtSetCompileOpt(aclCompileOpt::ACL_PRECISION_MODE,
@@ -309,10 +317,23 @@ Inherit the rules in SKILL.md. Conditional routes:
   (choose from 'aqlm', …, None)` — `argparse`, so no `APIServer pid=` line either,
   and the printed choices are upstream's static `QuantizationMethods` `Literal`.
   On a ref whose `NPUPlatform.pre_register_and_update` ignores the `parser` it is
-  handed (v0.8.5rc1) the plugin never adds the name to `--quantization`, while the
-  platform list at that same ref *would* accept it — classify on the message form
-  (§D of `quantization-method-gate.md`), and check the reporter's installed
-  `pre_register_and_update` before calling the build unquantized.
+  handed (v0.8.5rc1, and still v0.7.3.post1) the plugin never adds the name to
+  `--quantization`, while the platform list at that same ref *would* accept it
+  (`supported_quantization = ["ascend"]`) — classify on the message form (§D of
+  `quantization-method-gate.md`), and check the reporter's installed
+  `pre_register_and_update` before calling the build unquantized. On the 0.7.3 pair
+  the flag is not the end either: that tree has no native quantizer and routes w8a8
+  through `mindie-turbo` (`quantizer.py:28-44`, `faqs.md:82`, §D-i), so the honest
+  route there is the paired upgrade.
+  A **fourth** form is §E of the same page and is the one a model named
+  `DeepSeek-V3`/`-R1` (not `-w8a8`) hits: the checkpoint is the upstream **FP8/E4M3**
+  release, which the 910 does not execute at these refs. It arrives as §A's
+  `fp8 quantization is currently not supported in npu` when the plugin never
+  registered `ascend`, and as §C's construction-time `KeyError:
+  'model.embed_tokens.weight'` when it did — one
+  `.../scripts/checkpoint-key-prefix.py --dtypes <model dir>` decides it from the
+  safetensors headers, and `config.json` does not (the conversion guide has converters
+  delete those fields first).
 - A **VL-MoE** quantised serve fails at the same family in
   `vllm/model_executor/models/qwen3_vl_moe.py:279`, reached through
   `models/qwen3_vl.py:2083` → `models/utils.py:335` → `model_loader/online_quantization.py:173`
@@ -525,9 +546,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   `nz-weight-format-refusal.md`: the NZ gate tests dtype/SoC/mode but never shape, so
   a one-dimension weight cannot be stored in `FRACTAL_NZ`. The lever is
   `weight_nz_mode` / `VLLM_ASCEND_ENABLE_NZ` (`0` off, `1` quantised-only default,
-  `2` bf16/fp16 too), and `2` is the wrong direction; `--enforce-eager` and the
-  compilation config cannot touch a load-phase raise. Its dtype sibling (fp32
-  pooling head) is `../pooling-embedding/fp32-head-nz-format-crash.md`.
+  `2` bf16/fp16 too), and `2` is the wrong direction (`0` is reporter-confirmed on
+  #10014 and #11621); the resolved mode is in the paste as the
+  `AscendConfig.weight_nz_mode …` log line, so read it before asking or blaming a
+  driver. `--enforce-eager` and the compilation config cannot touch a load-phase
+  raise. Its dtype sibling (fp32 pooling head) is
+  `../pooling-embedding/fp32-head-nz-format-crash.md`.
 
 Common rules for this topic:
 

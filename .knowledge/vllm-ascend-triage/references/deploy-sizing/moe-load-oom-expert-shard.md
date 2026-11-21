@@ -17,6 +17,19 @@ serves (`tp-scaling-oom-at-startup.md` — a budget question on one node); an OO
 a healthy serving period (`../runtime-memory/index.md`); a paste carrying a
 collective/device error (`../hccl-and-hardware/index.md`).
 
+## Step 0 — one byte-per-parameter check before any EP theory
+
+When the checkpoint is a **quantized** one (`-w8a8`/`-w4a8` in the name,
+`--quantization ascend` claimed in the launch), first price it at 1 byte/param: a 671B
+model at 16-way shard is ~42 GiB/card int8 and ~84 GiB/card bf16, so a wall at
+`60.30 GiB already allocated` on a 60.96 GiB card is a *two-byte* footprint — the
+quant method did not run, or the shard is narrower than the launch line says. That
+question is a version/registration gate, not an expert-count question:
+`../startup-failures/environment-correspondence.md` §"release-**line** gate" (recorded
+#2378: a `0.7.3.post1` tag whose line predates Ascend W8A8 quantization altogether).
+Come back here once the paste shows a quantized `create_weights` or the `[EP Rank r/N]`
+line disagrees with the launch.
+
 ## Step 1 — the one arithmetic that decides it: EP shrinks the expert count, not the expert width
 
 Under EP, upstream sets the intra-layer `tp_size` to **1** and shards *experts*:

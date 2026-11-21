@@ -76,8 +76,12 @@ logits.
    sharp probe is `max_tokens: 1` (and `2`) repeated 20×: identical first tokens move
    the divergence into decode steps, while a differing first token puts it in prefill.
 4. **Take the project's documented determinism recipe before the beta program.**
-   `docs/source/faqs.md:167-203` at the pin is FAQ #16, *"How to generate
-   deterministic results when using vllm-ascend?"* — greedy plus four env vars:
+   The FAQ entry *"How to generate deterministic results when using vllm-ascend?"* is
+   FAQ **#16** at `:167-203` on the v0.16.0rc1 pin this page was written on and FAQ
+   **#15** at `:162` at v0.18.0 (`e18643f8a4d5`), with the four variables at `:194-197`
+   — the number moves, so `rg -n deterministic docs/source/faqs.md` and cite the one
+   you found; quoting "#16" at a v0.18.0 pin is a wrong citation. Greedy plus four env
+   vars:
 
    ```bash
    export LCCL_DETERMINISTIC=1
@@ -128,12 +132,30 @@ logits.
      (`vllm_ascend/ascend_config.py:127-133`) and upstream disables cascade attention
      (`vllm/config/vllm.py:1009`).
 5. **Then the ablation ladder, one axis per launch:** identical body both platforms →
-   FAQ #16 env block → `--no-enable-prefix-caching` (row 1 of the table) →
-   `VLLM_BATCH_INVARIANT=1` → `VLLM_ASCEND_ENABLE_NZ=0` /
+   the FAQ determinism env block (its number moves, step 4) →
+   `--no-enable-prefix-caching` (row 1 of the table) → `VLLM_BATCH_INVARIANT=1` →
+   `VLLM_ASCEND_ENABLE_NZ=0` /
    `VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE=0` alone → `--enforce-eager` (graph-bucket
    padding) → TP1 vs TP>1 → a non-quantized sibling checkpoint. TP1 fp16 with plain
    matmuls still differing run to run (#9373, Qwen3-4B, 910B, TP1) points at the
    kernel/ATB path rather than collectives; TP>1 adds HCCL reduction order.
+
+### The two follow-ups this report always carries
+
+- *"provide a uniform `--deterministic` flag"*: the right shape, and there is nothing to
+  point at today — at v0.18.0 both `rg -n -- '--deterministic' vllm_ascend/` and
+  `rg -n deterministic vllm/engine/arg_utils.py` are empty, so answer it as a feature
+  request. The feasible form is launch-time: export the four variables and call
+  `init_batch_invariance()` before the workers run (in-tree precedent:
+  `vllm_ascend/worker/worker.py:577`).
+- *"auto-enable those switches when `temperature=0`"*: not viable, and say why in one
+  sentence — `temperature` is **per request** while these switches are process-global
+  and bind before communicator creation (`HCCL_DETERMINISTIC` / `LCCL_DETERMINISTIC` are
+  read by HCCL/LCCL at init), so a per-request flip either does nothing or changes the
+  whole engine's numerics mid-service.
+- At **TP=1** the two collective variables cannot matter (there is no collective on the
+  path). When a TP1 reporter quotes all four, only the `ATB_*` pair can be live, and
+  even those only where ATB calls remain (step 4, `cross-platform-logprob-parity.md`).
 
 ## Version gate
 

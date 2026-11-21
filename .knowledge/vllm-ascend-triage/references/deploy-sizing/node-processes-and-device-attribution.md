@@ -115,6 +115,51 @@ Intersect the launches' visible sets before any port, HCCL or connector read —
    change `cpu_binding`'s device source or the ADXL context policy — re-grep
    `get_running_npus` and `ContextManager::initialize` at the reporter's pin.
 
+## After the engine is gone the card still shows HBM ("显存未释放，起不了新服务")
+
+Recorded #9373, second report (vllm-ascend **v0.18.0** `e18643f8a4d5`, vllm v0.18.0
+`bcf2be961200`, 910B, `--gpu-memory-utilization 0.95 --max-model-len 32768`): the serve
+died, `npu-smi info` still shows 40 GB+, and a new serve cannot take the card. The
+reporter's asks are "register SIGTERM/SIGINT handlers so an abnormal exit releases ACL
+resources" and a troubleshooting doc. Two corrections, then the ladder — this is the
+same attribution question as above, with the engine *absent* instead of extra.
+
+- **A row in the process table is a live context** (see Limits): the residual number is
+  itself evidence that something still holds `/dev/davinci*` — an orphaned
+  `VLLM::EngineCore`/`VLLM::Worker` child, a second engine or container, or a rank
+  parked inside a device call. Run rule 1's three commands first; "leak" is only
+  reachable once the table is empty and the number is still wrong.
+- **There is no exit-time device release to add at this pin.** At v0.18.0
+  `rg -n "aclrtDestroyContext|aclrtResetDevice|npu_shutdown" vllm_ascend/worker/
+  vllm_ascend/platform.py` is empty; the package's only `atexit` unsubscribes print
+  streams (`vllm_ascend/utils.py:134-135`, `_unregister_print_streams_on_exit`); the
+  only `SIGTERM`/`SIGINT` handler is installed when `enable_npugraph_ex and
+  enable_static_kernel` and its job is `uninstall_static_kernel()` before
+  `raise SystemExit()` (`vllm_ascend/worker/worker.py:141-156`, `:158+`). A handler
+  cannot run on `SIGKILL` and normal exit is already the runtime's own teardown, so
+  "call ACL free on exit" does not change the reported case. The upstream half that
+  exists is a **parent-death pipe**: `vllm/v1/executor/multiproc_executor.py:643-678`
+  hands each child a `death_pipe` reader and keeps the writer in the parent ("when
+  parent exits, death_reader in child will get EOFError"), and `:229-233` / `:444-447`
+  close the writers on `shutdown()`. It fires only when the child is at a read point,
+  so a child parked inside an ACL call outlives its parent — name that mechanism
+  instead of a signal handler.
+
+Ladder, cheapest first: (1) `ps -eo pid,ppid,stat,rss,cmd | grep -E 'vllm|EngineCore|VLLM'`
+plus the **full** `npu-smi info` taken while the card is still occupied — the process
+table names the owner; (2) if the owner is a child of the dead serve, kill the **process
+group**, not the parent PID (`pkill -f 'vllm serve'`, systemd `KillMode=control-group`,
+container `--init`); (3) `STAT=D`/`Dl` on that PID means it is inside a driver call and
+will not die until the call returns — the next artefact is plog / `dmesg -T`, not
+another kill; (4) `npu-smi set -t device-reset -i <id>` is the last resort, kills every
+tenant of that card, and is documented nowhere in the pinned trees (`rg -n
+"device-reset"` is empty at v0.18.0 — a plain `-n`, not the `-rn` `--replace` trap),
+so never lead with it.
+
+The doc finding is real: the pinned tree's only memory guidance is `npu-smi info` as a
+liveness check (`docs/source/faqs.md:93`) and the installation prerequisites — there is
+no orphan-process / HBM-cleanup page, which is the second thing the reporter asked for.
+
 ## Limits
 
 - A PID in `npu-smi` is a *context* on a die, not a scheduling fact: it does not
@@ -123,3 +168,9 @@ Intersect the launches' visible sets before any port, HCCL or connector read —
   process, not a leak in the release.
 - The monitoring platform's presence on the box is not readable from any
   `collect_env.py` output; only `pip show` / its own status command answers it.
+- "The driver reclaims HBM when the last context closes" is the platform expectation the
+  section above rests on, and it is **not verifiable in this snapshot** (no driver or CANN
+  runtime export): state it as the expectation and let the process table be the proof.
+- Per-process HBM attribution (`npu-smi info -t proc-mem …`) is a recalled sub-command:
+  `proc-mem` occurs in no pinned tree, so have the reporter probe `npu-smi info -h` for the
+  exact name rather than promising the invocation.

@@ -28,6 +28,25 @@ to read off that dump: the holes sit *inside* `[0, num_reqs)` and not only at th
 tail, and they survive while new ids keep appending after them — which is exactly
 what `condense`'s `del _req_ids[num_reqs:]` leaves behind.
 
+Third worked case: **#4156** — vllm-ascend **v0.11.0rc0** (`00ba071`, 2025-09-30) +
+vllm **v0.11.0rc3** (`8ce5d31`), a **Qwen2.5-VL-3B** *generate* checkpoint served on
+`/v1/embeddings` (910B4 host, TP value cut off in the paste): the same mechanism one
+release before the cases above, and the case where the **front end never names it** —
+the title and the whole server log end at `AsyncLLM output_handler failed`, and the only
+traceback is the attached screenshot, read as OCR. Its frames land on rc0 as `model_runner_v1.py:724`, i.e. the
+`self._may_reorder_batch(scheduler_output)` **call** inside `_update_states` (`:553`;
+`condense()` is `:722`), then `:1232` inside `_may_reorder_batch` (`:1213`), then upstream
+`vllm/v1/attention/backends/utils.py:798` — resolve every one of those by symbol in the
+pin, never by the number in the paste. The downstream copy at rc0: `class InputBatch`
+`npu_input_batch.py:101`, `_register_add_request` `:303`, pooling branch in `add_request`
+`:327`, in `remove_request` `:469`, in `condense` `:580` (`refresh_metadata` `:678`); upstream
+at vllm v0.11.0rc3 still reuses a freed slot (`_register_add_request`
+`gpu_input_batch.py:289-304`, `pop_removed()` `:295`), records removals (`removed_append`, `:462`) and drains
+them in the swap-down `condense` (`:580` onward, `:592-618`). Source-verified at those
+pins; the reporter never confirmed the fix. The paste carries the classification itself:
+a non-empty `finished_req_ids` beside a new `scheduled_cached_reqs` entry in one
+`SchedulerOutput` — the "finish plus admit in one step" precondition.
+
 ## The claim, in the order it should be said
 
 1. The crash is real and it is **downstream (vllm-ascend)**, not upstream vLLM:
@@ -154,9 +173,32 @@ Hand the reporter this instead of another consumer probe:
   `max_num_seqs`/`max_num_batched_tokens` lines, and whether `--max-num-seqs 8`
   survives the same dataset.
 
+## The repair, if the reporter has to patch in place
+
+The fix restores the **slot machinery**; it is not a compaction of `condense` alone. At
+step 3 the live row was already overwritten inside `add_request`, so a trim-only
+`condense`, or a `try/except` around the reorder, still returns another request's vector.
+Three edits together, with upstream as the template (vllm v0.11.0rc3 `gpu_input_batch.py`):
+
+- `add_request` (npu `:323-331` at v0.11.0rc0): delete the `is_pooling_model` branch so
+  every model goes through `_register_add_request` (upstream `:310`).
+- `_register_add_request` (npu `:310`): upstream carries no `assert
+  request.sampling_params` — a pooling request has none — it sets
+  `batch_update_builder.batch_changed = True` and appends the metadata only `if
+  request.sampling_params:` (upstream `:300-306`). The rc0 copy already reuses a freed
+  index via `pop_removed()` (`:313`), so the assert is the only change it needs.
+- `remove_request` (npu `:469-472`) and `condense` (npu `:580-584`): drop the two
+  `is_pooling_model` bypasses, so removals are recorded and the swap-down moves
+  `token_ids_cpu` / block-table rows with their ids (upstream `:448-462`, `:580-618`).
+
+Acceptance is not "no 500s": 3+ concurrent clients with natural skew (new requests
+arriving as older ones finish) for ≥200 requests, then the same prompt alone versus under
+concurrency (`cos ≈ 1`).
+
 ## Recheck conditions
 
-Both line-number sets are for vllm-ascend v0.11.0 + vllm v0.11.0. Before citing
+Both line-number sets are for vllm-ascend v0.11.0rc0 / v0.11.0 + vllm v0.11.0rc3 /
+v0.11.0. Before citing
 them for another report, re-run rule 2 of this topic's index: if
 `npu_input_batch.py` at the reporter's ref defines `condense`, the copy is
 present and the page applies; if the class only has `__init__`, the copy is gone

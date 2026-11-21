@@ -21,7 +21,7 @@ launched, so no card, HCCL, OOM or driver claim applies. The `mki_log … atb` l
 immediately before it is ATB's first-use banner (string in no export — label it as
 consistent-with, not proof).
 
-## Which of the five `setup failed!` surfaces this is
+## Which of the six `setup failed!` surfaces this is
 
 | Text | Owner | Page |
 |---|---|---|
@@ -30,8 +30,9 @@ consistent-with, not proof).
 | `ReshapeAndCacheOperation setup failed!` on a `-310p` image with `--kv-cache-dtype fp8`/`bfloat16` | 310P has no non-fp16 KV path | `../soc-platform-paths/310p-kv-cache-dtype.md` |
 | `<Op>Operation setup failed!` beside `507018` / `RunCpuKernel` | the op ran on the CPU/AICPU fallback kernel | `../soc-platform-paths/310p-cpu-fallback-op-fault.md` |
 | `SelfAttentionOperation setup failed!` with **no** `--speculative-config` at all, a dense model and one **long** prompt (12 732 tokens on `--max-num-batched-tokens 14336`) | the dense V1 one-shot prefill branch handing ATB a `[prompt, prompt]` mask — branch first, kernel contract not derivable (§ below) | this page, second section |
+| `SelfAttentionOperation setup failed!` **plus** an ATB log line `tensor dimNum 0 is invalid … inTensor [N] CheckTensorShape failed` | the caller passed a `None`/empty tensor into the pack — find the never-bound attribute, do not read the op's shape contract | `atb-input-dim0-none.md` (recorded #2779) |
 
-All four mean the same phase. What differs is *who assembled the pack*, and the
+All of them mean the same phase. What differs is *who assembled the pack*, and the
 paste answers that: read the deepest `vllm_ascend` frame, then read the size
 arguments it passes.
 

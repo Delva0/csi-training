@@ -74,10 +74,15 @@ prompts return `Output: '!!!!!!!!!!!!!!!!'` at vllm `0.9.2rc2.dev` + vllm-ascend
 `release_notes.md:359` at `048bfd5`), not any kernel. `#374` —
 DeepSeek-R1-Distill-Llama-70B, one fixed query, infinite `!!!!!`, "100%
 reproducible", fine on upstream vLLM: engine-side, no model defect. The V0-era
-`#321` / `#445` / `#562` are the same shape at older pins. So for the *always* row:
-name the mode/flag that is unsupported for that model (`../pipeline-parallel/index.md`,
-`../feature-enable-recipes/index.md`, the release's known-issue list) and give one
-ablation that removes it, before any numerics theory. A **quantized** serve on a
+`#321` / `#445` / `#562` are the same shape at older pins — and #562's
+**reporter-confirmed** cause was the numeric lane, not a flag: 「将精度改为 bfloat16
+就可以了」 at v0.7.3rc2/910B4 (`precision-dtype-degeneracy.md`). So for the *always*
+row, name the mode/flag that is unsupported for that model
+(`../pipeline-parallel/index.md`, `../feature-enable-recipes/index.md`, the release's
+known-issue list) and give one ablation that removes it, before any numerics theory —
+but when no flag in the command is unsupported, the dtype row is the next restart and
+the cheapest one there is: `--dtype bfloat16` plus the log's own `dtype=` line
+(`precision-dtype-degeneracy.md`). A **quantized** serve on a
 triton-ascend-backed family (Qwen3-Next and its GDN siblings) is the config row this
 step means: that `!` run is the wheel build's (`qwen3-next-gdn-numeric-path.md`
 §*triton-ascend build*, #5606), and its build check precedes the bf16 control.

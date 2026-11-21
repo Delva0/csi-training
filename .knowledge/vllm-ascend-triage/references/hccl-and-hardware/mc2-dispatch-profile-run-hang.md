@@ -181,6 +181,39 @@ DeepSeek-R1-0528-W8A8, DP4×TP4, EP, MTP 3, `FULL_DECODE_ONLY`, `HCCL_BUFFSIZE=2
   (non-expert weights sharded 4 ways), and prefix caching/chunked prefill left on. Quote
   the file; do not assemble a launcher from the constraints.
 
+## Step 3c — the fabric is a control, not a premise
+
+A body that says "双机灵衢直连可以正常运行, 双机 roce 组网下 … 报错" hands you a
+two-fabric control, and the temptation is to answer with the RoCE-only knob. Confirm
+the control before ranking it. Recorded #9447 (v0.18.0rc1 `99e1ea0`, GLM-5.1, 2×A3,
+`aclnnMoeDistributeDispatchV4` + `hccl_ret 9`, i.e. TIMEOUT, at the profile stage)
+spent its budget on exactly that inference and shipped **no message text**; the
+reporter's public follow-up (2026-06-22) says 没有解决 with the direct-connect setup
+failing too. A fault that appears on two different inter-node fabrics refutes every
+fabric-specific lever at once, so have the reporter re-state which setup fails now
+before a knob is offered, and put the transport rows below the op/version rows.
+
+- **`enable_mc2_hierarchy_comm` is the RoCE rung, and it ranks last.** Verified at
+  v0.18.0rc1 `99e1ea0`: an `additional_config` key (`vllm_ascend/ascend_config.py:169`),
+  documented as "Enable dispatch/combine op inter-node communication by ROCE", default
+  `False` (`docs/source/user_guide/configuration/additional_config.md:48`), reaching the
+  op as `comm_alg` (`ops/fused_moe/token_dispatcher.py:120-121`) and refused together
+  with `VLLM_ASCEND_ENABLE_FUSED_MC2` (`platform.py:519-522`). No A3 two-node tutorial
+  sets it (`GLM5.md:259-345`, `DeepSeek-V3.2.md:175-230` both omit it), so on a RoCE-only
+  A3 box it is a legitimate rung — but on #9447 it was **not** the resolution: offer it
+  as one rung with the line that proves it took effect, never as the cause.
+- **A passing `hccl_test` does not clear this lane.** #9447's inter-node `hccl_test` was
+  normal while the dispatch failed: the test runs plain collectives, while the dispatch
+  builds its own `MC2MultiServer` comm plane (the plog's `[Create][CommPlane] failed,
+  tag[…MC2MultiServer]`, `link-establish-timeout.md`). Ask which ranks and size it used
+  instead of treating it as an exoneration.
+- **The one-node control is cheaper than any fabric change.** One A3 chassis at TP16 with
+  EP still gives `ep_world_size = 16`, so an EP-group-wide dispatch op still runs at
+  profile — MC2 when the batch fits `capacity`, the fused/all-to-all dispatch otherwise —
+  with **no cross-node leg at all**. If it fails there too, the fabric is out and the
+  remaining lanes are the op/driver/version rows below, including the op name itself:
+  `…V4` says the installed torch_npu/CANN is newer than this tree.
+
 ## Step 4 — ranking, ladder, artefacts
 
 **Before the ranking: if the reporter already ran the env matrix, do not re-issue
@@ -202,9 +235,11 @@ route. A reporter's "single node works" is therefore expected at world 8 and doe
 clear the MC2 path.
 
 Ranked, one check each: (1) the cross-node leg of the all-to-all not completing
-(rank table / `device_ip` / NIC / the hierarchical mode) — hypothesis, decided by
-a 16-rank `hccl_test` plus `hccn_tool -i <id> -link -g` and a device-IP ping
-before restarting vLLM; (2) image CANN vs the host driver the container mounts
+(rank table / `device_ip` / NIC) — hypothesis, decided by the one-node vs two-node
+control pair and the plog's comm-plane/comm-config block (Step 3c; a passing
+`hccl_test` decides nothing), plus `hccn_tool -i <id> -link -g` and a device-IP ping
+before restarting vLLM; the RoCE-only `enable_mc2_hierarchy_comm` lever stays a later
+rung of the ladder below, never the leading rank; (2) image CANN vs the host driver the container mounts
 (`cat /usr/local/Ascend/driver/version.info`, `npu-smi info` on both nodes) —
 hierarchical MC2 is a newer kernel variant and a mismatch tends to hang rather
 than error; (3) one rank not entering the same dispatch — decided by the

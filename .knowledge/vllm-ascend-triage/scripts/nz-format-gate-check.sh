@@ -76,6 +76,27 @@ if printf '%s\n' "$BODY" | grep -qE '_validate_shared_expert_consistency|process
 fi
 
 echo
+echo "== resolved weight_nz_mode in the paste (the discriminator; read it first)"
+MODELINE=$(printf '%s\n' "$BODY" | grep -E 'AscendConfig\.weight_nz_mode (is set from additional_config|falls back to environment variable)' | head -2)
+if [ -n "$MODELINE" ]; then
+  printf '%s\n' "$MODELINE" | sed 's/^/  /'
+  if printf '%s\n' "$MODELINE" | grep -q 'with value 2'; then
+    echo "  mode 2: bf16/fp16 weights are cast too, so a 1-length bf16 weight crashes here."
+  elif printf '%s\n' "$MODELINE" | grep -q 'with value 1'; then
+    echo "  mode 1: bf16/fp16 stay ND — a bf16 gate is NOT the owner; read the casting dtype."
+  elif printf '%s\n' "$MODELINE" | grep -q 'with value 0'; then
+    echo "  mode 0: NZ is off, so this gate is not the owner at all."
+  fi
+else
+  echo "  no resolution line: mode is the envs.py default 1 unless additional_config"
+  echo "  carries weight_nz_mode (the line is logged only when one of the two is set)."
+fi
+if printf '%s\n' "$BODY" | grep -q 'Unknown vLLM environment variable detected: VLLM_ASCEND_ENABLE_NZ'; then
+  echo "  ('Unknown vLLM environment variable detected: VLLM_ASCEND_ENABLE_NZ' is upstream"
+  echo "   envs.py vocabulary noise — it flags VLLM_USE_V1 too; the switch was read.)"
+fi
+
+echo
 echo "== NZ gate at the checked-out ref"
 if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
   cat <<'TXT'
@@ -86,8 +107,9 @@ if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
     v0.20.2rc1:   utils.py _should_trans_nz / maybe_trans_nz — fp32 -> ND, 310P ->
       always NZ, mode 0 -> ND, bf16/fp16 -> NZ only at mode 2, other dtypes -> NZ;
       no shape test, cast in ops/linear.py process_weights_after_loading
-    ~v0.23:       same names, "FP32 cannot use NZ" first rule; cast sites are the
-      quantised methods
+    v0.22.1rc1+:  same names, "FP32 cannot use NZ" is the first rule
+      (utils.py:209-236; mode 0 -> ND, bf16/fp16 -> NZ only at mode 2); the cast
+      sites are the quantised methods and ops/linear.py:78-89
   Re-run with the reporter's vllm-ascend root, or grep:
     rg -n "def is_enable_nz|_should_trans_nz|maybe_trans_nz" vllm_ascend/utils.py
 TXT

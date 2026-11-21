@@ -95,7 +95,11 @@ by itself *which* of the two cases a report hit; the checks below do.
 4. **Only if `npu-smi info` inside the container is broken or empty** go to the
    driver × image-CANN pairing (`cat /usr/local/Ascend/driver/version.info`, image
    tag); `acl-init-500001-and-soc-version.md` has the four-file list. An `aclInit`
-   failure rather than a set-device failure keeps that cause open.
+   failure rather than a set-device failure keeps that cause open. A paste whose
+   own `npu-smi` prints `dcmi model initialized failed, because the device is used.
+   ret is -8020` / `drvRet=87` / `rtGetDeviceCount … 507899` **is** this branch and
+   has its own ladder, starting with the same `npu-smi info` on the host:
+   `no-npu-in-container.md`.
 
 ## A `docker run` can silently map one card
 

@@ -23,6 +23,7 @@ repeated-single-token page for *image* requests is
 | A **constant token id** repeated to `finish_reason: "length"` — e.g. `text='!!!!…'`, `token_ids=[0]*100` (v0.23.0 and v0.26.0rc1, same script) | Greedy argmax over an all-equal/degenerate logits (or embedding) vector: id 0 wins the tie. This **retires** the weights, w8a8/NZ, tokenizer, attention-numerics, block-size and prefix-cache lanes — none of them produce a constant-tie vector |
 | `text='\n\n<think>'`, `token_ids=[271, 248068, 248046]`, `finish_reason: "stop"` on call 1 (v0.18.0, graph mode `NONE`) | The same family seen earlier: degenerate logits that emit `<|im_end|>` immediately. Not a second bug |
 | `AttributeError: 'NoneType' object has no attribute 'size'` at `torch/_dynamo/utils.py::call_size`, stack `model_runner_v1._model_forward` → `compilation/acl_graph.py` → `qwen3_5.py:773` → `qwen3_next.py:1358` | **Step 2**, not an ACL-graph defect: the graph wrapper is only the compiled call chain |
+| The paste adds `model_runner_v1.py:1359 execute_model` / `:1835 _model_forward` and the issue text asks you to review a backport PR | The `is_multimodal_model` drift, on a branch that predates main's fix — go to "When the ask is to review the backport"; the v0.23.0 pin prints `:1950`/`:2834` for those two methods |
 | call 1 and call 2 return identical `token_ids` | Not this page: no first-request defect |
 
 `'!' == token id 0` is *recalled* for the Qwen tokenizers, not verified in this
@@ -105,6 +106,53 @@ Checks, one call each:
 3. Grading rows: dropping `language_model_only=True` / `--language-model-only`, and
    `--enforce-eager`. The first changes which branch is *right*; the second only
    avoids capture, so a still-degenerate answer moves the case to Step 3.
+
+### When the ask is to review the backport, not to diagnose
+
+#14638's reporter does not want a cause, he wants PR #14618 reviewed. Then the
+deliverable is the fixed form to diff against plus the checks a reviewer owes:
+
+- **The fixed form is in the main-line pin** (vllm-ascend `v0.23.0` `5cb98ca`):
+  `vllm_ascend/worker/model_runner_v1.py:3565`
+  `if self.supports_mm_inputs and not self.model_config.is_encoder_decoder or self.enable_prompt_embeds:`
+  → `:3566 input_ids = None`, and `is_multimodal_model` survives in that file only
+  at `:363` (the assignment) and `:1020` (the `req_prompt_embeds` gate), both
+  legitimate. The code-side shape of the patch is therefore a grep: after it,
+  `_dummy_run` contains no `is_multimodal_model`. (Deployment acceptance is the
+  real-request row below — the two checks answer different questions.)
+- **The fix does not bring `_dummy_mm_kwargs`.** `rg -n dummy_mm vllm_ascend/` is
+  empty at v0.23.0, so real-image *capture* still lacks the upstream mm kwargs —
+  an open coverage gap on a different scenario (real image, graph capture), not the
+  cause of this crash. Do not require it in the backport, and do not read its absence
+  as the patch being incomplete.
+- **It must be the predicate substitution, not a guard.** A `getattr(x, …, False)`
+  or `try/except` around `None` starts the service with unvalidated numerics
+  (`../upstream-downstream-drift/index.md` rule 14, #11991) — reject it in the review.
+- **Name the sibling call sites and declare them in or out of scope.** The same
+  model-level flag is used by the MTP/flash-comm path at
+  `vllm_ascend/spec_decode/llm_base_proposer.py:2016` (`maybe_pad_and_reduce`,
+  `_EXTRA_CTX.flash_comm_v1_enabled and not self.is_multimodal_model`) and `:2038`
+  (`maybe_all_gather_and_unpad`, positions all-gather). A user on
+  `--speculative-config '{"method":"mtp"}'` + flash-comm meets that flag; a silent PR
+  revisits the same drift.
+- **Date the tree from the frames before asking for a version.** #14638's stack is
+  `model_runner_v1.py:1359 execute_model` → `:1835 _model_forward` →
+  `compilation/acl_graph.py:121` → `qwen3_5.py:773` → `qwen3_next.py:1358` →
+  `torch/_dynamo/utils.py:4656 call_size`; the v0.23.0 pin has `:1950` / `:2834` for
+  those two methods, so the numbers already say "0.18.0 branch", not the pin.
+- **Acceptance is one real request** on the reporter's own command, plus one **real
+  image** request (the `supports_mm_inputs=True` branch must not regress), plus
+  `--enforce-eager` as the control. "No traceback" is not acceptance.
+- **The regression test exists but CI does not select it for this file** (verified at
+  v0.23.0): `tests/e2e/pull_request/one_card/test_vlm.py:73
+  test_multimodal_vl_language_model_only` runs under the `ops_vl` group
+  (`.github/workflows/scripts/test_config.yaml:325-335`), whose
+  `source_file_dependencies` are `vllm_ascend/ops/conv.py` and
+  `ops/mm_encoder_attention.py`. `vllm_ascend/worker/model_runner_v1.py` appears in
+  exactly one dependency list (`cpu_weight_offload`, `:269-276`, whose only test is
+  `test_cpu_weight_offload.py`). So a `_dummy_run`-only backport triggers **no**
+  language-model-only e2e; ask for `/e2e tests/e2e/pull_request/one_card/test_vlm.py`
+  on the PR (`.github/workflows/pr_e2e_command.yml:146-176` takes explicit paths).
 
 ## Step 3 — the degenerate output is first-request state, and sleep mode exposes it
 

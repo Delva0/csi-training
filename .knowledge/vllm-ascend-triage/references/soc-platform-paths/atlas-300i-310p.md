@@ -294,6 +294,46 @@ v0.9.1rc3 lists `Atlas 300I Duo、Atlas 300I Pro (Ascend-cann-kernels-310p)` und
 "Below series are NOT supported yet … might be supported on 2025.Q2" — the separate
 `310p` kernel package is exactly why a generic bin package cannot match.
 
+## "拉起失败" at a v0.11.0rc0 pin: the coverage line the pin does not have, and the sibling that got further
+
+Verified at vllm-ascend **v0.11.0rc0** (`00ba07102212`) + vllm **v0.9.1** (`b6553be1`),
+recorded for #3478 (`v0.11.0rc0-310p-openeuler`, 310P3, Qwen3-4B, title only — no serve
+command, no log).
+
+**The coverage grep, and the ordering trap.** `rg -n -i '300i|310p'
+docs/source/user_guide/release_notes.md` returns five hits at this pin and **none is in
+the `v0.11.0rc0` section (`:3-26`)**. The one hit naming a dense Qwen3 is `:407`, inside
+the **v0.9.1rc1** section — "Atlas 300I series is experimental supported in this release
+(Functional test passed with Qwen2.5-7b-instruct/Qwen2.5-0.5b/Qwen3-0.6B/Qwen3-4B/Qwen3-8B)"
+(#1333) — and that section's own next paragraph withdraws it ("will NOT be included in
+v0.9.1-dev branch … improve this from 0.9.2rc1"). The file is newest-first, so a larger
+line number is an **older** release: never quote `:407` as an rc0 statement. What holds
+at the pin is `single_node_300i.md:51` (validated list: Qwen3-0.6B 1 card,
+Qwen2.5-7B-Instruct 2 cards, Pangu-Pro-MoE-72B 8 cards, all `--enforce-eager --dtype
+float16`) plus the two-item note at `:3-6` — so "does Qwen3-4B work on 300I at rc0" is
+**unvalidated at that pin, functionally tested only in an rc whose feature the final
+release then dropped**: neither "unsupported" nor endorsed.
+
+One rc earlier than this page's rc3 anchor the docs say *less*: at v0.11.0rc0 that note
+is the two items only (no `#3316`/`#2795`, no "use v0.10.0rc1 first"), and
+`faqs.md:18` is just "[Experimental] Atlas 300I Inference series (Atlas 300I Duo)" — do
+not quote the rc3 wording at an rc0 pin.
+
+**The sibling that got past start-up.** #3479 — same image tag, 310P3, Qwen3-4B, same
+pin, `--enforce-eager --max-model-len 4096 --gpu-memory-utilization 0.8` and **no
+`--dtype float16`** — loads weights and dies at **KV init**: `_convert_torch_format`,
+`Memory async copy failed … length=748683264`, `sdma copy error`, SMMU Terminate,
+`507013` (`../runtime-memory/kv-init-and-format-cast-alloc.md` has the peak arithmetic
+and the `--gpu-memory-utilization` ladder). Two consequences for a log-free
+"拉起失败" on this combination: that allocation-site family is the **first** ranked
+candidate, ahead of the bf16/eager gates; and fp16 is a *documented constraint*, not the
+ranked cause — a run without `--dtype float16` already reached KV init at this pin. The
+first request is therefore the log's last ~30 lines plus whether
+`Loading model weights took … GB` appears: bf16/ATB refusals (`EZ3002`,
+`TransData … not found in this op store`, `can not support bf16`) and the artifact lane
+(`socversion … does not match`, above) are read off those two facts, and a paste with no
+NPU line at all is the missing-artefact answer.
+
 ## The 310P gates that change behaviour
 
 | Gate | Code (v0.11.0rc3) | Consequence to check |

@@ -1,4 +1,4 @@
-# Auditing a tutorial page: eleven checks, in this order
+# Auditing a tutorial page: twelve checks, in this order
 
 Every item is one or two shell calls against the pinned tree; the examples are
 what the checks returned for the Qwen3-Omni tutorial
@@ -98,6 +98,22 @@ class say **at least 2**
 (`Qwen3-30B-A3B.md:48`, `Qwen3-Coder-30B-A3B.md:63` at v0.19.1rc1). Tier
 **stale/wrong**, and cite the sibling line — that is the parity proof, not your
 own arithmetic.
+
+The second boilerplate species is the **enablement sentence**, and its parity
+anchor is on the same page. `Qwen3-VL-30B-A3B-Instruct.md:18` (recorded #11741):
+"Running this model requires 1 Atlas 800I A2 (64G × 8) node or 1 Atlas 800 A3
+(64G × 16) node" — while that page's own container line maps exactly two devices
+(`--device /dev/davinci0`, `:42`, `--device /dev/davinci1`, `:43`) and its serve
+line is `--tensor-parallel-size 2` (`:87`), and the in-tree gate
+`tests/e2e/models/configs/Qwen3-VL-30B-A3B-Instruct.yaml:2,10` is
+`hardware: "Atlas A2 Series"` + `tensor_parallel_size: 2` (plus
+`max_model_len: 128000`, `gpu_memory_utilization: 0.7`, `enable_expert_parallel:
+True`, mmmu_val gate `0.58`). The same `requires 1 Atlas … node` wording is copied
+across siblings (`Qwen3-Coder-30B-A3B.md:19`, `Qwen3.5-27B.md:21-22`), so treat it
+as prose that drifted from the recipe, not as a sizing claim: 30.5 B at 2 B/param
+is ~61 GB and TP=2 is ~30.5 GB per card. Tier **wrong requirement** (it tells a
+2-card tester they cannot run it); the correction is the device-map count, and the
+task book's 卡数 is the same number. `scripts/card-budget.sh` only confirms it.
 
 ## 6. Which release does the reference number come from?
 
@@ -222,6 +238,29 @@ fault triage — say which tab their command matched (`scripts/recipe-tab-diff.p
 live question to `../image-dependency-faults/native-string-abort.md` step 0
 (#11300: A3 host running the A2 block). Grading the page for the reporter's tab
 choice wastes the report.
+
+## 12. Was the printed request/response body captured on the pinned release?
+
+The doc's sample bodies are the one place where field names, not flags, can be
+wrong, and one grep pair decides it:
+
+```bash
+rg -n 'class ChatMessage' -A12 vllm/entrypoints/openai/chat_completion/protocol.py
+rg -o '"[a-z_]+":' docs/source/tutorials/models/<page>.md | sort -u   # keys the sample prints
+```
+
+At vllm v0.18.0 `ChatMessage` declares `refusal`, `annotations`, `audio`,
+`function_call`, `tool_calls` and `reasoning` (`protocol.py:54-64`) and the choice
+declares `stop_reason` / `token_ids` (`:84-94`), so a sample that prints those
+fields is consistent — do not report the body as wholesale stale. The single
+foreign key is the finding: `Qwen3-VL-30B-A3B-Instruct.md:130` and `:192` print
+`"reasoning_content": null` inside `message`, and that name exists only on the
+**request** side at this pin (`vllm/entrypoints/chat_utils.py:329,1538`), never in
+the response model. Tier **cosmetic** (the command still works) and say what it
+means: the body was captured on a different build, so its token counts
+(`completion_tokens: 15`) are not this image's reference either — keep them as a
+baseline, not an expected result. The same check catches a missing
+`reasoning`/`annotations` field, which dates a sample the other way.
 
 ## Second worked page: Qwen3-32B-W4A4 at v0.18.0 (recorded #11759)
 

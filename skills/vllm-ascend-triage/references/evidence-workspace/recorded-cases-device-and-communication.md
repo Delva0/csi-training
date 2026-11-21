@@ -280,6 +280,29 @@ in its closing section: `../evidence-workspace/delivery-discipline.md`.
 Tracker: `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` (Step 1b, and
 `scripts/mc2-capacity-asymmetry.sh`).
 
+**#9887** vllm-ascend v0.18.0 reported, pinned at v0.19.1rc1 (`da421afad7`), GLM-5.1-w8a8,
+P2D2, decode nodes crash with `MoeDistributeDispatchV2` in the title, an EP group of
+32 ranks (`rankSize:[32]`; TP4 is the value that reproduces the reporter's capacity
+104, so DP8 is `32/4`), `HCCL_OP_EXPANSION_MODE="AIV"`: the only attached plog (device 5)
+carries `fault kernel_name=aiv_all_gather_cn_int32_t`, `[TaskExecStage][Timeout][AIV]`,
+`cmdType:[6] size:[1024] blockDim:[32] rankSize:[32] aivRdmaStep:[32] isOpbase:[1]`,
+`opData … index[9], count[256], dataType[int32]`, `retCode=0x30`, one shared
+`pc start` on 28 cores, and its `opData timeStamp` 12:41:08 against a fault print at
+12:46:09 — HCCL's own timeout, not the trigger minute. The reporter's screenshot
+claims the device-0 plog holds MTE DDR out-of-range + SMMU, and that plog was never
+uploaded (416), so the owner was unverified at the time. Track: a **per-rank MoE comm
+branch split at serving time**, not a kernel or transport defect — `count` 256 is
+GLM-5.1's `num_experts` and `rankSize` the EP world, i.e. the All2AllV dispatcher's
+preprocess histogram all-gather, which MC2 ranks never issue; some DP ranks crossed
+`mc2_tokens_capacity` 104 (`ceil(102/4)*4` at TP4) because
+`--max-num-batched-tokens` was 272 during MTP. Reporter-confirmed 2026-07-21 with the
+workaround `max_num_batched_tokens = max_num_seqs*3`, a multiple of 32. What it cost:
+the recorded run had the correct reading (the plog's own kernel is not the title's op;
+`0x30` timeout vs `0x31` exception) but spent the whole 16 384-token budget in
+thought and shipped **no answer** — `../evidence-workspace/delivery-discipline.md` G1
+was owed at turn 3. Page: `../hccl-and-hardware/aiv-collective-kernel-fault.md`
+§ "The other retCode"; arithmetic in `scripts/mc2-capacity-asymmetry.sh`.
+
 **#9984** vllm-ascend v0.19.1rc1 (`da421afad7`) / vllm v0.19.1 (`b1388b1fbf5a`),
 GLM-5.1-w4a8 started with the tutorial's FLASHCOMM1 + MTP flags:
 `AttributeError: 'AscendRowParallelLinear' object has no attribute
@@ -790,3 +813,70 @@ answer shipped because the session stopped there, not because the reasoning/text
 ratio was healthy; the reason `#3128`/`#4178` above do not ship at 9 turns is that
 they keep opening new areas once the cause is named. Page:
 `../custom-ops-runtime-faults/setup-failed-call-site.md` (new).
+
+**#488** vllm-ascend `v0.7.1rc1` (`f17417f2d5b5`) + a self-built `vllm 0.7.2.dev`,
+torch-npu `2.5.1.dev20250218`, transformers 4.49.0, CANN 8.0.0, 910B cards 4+5,
+DeepSeek-R1-Distill-Qwen-32B TP2 `--gpu-memory-utilization 0.8 --max-model-len 20480`:
+~100 short chat requests, and around request 40-50 the V0 background loop dies with
+`RuntimeError: ACL stream synchronize failed, error code:507035` at
+`torch_npu … _gather` → `broadcast_object_list` → `_object_to_tensor`, followed by
+`AsyncEngineDeadError` on every later request. Track: the TP gather emulation's H2D
+copy is the **sync point**; `507035` is `ACL_ERROR_RT_VECTOR_CORE_EXCEPTION`
+(`rt_error_codes.h:94`) and the owner is whatever the decode step enqueued before
+`compute_logits`, named only by the plog's `fault kernel_name=`/`chipId`. The
+recorded run got that mechanism right and delivered it (29 turns, 4.9 K-character
+answer), but excluded the version lane — "版本不匹配：排除" from the matching
+`torch_npu` wheel — and ranked a device fault alone; the issue closed on the
+maintainer's "you are using a old version … install 0.7.3rc2" and the reporter's
+"i tried latest version (vLLM Ascend 0.7.3rc2) and the problem solved." The missing
+rung was the install-and-re-run, one command, ahead of the plog ask. Pages:
+`../hccl-and-hardware/collective-error-chain.md` §Step 1a,
+`../startup-failures/environment-correspondence.md` §*A self-built vllm beside an rc
+vllm-ascend*.
+
+**#3810** vllm-ascend v0.11.0rc0 (`00ba07102212`) + vllm v0.11.0 (`b8b302cde434`),
+one 910B4 (CANN 8.2.RC1), Qwen3-VL-8B-Instruct with
+`--max_model_len 128000 --gpu-memory-utilization 0.75` and one image request:
+`call aclnnRmsNorm failed, error code is 507015` → `fftsplus aivector error` +
+`errStr: The DDR address of the MTE instruction is out of range` +
+`fault kernel_name=unpad_flashattention_bf16_1_mix_aic` + `retCode=0x26, [aicore
+exception]`, `EngineCore encountered a fatal error`. The engine's own
+`Dumping scheduler output … SchedulerOutput(...)` puts the step at
+`scheduled_encoder_inputs={}`, `num_computed_tokens=[2048]`,
+`num_scheduled_tokens={…: 2048}`: a **continuation** chunk of a split image prompt
+(the encoder step is behind it). Which LM branch ran is `_build_attn_state`
+(`model_runner_v1.py:1595-1618`) × `torch.version.cann` (`attention_v1.py:316/340`,
+`:486` on CANN 8.3+, `_npu_paged_attention_splitfuse` `:505` on the reporter's
+8.2.RC1), and the vision tower shares the same unpad-attention family
+(`qwen2_5_vl_without_padding.py:122`) — so the launch needed
+`ASCEND_LAUNCH_BLOCKING=1` or the plog's `origin_op_name`, not a source walk.
+Reporter-confirmed afterwards: the same serve answered `The information in this
+picture is` (a collapsed answer), `0.12.0` still had the problem, and the
+**v0.13.0rc0 image answers the same request correctly** — a post-pin fix, so the release is part of the verdict, with
+`--max-num-batched-tokens` / `--no-enable-prefix-caching` as the interim
+ablations. The recorded run opened `attention_v1.py`, `platform.py`,
+`qwen2_5_vl_without_padding.py` and the `max_num_batched_tokens` arithmetic for
+28 tool calls and shipped **no message text** —
+`../custom-ops-runtime-faults/aclnn-error-dump-reading.md` (built-in-kernel
+section).
+
+**#8975** — vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be96`), CANN 8.5.1,
+8×910B / 16 dies with both engines' `VLLMWorker_DP` ranks resident, a P/D deployment:
+偶发性卡死, the API server still listening, `curl` returning nothing, `AICore 0 %` on every
+chip. The body was a Feishu link plus a QR image — no log at all. The recorded run ranked
+the **host-side** DP barrier `dist.all_reduce(…, group=get_dp_group().cpu_group)`
+(`worker/model_runner_v1.py:512-552`) as cause #1 on the strength of "AICore 0 ⇒ no kernel
+ran ⇒ the host is stuck"; the follow-up plog showed a **device-side** MC2 AlltoAll deadlock:
+`group_name_233` with 32 ranks over 2 servers, `newtag[…mc2RunAlltoAllDirectFullmesh_device]`,
+both decode nodes frozen on operator 2706 at `03:12:39`, `bufferSize[2097152000]` (= 2000 MiB)
+although the reporter believed `HCCL_BUFFSIZE` was 2560, and the prefill node printing
+`status[STUCK]` while its own operator count still climbed 110822 → 4191386. Track: silent
+multi-node collective deadlock. What would have redirected it: one plog read
+(`scripts/hccl-stuck-timeline.sh`) instead of a utilisation inference — 0 % is also the state
+of a rank waiting inside a collective. Delivery: the first answer shipped 3.4 K characters
+with a real ladder (a `py-spy` dump, both sides' `/metrics`, the mooncake
+`Force freed request: <id>` line, and the correct re-scoping that `scheduler_reserve_full_isl`
+does not exist at v0.18.0); after the follow-up it wrote the reversal in one sentence and then
+spent the whole 8 192-token second segment on the MC2 source walk, so its last turn carried no
+message and the lane it had already named never got its ladder. Page:
+`../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md` (new).

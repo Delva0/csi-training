@@ -84,8 +84,13 @@ commands first**: capacity and `global_bs` are derived per rank from that node's
 `--compilation-config`, so an asymmetric capture-size list makes the halves of the EP
 group declare different sizes to the same all-to-all — one call:
 `bash <skill_root>/scripts/mc2-capacity-asymmetry.sh --capture-a … --capture-b … --tp
-8 --dp 2` (recorded #8294). If the reporter has already run the env matrix, treat it
-as closed (`aiv-mc2-env-ablation.md`, "When the whole matrix has already been run").
+8 --dp 2` (recorded #8294). **A symmetric pair of commands does not close the lane:**
+the same derived capacity is compared per rank against that rank's own batch at run
+time, so a serve whose `--max-num-batched-tokens` (or `max_num_seqs ×
+(1 + num_spec)`) exceeds `capacity` can have some DP ranks on MC2 and the others on
+the fallback dispatcher in one step — same script, "branch-split" section (recorded
+#9887). If the reporter has already run the env matrix, treat it as closed
+(`aiv-mc2-env-ablation.md`, "When the whole matrix has already been run").
 
 **Then separate a *shapeless* hang from a collective error.** A DP>1 MoE run
 whose dummy/`profile_run` batch passes and whose first **real request** stops a
@@ -118,6 +123,26 @@ mode-specific handling (or its absence) for their family. `aclgraph-full-decode-
 has the four paste lines that settle the lanes, the two checks to run first, and the
 recorded #4178 case.
 
+**Then separate "no kernel is running" from "the host is stuck".** `AICore 0 %` on
+every chip next to a listening API server and a silent `curl` is *not* evidence of a
+host-side stall: a rank that entered an all-to-all and waits for a peer that never
+arrived also executes no AI-Core work, and `AIVector` is no test either (8-16 % in
+#13688's MC2 replay deadlock, so neither a non-zero nor a zero reading picks a lane).
+A multi-node or P/D MoE serve that hangs **whole** after minutes of healthy load with
+no traceback and no device dump belongs here, before any `py-spy`: get the plog from
+every node for the hang window and run
+`bash <skill_root>/scripts/hccl-stuck-timeline.sh <plogs…>` —
+`[Load] comm config of [group_name_N]` (loaded `bufferSize` is **bytes**,
+`execTimeOut`), `[BuildRemoteResByTag] newtag[…mc2RunAlltoAllDirectFullmesh_device]`
+(the op family), and `count of currently executed operators` (frozen on the same
+number at the same second across nodes = one collective instance waiting on the
+missing ranks; still rising = that rank is fine, whatever its `STUCK` lines say).
+Recorded #8975 ranked a host-side DP `cpu_group` all_reduce first and was answered by
+a 32-rank MC2 all-to-all frozen at AICore 0 %:
+`multinode-mc2-alltoall-silent-deadlock.md` has the four reads, the MC2 selector
+arithmetic, the rule that the `mc2` group takes its comm space only from
+`HCCL_BUFFSIZE` (`utils.py:961-965`), and the 1836 s expiry that explains the silence.
+
 **If the same mode instead dies *under load* with a device fault, start from the
 replay's arguments.** `507011` (`ACL_ERROR_RT_MODEL_EXECUTE` — a wrapper that names
 no op) plus `fftsplus aivector error`, `Illegal instruction … unaligned UUB
@@ -142,7 +167,16 @@ and remember that `HCCL_OP_EXPANSION_MODE=AIV` is what `vllm_ascend/utils.py:506
 recommends at v0.18.0 — unsetting it is the discriminator, not the fix:
 `aiv-collective-kernel-fault.md` (recorded #13527). The env-variable correlation for
 this same `AIV` family — which launch/flag combination makes it fire at all — stays
-`aiv-mc2-env-ablation.md`; this paragraph owns only the ownership split.
+`aiv-mc2-env-ablation.md`; this paragraph owns only the ownership split. **The
+`retCode=0x30` / `timeout or trap error` variant has no bad address at all**: one
+shared `pc start` on every core plus a fault print minutes after the `opData`
+`timeStamp` means a collective some peer never issued, and when the op is a small
+`int32` `aiv_all_gather_*` whose `count` equals the checkpoint's `num_experts` and
+whose `rankSize` equals the EP world size, it is the MoE dispatcher's own preprocess
+histogram gather — suspect a per-rank branch split first (some DP ranks past
+`mc2_tokens_capacity` leaving MC2), not a hardware or transport fault:
+`aiv-collective-kernel-fault.md` § "The other retCode", then
+`../feature-enable-recipes/moe-expert-parallel-with-dp.md` Step 2 (recorded #9887).
 
 **`507018` is not this topic's.** "The aicpu execution is abnormal" beside a
 `kernelName=<Op>, soName=libpt_kernels.so, funcName=RunCpuKernel` block is one
@@ -215,6 +249,19 @@ lever and the capacity/`global_bs` arithmetic of
 `mc2-dispatch-profile-run-hang.md` §Step 1 is (recorded #5947; under
 `HCCL_INTRA_PCIE_ENABLE=1` only the cross-node RoCE peers print `DestLink`).
 
+**Then separate a device *event-table* refusal from a memory leak.** If the paste
+reads `[Error]: Event resources are insufficient.` beside
+`EE9999 … Event id alloc error, deviceId=N, tsId=0, retCode=0x7020019`,
+`rtEventRecord … no event resource` and `record event failed, runtime result =
+207007` — typically a serve that ran fine and then died under load, with
+`current working operator name is aclnn<Op>` — the code is
+`ACL_ERROR_RT_NO_EVENT_RESOURCE` and nothing ran out of memory: read the last
+`GPU KV cache usage` line, then treat the named op as the last queued kernel and
+the Python frame as one sync point off the `record`. Split the pool's two consumers
+(graph capture via `--enforce-eager`) and measure it (`aclrtGetEventAvailNum`, the
+`npu-smi` process table for that `deviceId`) before any leak theory —
+`acl-event-resource-exhaustion.md` (#13007; capture-phase precedent #10521).
+
 **Then separate a cascade from the primary, and count the ranks.** When a paste
 carries two error families and one of them comes from exactly **one** process, that
 process owns the fault. The recorded shape is an RL/GRPO job whose rollout is a
@@ -274,17 +321,24 @@ debugging" caveat.
 2. `transport-destlink-ipc-import.md` — `DestLink` / IPC-import failure at link
    creation: the edge-set read, the generic `507899`, why equal `localIpAddr` text is not
    a duplicate `device_ip`, and the driver-pairing ladder.
-3. `qp-resource-exhausted-at-graph-load.md` — `EI0007` +
+3. `acl-event-resource-exhaustion.md` — `Event resources are insufficient` /
+   `207007` / `0x7020019` after a healthy serve: the enum name, why the named op and
+   the `aclnn…Div` frame are victims (`wait_stream` allocates a fresh event per
+   decode step; capture holds its own share of a documented per-Device table), the
+   `--enforce-eager` split, the `aclrtGetEventAvailNum` sample, the 310P
+   `VLLM_BATCH_INVARIANT=1` localization run, and what the driver's `no event
+   resource` means that the ACL doc's "waits for release" does not (#13007).
+4. `qp-resource-exhausted-at-graph-load.md` — `EI0007` +
    `Failed to allocate resource[qp]` at graph load: why a DestLink line for every
    peer means the *local* resource pool refused, the GE cascade that carries it, the
    `[1, max_num_seqs]` graph-count arithmetic, and the budget ladder (gmu,
    `HCCL_BUFFSIZE`, graph mode off) before any driver theory.
-4. `weight-sync-hccl-cascade.md` — RL weight-sync channel failures across a trainer and
+5. `weight-sync-hccl-cascade.md` — RL weight-sync channel failures across a trainer and
    a `vllm serve` rollout process: which rank owns the primary (the singleton), what
    `pyhccl.py`'s init already proves, why "not found specific resource" is CANN's own
    text for code 6, the standalone two-process broadcast with value comparison, and the
    release-scope caveat (no aliasing, no validated RL sync path at v0.10.2rc1).
-5. `collective-error-chain.md` — restore error attribution (the Python frame in
+6. `collective-error-chain.md` — restore error attribution (the Python frame in
    the traceback is usually a later synchronization point), read the plog, and
    stop attributing the defect to whichever op the traceback names. That page
    also covers the compile-phase case: fusion-pattern registration runs sample
@@ -297,28 +351,28 @@ debugging" caveat.
    tracks batch composition instead of hardware, the named op *is* the owner's evidence —
    the caller's index tensor. See `../dsa-sparse-attention/indexer-cache-scatter-fault.md`
    (#4296) before asking for device health.
-6. `device-health-checks.md` — check every device's health, correlate the
+7. `device-health-checks.md` — check every device's health, correlate the
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards.
-7. `aclgraph-full-decode-runtime-hang.md` — the graph mode's banner printed, its
+8. `aclgraph-full-decode-runtime-hang.md` — the graph mode's banner printed, its
    capture finished on every rank, and the **first request** then stalls into the
    watchdog: which two lanes the paste already closes, the two coverage checks to run
    before any source read, and why an rc-only hang is a version verdict (recorded
    #4178; 310P variant #12985).
-8. `aclgraph-full-decode-runtime-crash.md` — the same mode captured and then dies
+9. `aclgraph-full-decode-runtime-crash.md` — the same mode captured and then dies
    **later, under concurrency**, with `507011` / aivector / MTE / illegal-instruction
    text instead of a hang: `507011` is `ACL_ERROR_RT_MODEL_EXECUTE` and names nothing,
    the notify-wait and second-stream lines are victims, and the per-replay argument
    patch (`acl_graph.py:198-304`) is why the bucket and the `pa_shape_list` gate decide
    the ranking (recorded #6018).
-9. `comm-create-errors.md` — `hcclCommInitRootInfoConfig … error code is N` at
+10. `comm-create-errors.md` — `hcclCommInitRootInfoConfig … error code is N` at
    communicator creation (`create_config`, `HCCLUtils.cpp:140`), usually inside
    `get_hccl_comm_name` for a MoE all-to-all group: the `HcclResult` codes that
    outrank it, the six `HCCL_E_PARA` sub-checks at `op_base.cc:1377-1408`, the
    launch-script values that reach them (`HCCL_BUFFSIZE` ≥ 1 MB, config magic word),
    the tutorial-recipe check, and the rank-asymmetry reading when a config change
    turns the error into a hang.
-10. `aiv-collective-kernel-fault.md` — the device fault is an **HCCL AIV collective
+11. `aiv-collective-kernel-fault.md` — the device fault is an **HCCL AIV collective
    kernel** (`fault kernel_name=aiv_reduce_scatter_bfloat16_t`, `Task AIV` /
    `tag[ReduceScatter_group_name_N]`, MTE `DDR address … out of range`,
    `isSmmuFault is 1`, `retCode=0x31`): the macro that generates the name, the
@@ -327,12 +381,25 @@ debugging" caveat.
    why AIV is the configured path rather than a misconfiguration, the victim
    `InplacePartialRotaryMul` / `Remote rank: [0]` line, the `stackcore_tracer` files
    that are *not* a Python traceback, and the two one-axis reruns (recorded #13527).
-11. `link-establish-timeout.md` — `[Wait][LinksEstablishCompleted] is failed. ret[9]`
+   Its §0 covers the paste that stops **before** the name (a `device_error_core_proc.cc`
+   dump, no `fault kernel_name=`, client `code: 599`): rank by deployment shape — the
+   pinned MoE comm-path selector's decode branch (`ep_size ≥ 16` → MC2, prefill →
+   All2All), the AIV lane only after `env | grep -i hccl`, then a long-VL
+   partial-prefill index fault when `max-num-batched-tokens ≪ max-model-len` (#3911).
+12. `link-establish-timeout.md` — `[Wait][LinksEstablishCompleted] is failed. ret[9]`
    and the `LINK_ERROR_INFO` table on a multi-node start: the chain that ends as
    `HcclAllocComResource … ret = 4` / `aclnn…Dispatch 561000`, the `src_port 0` /
    `connecting` reading (wholesale vs subset), the `Listen … port[16666] fail` half
    that lives in the *peer's* plog, and the device-plane checks (`hccn_tool -ip/-optical/
    -lldp`, address variables per node) that replace `ping`.
+13. `multinode-mc2-alltoall-silent-deadlock.md` — a **silent** whole-service hang after
+   minutes of healthy load on a multi-node/PD MoE serve (`AICore 0 %`, port listening,
+   `curl` silent, no error): why the utilisation column does not separate a host stall
+   from a rank waiting inside an all-to-all, the four plog reads (comm config,
+   `newtag[…]` op family, heartbeat `STUCK`, `count of currently executed operators`),
+   the MC2 selector arithmetic that says whether the all-to-all was even the expected
+   path, `HCCL_BUFFSIZE` as the `mc2` group's only comm-space source (MB × 1024², while
+   `bufferSize` is printed in bytes), and the follow-up-turn delta (#8975).
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server

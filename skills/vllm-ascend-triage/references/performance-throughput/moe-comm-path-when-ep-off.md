@@ -65,7 +65,7 @@ v0.12/v0.13/v0.17 the same decision moved to `_select_moe_comm_method` /
 
 The reporter's "慢一倍" is a *decode-step* number here, not a prefill one. Derive it
 from the benchmark table with
-`bash <skill_root>/scripts/benchmark-table-normalize.py` rather than trusting the
+`uv run --no-project python <skill_root>/scripts/benchmark-table-normalize.py` rather than trusting the
 pasted per-token columns (`cross-run-ratio-normalization.md`). Recorded #2833:
 Ascend c=8 → step 138.7 ms; the H800 reference, same concurrency → 68.5 ms; prefill
 per input token 0.80 ms vs 1.01 ms *in Ascend's favour*. So the whole gap sits in the

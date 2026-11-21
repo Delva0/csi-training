@@ -8,9 +8,12 @@ be broadcast to indexing result of shape [M, D]` out of
 placeholder (or the reverse), a `tgt_sizes` / `image_bound` disagreement, or a
 request that dies inside `embed_input_ids` / `_preprocess` before any kernel runs.
 Not this topic: a VL answer that is merely degenerate or wrong with sane counts
-(`../accuracy-benchmarks/vl-vision-tower-degeneracy.md`), a device fault inside
-the vision tower (`../custom-ops-runtime-faults/index.md`), or a checkpoint
-architecture question (`../startup-failures/model-type-not-recognized.md`).
+(`../accuracy-benchmarks/vl-vision-tower-degeneracy.md`), a **device fault mid-request**
+inside the vision tower or in the LM prefill of a long/chunked image prompt
+(`fault kernel_name=unpad_flashattention_…` + MTE DDR out of range: read the dumped
+`SchedulerOutput` before any source walk, `../custom-ops-runtime-faults/aclnn-error-dump-reading.md`
+built-in-kernel section), or a checkpoint architecture question
+(`../startup-failures/model-type-not-recognized.md`).
 
 Inherit the rules in SKILL.md.
 
@@ -46,4 +49,4 @@ Inherit the rules in SKILL.md.
 - `placeholder-count-mismatch.md` — the arithmetic of the two counts (area floor
   vs per-stage merge floor), the three levers that make them disagree, the
   direction rule, and the recorded family (#14014, #3286, #5349, #6934, #7023,
-  #3092). One call: `bash <skill_root>/scripts/mm-placeholder-count.py`.
+  #3092). One call: `uv run --no-project python <skill_root>/scripts/mm-placeholder-count.py`.

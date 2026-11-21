@@ -36,7 +36,138 @@ a `MoeDistribute*`) is `../custom-ops-runtime-faults/index.md` (or
 `mc2-dispatch-profile-run-hang.md`); an AIV × MC2 dispatch/combine hang without a
 fault kernel (`107020`, `Dispatch/CombineV4`) is `aiv-mc2-env-ablation.md`; the
 `507011` / aivector-under-concurrency shape is
-`aclgraph-full-decode-runtime-crash.md`.
+`aclgraph-full-decode-runtime-crash.md`. **The same page still owns the
+`retCode=0x30` variant** (no MTE/SMMU text, `errorStr: timeout or trap error`) and
+the small-`int32` `aiv_all_gather_*` — § "The other retCode" below — and the paste
+that stops **before** any `fault kernel_name=` (a `device_error_core_proc.cc` dump
+with only `aivec error` / MTE DDR text) — §0, which ranks by deployment shape.
+
+## The other retCode: `0x30` timeout, and the small-`int32` `aiv_all_gather_*`
+
+`retCode=0x31` above is a vector-core **exception** (MTE DDR out of range, SMMU
+fault) — the rank that printed it touched a bad address. `retCode=0x30` with
+`errorStr: timeout or trap error` / `[TaskExecStage][Timeout][AIV]` and one identical
+`pc start` on every core is a **spin/wait that no peer ever released**: the printing
+rank entered a collective that some other rank of the same group never issued. Do
+not read the timeout rank as the owner; the owner is the rank missing from the
+collective, so count the ranks that issued the op (`device_id=`) before ranking
+anything.
+
+Recorded **#9887** (vllm-ascend v0.18.0 reported, GLM-5.1-w8a8, P2D2 decode crash
+titled `MoeDistributeDispatchV2`; pinned here at v0.19.1rc1 `da421af`). The attached
+device-5 plog carries:
+
+```text
+[DFX_INFO]Aicore kernel execute failed, device_id=5, stream_id=9, task_id=33, …
+  fault kernel_name=aiv_all_gather_cn_int32_t, … hash=4712968614259692016
+[TaskExecStage][Timeout][AIV]Task run failed, … taskType[Task AIV], tag[AllGather_group_name_219],
+  AlgType(level 0-1-2):[ring-ring-ring]. para information is cmdType:[6], tag:[9], size:[1024],
+  blockDim:[32], rankSize:[32], aivRdmaStep:[32], flagMem:[0x12c0fd200000], isOpbase:[1].
+  opData information is timeStamp:[2026-06-01-12:41:08.576.208], deviceId[1], index[9],
+  count[256], src[…], dst[…], dataType[int32].
+```
+
+Read it in this order:
+
+1. **Neither attached log contains the string `MoeDistributeDispatch`.** The title's
+   op name is the reporter's label, not evidence; the plog's own `fault kernel_name`
+   is authoritative. (The device-0 plog that would carry the MTE/SMMU owner line was
+   never attached — 416 on upload — so say "owner unverified", not "owner is device 0".)
+2. **`0x30`, one shared `pc`, and a ~5 minute gap between the `opData` `timeStamp`
+   (12:41:08) and the fault print (12:46:09)** = HCCL's own timeout fired, then the
+   watchdog. The op was *issued* five minutes before it failed; the failure minute is
+   not the trigger minute (`error-report-timestamps.md`).
+3. **A small `int32` all-gather is not a generic collective.**
+   `count == num_experts` (256 for GLM-5.1) with `size = count × 4` and
+   `rankSize == ep_world_size` (32 = TP4 × DP8 here) is the MoE dispatcher's own
+   preprocess histogram gather:
+   `gather_from_sequence_parallel_region(torch.histc(topk_ids, bins=self.num_experts, …),
+   group=self.ep_group)` in `TokenDispatcherWithAll2AllV._preprocess`
+   (`vllm_ascend/ops/fused_moe/token_dispatcher.py:551-560` at `da421af`; class at
+   `:407`, `token_dispatch` `:440`, `_dispatch_preprocess` `:522`). The dtype is the
+   version-dependent part — at this pin `histc` is float, the plog says `int32`, so
+   quote `count == num_experts` as the match and leave the dtype open unless the
+   reporter's ref shows it. Map the *Python* traceback frame
+   (`token_dispatcher.py:<line> token_dispatch`) to its class before quoting a line
+   number: the class whose `_preprocess` runs is the branch, and only that branch
+   issues this gather.
+4. **The reporter-confirmed mechanism is a per-rank branch split, not a kernel bug**
+   (2026-07-21): "有某个DP走了alltoallv分支，其余的DP走了MC2，并且是在MTP阶段" — the
+   selection is per rank and per batch (`select_moe_comm_method(num_tokens, …)`,
+   `ascend_forward_context.py:230-280` at `da421af`; A2 row = MC2 iff
+   `num_experts_per_device <= 24` **and** `ep_world_size >= 16` **and**
+   `num_tokens <= mc2_tokens_capacity`). The rank whose MTP/decode batch exceeded
+   capacity left MC2, entered the fallback dispatcher's histogram gather, and the MC2
+   ranks never join it → this timeout, while one rank reports MTE/SMMU. That gather is
+   the `All2AllV` dispatcher's, so the fallback row matters: at v0.12 the A2 fallback
+   was `ALLTOALL`, while at v0.19.1rc1 it is `ALLGATHER`, whose `token_dispatch`
+   (`:329-405` here) uses `npu_moe_init_routing` instead — re-grep the selector before
+   quoting this plog as an All2AllV branch on another ref. Their numbers:
+   `max_num_batched_tokens=272`, `max_cudagraph_size=102`, capacity **104**
+   (`ceil(102/4)*4`, TP4 — the formula and the reporter's number agree), "某个DP的
+   tokens大于104了".
+5. **The ask and the workaround.** Ask `--max-num-batched-tokens`, `--max-num-seqs`,
+   `num_speculative_tokens`, the `--compilation-config` capture sizes and the DP size,
+   then derive capacity (`scripts/mc2-capacity-asymmetry.sh`) and compare it with the
+   largest per-rank batch (`max_num_seqs × (1 + num_spec)` for decode,
+   `max_num_batched_tokens` for an extend/MTP step). Reporter's workaround: set
+   `--max-num-batched-tokens` to `max_num_seqs × 3` (their layout) and keep it a
+   multiple of 32 so the fused-MoE tiling does not reject it — generalised: keep the
+   per-rank batch at or below the capacity derived from `max_cudagraph_capture_size`.
+   That is a configuration fix, not a mitigation of a kernel defect.
+6. **Route.** Capacity/`global_bs` arithmetic and the cross-node symmetry variant:
+   `mc2-dispatch-profile-run-hang.md`; the selector table and the per-batch reading:
+   `../feature-enable-recipes/moe-expert-parallel-with-dp.md` Step 2.
+
+## 0. When the paste stops before the name (the usual screenshot)
+
+A device dump that ends at `PrintCoreInfo` / `[FUNC:ProcessStarsCoreErrorInfo][FILE:
+device_error_core_proc.cc]` — `aivec error`, `errcode:(0x800000, 0, 0) errorStr: The DDR
+address of the MTE instruction is out of range`, `subErrType`, `aic error mask`, one
+`chipId` — with **no** `[DFX_INFO] … fault kernel_name=` line, no `[AIC_INFO]` block and
+no Python frame (the client answers `code: 599` / `EngineCore encountered an issue`, which
+is only the replica having died). Recorded **#3911**: Qwen3-VL-235B-A22B-Instruct, DP2×TP8
++ `--enable-expert-parallel` across 2×A2, vllm-ascend v0.11.0rc0 (`00ba071`), dies at
+request ~146 of an MMMU_Pro_V run.
+
+**Do not read the owner off the text.** `aivec error` + MTE DDR out-of-range is printed by
+every AI-vector-core kernel that faults, CANN built-ins included, so it names a *class*
+(software address computation, not a dead card) and nothing more. Rank by the deployment
+shape, which is computable at the pin:
+
+1. **MoE comm path.** `_get_fused_moe_state(ep_size, with_prefill, …)` with
+   `ep_size = get_ep_group().world_size if enable_expert_parallel else 1`
+   (`vllm_ascend/ascend_forward_context.py:34-50,90-91` at v0.11.0rc0): `ep_size == 1` →
+   `NaiveMulticast` prefill / `AllGather` decode; `< 16 or with_prefill` → `All2All`;
+   else **`MC2`** on decode. #3911's 16 ranks put every decode step on MC2
+   dispatch/combine and every prefill batch on All2All, so MC2 is the first device-op
+   candidate. That ref has **no** MC2 env knob (`rg MC2 vllm_ascend/envs.py` empty), so
+   the one-axis ablation is *topology*: the same model on one node (TP8 + EP, no DP) is
+   `ep_size = 8` and moves decode to All2All. (`moe-comm-path-when-ep-off.md` in
+   `../performance-throughput/` carries the same table for the perf reading; later refs
+   move the selector and add `enable_fused_mc2`, so re-grep before quoting.)
+2. **An HCCL AIV collective — only if the process actually set it.** The reporter's
+   `collect_env` block cannot settle this: `get_env_vars()` prints a hardcoded whitelist
+   plus `TORCH/PYTORCH/ASCEND_/ATB_` prefixes, and their own exported `HCCL_BUFFSIZE` is
+   missing from the paste (`../startup-failures/environment-correspondence.md`). The check
+   is `env | grep -i hccl` on **every** node of the group.
+3. **A long-VL partial-prefill index fault.** When `--max-num-batched-tokens` ≪
+   `--max-model-len` (here 4096 vs 32768) every long multimodal prompt is chunked, so the
+   failing request may be a partially-computed one: precedents #1682 / #1731 (Qwen2.5-VL,
+   V1) failed in `gather_v3_base.h` with the index equal to the prompt length on a request
+   whose `num_computed_tokens` was non-zero (`../custom-ops-runtime-faults/gather-index-out-of-range.md`).
+   Discriminator: the DEBUG `Dumping input data` / `SchedulerOutput(...)` block right after
+   the fault (`num_computed_tokens`, `prompt_token_ids_len`, `mm_positions`), then one
+   rerun with `--max-num-batched-tokens` raised to remove chunking.
+4. **Card / driver last**, and only if the `pc start` values differ across chips (step 5.4).
+
+Also check the launch line against the project's own recipe before blaming it: #3911's
+command is byte-identical to `docs/source/tutorials/multi_node_qwen3vl.md` at that pin
+(DP2, TP8, `--enable-expert-parallel`, 32768, 4096) except `--max-num-seqs 2`,
+`--gpu-memory-utilization 0.75` and an **added** `--enforce-eager` — the validated
+topology sitting on a path-specific defect, not a wrong command. What to send back: the
+`fault kernel_name=` block from the failing rank's plog, `env | grep -i hccl`, and the
+DEBUG scheduler dump of the failing request.
 
 ## 1. Read the owner off the name before any source walk
 

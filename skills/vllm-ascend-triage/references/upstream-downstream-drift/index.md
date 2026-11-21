@@ -62,6 +62,14 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   whose KV groups downstream builds (`AscendHybridKVCacheCoordinator`, compressed/SWA
   specs). The deliverable is the ownership split plus the group/pool flags, not the
   linked-list arithmetic: `kv-block-free-list-assert.md` (recorded #10724);
+- the message is an **`unexpected keyword argument`** at a boundary between an
+  upstream caller and its downstream replacement — `<Ascend…Impl>.__init__()` missing an
+  MLA kwarg (`q_lora_rank`, `kv_lora_rank`, `rotary_emb`), or `rope_forward_oot()`
+  missing a kwarg its own downstream call site passes — or an `AttributeError` on a
+  library attribute name that the paired library never sets (`cos_cached`) raised under
+  `torch._dynamo`/torchair: the contract is the signature, and for the constructor form
+  the *routing* (which backend class was selected, and whether that engine has an MLA
+  impl at all) is the finding — `impl-and-oot-signature-drift.md`;
 - the error is a Python attribute/type/state error (including a `RuntimeError`
   raised by a fork's own state handling), not a device dump, not a collective.
 - or the object named in the `AttributeError` is a **library** type and the missing
@@ -249,6 +257,16 @@ answer is not "downstream drift".
    answers "why only long prompts" (`library-method-typo.md`).
 
 ## Pages
+- `impl-and-oot-signature-drift.md` — `TypeError: AscendAttentionBackendImpl.__init__()
+  got an unexpected keyword argument 'q_lora_rank'` at vllm-ascend `v0.7.3`: the V1
+  branch of `platform.py:167-172` returns the generic backend for *any* model before the
+  `use_mla` branch, that impl declares ten arguments with no `**kwargs`, and the MLA impl
+  exists only in the v0 module — so the verdict is "this release has no MLA backend on
+  the V1 engine" and the release says so itself (`release_notes.md:36`). Plus the
+  `rope_forward_oot(max_seq_len=…)` two-signature check that decides a build-internal
+  inconsistency, the `cos_cached`-under-dynamo owner grep (patch modules and installed
+  accelerator plugins), and the per-row table owed by a report whose rows span
+  releases/images (recorded #965, `0.7.3` verified, `0.8.5post1` outside the snapshot).
 - `library-method-typo.md` — the missing attribute is a **library** method, not an
   Ascend class member: `AttributeError: 'Tensor' object has no attribute
   'mask_fill_'` at `vllm_ascend/attention/attention.py:140` (v0.7.3.post1
@@ -271,6 +289,20 @@ answer is not "downstream drift".
 - `patched-forward-api-drift.md` — worked case vllm-ascend #11661 (v0.22.1rc1,
   DeepSeek-OCR-2): `AscendQwen2DecoderLayer` has no `attention_type`, the
   evidence table, the decisive check, and what the report still leaves open.
+  Re-filed as #11926 on the **same** image and line, so the crash is
+  reproducible there rather than one host's accident; the page also answers the
+  reporter's "the docs say 0.16.0 supports it" with the pinned tutorial's own
+  first-support line, the tutorial-command diff, the missing e2e coverage, and
+  the rule that the repair-form choice ships with the probe instead of costing a
+  turn.
+- `attention-class-from-checkpoint-config.md` — worked case vllm-ascend #881
+  (reported on v0.8.5rc1, snapshot pin v0.7.3): `TypeError: DeepseekV2Attention.forward()
+  got an unexpected keyword argument 'kv_cache'` at the first `profile_run` forward on a
+  self-converted `DeepSeek-V3-0324-w8a8`. The class name in the TypeError is a
+  construction fact — `attn_cls` comes from `model_config.use_mla`, which comes from the
+  **checkpoint's** `model_type`/`kv_lora_rank` — so the one print decides the checkpoint
+  lane before any pairing story; the maintainer's public answer was the modelslim tool
+  and the project's published `vllm-ascend/<model>-W8A8` weight.
 - `stale-module-binding.md` — worked case vllm-ascend #15815 (v0.26.0rc1,
   Qwen3-Coder-30B-A3B TP4): `AttributeError: 'UnquantizedFusedMoEMethod' object
   has no attribute 'is_monolithic'. Did you mean: 'apply_monolithic'?` inside
@@ -340,6 +372,12 @@ answer is not "downstream drift".
   itself: the metadata state the branch refuses (any prefill batch carrying a
   `block_tables` tensor), the V0 defaults that prove a caller enabled it, the multimodal
   auto-disable row, and the "fixes" that cannot work. Recorded #133 (v0.7.1rc1).
+  Its inverse section owns the other direction: a `NotImplementedError … does not
+  support X yet` whose deepest frames are `vllm/**`, reached through a downstream
+  subclass fork (`AscendSpecDecodeBaseProposer(SpecDecodeBaseProposer)`) — read which
+  object each sibling gate inspects (draft config vs target config) before offering a
+  workaround, and treat a pasted symbol that greps to nothing at the pin as a version
+  finding. Recorded #14453 (v0.22.1rc1, M-RoPE draft model).
 - `kv-block-free-list-assert.md` — worked case vllm-ascend #10724 (v0.21.0rc1,
   DeepSeek-V4-Flash-w8a8 MTP PD-mix on 2×A2 910B4 32G, prefix caching + hybrid KV +
   Mooncake pool, ~3 h uptime, 1 of ~10 instances): EngineCore dies at upstream

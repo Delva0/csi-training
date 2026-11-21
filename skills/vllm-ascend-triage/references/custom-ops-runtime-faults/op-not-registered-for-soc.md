@@ -29,12 +29,13 @@ weight-format gate, #4679 →
 (`SOC_VERSION`, `build_aclnn.sh` branches, `ASCEND_CUSTOM_OPP_PATH`, image tags)
 applies to that variant.
 
-Separate the three surfaces before reading any kernel code:
+Separate the four surfaces before reading any kernel code:
 
 | Text in the report | Phase | Owner |
 |---|---|---|
 | `call aclnnX failed` + `AclNN_Runtime_Error` (+ tiling / UB / DDR text, often a device dump or plog) | kernel launch | op kernel, shape-dependent — `add-rms-norm-bias-op-map.md` (recorded #8944) |
 | `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` | aclnn op-registry lookup | this page: build SoC, stale vendor package, wrong image tag |
+| `aclnn<Op> or aclnn<Op>GetWorkspaceSize not in libopapi.so, or libopapi.sonot found.` from a `torch.ops._C_ascend.<op>` call | `op_api` **symbol lookup** (`EXEC_NPU_CMD` dlsym) | neither this page nor the CANN release first: the vendored custom-op package and the `ASCEND_CUSTOM_OPP_PATH` search roots — `opapi-symbol-absent.md` |
 | `undefined symbol`, `op not found`, or *no* custom-op error at all because `import vllm_ascend.vllm_ascend_C` failed | Python import / `enable_custom_op()` fallback | install completeness — **first check the build gate**: at v0.7.3 the official image ships without the extension (`setup.py:296-298` builds it only when `COMPILE_CUSTOM_KERNELS` is set; `platform.py:29-38` warns for any other `ImportError`), so `Failed to register custom ops …` is expected there |
 
 ## The source is not the suspect (checked, do not re-derive)

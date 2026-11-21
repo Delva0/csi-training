@@ -42,7 +42,7 @@ stages cannot divide raises a `reshape` error of its own, it does not silently
 produce a smaller count. At equal geometry the two formulas agree, so a mismatch
 means the two passes **disagreed about geometry or mode**, not that one rounds
 differently. Compute both for the reporter's tile sizes before theorising —
-`bash <skill_root>/scripts/mm-placeholder-count.py --tile 392x392 --mode 16x`
+`uv run --no-project python <skill_root>/scripts/mm-placeholder-count.py --tile 392x392 --mode 16x`
 (and `--mode 4x`, `--placeholders M`, `--features N`), which prints the two counts
 per tile and which side of the reported pair is short.
 
@@ -71,7 +71,7 @@ per tile and which side of the reported pair is short.
    placeholders than the vision path produced (levers 1–3, or one image's features
    missing); `M < N` = the prompt lost placeholders (template/truncation).
    Both numbers are in the paste; say which side is short in the first message.
-2. `bash <skill_root>/scripts/mm-placeholder-count.py --tile <HxW> …` on the
+2. `uv run --no-project python <skill_root>/scripts/mm-placeholder-count.py --tile <HxW> …` on the
    image sizes from the request; compare with the reported `M`/`N`.
 3. One history call: `bash <skill_root>/scripts/history-titles.sh -i
    'multimodal tokens'` (add `-b` only if the titles are not enough).

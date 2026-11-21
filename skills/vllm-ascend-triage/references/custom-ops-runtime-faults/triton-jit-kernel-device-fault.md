@@ -7,7 +7,9 @@ fault kernel_name=<name>_0`, `aivec error`, `The DDR address of the MTE instruct
 is out of range`, `CheckSmmuFault:Get isSmmuFault is 1`, `retCode=0x31, [vector core
 exception]`, `rtEventSynchronize … ErrCode=507035` — and `<name>` is **not** a
 `csrc/` AscendC operator and **not** a CANN `aclnn*` op: it is a `@triton.jit`
-function in a Python tree. The vLLM side of the report is then only
+function in a Python tree. When `<name>` *does* look like a `csrc/` AscendC operator
+(or greps to nothing in either Python tree), Step 1b decides which build produced it
+before anyone blames a plugin. The vLLM side of the report is then only
 `Request <id> failed (engine dead)` plus process teardown.
 
 Two neighbours this page does **not** own: a Triton kernel that fails to *compile*
@@ -37,6 +39,39 @@ name alone**, which also says which worker generation produced the paste:
 
 A name that greps to **nothing** in either tree is a data gap (rule 10), not a
 downstream/upstream claim — say which two trees you searched and at which commits.
+
+## Step 1b — the name looks like a `csrc/` AscendC op: compare the template arguments
+
+An AscendC fault name is the operator plus its template instantiation, so the
+**number and order of the flags in the name** identify the build:
+
+- vllm-ascend `v0.7.3` (`779eebb`) `csrc/kernels/pos_encoding_kernels.cpp:303-343`
+  declares `rope_custom_<NEOX>_<TYPE>` through
+  `ROPE_CUSTOM_KERNEL_TYPE_DECLARE(TYPE, NEOX)` — **one bool** plus the dtype — and
+  instantiates it for `half` and `bfloat16_t`, so that tree's own names are
+  `rope_custom_true_bfloat16_t` / `rope_custom_false_bfloat16_t`.
+- The reported `fault kernel_name=rope_custom_false_false_bfloat16_t_0` carries
+  **two** bools. A different template-argument list cannot be that tree's
+  instantiation: the kernel came from another build of vllm-ascend (a later kernel
+  grew the second flag), from a wheel that ships its own `rope_custom`, or from the
+  CANN op package. Say which candidates remain instead of "resolves to a plugin I
+  cannot see".
+- Reachability decides the owner, and at that ref it points away from vllm-ascend's
+  own kernel: `vllm_ascend/ops/rotary_embedding.py:40-53` and `:56-90` call
+  **`torch_npu._npu_rotary_embedding`**, while the `csrc/` kernel is only bound as
+  `torch.ops._C.rotary_embedding` (`csrc/torch_binding.cpp:32-105`) and needs
+  `COMPILE_CUSTOM_KERNELS=1` at install time (`docs/source/user_guide/release_notes.md:33-35`,
+  v0.7.3rc2 highlights: custom-op compilation "is disabled by default"). An image
+  built with the default therefore has no vllm-ascend `rope_custom` at all.
+- One command in the *reporter's* image settles it, because the instantiation list
+  lives in the binary, not in any source export:
+  `strings $SITE/vllm_ascend/lib*.so $SITE/torch_npu/lib/*.so | grep -o 'rope_custom_[a-z0-9_]*' | sort -u`
+  (add the plugin's `.so`). Nothing in a case export can answer it: at #965 the
+  `Ascend/op-plugin` view is a 107-file partial with no `rotary_embedding` at all.
+- The paste's deepest **Python** frame is usually innocent: #965 dies in
+  `vllm_ascend/sample/sampler.py:123` on `logits_sort.softmax`, reported late by
+  `AclrtSynchronizeStreamWithTimeout(copy_stream)` — a sync point (`SKILL.md` rule
+  11), while the fault kernel named in the same block is the real owner.
 
 ## Step 2 — what the plog does and does not pin
 

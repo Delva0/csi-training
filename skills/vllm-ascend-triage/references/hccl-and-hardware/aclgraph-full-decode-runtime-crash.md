@@ -14,6 +14,14 @@ Sibling lanes: the **hang** variant of the same mode is
 `../startup-failures/acl-graph-capture.md`; a Python frame naming a graph API is
 `../spec-decode-mtp/draft-graph-capture-device-fault.md`.
 
+`Replaying aclgraph` proves only that *some* captured graph replayed. On a
+spec-decode launch read the gate before attributing the fault to that replay: with
+`--async-scheduling` on, `method: mtp` forces the drafter eager
+(`vllm_ascend/spec_decode/eagle_proposer.py:136-142` at v0.18.0rc1), so the lines are
+the **target** model's `FULL_DECODE_ONLY` buckets and the drafter's host-side input
+preparation (padded-batch indices, `_get_positions`) is an equally ranked candidate —
+`../spec-decode-mtp/empty-first-response.md` Step 6b.
+
 ## 1. Parse the code before the mechanism
 
 `507011` is `ACL_ERROR_RT_MODEL_EXECUTE` "model execute failed"
@@ -169,12 +177,32 @@ off, then `--enforce-eager` with `ASCEND_LAUNCH_BLOCKING=1` on one request.
 
 **Recipe diff before any of that.** The pinned tree ships its own validated launch configs per
 model × SoC under `tests/e2e/<tier>/**/configs/`; find the reporter's model there and diff it
-flag by flag — the deltas are the discriminators, and a match is a version verdict:
+flag by flag — the deltas are the discriminators, and a match is *a* verdict, not the end:
+**diff the tutorial the reporter copied against that CI config as well**, because the two can
+disagree and the tutorial side is the one nothing runs (next paragraph).
 
 ```bash
 rg -ln -i 'glm-5|glm5' tests/e2e/*/*/configs/ tests/e2e/*/*/models/ 2>/dev/null
 sed -n '1,60p' tests/e2e/weekly/single_node/configs/GLM-5_1-W8A8_A3_weekly.yaml
 ```
+
+**When the reporter's command matches the tutorial and the tutorial is the deviating side.**
+Verified at vllm-ascend v0.19.1rc1 (`da421af`): the A3 `glm-5-w4a8` block of
+`docs/source/tutorials/models/GLM5.md` ships
+`--additional-config '{"fuse_muls_add": true, "multistream_overlap_shared_expert": true,
+"ascend_compilation_config": {"enable_npugraph_ex": true}}'` together with
+`--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'` and
+`--speculative-config '{"num_speculative_tokens": 3, "method": "deepseek_mtp"}'`, while
+`tests/e2e/nightly/single_node/models/configs/GLM-5.yaml:34` runs the same model on the same
+TP16/EP/MTP-n3/FULL+`npugraph_ex` shape with **`multistream_overlap_shared_expert: false`** (and
+tightens the graph buckets at `:76`, `VLLM_ASCEND_BALANCE_SCHEDULING: "0"` at `:12`,
+`--max-model-len 16384`), wired at `.github/workflows/schedule_nightly_test_a3.yaml:283`. So
+"your command is the documented one" is not a refutation: the documented flag is the path the
+nightly never exercises, and the first rung is to run the CI's value (recorded #9263, #8502 where
+the reporter turned the same flag off and the crash stopped). Check the pairing this way
+whenever the symptom is a graph-mode / shared-expert-stream copy fault — one `rg -n` of the flag
+in `docs/source/tutorials/models/<model>.md` and in `tests/e2e/**/configs/`, and quote both
+line numbers.
 
 Recorded #11680: that file matches the reporter's serve command on every env var
 (`HCCL_OP_EXPANSION_MODE=AIV`, `HCCL_BUFFSIZE=200`, `VLLM_ASCEND_BALANCE_SCHEDULING=1`,
@@ -256,6 +284,34 @@ TP/DP + `--async-scheduling`. Precedent #9816 (A3, DP+EP, w8a8+MTP, `FULL_DECODE
 body in the corpus. The recorded session had all three by its 8th assistant turn and then took
 "one last guard read", ending at the 16 384-token cap with **no answer message** — 51.2 K
 characters of reasoning against 2.8 K of text.
+
+#9263 — image `quay.io/ascend/vllm-ascend:v0.19.1rc1-a3` (`da421af`), GLM-5-w4a8 on one A3
+(16 cards), TP16 + EP, `FULL_DECODE_ONLY` + `deepseek_mtp` n=3 + `enable_npugraph_ex` +
+`multistream_overlap_shared_expert: true` + `--async-scheduling`, 200 K ctx, and **the first
+curl request** kills it. The attached screenshot's OCR is the whole evidence (there is no
+`collect_env` in the report): `torch_npu/npu/streams.py:187 in synchronize` →
+`aclrtSynchronizeEvent(event_)`, `[PID: 755, Device: 8, RankID: -1] … Model execution failed`,
+`EE9999 … Inner error code is 507011`, and ~20 s earlier by the OCR's two stamps
+`EE9999 … rtMemcpy execution failed, reason=the current capture mode does not support this
+operation[LINE:61]` /
+`synchronized memcpy failed, kind = 1` / `rtEventSynchronize … reason=the model stream execute
+failed` / `wait event to be complete failed`. Read it as §2/§7: the Event sync names the model
+stream's death, so the owner is whatever killed that stream, and the `kind = 1` record is the
+first-request replay window. Two things settle it without a source walk — the recipe diff of
+§7 (the reporter's command is the *tutorial's*, and the tutorial is the side with
+`multistream_overlap_shared_expert: true`; the nightly runs `false`, reporter-confirmed fix on
+#8502) and, second, the `--async-scheduling` + spec-decode `Event` readback
+(`worker/model_runner_v1.py:957-968`, `:2387` at that pin). Do not oversell that second row:
+`rg -n 'torch\.npu\.Event\(' vllm_ascend/` returns 13 sites at that pin, among them the
+sampler's `async_exponential_event` (`sample/sampler.py:68`) and
+`model_runner_v1.py:1862 sampling_done_event`, so an `Event.synchronize` frame in the paste
+identifies **no** particular Event — the `--async-scheduling` / `--speculative-config` ablations
+pick the owner, and the frame only says a host wait surfaced the stream's death.
+
+Delivery note on the same run: 21 assistant turns carried a tool call and **no message text**,
+so the ranked answer it finally wrote was cut at the 16 384-token cap inside the "please send
+back" list — the first three ranks and the evidence table survived, the artefacts and scope did
+not (rule 1).
 
 ## 9. A replay-time unpack error is a capture/replay dispatch mismatch, not a model defect
 

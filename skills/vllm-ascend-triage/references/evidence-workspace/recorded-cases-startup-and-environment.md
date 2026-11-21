@@ -1016,3 +1016,49 @@ reporter said they would try and later reported it **unresolved**, having moved
 Qwen3-32B to MindIE on a 310P T18 image. Page (new):
 `../startup-failures/profile-run-logits-gather-eof.md`.
 
+**#11926** vllm-ascend/image `v0.22.1rc1`, DeepSeek-OCR-2 single card, the
+  tutorial's own serve command plus `--async-scheduling`: `profile_run`'s dummy
+  multimodal forward dies at `vllm_ascend/ops/qwen2_decoder.py:233` with
+  `AttributeError: 'AscendQwen2DecoderLayer' object has no attribute
+  'attention_type'` — the second report of #11661's defect on the same image, so
+  the same page answers both (`../upstream-downstream-drift/patched-forward-api-drift.md`).
+  The reporter's own datum is the pinned tree's claim that the model "is first
+  supported in `vllm-ascend:v0.16.0`" (`docs/source/tutorials/models/DeepSeekOCR2.md:7`)
+  while that tree raises, and the pin has no OCR-2 e2e config, so no CI path runs
+  the decoder. Track: downstream drift. The recorded run found the dependency's
+  TRF011 rule by turn 29 and shipped **no answer** (31 turns, ~48 K characters of
+  reasoning, final turn all reasoning with no text); it had spent the earlier
+  turns probing a truncated `transformers` export for a `qwen2/modeling_qwen2.py`
+  that is not there (`src/transformers/models/` holds only `gpt2`).
+
+**#16379** vllm-ascend v0.26.0rc1 (`f2f74a16`) + vllm v0.26.0 (`568afb3a`), one
+Atlas 800 A3 node, `DeepSeek-V4-Flash-0731-w8a8` DP4/TP4/EP with the doc's
+"A3 series with DSpark" recipe: every worker dies in the first `profile_run`
+forward with `RuntimeError: aclnnHcPre or aclnnHcPreGetWorkspaceSize not in
+libopapi.so, or libopapi.sonot found.`, deepest frame
+`vllm_ascend/models/deepseek_v4.py:974` → `torch.ops._C_ascend.npu_hc_pre_v2`.
+Track: the `EXEC_NPU_CMD` dlsym search (`csrc/aclnn_torch_adapter/op_api_common.h:687-700`),
+whose first two roots are the vendored custom-op package and `ASCEND_CUSTOM_OPP_PATH`,
+with the toolkit's `libopapi.so` last. The recorded run ranked "your CANN 9.1.0
+lacks the 910_93 op" first and "A3 is genuinely unsupported" third and never named
+`_cann_ops_custom`/`libcust_opapi.so`, although the pinned tree declares and builds
+`hc_pre` for `ascend910_93` (`csrc/moe/hc_pre/op_host/hc_pre_def.cpp:65-73`,
+`csrc/build_aclnn.sh:173`) — so the vendor table the reporter screenshotted is
+about CANN's fallback copy. Delivery: 14 assistant turns carried no message text
+and the verdict arrived on the last turn, cut inside the action ladder before the
+scope block. Page (new): `../custom-ops-runtime-faults/opapi-symbol-absent.md`.
+
+**#881** reported on vllm-ascend v0.8.5rc1, snapshot pin v0.7.3 (`779eebb8`) +
+vllm v0.7.3 (`ed6e9075`), `DeepSeek-V3-0324-w8a8` TP8 PP2 ray `--enforce-eager`:
+after 34 min of weight loading, `profile_run` raises `TypeError:
+DeepseekV2Attention.forward() got an unexpected keyword argument 'kv_cache'` at
+`vllm_ascend/models/deepseek_v2.py:496`. The recorded run answered "the vllm and
+vllm-ascend halves are not paired" — a plausible rank, but it had noticed in
+reasoning that the class named is the **non-MLA** `DeepseekV2Attention` and did
+not use it: `attn_cls` is chosen from `model_config.use_mla`
+(`vllm_ascend/models/deepseek_v2.py:131-132`), which comes from the checkpoint's
+`model_type`/`kv_lora_rank` (`vllm/config.py:763-767, 998-999`). The maintainer's
+public answer (quoted by the reporter 2025-05-20) was the **modelslim** tool plus
+trying the project's own `vllm-ascend/DeepSeek-R1-W8A8` weight — a checkpoint
+verdict, not a pairing one. Page (new):
+`../upstream-downstream-drift/attention-class-from-checkpoint-config.md`.

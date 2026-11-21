@@ -73,6 +73,27 @@ Inherit the rules in SKILL.md. Conditional routes:
   default `mp` DP backend (`parallel.py:121`) started a sibling engine whose own PACK
   group took the node → `ray-dp-placement-group-npu-exhausted.md` (one read, and no
   `ray start --resources` advice).
+- The paste **ends** on `… [parallel_state.py:<n>] Adjusting world_size=<N> rank=<r> distributed_init_method=tcp://127.0.0.1:<port> for DP` with no traceback, on a serve with `--data-parallel-size` > 1 → `dp-world-rendezvous-stall.md` first: that line is the last statement before the world `init_process_group`
+  (`vllm/distributed/parallel_state.py:871-895` at vllm v0.8.5), so the ranks have not all
+  joined. Compare `PP×TP×DP` (`world_size_across_dp`, `vllm/config.py:1646-1647`, `:1724`)
+  with the cards in the same paste before any HCCL theory — DP=16 on one 8-card node can
+  never rendezvous; the DP engine cores are spawned locally (`core_client.py:849-851`) and
+  each ray worker asks `resources={'NPU': VLLM_RAY_PER_WORKER_GPUS}`
+  (`ray_distributed_executor.py:159,205-221`), so the extras stay pending up to
+  `PG_WAIT_TIMEOUT = 1800` s without printing. Ask `ray status` + per-rank log count, and
+  leave the cause open versus `ray-npu-resource-label.md` only if the paste carries that
+  `ValueError`.
+- A **model family the pinned release only just added** (a hybrid/GDN or otherwise new
+  architecture) hangs or dies at init/load before the first request → read that version's
+  own `docs/source/user_guide/release_notes.md` *Highlights + Known issues* and the model's
+  own tutorial serve line **before** the source walk: they carry the exclusions and the
+  required extra package. At v0.10.2rc1 they say Qwen3-Next support is new and that
+  "expert parallel and MTP feature doesn't work with this release", the tutorial requires
+  Triton Ascend (`../image-dependency-faults/triton-ascend-pair.md`) and launches with
+  `--max-model-len 4096 --gpu-memory-utilization 0.7 --enforce-eager`, while the known issue
+  is HBM usage higher than expected (set `max_model_len`/`gpu_memory_utilization`). A
+  report that runs the tutorial's model but not its flags is a recipe diff first
+  (recorded #3170).
 - Every rank's last line is `Using OOT custom backend for compilation` (nothing
   raised, port refused, HBM resident) → `compile-backend-banner-then-silence.md`
   first: at v0.22.1rc1 that banner is printed **while the model object is built**

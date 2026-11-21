@@ -103,6 +103,16 @@ Conditional routes:
   CPU/AICPU fallback, so the owner is the Python statement (or the un-gated config)
   that launched it, and the dmesg `devmm … should call halMemMap` is downstream of the
   fault → `310p-cpu-fallback-op-fault.md`.
+- A 310P serve that ran fine then dies **under load** with
+  `[Error]: Event resources are insufficient.` / `Event id alloc error …
+  retCode=0x7020019` / `rtEventRecord … no event resource` / `207007`, the Python
+  frame in `_310p/sample/sampler.py` (`q = torch.empty_like(probs).cpu()`) and the
+  op line naming `aclnnInplaceDiv`/`RealDiv`: a device **event-table** refusal, not
+  a memory leak, and the frame is one sync point off the per-step
+  `wait_stream(global_stream())` that requested the event — `--enforce-eager`
+  splits graph-capture reservations from per-step churn, then sample the counter
+  (`aclrtGetEventAvailNum`) → `../hccl-and-hardware/acl-event-resource-exhaustion.md`
+  (#13007).
 - A **penalty parameter** (`presence_penalty` / `repetition_penalty`) is what makes a 310P
   serve fail — "加上 presence_penalty=1.5 一到测试阶段就会崩溃", often with no traceback:
   the branch is printed by the code itself (`Triton not available, falling back to vLLM
@@ -132,6 +142,14 @@ Conditional routes:
   `_310p/fused_moe/experts_selector.py:61`) whose in-tree test discards its own
   `torch.allclose`, so probe it before any config ladder →
   `../accuracy-benchmarks/moe-gating-topk-precision.md` (#10892, reporter-confirmed).
+- The question is a **capability/status one at an older rc** with no log — "does
+  `vllm-ascend:v0.9.1rc1-310p` support 300I Duo + MRoPE, e.g. qwen2.5-vl-7b and
+  qwen2.5-vl-32b?" (#1684): the pin's docs are laid out differently (flat
+  `docs/source/tutorials/`, matrix at `user_guide/supported_models.md` with no
+  hardware column, no `_310p/` package), its three status statements disagree, and
+  the closest VL recipe is `single_npu_multimodal.md`, not the 300I page — answer
+  with those plus the sizing verdict, not with a rope-code walk →
+  `atlas-300i-310p.md`, its "capability question at an old pin" section.
 - A **VL or OCR** checkpoint on 310P **serves and answers garbage** — 乱码,
   "精度有问题", "随便跑个图片识别就能复现", no traceback, while a text model on the
   same box is fine and the report names a sibling VL model that "seems OK" →
@@ -148,7 +166,11 @@ Conditional routes:
 - The op cannot be resolved for the SoC at all (`EZ1001`, `Get regInfo failed`,
   `does not support opType [X] … socVersion [ascend910_93]`) — a build/install
   fault, not a platform path →
-  `../custom-ops-runtime-faults/op-not-registered-for-soc.md`.
+  `../custom-ops-runtime-faults/op-not-registered-for-soc.md`. A sibling wording,
+  `aclnn<Op> or aclnn<Op>GetWorkspaceSize not in libopapi.so`, is **not** a SoC
+  statement either: that macro searches the vendored custom-op package before the
+  toolkit, so read the package and `ASCEND_CUSTOM_OPP_PATH` before the vendor's
+  per-SoC op table → `../custom-ops-runtime-faults/opapi-symbol-absent.md`.
 - A **built-in** aclnn op fails before launch (`EZ9999 … Parse dynamic kernel
   config fail`, `AclOpKernelInit failed opType`, `<Op>AiCore
   ADD_TO_LAUNCHER_LIST_AICORE failed`) on a card the release's docs exclude, often

@@ -179,6 +179,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE`): the *image's* CANN has no kernel
   for this card — check the release's supported-hardware lines, then one
   standalone op probe (`../soc-platform-paths/kernel-package-vs-card.md`).
+  A **`aclnn<Op> or aclnn<Op>GetWorkspaceSize not in libopapi.so`** at a
+  `torch.ops._C_ascend.<op>` call is neither: `EXEC_NPU_CMD` searches the
+  vendored custom-op package and `ASCEND_CUSTOM_OPP_PATH` **before** the toolkit
+  `libopapi.so`, so read `_cann_ops_custom/vendors/*/op_api/lib/libcust_opapi.so`
+  and the import warning first (`../custom-ops-runtime-faults/opapi-symbol-absent.md`).
 - Startup traceback carrying `torch/_subclasses/fake_tensor.py` + `torch/_ops.py`
   frames and ending `NotImplementedError: <ns>::<op>: attempted to run this
   operator with Meta tensors` (`_C::rotary_embedding` at #1895): two greps decide it
@@ -275,7 +280,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `env | grep -i vllm_ascend`, one owner sentence (the merge belongs in
   `AscendPlatform.pre_register_and_update`), and say that `collect_env.py` never
   prints `VLLM_ASCEND_*` so its absence proves nothing
-  (`../observability-and-logs/env-var-validation-warning.md`).
+  (`../observability-and-logs/env-var-validation-warning.md`). One more call decides
+  the advice: names in the pin's *Migration Guide* table (`additional_config.md:6-24`
+  at v0.22.1rc1) are being retired, so answer with their `--additional-config` key
+  (`VLLM_ASCEND_ENABLE_NZ` → `weight_nz_mode`), never with `unset` alone.
 - An endpoint that is missing rather than wrong (`POST /start_profile` →
   `404`, or a 500 `Profiling is not enabled`): a route-registration question
   in the serving process. Name `attach_router` (`path:line`) and its condition,
@@ -394,7 +402,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
 - The body compares **two runs** and gives one number each ("12s vs 4s" between two
   releases, "吞吐高了一倍" against a GPU run, an EvalScope/AISBench table or a
   screenshot of one): run
-  `bash <skill_root>/scripts/benchmark-table-normalize.py --run 'NAME OUT_TOK_S
+  `uv run --no-project python <skill_root>/scripts/benchmark-table-normalize.py --run 'NAME OUT_TOK_S
   WALL_S REQS CONC' --run … --total-tok-s NAME=V --ttft NAME=S --compare A B` before
   any mechanism. It derives the per-request token counts, the decode step
   (`concurrency / output tok/s`), the prefill cost (`TTFT / input tokens`) and names
@@ -412,7 +420,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
 - The evidence is a **profiler table** rather than a metric block or a log — "`<Op>`
   被调用了 98 万次", an `msprof`/MindStudio operator-statistics screenshot, "NPU
   空闲时间 95%", an NPU-vs-GPU operator-count ratio: run
-  `bash <skill_root>/scripts/opcount-reconcile.py --count NAME=N … [--steps N]
+  `uv run --no-project python <skill_root>/scripts/opcount-reconcile.py --count NAME=N … [--steps N]
   [--elapsed-s S --avg-us NAME=US]` first (it prints the one step count every row's
   quotient agrees on, per-step factors, and the total-time reconciliation), ask
   whether the collection itself exited 0 (a `libruntime_v100.so` bug and a window
@@ -645,7 +653,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   env sets + release note), the default-flip note and the reachability check
   (`../code-change-requests/env-flag-retirement.md`, #1262). Do not open
   the op's code path.
-- Community-test / doc-verification task: run the eleven checks of
+- Community-test / doc-verification task: run the twelve checks of
   `../tutorial-verification/tutorial-command-audit.md` in order
   (flag existence at the pinned vllm, bench argument names, image WORKDIR vs
   the doc's relative paths including any `bash <script>.sh` helper, relied-on
@@ -653,7 +661,7 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   release, one precedent pass, package version the doc installs vs the image's
   own pins, support matrix and release notes, `--hf_overrides` architecture
   string vs the checkpoint family, tab-set block vs its own prose and its own
-  `kv_connector`)
+  `kv_connector`, printed sample body vs the pinned response models)
   and write the report file as sections become
   true (`../tutorial-verification/community-test-report.md`). Stop
   auditing after 3-5 tiered defects; never present a doc baseline as a

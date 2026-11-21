@@ -24,6 +24,11 @@ Not this topic, leave immediately:
   `../image-dependency-faults/index.md`.
 - The engine never becomes ready, or a worker raised under a `WorkerProc` prefix
   → `../startup-failures/index.md`.
+- The raise is real, but the request came through a **P/D** deployment and the
+  failing process is the decoder (`kv_consumer`) — prompt-derived outputs cannot be
+  computed on a node that skips the prompt forward (`prompt_logprobs` →
+  `OverflowError: out of range integral type conversion attempted`):
+  `../pd-disaggregation/prompt-side-outputs-on-decode-node.md`.
 - The request carries `guided_*` / `response_format` and vllm-ascend's own
   scheduler raises `RuntimeError: Invalid request status: …` → that is downstream
   fork drift, `../upstream-downstream-drift/scheduler-fork-missing-status.md`, not

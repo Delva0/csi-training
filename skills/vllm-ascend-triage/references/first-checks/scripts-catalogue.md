@@ -16,7 +16,10 @@ after that keeps the header, not this text.
 - A named script **is** the check: run it rather than re-deriving its arithmetic
   by eye or with an ad-hoc snippet (`cheap-checks-by-track.md`).
 - `<skill_root>` is the path `skill_view` reports; every other link on this page
-  is skill-root relative and every script is run from there.
+  is skill-root relative and every script is run from there. Run `scripts/*.sh`
+  with `bash <skill_root>/scripts/<name>.sh` and `scripts/*.py` with
+  `uv run --no-project python <skill_root>/scripts/<name>.py` — never `bash` on a
+  `.py`, and never rely on an executable bit (it is not durable).
 - A script reproduces a calculation or extracts a set of sites. It does not
   decide the cause: quote its output as the check and keep the claim-strength
   label (`SKILL.md` rule 6).
@@ -27,6 +30,16 @@ after that keeps the header, not this text.
 
 ## Entries
 
+- `scripts/logprob-bucket-fit.py --row 'P_LOW,P_HIGH,N,MEAN_ABS' [--row …]
+  [--vocab 152064] [--spread 2.0]` — the cross-platform logprob table in one call
+  (#18755, 910B2C vs an H100×2 golden). Prints each bucket's `mean|Δ log p| / (1-p)`
+  ratio and an implied logit-space delta bracket, then the **flat-ratio verdict**:
+  ratios within `--spread` mean one perturbation scale reproduces every row (quote
+  `mean|Δ log p| ≈ k × (1-p)` as the platform floor and do not rank a per-bucket
+  cause; the `p > 0.99` row is expected to come out *lower*), while a row above the
+  flat line is not roundoff and owes a `top_logprobs: 5` dump at that token. Row =
+  `P_LOW,P_HIGH,N,MEAN_ABS` (two fields accepted). Exit 0; 2 on bad input. Usage and
+  the worked reading: `../accuracy-benchmarks/cross-platform-logprob-parity.md`.
 - `scripts/benchmark-table-normalize.py --run 'NAME OUT_TOK_S WALL_S REQS CONC'
   [--run …] [--total-tok-s NAME=V] [--ttft NAME=SECONDS] [--compare A B]` — the
   two-run ratio in one call (#2833 Ascend-vs-H800 EvalScope screenshots, #14291
@@ -261,7 +274,26 @@ after that keeps the header, not this text.
   `--compilation-config`. It prints `ASYMMETRIC`/`SYMMETRIC` and the next lane;
   that the mismatch *hangs* is a hypothesis (close it with the identical-config
   rerun), and `VLLM_ASCEND_ENABLE_FUSED_MC2` is an A3-only switch
-  (`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` Step 1b).
+  (`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` Step 1b). It also runs
+  the **within-engine** half — the largest per-rank batch (`max_num_seqs ×
+  (1 + num_spec)`, and `--max-num-batched-tokens`) against the same capacity — so a
+  serve whose two commands are identical is not closed too early: some DP ranks can
+  cross capacity in one step and take the fallback MoE method while their peers stay
+  on MC2 (#9887); that section also says when a crossing is *not* a bug.
+- `scripts/hccl-stuck-timeline.sh <log-file> [more files …] | -` — the **silent**
+  whole-service hang (#8975): per file it prints the group's `[Load] comm config`
+  (loaded `bufferSize` in bytes **and** MiB, `execTimeOut`), the
+  `HCCL_BUFFSIZE set by environment|default` line the process really read, the
+  `[BuildRemoteResByTag] newtag[…]` op family, the `status[STUCK]` span, and the
+  `count of currently executed operators` series per rank marked `FROZEN`,
+  `CLIMBING`, or `ONE SAMPLE` (a single line cannot show a freeze — ask for the
+  series); then one cross-file verdict naming the files that froze on the same
+  count in the same second (milliseconds are ignored: the ranks' suffixes differ).
+  A CLIMBING rank is not stuck whatever its STUCK lines say — on the recorded case
+  the prefill node printed STUCK and still climbed 110822 → 4191386 while the two
+  decode nodes froze together on 2706. It reads the
+  paste, not a cause: the mechanism and the MC2 selector arithmetic are
+  `../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md`.
 - `scripts/device-type-check.sh <paste|serve-log|-> | --soc-version N` — which side
   of the device-type assert is the card and which is the wheel (#12141).
 - `scripts/cuda-only-path-audit.sh <vllm-root> [subpath] [vllm-ascend-root]` — the

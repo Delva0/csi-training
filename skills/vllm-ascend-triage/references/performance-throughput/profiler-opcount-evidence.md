@@ -124,7 +124,7 @@ QwQ-32B-W8A8, TP=2, `FULL_DECODE_ONLY`, `--async-scheduling`), vllm **v0.13.0**
 
 ## Procedure (one command, then answer)
 
-1. `bash <skill_root>/scripts/opcount-reconcile.py --count … --steps … --elapsed-s …`
+1. `uv run --no-project python <skill_root>/scripts/opcount-reconcile.py --count … --steps … --elapsed-s …`
    (or `--table <paste>`). Quote its output as the check; keep rule 5's label.
 2. Ask the three collection questions of rule 1 and the two table columns of rule 4
    in the same message.

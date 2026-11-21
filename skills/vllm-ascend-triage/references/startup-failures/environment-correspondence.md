@@ -57,6 +57,52 @@ known-good path — before writing a theory about model code.
    (`setup.py:324-333`, `-DTORCH_NPU_PATH` from `pip show torch-npu`). Route:
    `../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0.
 
+## A self-built vllm beside an rc vllm-ascend is not the release's set
+
+Trigger: the paste's banner or `collect_env` block shows vllm-ascend at an **rc**,
+and the `vllm` line is not the branch that rc installs — `0.7.2.dev`, a
+`+empty`/`+cu`-style local suffix, a self-chosen branch, or a version two releases
+away. Read the pair from the rc's own docs, not from `requirements.txt`:
+`docs/source/conf.py` holds `vllm_version`, and the install page consumes it.
+
+| line | at v0.7.1rc1 |
+|---|---|
+| the pair | `docs/source/conf.py:65` `'vllm_version': 'v0.7.1'` |
+| the recipe | `docs/source/installation.md:120` `git clone --branch v0.7.1 …`; `:149` clones `--branch` the `vllm_version` substitution |
+| what the release itself spells out | `installation.md:141,171` the manual `torch_npu-2.5.1.dev20250218` wheel — the one line a reporter is most likely to match |
+
+**A matching `torch-npu` line excludes nothing.** It is one of three lines, and it
+is the one the install page always prints, so it says the reporter followed the
+pta step — not that the trio is the release's. Recorded **#488** (2025-04, 910B,
+cards 4+5, `deepseek-r1-distill-qwen-32B`, `--tensor-parallel-size 2
+--gpu-memory-utilization 0.8 --max-model-len 20480`, ~100 short requests) pasted
+`vllm: 0.7.2.dev`, `vllm_ascend: 0.7.1rc1`, `torch-npu: 2.5.1.dev20250218`,
+`transformers: 4.49.0`, and said in the same block that it was installed with the
+**older 0.7.2 page's** manual-compile recipe (which is how a `0.7.2.dev` build
+appears beside a `0.7.1rc1` wheel). The recorded answer wrote "版本不匹配：排除" from
+the matching `torch_npu`/`requirements.txt` line and shipped a device-fault
+ranking with the version lane last. The maintainer's reply named the versions —
+"you are using a old version vllm / vllm-ascend / torch_npu" — and asked for vLLM
+Ascend `0.7.3rc2`; the reporter's next comment is the resolution: "i tried latest
+version (vLLM Ascend 0.7.3rc2) and the problem solved."
+
+So when the trio is mixed, or the rc is several releases old, **rung 1-2 of the
+action ladder is the install-and-re-run**: the same installation page, the current
+rc, the whole stack, then the identical request loop. Two reasons it outranks the
+plog here: a snapshot that pins one commit cannot contain a fix that landed after
+it (SKILL.md rule 16's constraint, not only for experimental modes), and the
+reporter can run it in one command. Keep the mechanism answer ranked below the
+upgrade and say which lane would change if the upgrade changes nothing — that is
+what makes the pair a diagnosis instead of a shrug.
+
+Recheck at the pin: `sed -n '60,70p' docs/source/conf.py`,
+`rg -n 'branch v0\.|vllm_version' docs/source/installation.md`. On a modern tree
+the pair and the compatibility row are in
+`docs/source/community/versioning_policy.md` plus the `.github/workflows/pr_test_*.yaml`
+`vllm_version` matrix (step 2 above); the v0.7.x-era tree has no
+`docs/source/community/` directory at all, which is itself the answer to "where is
+the matrix".
+
 ## A `vllm_ascend/**` frame the pin does not contain: vendored file, not a gap
 
 The mirror of the rule above. There the missing file is a **snapshot** limitation

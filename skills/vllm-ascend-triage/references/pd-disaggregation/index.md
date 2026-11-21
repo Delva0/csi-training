@@ -114,6 +114,16 @@ output, or did no request ever reach a decode engine?**
   `chosen_rank_list([…]) does not match num_group_pulls(…) and prefill pp size(1)`
   — the group pull helper is the one pull-count derivation that skips the
   MLA/sparse single-pull rule → `asymmetric-tp-pull-count.md`.
+- The **decode** worker dies on the first request with a bare `IndexError: list index
+  out of range` in `kv_p2p/mooncake_connector.py` `_get_kernel_block_ids`
+  (`meta.remote_block_ids[kv_cache_group_id]`, `_get_kv_split_metadata` above it):
+  the decode side walks its **local** KV-cache groups against the prefiller's list,
+  so a group **count** that differs between the sides — a `--speculative-config`
+  (DSpark/MTP draft) on one side only, or a group-layout flag moved on one side —
+  raises before any byte moves, and the handshake only DEBUG-logs the mismatch. Diff
+  the two `--speculative-config` blocks before any connector read →
+  `kv-group-count-mismatch.md` (reporter-confirmed #16177). A symmetric-TP pull-count
+  assert and a layerwise traceback cut at the same call are the two neighbours.
 - The **decode node** logs `Error in KVCacheTransferThread. error=unhashable
   type: 'list'.` during a loaded P/D deployment and keeps serving: that sentence
   is the recv thread's catch-all, and the traceback it replaces was the real
@@ -129,6 +139,23 @@ output, or did no request ever reach a decode engine?**
   `../image-dependency-faults/launch-env-and-library-path.md` and
   `../startup-failures/connector-config-attributes.md` respectively; no transport
   or rank-table theory applies before the module imports.
+- The **whole deployment** hangs at once after minutes of healthy serving, with no
+  error line anywhere, the API server still listening, `curl` silent and `npu-smi`
+  showing `AICore 0 %` on every chip: neither the proxy nor the KV connector is the
+  suspect, and AICore 0 % does not make it a host stall — a rank blocked inside a
+  multi-node MC2 all-to-all looks identical. Take
+  `../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md` (plog, heartbeat
+  `STUCK`, `count of currently executed operators`) before `py-spy` or a `/metrics`
+  read, and return to this list only if the decode node's own log shows no request
+  arriving at all.
+- The **decoder** dies with `OverflowError: out of range integral type conversion
+  attempted` (host Python, inside the tokenizer) on a request carrying
+  `prompt_logprobs`, or `echo: true`: the decode node never runs the prompt forward,
+  so prompt-derived outputs cannot exist there and the fix is a split — strip the
+  field for the decoder and/or harvest it on the prefiller. The mechanism (upstream's
+  uninitialised `torch.empty(int32)`), the `echo` alias on both endpoints, what the
+  prefiller can return, and the three patch sites in the example proxy →
+  `prompt-side-outputs-on-decode-node.md`.
 
 Inherit the rules in SKILL.md. Rules specific to this topic:
 
@@ -173,6 +200,13 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
 
 ## Pages
 
+- `prompt-side-outputs-on-decode-node.md` — the decoder dies with `OverflowError: out
+  of range integral type conversion attempted` on a request carrying `prompt_logprobs`
+  (or `echo: true`): the node that skips the prompt forward cannot produce
+  prompt-derived outputs, so the deliverable is a split. Upstream's
+  `torch.empty(int32)` mechanism with its `path:line`, the `echo`→logprobs alias on
+  both endpoints, the prefiller-harvest check in one curl, and the three sites in the
+  example proxy that has no handling at all (recorded #13363).
 - `proxy-endpoint-vs-api-server-count.md` — the deployment runs and the *requests* do
   not arrive: "D 实例未接收到请求" / `proxy通信超时` with P-side `Force freed expired
   request … (480 seconds)` lines. Why that line is a prefiller-only bookkeeping record
@@ -246,6 +280,16 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   `_is_hma_required` true (and why turning Eagle3 off is not predicted to help),
   and why the assertion is load-bearing. Verified at vllm-ascend v0.22.1rc1
   `5f6faa0cb883` / vllm v0.22.1 `0decac0d96c4` (#11877).
+- `kv-group-count-mismatch.md` — the **decode** worker dies on the first request with
+  `IndexError: list index out of range` at
+  `mooncake_connector.py:2740` `meta.remote_block_ids[kv_cache_group_id]`: the two
+  lists that must agree (local `_build_kv_group2layeridx` vs the prefiller's
+  `remote_block_ids`, built at `:1989-1993` and shipped in `kv_transfer_params`), why
+  only local>remote raises, why a drafter on one side adds a group, the tutorial line
+  that states the rule (Kimi-K3 §5.2 / FAQ `:886`), the DEBUG-only handshake report
+  that hides it, the ranked causes (spec asymmetry, draft-config geometry, HMA parity,
+  peer image skew) and the four-row ladder. Reporter-confirmed #16177 at v0.26.0rc1
+  `f2f74a16`.
 - `layerwise-split-metadata-crash.md` — the **producer's** `start_load_kv` dies in the
   layerwise connector and the paste stops at the call line: how `:1627` (full
   attention) differs from the MambaSpec sibling `:1623-1625`, the nine throw sites with

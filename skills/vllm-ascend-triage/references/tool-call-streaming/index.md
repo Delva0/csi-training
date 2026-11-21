@@ -33,6 +33,15 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   `--tool-call-parser glm47`, MTP n=3, `--async-scheduling`). That is the
   bookkeeping family's extreme form, not a lost tail and not the type gate:
   `suffix-only-arguments.md`.
+- **the call is assembled and the client rejects it anyway** — Claude Code
+  `invalid tool parameters`, a plugin's type-validation error, no JSON syntax
+  error anywhere. Nothing is truncated and the audit can say `balanced`: the
+  string is valid JSON that disagrees with the client's own tool schema (a value
+  of the wrong type, a `null` where a string was declared, the model's own quotes
+  kept, a required key missing, or the same arguments emitted twice under one
+  `index`). The split is `stream: false` plus a field-by-field comparison against
+  the client's schema, not another look at the delta arithmetic —
+  `client-schema-invalid-arguments.md` (#9076, MiniMax-M2.7 + `minimax_m2`).
 - **no call at all**: `tool_calls` empty or missing with `finish_reason: "stop"`
   and ordinary prose in `content`, often conditional on non-thinking mode or
   "概率性" ("tool call empty", #12658 DeepSeek-V4-Flash-w8a8-mtp,
@@ -96,7 +105,10 @@ parser puts you back on rule 1.
    `quote-gap` = balanced braces with an odd quote count, `tail-lost`,
    `malformed` — so its verdict no longer has to be overridden by hand). Its
    outcomes have different owners:
-   parses as JSON → the client's accumulation/framing; missing tail
+   parses as JSON → *not* a closed case: it clears the string lanes, and then a
+   client that validates types/keys is still on the table
+   (`client-schema-invalid-arguments.md`), otherwise the client's
+   accumulation/framing; missing tail
    (unbalanced `{`/`"` at the end, `finish_reason` still `tool_calls`) → the
    stream stopped short; **`head-lost`: more closing than opening braces, so the
    assembly starts inside the object** (`"}` for a complete
@@ -247,6 +259,14 @@ parser puts you back on rule 1.
   `--tool-call-parser` registration witness that dates the export against the
   runtime, the four reporter-side checks, and the #7682 case (reporter-confirmed
   A/B; the recorded run shipped no answer).
+- `client-schema-invalid-arguments.md` — the *valid but schema-invalid* shape
+  (`invalid tool parameters`): why the audit's `balanced` does not close it, the
+  three artefacts and the six-row field comparison table, the four
+  `minimax_m2_tool_parser.py` conversion sites at vllm v0.18.0 (`:163` null
+  coercion before the type check, `:170-183` type priority, `:190` string
+  passthrough, `:209-219` `json.loads`), the untested multi-block streaming reset
+  (`:414-421`), the two registered parser names and why a name mismatch is a
+  *different* shape, and the one sentence that retires the deployment lane.
 - `mtp-block-verify-acceptance.md` — what the `max_spec_len >= 3` branch does
   (cumulative-product acceptance over the whole draft block, recovered token,
   bonus token), which requests it cannot touch (greedy rows), why a wrongly

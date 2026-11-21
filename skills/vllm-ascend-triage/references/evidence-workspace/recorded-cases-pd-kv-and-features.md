@@ -232,3 +232,21 @@ enumerated the throw sites and found the `build_connector_meta` DEBUG line that 
 `chunk_finish`/`to_trans_idx` arithmetic and shipped one **509-character** status note, no ranked answer. Page:
 `../pd-disaggregation/layerwise-split-metadata-crash.md` (new — a cut traceback is answered by the throw-site
 inventory plus the DEBUG ask, not by a mechanism).
+
+**#13363** — vllm-ascend v0.23.0rc1 (`f4a08bd`) + vllm v0.23.0 (`0fc695f`), the
+disaggregated example proxy with `MooncakeConnectorV1` kv_producer/kv_consumer: a
+**non-streaming** request carrying `prompt_logprobs` kills the decoder with
+`OverflowError: out of range integral type conversion attempted`. The report itself named the
+upstream mechanism and asked for the vllm-ascend-side mitigation (harvest on the prefiller).
+The recorded run confirmed it line by line (`gpu_model_runner.py:5441-5459`, `outputs.py:94-113`
+`torch.empty(…, dtype=torch.int32)`, `engine/logprobs.py:147` → `convert_ids_list_to_tokens`)
+and answered *real, upstream's, and the mitigation is not in the snapshot* — `rg
+'prompt_logprobs|echo'` on `load_balance_proxy_server_example.py` returns nothing — then gave
+the three patch sites, the `echo`→`prompt_logprobs` alias on **both** endpoints
+(`chat_completion/protocol.py:577-579`, `completion/protocol.py:275-277`), `prompt_text` being
+chat-only at that pin, and the one-curl check that decides harvest-vs-no-mitigation. Two
+corrections to keep: the detokenize helper is `vllm/tokenizers/detokenizer_utils.py:83,98`
+(the run cited the nonexistent `vllm/v1/tokenizers/…:100`), and a strip must cover `echo`.
+Delivery: it completed with the verdict text present from turn 3 and the ranked answer at the
+end, but spent ~520 K cumulative prompt tokens re-reading trees whose anchors the page now
+carries. Page: `../pd-disaggregation/prompt-side-outputs-on-decode-node.md` (new).

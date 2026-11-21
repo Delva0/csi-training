@@ -10,6 +10,25 @@ and embedding outputs. Routes: `../accuracy-benchmarks/index.md`,
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#15939** vllm-ascend v0.26.0rc1 (`f2f74a16`) pinned, reporter on the same rc,
+DeepSeek-V4-Flash-073-w4a8 on A2 1P1D (P: TP4/DP1, spec commented out; D: TP1/DP4,
+`--speculative-config {"method": "dspark", "num_speculative_tokens": 7}` plus
+`rejection_sampler_config {enable_block_verify, enable_entropy_verify,
+posterior_threshold 0.8}`), one node running P + D + `load_balance_proxy_server_example`:
+"精度失真" and "TTOT 速度过快", prefix caching on/off changing the frequency, all five
+uploaded logs failed so only the launch scripts were available. The recorded run
+delivered a ranked answer from the code and docs: sampler config first (documented
+"reduced sampling precision", `additional_config.md:163-171`, #7807 as the block-verify
+precedent) and the P/D `num_speculative_tokens` parity second
+(`DeepSeek-V4-Flash.md:1076`). The reporter's later "verification" request/response pair
+(made public afterwards) is `max_tokens: 128`, `content: null`, `finish_reason:
+"length"`, `completion_tokens: 128`, and its `reasoning` works an unrelated
+∀-formalisation prompt — so the sample shows a budget truncation and a
+request↔response pairing question, and neither was in the deliverable. What it cost:
+the ranking was built without first asking for one raw body with the `id` that matches
+the request — `../accuracy-benchmarks/short-prompt-corruption.md` ("Grade the symptom
+first").
+
 **#14884** vllm-ascend `v0.18.0rc1` image, Qwen3-VL-30B-A3B, TP4 +
 `--enable-expert-parallel`, `--enforce-eager`, `--no-enable-prefix-caching`,
 `temperature: 0`, `max-num-seqs 32` / `max-num-batched-tokens 16384`, and the

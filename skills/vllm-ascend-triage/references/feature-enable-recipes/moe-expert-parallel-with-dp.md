@@ -103,6 +103,24 @@ Consequences to state in the answer:
   `ALLGATHER`/`ALLTOALL` in prefill. A traceback inside ACL-graph capture is
   therefore an MC2-path traceback even when the prefill run of the same process is
   on `ALLGATHER`.
+- **The choice is per rank too, so one step can mix two methods and hang.** The
+  `num_tokens` in the predicate is that rank's own batch, so a DP rank whose
+  MTP/decode batch grows past `capacity` takes the fallback dispatcher while its
+  peers stay on MC2; the fallback branch's own collective — the `int32` all-gather
+  of the per-expert token histogram over `ep_group` in `_preprocess` — then has no
+  matching peer and times out. Recorded **#9887** (GLM-5.1-w8a8, decode DP8×TP4,
+  reporter-confirmed 2026-07-21): `--max-num-batched-tokens 272` against capacity
+  **104** derived from `max_cudagraph_size=102` at TP4 (`ceil(102/4)*4`), "某个DP走了
+  alltoallv分支，其余的DP走了MC2，…是在MTP阶段". Their fix: `--max-num-batched-tokens =
+  max_num_seqs × 3` and a multiple of 32 — generally, keep the largest per-rank batch
+  (`max_num_seqs × (1 + num_spec)` for a decode step) at or below `capacity` so every
+  rank selects the same method. The lever is uniformity, not avoidance: raising the
+  capture sizes or lowering `--max-num-batched-tokens` moves the boundary, it does not
+  take decode off MC2 — so this is a configuration asymmetry, not a kernel defect, and
+  a step in which *every* rank is above capacity (an ordinary extend step) is not a
+  bug. Symptom side and the plog signature:
+  `../hccl-and-hardware/aiv-collective-kernel-fault.md` § "The other retCode";
+  arithmetic in `scripts/mc2-capacity-asymmetry.sh`.
 - `capacity >= tp_size` always, and decode batches are at most
   `max_num_seqs × uniform_decode_query_len`. On A2 at world ≥ 16 with EP on there
   is **no flag that keeps decode off MC2** — do not send the reporter hunting for

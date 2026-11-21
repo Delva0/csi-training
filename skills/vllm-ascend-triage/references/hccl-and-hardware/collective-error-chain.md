@@ -22,6 +22,46 @@ inside the vision encoder, while under blocking mode the same failure landed in
 an artifact of the sync point. (Both file/line references come from the
 reporter's logs against the installed vllm-ascend v0.17.0rc1.)
 
+## Step 1a — the mirror direction: a host→device copy inside a TP `gather` emulation
+
+The sync point is not always a readback. HCCL has no `gather`, so torch_npu
+emulates it: `_gather` broadcasts the per-rank object sizes first, and
+`dist.broadcast_object_list` → `_object_to_tensor` builds
+`torch.ByteTensor(byte_storage).to(device)` — an **H2D** copy that synchronizes the
+stream and therefore reports whatever device op died earlier in the same step.
+Recorded **#488** (vllm-ascend `v0.7.1rc1` `f17417f2d5b5`, 910B, dense
+`deepseek-r1-distill-qwen-32B`, TP2, ~40-50 short requests in):
+
+```text
+…/torch_npu/distributed/distributed_c10d.py:114 in _gather
+    dist.broadcast_object_list(recv_size_list, dst, group)
+…/torch/distributed/distributed_c10d.py:2627 in _object_to_tensor
+    byte_tensor = torch.ByteTensor(byte_storage).to(device)
+RuntimeError: ACL stream synchronize failed, error code:507035
+```
+
+- The code is not about the copy and not about the gather: `507035` is
+  `ACL_ERROR_RT_VECTOR_CORE_EXCEPTION` — `// vector core exception`
+  (`Ascend/pytorch` `third_party/acl/inc/acl/error_codes/rt_error_codes.h:94`;
+  `{507035, "The vector core execution is abnormal."}` at
+  `torch_npu/csrc/core/npu/NPUErrorCodes.h:356`). The emitter is
+  the copy kernel's `AclrtSynchronizeStreamWithTimeout`
+  (`torch_npu/csrc/aten/common/CopyKernel.cpp`), i.e. the reporting point.
+- So the owner is an op the step enqueued before the gather — for a V0 decode step
+  the ops `compute_logits` launched just before it (`lm_head`, the logits
+  processor's slice/copy) — and only the plog names it:
+  `[DFX_INFO]Aicore kernel execute failed, device_id=…, fault kernel_name=…`,
+  `PreCheckTaskErr … [vector core exception]`, `chipId`. Do not rank the gather
+  path, the communicator or the HCCL config from this traceback.
+- Different from Step 1's readback row: there the Python statement needed a scalar
+  and so is the owner; here the Python statement handed an object to a collective.
+  The startup sibling of the same emulation is `EOFError: Ran out of input` at
+  `profile_run` — `../startup-failures/profile-run-logits-gather-eof.md`.
+- `--enforce-eager` is only an ablation if the release has a graph mode at all: at
+  v0.7.1rc1 `rg -n 'aclgraph|cudagraph|torchair' vllm_ascend/` returns one comment
+  (`attention.py`), so the flag removes nothing — say that instead of offering it.
+  Check the same for the reporter's rc before quoting the graph ladder.
+
 ## Step 1b — the sync point can be a compile-phase sample kernel
 
 The sync point does not have to touch model data. While `torch.compile` runs,

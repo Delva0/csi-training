@@ -162,13 +162,28 @@ just the default, it is not an anomaly": the value selects the padded + graph dr
 path, and the same line shows `"enforce_eager": true` in the spec config turns that
 path off while leaving the target model's `FULL_DECODE_ONLY` graphs on.
 
+**The `--async-scheduling` half of that gate voids a reporter's own graph A/B.**
+`use_cuda_graph` is ANDed with `not self.use_async_scheduling`, so a `method: mtp`
+launch carrying `--async-scheduling` never captures the drafter *at all*, whatever
+`enforce_eager` says. A report that states "we ran `enforce_eager` true and false
+inside `--speculative-config`, both crash, so the drafter's graph is not the cause"
+therefore ran the same code path twice (#8091: `--async-scheduling` next to
+`{"method": "qwen3_5_mtp", "num_speculative_tokens": 3, "enforce_eager": true}` at
+this pin). One `rg -n 'async-scheduling'` over both serve commands decides whether to
+believe the claim; say plainly that the axis is still untested and hand back
+`--async-scheduling` **removed** as the row that reaches the draft graph. Two
+corollaries: the `Replaying aclgraph` lines in the paste come from the **target**
+model's `FULL_DECODE_ONLY` buckets and prove nothing about the drafter, and a "P node
+runs fine with `--enforce-eager`" control changes role, graph mode and possibly MTP at
+once, so it is not a control either (SKILL.md rule 15).
+
 ## Step 7 — ablation rows
 
 | Row | Change | What it proves |
 |---|---|---|
 | 1 | warm-up request at start, then the real one | order/warm-up class; also the mitigation to hand back |
 | 2 | delete `--speculative-config` (MTP off) | whether the MTP draft/verify path owns the first decode (`acceptance-collapse.md`) |
-| 3 | `"enforce_eager": true` **inside** `--speculative-config` | draft/MTP proposer eager while the target keeps its graphs (`eagle_proposer.py:136`) — the row that separates the two graph paths, and the sibling tutorial's own setting |
+| 3 | `"enforce_eager": true` **inside** `--speculative-config` | draft/MTP proposer eager while the target keeps its graphs (`eagle_proposer.py:136`) — the row that separates the two graph paths, and the sibling tutorial's own setting. **Void if the launch has `--async-scheduling`** (Step 6b): both values then leave the drafter eager, so the row only closes the axis once async scheduling is off |
 | 4 | `"disable_padded_drafter_batch": true` (with `method: mtp`) | same effect reached through the padded-drafter gate (`:137-142`), so padded drafter batches are split from "graph replay" |
 | 5 | `--enforce-eager` (target and draft) | both graph paths off; run it only after rows 3-4 |
 | 6 | `--no-enable-prefix-caching`, then `--max-num-seqs 1` | hybrid `mamba_block_size` geometry, and single-request isolation |

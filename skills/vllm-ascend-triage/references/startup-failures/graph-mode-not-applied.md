@@ -82,6 +82,15 @@ and classify it as a config-normalisation raise before weight load — one grep 
 `platform.py` settles it (verified at v0.26.0rc1 `f2f74a16`, recorded #16268, answered
 in 19 turns from the gate alone).
 
+**Ref-scope that gate before using it.** At vllm-ascend **v0.9.2rc1** (`b5b7e0ec`)
+there is no such refusal: `rg -n ASCEND_LAUNCH_BLOCKING vllm_ascend/` finds only
+`examples/run_dp_attention_etp16.sh`, and `check_ascend_config`
+(`ascend_config.py:126`) has no blocking term - so a 0.9.x report with the env set
+starts graph mode normally and fails *later* with a bare `RunOpApiV2 ...
+AclrtSynchronizeStreamWithTimeout(stream), error code is 107027`
+(`captured-stream-host-sync.md` section 6, recorded #2138). Same paste on a
+0.14+/0.26 ref is this gate; on 0.9.x it is not.
+
 The complement of this page: when the success line **is** there and capture
 finished on every rank, the mode took effect and the request path is the question —
 `../hccl-and-hardware/aclgraph-full-decode-runtime-hang.md` (recorded #4178).

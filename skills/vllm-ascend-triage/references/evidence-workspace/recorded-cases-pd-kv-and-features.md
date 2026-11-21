@@ -216,3 +216,19 @@ of reasoning deriving the free-list invariant from the paste, **100 characters**
 message text, cut inside a block that began "Let me step back and decide: budget." Pages:
 `../upstream-downstream-drift/kv-block-free-list-assert.md` (new — it carries the stop rule
 and the four per-trigger ablations).
+
+**#15394** — image `v0.23.0-a3`, Atlas 800I A3 双机 PD over RoCE, Qwen3.5-122B-A10B-w8a8-mtp, P and D both
+TP16/DP1 (`--enable-expert-parallel`, `--enforce-eager` on P, `FULL_DECODE_ONLY` + `recompute_scheduler_enable`
+on D, `--no-disable-hybrid-kv-cache-manager` both), `MooncakeLayerwiseConnector` with
+`use_layerwise: false`: AISbench 20 k-in/1 k-out, 4 concurrency fine, at 5 concurrency in round 2 one P worker
+(`Worker_TP11_EP11`) dies inside `kv_connector.start_load_kv` — `mooncake_layerwise_connector.py:769` →
+`:1627` `single_group_transfer_mappings = self._get_kv_split_metada` — and the paste stops there, with no
+exception class and D serving normally. Symmetric TP16 and 20 k prompts under `--max-num-batched-tokens 4096`
+on P (128 on D) mean chunked prefill, and Qwen3.5 with the hybrid KV manager makes `need_truncate` true, so
+the producer truncates by one token while D trims its remote block ids. Delivery: the recorded run pinned the
+version, matched `:1627` to the *non-Mamba* `_get_kv_split_metadata` call (the MambaSpec sibling is `:1623-1625`),
+enumerated the throw sites and found the `build_connector_meta` DEBUG line that prints exactly
+`local_block_ids`/`remote_block_ids`/`chunk_finish` — then spent the rest of the budget deriving
+`chunk_finish`/`to_trans_idx` arithmetic and shipped one **509-character** status note, no ranked answer. Page:
+`../pd-disaggregation/layerwise-split-metadata-crash.md` (new — a cut traceback is answered by the throw-site
+inventory plus the DEBUG ask, not by a mechanism).

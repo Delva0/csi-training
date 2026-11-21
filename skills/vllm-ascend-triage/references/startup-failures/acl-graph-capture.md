@@ -51,11 +51,20 @@ log gave no hint".
   `ERR00100 PTA call acl api failed` — is a host readback issued while capture was
   active, not a device fault: `captured-stream-host-sync.md`.
 
+  The gate is `copy_stream` **plus** the CANN sentence: a bare
+  `AclrtSynchronizeStreamWithTimeout(stream), error code is 107027` out of
+  `RunOpApiV2` with no `Not allow to synchronize captured-stream` line is a
+  different lane, where the reporter-confirmed lever at v0.9.2rc1 was to **set**
+  `ASCEND_LAUNCH_BLOCKING=1` - `captured-stream-host-sync.md` section 6.
+
 Capture-mode copy family: `MemCopySync:Memory copy sync failed` +
 `rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this
 operation]` with `kind = 1` and a small `cnt` (72/456 bytes at #9183) is the
 signature of a blocking host→device copy issued while a stream is being captured
-or replayed. Recorded family: #6002 (v0.11.0, DS-V3.1-w8a8, `deepseek_mtp` +
+or replayed. **The `kind` field is the cheapest split**: `kind = 1` is the load
+side (host→device), `kind = 2` is a device→host **readback** — `.to("cpu")`,
+`.item()` — and on 310P that is the fallback splitfuse mask under MTP +
+`FULL_DECODE_ONLY` (`../soc-platform-paths/310p-mtp-graph-splitfuse-mask.md`). Recorded family: #6002 (v0.11.0, DS-V3.1-w8a8, `deepseek_mtp` +
 `FULL_DECODE_ONLY`), #4208 (also `107033 AclmdlRICaptureTaskUpdateEnd`), #8502
 (reporter-confirmed: `multistream_overlap_shared_expert: true` and serving fails,
 "关闭多流后正常"), #10700 (v0.21.0rc1 and v0.22.1rc1, GLM-5.1 on 2×A2, DP2×TP8,

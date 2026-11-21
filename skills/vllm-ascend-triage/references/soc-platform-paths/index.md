@@ -115,6 +115,15 @@ Conditional routes:
   checkpoint artifact decides (310-suffixed conversion vs the generic `-w8a8`),
   and the 310P `W8A8_DYNAMIC` scheme is the one path that forwards the model's
   fp16 bias → `310p-quant-checkpoint-soc-match.md` (three checks, no engine walk).
+- A 310P W8A8 model dies **inside an int8 matmul kernel at start-up** — device DFX
+  `QuantBatchMatmulV3_NZ_NZ_int8_int8_fp16_high_performance_*` + `runtime error: 507015` +
+  `L0C read/write conflict` during `determine_available_memory -> profile_run`, on a
+  `W8A8_DYNAMIC` checkpoint, while the Python frame moves (`aclnnDynamicQuantV2`,
+  `aclnnRmsNorm`): the image's CANN/op-binary package and the 310P runner generation are
+  the only two variables, and `VLLM_USE_V2_MODEL_RUNNER` is version-gated (no
+  `NPUModelRunner310V2` before v0.23.0rc1) — the reporter's retest passed on a later
+  `-310p` nightly with the V2 runner, with CANN and runner both changed →
+  `310p-int8-matmul-startup-fault-and-runner-v2.md`.
 - A **MoE** (A3B) checkpoint on 310P **serves and answers wrong but fluent text** —
   mixed-language CoT, self-contradiction, a final JSON that breaks the prompt's own rule,
   normal tokens/s and `finish_reason: stop`, no 乱码 and no repetition. That is not the
@@ -176,6 +185,13 @@ Conditional routes:
   镜像吗?", and #NNNN is usually a future issue this snapshot cannot resolve. Then
   `../startup-failures/model-type-not-recognized.md` for the recognition-error form, and the
   status lines in `atlas-300i-310p.md` (its v0.18.0 block).
+- 310P engine start on `--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'` **with MTP**
+  dies inside `Capturing CUDA graphs (decode, FULL)` with `aclrtMemcpy, error code is 107030`
+  (+ `ERR00100`, the canned `EE1006 … Upgrade the CANN software version` block) at
+  `_310p/attention/attention_mask.py:90 get_splitfuse_mask`, while the same launch in eager mode
+  works: the fallback mask does a host readback inside capture and the capture-safe branch is gated
+  on two torch_npu `_npu_*` bindings, so no CANN/toolkit upgrade moves it →
+  `310p-mtp-graph-splitfuse-mask.md` (one `hasattr` line decides it).
 - A **hybrid linear-attention** family (Qwen3.5/3.6-class GDN) fails on a `-310p` image at the
   first decode step with `AttributeError: 'TritonPlaceholder' object has no attribute 'cdiv'`
   (or `next_power_of_2`) → the image's own "does not support triton" rule meets a decode path

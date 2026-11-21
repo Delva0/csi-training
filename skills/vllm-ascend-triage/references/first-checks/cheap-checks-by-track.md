@@ -362,10 +362,21 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   'Set PYTORCH_NPU_ALLOC_CONF' <serve log>`, then relaunch with an explicit
   `expandable_segments:False`
   (`../runtime-memory/allocator-expandable-segments-unmap-crash.md`).
-- Runtime memory after a healthy period: take the two-sample split (capacity
-  vs growth) and `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>` first, and
-  check `additional_config` key liveness (`rg -n '<key>' vllm_ascend/`) before
-  any leak theory (`../runtime-memory/hbm-growth-and-oom.md`).
+- Runtime memory after a healthy period, or any "memory leak / 内存持续增长"
+  title: `rg -n -i 'leak' <pin>/docs/source/user_guide/release_notes.md` (at
+  v0.13.0rc1 `:197` is the tree's own "memory may be leaked … a bug from
+  torch-npu") and read `torch_npu==` in the env dump **first** — `2.8.0` leaks and
+  `2.8.0.post1`/`.post2` + a vllm-ascend rebuild is the fix that ends the report
+  (reporter-confirmed #6299; the ref's own `requirements.txt:31` pins it, and
+  `--no-enable-prefix-cache` does not help)
+  (`../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0). Then take the
+  two-sample split (capacity vs growth) and
+  `grep -m1 'Set PYTORCH_NPU_ALLOC_CONF' <serve log>`, and check
+  `additional_config` key liveness before any leak theory: grep the whole repo,
+  not `vllm_ascend/` alone — a key that survives **only** in `tests/` (`e2e` launch
+  lines, a MagicMock'd UT attribute) is the project's own leftover, not a live
+  knob, and a key with no hit anywhere is a typo
+  (`../runtime-memory/hbm-growth-and-oom.md`, `../runtime-memory/index.md` rule 5).
 - Throughput that falls in **one step** at a concurrency number (256 running
   requests fine, 258 collapsed; `Waiting` 0, KV under 90 %, no error text, NPUs
   idle and host cores busy): run
@@ -380,6 +391,24 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   against their own below-cliff N
   (`../performance-throughput/sequence-count-cliff-capture-size.md`,
   #14440).
+- The body compares **two runs** and gives one number each ("12s vs 4s" between two
+  releases, "吞吐高了一倍" against a GPU run, an EvalScope/AISBench table or a
+  screenshot of one): run
+  `bash <skill_root>/scripts/benchmark-table-normalize.py --run 'NAME OUT_TOK_S
+  WALL_S REQS CONC' --run … --total-tok-s NAME=V --ttft NAME=S --compare A B` before
+  any mechanism. It derives the per-request token counts, the decode step
+  (`concurrency / output tok/s`), the prefill cost (`TTFT / input tokens`) and names
+  the axis that moved — quote those instead of the table's own averages, which a
+  screenshot OCR transposes (#2833: `4094/100` came through as `4994/199`). A
+  same-command, two-release ratio also divides out the output token count and, on a
+  spec-decode decode side, `Mean acceptance length`
+  (`../performance-throughput/cross-run-ratio-normalization.md`, #2833, #14291).
+- A DP×TP **MoE** serve reports low throughput while its own command omits
+  `--enable-expert-parallel` (or has it on one node only, often because "开 EP 会胡言乱语"):
+  read the selector once — `ep_size` is the EP group's world size when enabled and `1`
+  otherwise, and `1` means every MoE layer all-gathers instead of MC2 — before any
+  tuning; graph mode and spec decode may not exist for the family at that ref either
+  (`../performance-throughput/moe-comm-path-when-ep-off.md`, #2833).
 - The evidence is a **profiler table** rather than a metric block or a log — "`<Op>`
   被调用了 98 万次", an `msprof`/MindStudio operator-statistics screenshot, "NPU
   空闲时间 95%", an NPU-vs-GPU operator-count ratio: run
@@ -541,8 +570,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
 - A **long-run hang** in a multi-node or co-located deployment: `hccl fftsplus
   task timeout ... stuck notify num:1, timeout=<N>s` plus
   `[TaskExecStage][HeartbeatAbnormal] ... Heartbeat Lost Occurred`. Subtract
-  before ordering: stall start = report time − `<N>` (the default
-  `HCCL_EXEC_TIMEOUT` is 1800 s), and check the last `200 OK` of that instance
+  before ordering: stall start = report time − `<N>` (read `<N>` off the line: at
+  v0.23.0 the armed default is `1836 s = 27*68`, not the `1800 s` of the stale
+  `error_code.cc` text, and a reporter-set `HCCL_EXEC_TIMEOUT` appears verbatim),
+  and check the last `200 OK` of that instance
   against it; the heartbeat lines arrive ~5 min later and the `[shutdown] MPClient`
   / `ApiServer ... died` lines are teardown, not the cause
   (`../hccl-and-hardware/error-report-timestamps.md`, #16652).

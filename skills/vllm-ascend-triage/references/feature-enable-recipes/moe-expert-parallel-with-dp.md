@@ -6,7 +6,12 @@ Scope: the reporter wants `--enable-expert-parallel` **and** `--data-parallel-si
 `moe_comm_type = ALLGATHER`" — with or without an engine-init failure pasted. The
 deliverable is the selection table for the reported SoC, which lane *their* world
 size actually lands in, and the two ablations that separate "MC2 finalize" from
-"DP wiring". Not this topic: a bare `TimeoutError` with only
+"DP wiring". A **throughput** complaint in which EP was dropped on purpose ("开了 EP 会胡言乱语，所以
+只用 tp+dp") is the same selector seen from the other side: answer it from the perf page
+`../performance-throughput/moe-comm-path-when-ep-off.md`, which carries the older
+in-line form of the selector and the recipe trap for GLM-4.5.
+
+Not this topic: a bare `TimeoutError` with only
 `multiproc_executor.py`/`shm_broadcast.py` frames
 (`../hccl-and-hardware/rpc-watchdog-timeouts.md`), a KV-transfer/PD topology
 question (`../pd-disaggregation/index.md`), or a capacity plan
@@ -52,6 +57,20 @@ Also note the `PanguProMoE` override at `:1427-1429` (forced `ALLGATHER`) and th
 DEBUG line at `:1431` that names the mode: `num_tokens: N, moe_comm_type: …`,
 logged on the global first rank only. Ask for that line instead of inferring the
 mode.
+
+### Older form: v0.10.1rc1, before the selector became a function
+
+Verified at v0.10.1rc1 (`7e16b4a7`): the decision is inline in
+`set_ascend_forward_context` — `ep_size = (get_ep_group().world_size if
+enable_expert_parallel else 1)` (`ascend_forward_context.py:87-88`), then
+`_get_fused_moe_state` (`:26-40`): `1` → `NaiveMulticast` prefill / `AllGather` decode;
+`< 16` **or any prefill** → `All2All`; `>= 16` decode → `MC2`. Dispatchers are named by
+`get_dispatcher_name` (`:43-52`) and registered in
+`ops/moe_dispatcher/token_dispatcher.py:48-60`. Two facts that shape an answer at that
+ref: **no log line names the choice** (no `moe_comm_type`, no `[EP Rank r/N]` — both
+arrive later, so ask for the serve flags and a same-request A/B instead), and the
+`AllGatherEP` fusion needs `n_routed_experts == 256` (`:28-31`), so a 128-expert GLM is
+not rescued by `VLLM_ENABLE_FUSED_EXPERTS_ALLGATHER_EP`.
 
 ### Version drift to re-grep first (verified at v0.13.0rc1 `1b5d5ab`)
 

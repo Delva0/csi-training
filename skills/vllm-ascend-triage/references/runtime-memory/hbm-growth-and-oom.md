@@ -15,6 +15,15 @@
   a P/D pair (P node holds KV the D node never consumes, #13240), or HBM simply
   sits far above the documented budget (#13248).
 
+## Step 0 — the stack's own line, before the split
+
+Read `torch_npu==` out of the same `collect_env.py` block: **`2.8.0` has a known
+leak and `2.8.0.post1`/`.post2` (+ a vllm-ascend rebuild) fix it** —
+reporter-confirmed on #6299, where the growth surfaced in worker host RSS and
+`--no-enable-prefix-cache` did not touch it (`host-ram-and-per-rank-rss.md`
+§Step 0). One pip line, already fixed once for a reporter, so it ranks above every
+growth mechanism below while the paste carries that version.
+
 ## Step 1 — split the class with two samples, not with source
 
 Ask for: `npu-smi info` during the run **twice, timestamped**, the serve log's

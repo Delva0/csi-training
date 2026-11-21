@@ -51,8 +51,22 @@ History precedent (never `ls` the history directory — thousands of entries):
 S=<skill_root>/scripts        # skill_root is reported by skill_view
 bash $S/history-titles.sh 'aclnnAddRmsNormBias|DDR address of the MTE'
 bash $S/history-titles.sh 'qwen3\.5|qwen3_5'
-sed -n '1,60p' /workspace/history/<issue>/<id>.md    # flat layout: /workspace/history/<issue>.md
+bash $S/history-body.sh 3963 4663                     # symptom section, env dump collapsed
+bash $S/history-body.sh 3963 -g 'HcclAllreduce|ERR00100|107027'   # only the traceback lines
+bash $S/history-body.sh 3963 --env -n 40              # the env block, when the pin is the artefact
 ```
+
+Do **not** `sed -n '1,60p'` a body (an earlier version of this page said to): the bug
+template puts `### Your current environment` plus a 100-250 line `collect_env.py` paste
+first, so a prefix read returns the title and the environment and no symptom — #3963's
+`### 🐛 Describe the bug` is at line 148 and #4663's at 168, and one recorded run paid
+two calls for one body (`sed -n '1,60p'`, then an inline `awk '/Describe the bug/{f=1} f'`).
+`history-body.sh` takes several ids per call, prints `<id> :: <title>` plus the body with
+the fenced dump replaced by a marker, and drops `<details>`/`<summary>` furniture so `-n`
+counts report text. Keep the dump reachable with `--env`: it is the artefact when the
+question is the torch_npu/CANN pin, the card count or host RAM, and reporters also type
+free prose into that field (#4554's whole symptom sits there). Flat layout:
+`/workspace/history/<issue>.md`.
 
 With a per-case history root the same issue id can appear once per case directory
 (`history/<issue>/<id>.md`); `history-titles.sh` now reports `hits / distinct issue

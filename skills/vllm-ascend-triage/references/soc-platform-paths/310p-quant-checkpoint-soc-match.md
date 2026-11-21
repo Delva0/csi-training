@@ -72,6 +72,15 @@ no quant description) and the check is one file read.
 3. Only then the engine: the three lines above and the registry key for the
    checkpoint's `quant_type`.
 
+## Neighbouring shape, different owner
+
+A 310P W8A8 model that dies **inside** the int8 matmul kernel instead of raising this
+text — device DFX `QuantBatchMatmulV3_NZ_NZ_int8_int8_fp16_high_performance_*` +
+`507015` + `L0C read/write conflict` at `profile_run` — is a CANN kernel/op-binary fault,
+not an artifact-dtype one: the artifact check below is still worth one line (a `-310P`
+conversion changes the op mix), but the ranking and the two version levers are in
+`310p-int8-matmul-startup-fault-and-runner-v2.md`.
+
 ## Do not offer
 
 `--enforce-eager`, `--dtype`, `PYTORCH_NPU_ALLOC_CONF`, `VLLM_ASCEND_ENABLE_NZ`

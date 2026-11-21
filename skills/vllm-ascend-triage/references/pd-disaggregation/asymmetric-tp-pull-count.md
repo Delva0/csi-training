@@ -16,7 +16,10 @@ AssertionError: chosen_rank_list([3]) does not match num_group_pulls(4) and pref
 
 (`vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py:2515-2518` at
 v0.22.1rc1). Lane B, mapping phase: no KV was lost, so neither a KV-miss, transport
-nor accuracy theory applies yet. Symmetric P/D TP does **not** reproduce it.
+nor accuracy theory applies yet. Symmetric P/D TP does **not** reproduce it — a
+symmetric-TP producer that dies in the *layerwise* connector's
+`_get_kv_split_metadata` (no `chosen_rank_list` text in the paste at all) belongs to
+`layerwise-split-metadata-crash.md`, not to this page.
 
 ## Step 1 — the arithmetic is three functions, and one of them forgot the rule
 

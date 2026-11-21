@@ -51,7 +51,16 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   recorded runs dumped ~3k filenames (~24 KB) in one call for zero information. Start with
   `scripts/history-titles.sh '<regex>'`, which prints `<file> :: <title>` per hit so a whole
   issue family is triaged without reading bodies; then read the 2-3 best hits with
-  `sed -n '1,60p'`. When a hit's **title names your exact operator or error string**,
+  `scripts/history-body.sh <id> [<id> …]`, which prints each body with its
+  `collect_env.py` block collapsed to a one-line marker (`--env` restores the dump,
+  `-g REGEX` pulls just the traceback or the serve command). `sed -n '1,60p'` does
+  not work: the template puts 100-250 lines of environment before the symptom
+  (#3963's `### Describe the bug` is at line 148, #4663's at 168, so a prefix read costs a
+  call and returns no symptom — one recorded run then paid a second call for the
+  same body with an inline `awk '/Describe the bug/{f=1} f'`). Reporters also type
+  prose *into* the environment field (`环境：… 问题：概率循环生成叹号…` in #4554 is the
+  whole symptom), which is why the script deletes only the fenced dump.
+  When a hit's **title names your exact operator or error string**,
   open its body even if you read nothing else: a reporter's paste often carries the
   decoded inner error — the `EZ9999 … [FUNC:…][FILE:…][LINE:…]` block — for a code your
   own report shows only as a number (recorded #8826: the single line

@@ -27,6 +27,18 @@ after that keeps the header, not this text.
 
 ## Entries
 
+- `scripts/benchmark-table-normalize.py --run 'NAME OUT_TOK_S WALL_S REQS CONC'
+  [--run …] [--total-tok-s NAME=V] [--ttft NAME=SECONDS] [--compare A B]` — the
+  two-run ratio in one call (#2833 Ascend-vs-H800 EvalScope screenshots, #14291
+  v0.23→v0.24 PD "12s vs 4s"). The summary block's only OCR-stable fields are the wall
+  time and the two throughput fields; this derives per-request output/input tokens, the
+  decode step (`concurrency / output tok/s`), the per-sequence rate, the prefill cost
+  (`TTFT / input tokens`), a wall-clock closure check (`wall / (waves × tokens × step)`,
+  `>>1` = queueing/warmup/fixed per-request cost) and, with `--compare`, the cost ratio
+  per axis plus which axis moved more and on which run. Prints the derived averages to
+  quote instead of the table's own transposable columns. Exit 0; 2 on non-numeric or
+  zero-throughput input. Rows with no `--total-tok-s` keep only the decode figures.
+  Step 1 of `../performance-throughput/cross-run-ratio-normalization.md`.
 - `scripts/opcount-reconcile.py --count NAME=N [--count …] [--table FILE|-]
   [--max-factor M] [--layers L] [--steps N] [--elapsed-s S] [--avg-us NAME=US]` —
   profiler-table arithmetic for an op-count report (#7351): prints every row's
@@ -105,10 +117,25 @@ after that keeps the header, not this text.
   pattern that matches more than 30% of the corpus is reported as a pattern problem
   (split the alternation) — a body search for `suffix`/`mtp`/`ngram`/`spec` returns
   almost every issue through the pasted `collect_env.py`, which is what made #9278
-  read 207 real hits as noise. Arguments after the flags are **positional**; `-i` is
+  read 207 real hits as noise. The exception is a **code identifier or exception
+  string** (`TRITON_ALL_BLOCKS_PARALLEL`, `posix.putenv`): those live in tracebacks
+  and launch blocks, so `-b` is cheap — recorded #8224 got 1 title hit and 8 body
+  hits from the same pattern. Arguments after the flags are **positional**; `-i` is
   case-insensitive, and any other leading `-x` exits 2 with the usage instead of being
   taken for the regex (a `history-titles.sh -i 'reranker'` call once burned a turn on
   `no such history root: reranker`).
+- `scripts/history-body.sh [-n LINES] [-g REGEX] [--env] [--all] [--root DIR] <id>
+  [<id> …]` — reads the 2-3 precedent bodies `history-titles.sh` selected, without
+  their `collect_env.py` paste: prints `=== #<id> :: <title>` and the body with the
+  fenced dump replaced by `[... N lines of collect_env dump omitted ...]`, dropping
+  `<details>`/`<summary>` furniture so `-n` (default 80) counts report text. `-g REGEX`
+  prints only matching lines with their line numbers (pull the traceback, the serve
+  command, or the `Encoder cache will be initialized …` line); `--env` prints the dump
+  instead (the artefact when the torch_npu/CANN pin, card count or host RAM is the
+  question); `--all` prints everything. Several ids per call. `--root` picks one case
+  directory when several share an id, and the header flags that case (`x2`). Use it
+  instead of `sed -n '1,60p'`: the bug heading sits below the dump (#3963 line 148,
+  #4663 line 168), so a prefix read costs a call and returns no symptom.
 - `scripts/310p-rope-branch.py <config.json | model dir>` — which 310P rope
   implementation a checkpoint lands in, from its own `config.json`: multimodal or
   not, `uses_mrope` (`mrope_section` in `rope_parameters`), `head_size` /
@@ -208,6 +235,15 @@ after that keeps the header, not this text.
   its name (`[2,0]` = `FULL_DECODE_ONLY`), and whether the stalled step was a
   new/prefill request — and names `aclgraph-full-decode-runtime-hang.md` when the
   mode engaged (#4178).
+- `scripts/mm-placeholder-count.py --tile HxW [--tile … | --grid HxW …] [--patch 14]
+  [--mode 16x|4x] [--merge 2] [--stages N] [--placeholders M] [--features N]` —
+  the two multimodal token counts of one request side by side (#14014): the
+  prompt side's area floor `(W*H)//(patch*patch*divisor)` and the vision side's
+  per-stage per-dimension floor `(h//2)*(w//2)` over the patch grid, per tile plus
+  the total, the `exact=NO` mark where the merge's `reshape` would raise instead of
+  rounding (so a silent gap is never a rounding story), the `M > N` / `M < N`
+  direction verdict, and the `mm_processor_kwargs` / `use_vit_merger` lever list.
+  Tiles are the *resized* pixel sizes the image processor produced.
 - `scripts/dp-single-request-bucket.sh --capture-sizes 8,1 [--dp --tp
   --max-num-seqs --report 1,2,8 --num-spec]` — the DP>1 + ACL-graph
   single-request lane: the `bs_to_padded_graph_size` map for the launch's own

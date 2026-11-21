@@ -16,6 +16,7 @@ no dump, no `EZ…` code, and both models keep executing.
 | `Accepted: 0` **and** every per-position rate `0.000` **and** `Mean acceptance length: 1.00` | not one draft token matched the target for this whole window: draft context ≠ target context (positions, `num_computed_tokens`, accepted-token counts, or a stale draft KV for the request) |
 | acceptance *low* (e.g. 0.3-0.5, per-position rates differ) plus `Waiting` growth, `Running` at `max-num-seqs`, `GPU KV cache usage` ≥ 98 %, preemption lines | scheduling/capacity pressure: the batch is thrashing, the draft path is not necessarily broken |
 | acceptance 0 **and** throughput 0 **and** no drafts | the worker is not stepping at all — go to `../hccl-and-hardware/index.md` / `rpc-watchdog-timeouts.md` |
+| acceptance *degraded but non-zero*, no capacity pressure, and the complaint is a wall-clock or throughput ratio between two builds | `Mean acceptance length` is the tokens-per-step multiplier: a step emits up to `1 + num_speculative_tokens`, so acceptance falling from ~K+1 to ~1.0 is a `K+1`× decode slowdown with nothing else changed. Compare that one number on both builds before ranking any engine change — `../performance-throughput/cross-run-ratio-normalization.md` |
 
 The exactly-0.000-everywhere pattern across many steps is the discriminator: a
 capacity-limited engine produces *worse* acceptance, not a perfectly uniform zero,

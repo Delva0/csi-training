@@ -60,7 +60,15 @@ downstream code and the owner is the launch site's arguments —
   load whenever the NZ gate converts it. Still not an operator or install fault — the
   owner is the gate's missing shape test, and the lever is the NZ mode
   (`../startup-failures/nz-weight-format-refusal.md`). Read the text after `EZ1001`
-  before choosing between (a)-(d): all four arrive in the same wrapper.
+  before choosing between (a)-(e): all five arrive in the same wrapper.
+  (e) **output dtype**: the same `161002` but the named tensor is **`y`** —
+  `GMM:y dtype does not match with required dtype[DT_BFLOAT16]` beside
+  `Tensor … dtype is DT_BFLOAT16 but found DT_INT32` on `aclnnGroupedMatmulV5`. The
+  required dtype then comes from the *activations*, so the two owners are the launch's
+  `output_dtype=torch.int32 if use_int8_w8a8` and the MoE permute that was supposed to
+  quantize them — check both before any kernel/driver theory; rule 5 of
+  `quant-scale-dtype-gate.md` (v0.10.1rc1 anchors, `ep_size < 16` forcing the
+  non-quantizing permute, the `--enforce-eager` control and the e2e coverage gap).
   A **built-in** op dying the same way before launch (`call aclnnArange failed …
   EZ9999 … Parse dynamic kernel config fail`, `AclOpKernelInit failed opType`,
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed`) is not a custom op at all: the
@@ -71,6 +79,21 @@ downstream code and the owner is the launch site's arguments —
   same answer, on 310P most often for a torch_npu *built-in* (`aclnnIsNegInf` on a
   VL/vision path, recorded #6082) — where the Python caller is in no pinned tree, so
   one `rg` is the whole budget before the standalone op probe on that page.
+  **Four pre-launch wordings, four owners — and the one with an `integral key`
+  is the dtype axis.** `EZ1001 … does not support opType` = no registry entry for
+  the SoC (`op-not-registered-for-soc.md`); `EZ9999 … does not has any binary` /
+  `Parse dynamic kernel config fail` = no kernel for the op at all on this SoC
+  (`../soc-platform-paths/kernel-package-vs-card.md`); **`EZ9999 … Cannot find bin
+  of op <Op>, integral key <dtype list>` + `Kernel Run failed. opType: N`** = the
+  op is registered and no binary matches that dtype/format key, so the **caller's
+  dtypes** (the model dtype the engine init line prints, `dtype=torch.float16`)
+  are the first lever and `--dtype bfloat16` is the one-command test —
+  `cannot-find-bin-integral-key.md`, recorded #2387; and a bare **`setup failed!`**
+  (no op name, no code) is the caller's own mask/size argument, read at the deepest
+  `vllm_ascend` frame — `setup-failed-call-site.md` (recorded #393; the `<Op>Operation
+  setup failed!` forms route to their own pages from there). None of the four ran a
+  kernel, so `561000` / `ERR00100` / `EZ9999` is a wrapper and a grep on it alone
+  lands in the MC2/HCCL rows.
 - **A garbled MoE output or an AI-Core invalid-GM-address under
   `enable_fused_mc2=1` is a workspace/stride question inside one of three op variants,
   and the variant is the lever.** `csrc/mc2/dispatch_ffn_combine{,_bf16,_w4_a8}/` share a
@@ -254,6 +277,18 @@ downstream code and the owner is the launch site's arguments —
   sweep, and how to answer when the op owner returns the case as a "调度问题".
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
   each line does/does not pin down.
+- `cannot-find-bin-integral-key.md` — `EZ9999 … Cannot find bin of op <Op>,
+  integral key <dtype/format list>` + `Kernel Run failed. opType: N` (#2387,
+  v0.10.0rc1): the four pre-launch wordings and their owners, how to read the key
+  against the engine's `dtype=` line, the fused-W8A8 caller chain that puts the
+  model dtype into `aclnnAddRmsNormQuant` (`qwen3.py:47-57` → `layernorm.py:49-54` →
+  `w8a8.py:60-64,125-135`), the bf16 re-serve plus the two-dtype `torch_npu` probe,
+  and why `--enforce-eager` cannot rule this lane out.
+- `setup-failed-call-site.md` — a bare `RuntimeError: setup failed!` (#393,
+  v0.7.3rc1 V0 rollouts): the four `setup failed!` surfaces, the branch derivation
+  that proves the engine set `enable_prefix_caching=True` with chunked prefill off,
+  the hard-coded `128` compress mask at `attention.py:612-617` against the
+  `query_lens`/`context_lens` the same branch can carry, and the two-flag ladder.
 - `gather-index-out-of-range.md` — the `ascendc/gather_v3/gather_v3_base.h:137`
   `Index N out of range[0 M)` assert (v0.9.2rc1 #2349): the bound is a table row
   count, the four candidate tables, the verified `config.max_position_embeddings`

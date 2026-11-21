@@ -111,6 +111,17 @@ Also state that the signature is new rather than citing a sibling: `history-titl
 container log around the failing request (not the tail), the probe output, `npu-smi
 info`, and whether a text-only request on the same engine succeeds.
 
+## Third wording that is **not** this page: `Cannot find bin of op <Op>, integral key <key>`
+
+`EZ9999 … Cannot find bin of op AddRmsNormQuant, integral key
+0/1/|float16/ND/…/int8/ND/int8/ND/float16/ND/.` + `Kernel Run failed. opType: 31`
+(#2387, v0.10.0rc1, 910B4, an fp16 W8A8 Qwen3 checkpoint) also fails before any
+launch and also carries `call aclnn<Op> failed, error code is 561000` +
+`ERR00100`, but the op **is** in the package and only the requested dtype key has
+no binary. The SoC/image lane here (`npu-smi` name, `kernels-<soc>` run, image tag)
+is the answer only when **both** dtypes fail; test the dtype first —
+`../custom-ops-runtime-faults/cannot-find-bin-integral-key.md`.
+
 ## Split the two causes before advising a fix
 
 | Cause | Evidence that decides it |

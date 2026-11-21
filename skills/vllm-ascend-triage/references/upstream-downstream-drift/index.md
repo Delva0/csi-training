@@ -64,6 +64,10 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   linked-list arithmetic: `kv-block-free-list-assert.md` (recorded #10724);
 - the error is a Python attribute/type/state error (including a `RuntimeError`
   raised by a fork's own state handling), not a device dump, not a collective.
+- or the object named in the `AttributeError` is a **library** type and the missing
+  name is a library method (`'Tensor' object has no attribute 'mask_fill_'`): a
+  downstream typo, so nothing upstream changed and no version pairing explains it —
+  `library-method-typo.md` (rule 13).
 - **or the object named in an `AttributeError` is a model loader, not a model** —
   `'DummyModelLoader' object has no attribute 'get_all_weights'` right after
   `Loading drafter model...` under `--load-format dummy`: the downstream code
@@ -72,6 +76,18 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   same drafter through `get_model(...)` → `load-format-loader-contract-drift.md`.
   The checkpoint, the model class and the quant config are exonerated by the
   message itself.
+- **or the deepest frame is a downstream *wrapper* class delegating to an upstream
+  core object** (a `BlockPool` / `SingleTypeKVCacheManager`, or the wrapper's own ZMQ
+  metadata service) and the paste shows only the first of several contract drifts —
+  `TypeError: get_manager_for_kv_cache_spec() missing 1 required positional argument:
+  'enable_caching'`, a method name that no longer exists
+  (`save_new_computed_blocks`), `AttributeError: 'list' object has no attribute
+  'ref_cnt'` at `block_pool.touch`, or `AttributeError: Can't get local object
+  'get_request_block_hasher.<locals>.request_block_hasher'` inside `pickle.dumps` on
+  the RPC path. The recorded one is the legacy CPU-offload connector
+  (`kv_pool/cpu_offload/`), unregistered and deprecated:
+  `legacy-wrapper-contract-audit.md`. A signature that matches line for line is not a
+  contract match.
 
 The one `NotImplementedError` that belongs to startup instead: a **custom op**
 registered by the downstream C++ extension without a Meta/fake implementation
@@ -206,7 +222,42 @@ answer is not "downstream drift".
    fix is a `raise` in that branch to recover the real error
    (`swallowed-init-exception.md`, recorded #5571 `mm_budget`).
 
+12. **A wrapper that lags its upstream object lags it in more than one contract, so
+   the quoted call is a symptom and an argument diff is the wrong unit of count.**
+   Four kinds, one read each in the same two trees: required kwargs added; methods
+   renamed or re-signatured; **return/container shape** (upstream returns
+   `tuple[list[Block], ...]`, one list per KV-cache group, and the consumer iterates
+   it as a flat `Sequence[Block]` — #17965's `touch(computed_blocks)` raises
+   `'list' object has no attribute 'ref_cnt'` at the very call a signature diff calls
+   clean, and a cold pool fails too); and **an attribute written on a field the
+   upstream class no longer has** (`request.get_hash_new_full_blocks = None` against
+   `Request._block_hasher`: a no-op that leaves the closure unpicklable and surfaces
+   as `Can't get local object`). Then decide reachability before any repair plan — a
+   name absent from `KVConnectorFactory`'s registrations and labelled deprecated in
+   `release_notes.md` is answered as historical, and any recommendation of the
+   replacement connector carries a one-line import check of *its* module in the
+   reporter's image. Worked case, pinned table and recheck conditions:
+   `legacy-wrapper-contract-audit.md`.
+13. **The missing attribute can be a *library* method — then no drift exists and no
+   version hunting helps.** `AttributeError: 'Tensor' object has no attribute
+   '<name>'` in a `vllm_ascend/` frame names a built-in type: if `<name>` is not that
+   library's API (`mask_fill_` vs `masked_fill_`; #1716,
+   `attention/attention.py:140` at v0.7.3.post1), the owner is a downstream typo, the
+   fix is a rename in the reporter's tree, and a torch/torch_npu/CANN pairing or
+   upstream-refactor read is a wrong turn. Two calls — the grep of the misspelling
+   and the enclosing branch's gate — and the verdict is owed; the *gate* is what
+   answers "why only long prompts" (`library-method-typo.md`).
+
 ## Pages
+- `library-method-typo.md` — the missing attribute is a **library** method, not an
+  Ascend class member: `AttributeError: 'Tensor' object has no attribute
+  'mask_fill_'` at `vllm_ascend/attention/attention.py:140` (v0.7.3.post1
+  `c69ceaca`, #1716, Qwen2.5-14B-Instruct-1M TP8). Not drift and not a
+  version/ABI question — one grep, one rename; the enclosing branch gate
+  (`max_seq_len > min(max_model_len, PAGED_ATTENTION_MASK_LEN=10000)`,
+  `model_runner_v1.py:265-268`) is what makes it prompt-length dependent and why
+  `--max-num-batched-tokens` cannot dodge it, plus why raising the env var is a
+  78 GB host allocation rather than a workaround.
 
 - `kv-offloading-layer-coverage.md` — worked case vllm-ascend #7971 (v0.17.0rc1,
   GLM-5 / Kimi-K2.5 with `OffloadingConnector`): `KeyError:
@@ -298,3 +349,14 @@ answer is not "downstream drift".
   pass-through proof and the `step_with_batch_queue` mode tell), the four ranked triggers
   each with its single ablation, the stop rule for the linked-list derivation, and why the
   plog's one-sided-service `memHandle`/`DeInit` block is teardown.
+- `legacy-wrapper-contract-audit.md` — worked case vllm-ascend #17965
+  (v0.18.0rc1 `99e1ea0` / vllm v0.18.0 `bcf2be9`, legacy `kv_pool/cpu_offload`):
+  the reported `enable_caching` `TypeError` is contract 1 of 4 — the same file also
+  calls a removed `save_new_computed_blocks`, feeds a `tuple[list[Block], ...]` into
+  `BlockPool.touch` from the one call whose signature matches, and nulls a stale
+  hasher field that leaves the request unpicklable over the connector's ZMQ RPC; plus
+  the TP=1 `get_finished` early return that skips the `cache_and_free_slots` release,
+  the registration/release-note evidence that makes the path historical (v0.23.0
+  repaired only the constructor, main removed it in #11904), and the
+  `vllm.v1.kv_offload.abstract` → `base` rename that breaks the documented
+  `NPUOffloadingSpec` import at the newer image.

@@ -30,6 +30,13 @@ followed by torch_npu's own note that the stacktrace may be inaccurate and that
 `ASCEND_LAUNCH_BLOCKING=1` gives the real one. EngineCore then reports
 `Worker failed with error …` (one per worker, all four at the same second).
 
+Not this page when the paste says only **`RuntimeError: setup failed!`** with no
+`<Op>` name and no `op_plugin_atb` frames: that is a call site in the deepest
+`vllm_ascend` frame handing its own mask/size arguments to the op —
+`../custom-ops-runtime-faults/setup-failed-call-site.md` (recorded #393, a V0
+prefix-cache-hit prefill). The four surfaces and which one owns each are tabulated
+there.
+
 ## Read it in three layers
 
 1. **The Python frame is a join point.** `last_hidden_states[idx]` is an eager

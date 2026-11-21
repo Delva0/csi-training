@@ -84,8 +84,8 @@ ASCEND_LAUNCH_BLOCKING=1 vllm serve ...   # synchronous ops: real failing op/fra
 Unset `ASCEND_LAUNCH_BLOCKING` after debugging (documented performance penalty).
 
 Blocking mode is *refused* while ACL graph is on: `AscendPlatform.check_and_update_config`
-(`vllm_ascend/platform.py`; `:457-469` at v0.20.2rc1, elsewhere `:601-613` — grep the
-message) raises `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING=1`
+(`vllm_ascend/platform.py`; `:457-469` at v0.20.2rc1, `:332-343` at v0.16.0rc1, elsewhere
+`:601-613` — grep the message) raises `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING=1`
 whenever `compilation_config.cudagraph_mode != NONE`. Add `--enforce-eager` first, then re-run
 with `ASCEND_LAUNCH_BLOCKING=1`; otherwise the flag does not take effect at all.
 
@@ -130,6 +130,52 @@ cannot communicate, which is environment-level. Take the reporting `device = N` 
 that single-card work on each device still succeeds — HCCS link faults commonly
 break only intra-node multi-card collectives. Two cheap non-hardware checks follow
 below before you tell the reporter to replace a card.
+
+## First collective inside `profile_run`'s multimodal encoder (VL/Omni models)
+
+A lane-C paste whose deepest vllm-ascend frame is
+`mm_encoder_attention.py:108  seq_lens_cpu = torch.diff(cu_seqlens).to("cpu")` and whose
+traceback reads `worker.py determine_available_memory` → `model_runner_v1.profile_run` →
+`gpu_model_runner.profile_run` → `embed_multimodal` → the vision tower is the same class
+as Step 1: Step 4's "first collective of profile_run is environment-level" applies, and
+**nothing in the vision tower is being blamed**. The pending op is a TP all-reduce
+enqueued earlier — the tower's sharded linears (`vllm/model_executor/models/qwen2_5_vl.py:283,336`
+`RowParallelLinear` at vllm v0.16.0, reached from
+`qwen3_omni_moe_thinker.py:980` in the reporter's own traceback) or the LM embedding's
+`maybe_pad_and_reduce`. Two asks cost nothing and settle more than a source walk:
+
+- **The inner error is above the paste.** `The Inner error is reported as above.` means
+  the device/HCCL block the wrapper summarizes was printed *above* the region the
+  reporter copied; that block, plus every rank's `WorkerProc hit an exception` traceback
+  (one rank's paste is normal — the others are usually earlier in the log), is the
+  artefact to request. Never rank a cause off the async wrapper alone.
+- **Rank parity of the dummy profile.** Each rank logs exactly one line
+  `Encoder cache will be initialized with a budget of N tokens, and profiled with M
+  <modality> items of the maximum feature size`
+  (`vllm/v1/worker/gpu_model_runner.py:5141-5147` at vllm v0.16.0); `dummy_modality`
+  comes from `mm_budget.get_modality_with_max_tokens()` (`:5135`), i.e.
+  `max(mm_max_toks_per_item.items(), key=…)` over an insertion-ordered dict
+  (`vllm/multimodal/encoder_budget.py:181-185` — the module is `encoder_budget.py`, not
+  `budget.py`). That choice is deterministic, so **every rank must print the same
+  modality**; a paste showing `video` on TP0-2 and `image` on TP3 is either a filtered
+  paste or genuinely rank-divergent dummy batches (different vision-token counts ⇒
+  shape-mismatched all-reduce). Ask for the four lines; do not derive it — reading that
+  one function settles it, and recorded #7239 spent several turns on a tie-break /
+  `PYTHONHASHSEED` theory before running out of output budget.
+
+When the reporter set `cudagraph_mode` in `--compilation-config` (FULL_DECODE_ONLY is
+common on Omni/VL launches), the Step 2 command must carry both
+`ASCEND_LAUNCH_BLOCKING=1` and `--enforce-eager`, because the guard above otherwise
+raises before any op runs — give both flags in the first message instead of
+"re-run with blocking mode".
+
+The validated envelope for that model is the repo's own
+`tests/e2e/models/configs/Qwen3-Omni-30B-A3B-Instruct.yaml` (TP4 with
+`enable_expert_parallel: True`, `max_model_len 8192`, Atlas A2) and
+`docs/source/tutorials/models/Qwen3-Omni-30B-A3B-Thinking.md` (2×64 GB; a 32 GB card
+needs TP≥2). A launch that omits `--enable-expert-parallel` and adds a FULL_DECODE_ONLY
+config is outside both — ask for that control run, and label it a config contrast, not a
+cause.
 
 ## Software A/B for a compile-phase sync point (diagnostic, not a fix)
 

@@ -48,7 +48,17 @@ release claim that a user must weigh).
    node roles, env (`HCCL_BUFFSIZE`, `mc2_comm_alg`, spec config), and the plog
    `[AIC_INFO] fault kernel_name=` block. Those are the reply template; the
    notice itself usually names none of them.
-6. **Budget one message per tracked issue.** A two-issue bulletin at the 16 K
+6. **The release notes' own `Known issue` sections are the bulletin's cheapest
+   source, and they name owners.** `rg -n -i 'known issue|leak|bug from'
+   <pin>/docs/source/user_guide/release_notes.md` lists, per release section, the
+   statements that already assign a component — at v0.13.0rc1 `:197` "The memory may
+   be leaked … This is a bug from torch-npu, we'll upgrade and fix it soon", `:198`
+   the qwen2.5-VL accuracy bug "lead by CANN", `:199` the long-sequence KV wedge "a
+   bug for scheduler". Quote them as the project's position at that ref (and check
+   the section heading: a v0.11.0rc1 bullet still stands in the v0.13.0rc1 tree), then
+   say what changed since — a later release that no longer lists it, or a pta patch
+   release that fixes it (`../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0).
+7. **Budget one message per tracked issue.** A two-issue bulletin at the 16 K
    completion cap was cut mid-ladder (#15985: verdict + both ranked lists
    survived, the action ladder did not), so lead with the verdict and the
    cheapest next action for both issues in the first paragraph, then cap each

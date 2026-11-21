@@ -16,8 +16,18 @@ upstream's `shm_object_storage.py` in every worker (`shm-mm-cache-invalid-object
 the model file's `get_input_embeddings` on
 `attn_metadata.multi_modal_placeholder_index_maps['audio']`, usually during memory
 profiling rather than on a request (`placeholder-index-map-keyerror.md`).
+**Or** an engine that dies at **init**, before any request and before KV sizing, in
+the encoder-budget computation over a *dummy* prompt:
+`AssertionError: Failed to apply prompt replacement for mm_items['<modality>'][0]`
+from `MultiModalBudget` → `get_dummy_mm_inputs` → `_apply_prompt_updates`
+(`prompt-replacement-assertion-at-budget-init.md`) — same topic, different phase, and
+the owner there is the checkpoint directory plus the HF processor version, not the
+request.
 Not this topic: an engine start that stalls **after** `Encoder cache will be initialized
 with a budget of N tokens` with no traceback (→ `../startup-failures/mm-encoder-profile-stall.md`);
+a start that **dies** while building `MultiModalBudget` / the dummy mm inputs with an
+`AttributeError` from a `transformers` processor (→
+`../startup-failures/hf-processor-attribute-at-mm-budget.md`);
 an adapter said to cover the vision tower ("LoRA（with ViT）",
 `target_modules` naming `visual.*`) — upstream filters it before any kernel
 (`../lora-adapters/multimodal-vit-lora-ignored.md`); a VL answer that is merely
@@ -68,7 +78,11 @@ Inherit the rules in SKILL.md.
   offset/length from the dumped `SchedulerOutput`. Reading the model file to "see
   why" is what consumes a session — the recorded #14014 run spent its whole budget
   there and emitted no answer text; #5772 did the same on the m-rope shape (20
-  turns, 50 K characters of reasoning, 53 characters of text).
+  turns, 50 K characters of reasoning, 53 characters of text); #7876 did it on an
+  **init-time** `Failed to apply prompt replacement` (25 turns, 1.2 M prompt tokens,
+  no text at all) while the paste's own two tokenizer warnings and its
+  `transformers==5.5.0.dev0` line were already the answer
+  (`prompt-replacement-assertion-at-budget-init.md`).
 - **A cache-transport `ValueError` has no count arithmetic.** When the paste's leaf is
   `shm_object_storage.py::get` / `get_and_update_features`, the two counts agree by
   construction and the object was recycled: the verdict is the serve flag
@@ -103,6 +117,13 @@ Inherit the rules in SKILL.md.
   `'string'` vs `'openai'` chat-template content-format discriminator, the
   one-command special-token-id print, and the reporter-confirmed fix (refresh the
   model files).
+- `prompt-replacement-assertion-at-budget-init.md` — the **init-time** dummy-input
+  assertion (`mm_items['<modality>'][0]`): the phase (encoder budget, no device op), the
+  one line it encodes (`tokenizer("<|media_pad|>").input_ids == [media_placeholder_token_id]`
+  at vllm v0.17.0), the reporter-side round-trip probe, the `transformers` range check
+  (`requirements/common.txt:10` `< 5` vs a downstream floor-only pin), the
+  converted/quantised checkpoint dir as the usual owner, and the refuted
+  `--limit-mm-per-prompt '{"<modality>":0}'` bypass.
 - `../custom-ops-runtime-faults/fa-tiling-argument-refusals.md` (member A) — an
   **audio/VL tower's own HF mask** reaching the fused kernel: `get unsupported
   atten_mask shape … supported atten_mask shape can be [B, N, Sq, Skv], [B, 1, Sq,

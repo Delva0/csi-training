@@ -300,6 +300,14 @@ lever and the capacity/`global_bs` arithmetic of
 `mc2-dispatch-profile-run-hang.md` §Step 1 is (recorded #5947; under
 `HCCL_INTRA_PCIE_ENABLE=1` only the cross-node RoCE peers print `DestLink`).
 
+**A one-box paste has no cross-node leg, so the branch question comes first.**
+Read the SoC term of `HcclAllocComResourceByTiling` (`op_base_mc2.cc:120-121`: every
+`devType != DEV_TYPE_910_93` returns through `HcclCreateComResourceByComm`) and the
+tutorial's own topology row before any transport lane: on a single 16-die 910B box
+the A2 `_MC2MultiServer` resource path runs with no remote peers, and the one-node
+recipe a reporter copies for these DeepSeek models is A3, i.e. the other branch —
+`mc2-dispatch-profile-run-hang.md` §Step 3b2.
+
 **Then separate a device *event-table* refusal from a memory leak.** If the paste
 reads `[Error]: Event resources are insufficient.` beside
 `EE9999 … Event id alloc error, deviceId=N, tsId=0, retCode=0x7020019`,

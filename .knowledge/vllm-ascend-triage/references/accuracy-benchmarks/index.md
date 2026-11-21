@@ -7,7 +7,9 @@ another image", and reports of accuracy regressions after a code change. Covers 
 gsm8k, ceval and friends as seen through evalscope, ais-bench, lm_eval and vendor blogs.
 Also covers the corruption end of the same track — a prompt that comes back as 乱码 /
 garbled / repeated / empty text rather than as a wrong answer — and the shortest sibling
-symptom, output that is fluent but stops after tens of tokens ("被截断") — because both are
+symptom, output that is fluent but stops after tens of tokens ("被截断"), or a report whose
+only evidence is chat-UI screenshots showing a fluent CoT and an answer that ends after a
+lone `。`/emoji (`思考过程没问题，输出结果以。或者笑脸结束`, #6050) — because all of them are
 decided by the same first question (is anything being compared, or is the engine wrong per
 se), then by `finish_reason`. A report that pastes only a response body — thinking text in
 `content`, `reasoning`/`reasoning_content` missing, `reasoning_tokens: 0` — is also this

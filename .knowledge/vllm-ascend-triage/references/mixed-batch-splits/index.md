@@ -17,7 +17,11 @@ counting units in adjacent lines:
   so the two differ by the spec length per request, and with chunked prefill a
   prefill request contributes many tokens but one row.
 
-Two entry shapes, same class:
+The same two units also meet on a **pure decode** step when the runner padded the
+token count up to an ACL-graph bucket — no mixed batch is involved there, only the pad
+(third bullet).
+
+Four entry shapes, same class:
 
 - **Device side**: a fault or corruption whose **deepest frame is an attention
   backend** while the batch was mixed: `RuntimeError: ACL stream synchronize
@@ -41,6 +45,22 @@ Two entry shapes, same class:
   `eagle_proposer.py set_inputs_first_pass`, `cad.seq_lens_cpu[-num_prefill_reqs:]`,
   because async spec-decode mode nulls that CPU field while `_seq_lens_cpu` carries it
   — is `../spec-decode-mtp/pcp-async-spec-seq-lens-cpu-none.md`.
+- **Host side on a decode-only step, no mixed batch at all**: `RuntimeError: shape
+  '[N, 1, H*D]' is invalid for input of size M` raised at `attention_v1.py`
+  `_forward_decode_only`, on a serve that had been answering for a long time. `N` is
+  `attn_metadata.seq_lens.shape[0]` (requests) and `M/(H*D)` is the **padded token**
+  count, so the second unit is the ACL-graph bucket and not a schedule — one division
+  classifies it, five concurrent requests confirm it, and no device check applies
+  (`decode-pad-request-vs-token-count.md`).
+- **PCP padding against the step's own token budget**: neither a mis-sliced unit nor a
+  kernel refusal on a mixed batch — the padding the PCP split computes exceeds the
+  step's token budget, and the device reports `Index out of range in dimension 0:
+  index value N exceeds bounds M` with `M` the scheduler's token budget
+  (`pcp-padding-vs-token-budget.md`, recorded #18518). The path moved between refs:
+  ≤ v0.23.x this metadata is `vllm_ascend/worker/pcp_utils.py`, while at ≥ v0.26 that
+  file is gone and the split is upstream (`vllm/v1/worker/gpu/pcp_manager.py`,
+  subclassed by `vllm_ascend/worker/v2/pcp_manager.py`) — an absent `pcp_utils.py`
+  under a v0.26 label is a correspondence finding, not a vendored out-of-tree file.
 
 A **Python `UnboundLocalError` in `mla_v1.py`'s forward** (`decode_hs_or_q_c`, then
 `decode_k_pe` after a hand patch) under `torchair_graph_config` is *not* this topic even
@@ -52,8 +72,9 @@ torchair × chunked-prefill config contract —
 Not this topic: **a step that mixes a spec-decode request with a plain decode request** —
 same word "mixed", different question: no unit is mis-sliced, an upstream hybrid
 linear-attention builder refuses the composition and the answer is its version window
-(`../spec-decode-mtp/mixed-spec-and-plain-decode-assert.md`); a pure decode-only or
-prefill-only crash (read that backend's own page); **the variant the operator itself
+(`../spec-decode-mtp/mixed-spec-and-plain-decode-assert.md`); a pure prefill-only crash, or a
+decode-only crash with no padding in it (read that backend's own page — the
+**padded** decode-only variant is the third entry shape above); **the variant the operator itself
 refuses** — `EZ9999 … When layout is TND,
 queryT(N) must be equal to the last element of actualSequenceLengthQ(M)`, which is
 padding bookkeeping in a `FULL_DECODE_ONLY` graph rather than a wrong split
@@ -130,6 +151,15 @@ and slow mixed batches with no fault (`../performance-throughput/`).
   the traceback names the decode half's `.npu()`, the unit table, the derived
   overshoot, the corrected lines, and the two secondary defects
   (`causal=False` on multi-token decodes, `max_seqlen_q` = KV length).
+- `decode-pad-request-vs-token-count.md` — worked case vllm-ascend #2822 (vllm
+  `[NETWORK_ADDRESS_1]` + vllm-ascend `0.10.1rc1`, Phi-4-mini-instruct TP1, `lm_eval` gsm8k):
+  `shape '[255, 1, 3072]' is invalid for input of size 786432` at
+  `_forward_decode_only`'s `self.sliding_window is not None` branch, the
+  `M/(H*D)`-vs-`seq_lens` division that names the graph pad
+  (`pad_for_cudagraph`, 255 → 256), the bucket list upstream derives and vllm-ascend
+  trims, the sibling paged branch that raises nowhere, the call-site guard a later pin
+  carries (`seq_lens.shape[0] == query.size(0)`), and the five-concurrent-request
+  confirmation.
 - `pcp-schedule-index-units.md` — worked case vllm-ascend #11231 (v0.21.0rc1
   `80610e4438`, Qwen3.5-27B, TP2/PCP2, MTP `num_speculative_tokens: 2`):
   `ValueError: could not broadcast input array from shape (29,) into shape (31,)`
@@ -138,3 +168,12 @@ and slow mixed batches with no fault (`../performance-throughput/`).
   combined launch the only failing one, the second site at `:759` that fails
   silently, the same function's correct sibling `:684`, and the fix as it already
   reads in the v0.23.0 pin (`:821`, `:845`, `:938`).
+- `pcp-padding-vs-token-budget.md` — worked case vllm-ascend #18518 (v0.26.0rc1 +
+  vllm v0.26.0, 910B2 × 8, PD with PCP=2/TP=8/EP, DeepSeek-V3 + MTP K=1):
+  `index value 8194 exceeds bounds 8192` at `index_check.h:130` with no Python frame.
+  The two padding owners and their forms (per-request `ceil(n/(2*pcp))*(2*pcp)` in
+  `pcp_utils.py` before v0.26; `max(per_rank) * pcp` upstream after it), the rank
+  arithmetic that yields 8194 from `[6661, 1531]`, the guard that only checks the
+  per-rank value, why `_set_max_num_scheduled_tokens` is the right hook yet inert
+  (`max_num_new_slots_for_drafting == 0` for MTP K=1), the DEBUG line that confirms it,
+  and the two mitigations.

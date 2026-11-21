@@ -108,10 +108,22 @@ CANN root in `ASCEND_TOOLKIT_HOME`.
 
 ## Which pairing is supposed to hold
 
-- The ref's own pin is `torch-npu==2.8.0` and `triton-ascend==3.2.0`
-  (`requirements.txt` at v0.13.0rc2). The report says **`torch_npu==2.8.0.post1`** —
-  a different build, so ask which wheel and treat the pair as unconfirmed; the
-  vendored ACL header set is baked at that wheel's build time.
+- **On this release `torch_npu==2.8.0.post1` + CANN 8.5.0 is the *image's* pairing,
+  not a reporter-side mismatch.** `requirements.txt:31` pins `torch-npu==2.8.0`
+  (`:38` `triton-ascend==3.2.0`) and `docs/source/installation.md:14-17` repeats
+  2.8.0, but every image recipe installs the post build on a CANN 8.5.0 base:
+  `Dockerfile.openEuler:18` `FROM quay.io/ascend/cann:8.5.0-910b-openeuler24.03-py3.11`
+  + `:75` `'torch-npu==2.8.0.post1'`, and `Dockerfile:18,76`, `Dockerfile.310p:18,61`,
+  `Dockerfile.a3:18,75` and both `.openEuler` twins carry the same two lines. So the
+  colliding header pair **ships in the published tag**: on #6271 the reporter
+  confirmed "the docker image was downloaded via `docker pull
+  quay.io/ascend/vllm-ascend:v0.13.0rc2-openeuler`", and their `collect_env` matches
+  the recipe line for line (torch_npu 2.8.0.post1, CANN 8.5.0, openEuler 24.03 SP2
+  aarch64, python 3.11.14). One call separates the two lanes
+  (`scripts/image-recipe-inventory.sh <root> --soc openeuler` §1/1b, or
+  `rg -n 'FROM |torch-npu' <repo>/Dockerfile*`); the vendored ACL set is baked when
+  *that* wheel was built, and the image's own pip step is what chose it. Do not ask
+  "which wheel did you install" and do not call the environment hand-modified.
 - `docs/source/installation.md:14-18` states the contract (CANN `== 8.5.0`,
   torch-npu `== 2.8.0`, NNAL `== 8.5.0`) while the same page's manual steps
   (`:92-104`) still download CANN **8.3.RC2**. The table is the contract; the body
@@ -130,26 +142,39 @@ CANN root in `ASCEND_TOOLKIT_HOME`.
 2. The two-sided evidence (vendored typedef at `acl_base.h:61` + `OpParamMaker.h:6-7`;
    CANN copy with the same guard and no typedef) and the log line that proves CANN's
    root was on the TU's path.
-3. The cheapest check: the script above on their two roots; plus the wheel version
-   they actually have.
-4. Options, cheapest first: use the release image / the wheel the ref pins (rebuilds
-   nothing, changes one artefact); point `ASCEND_TOOLKIT_HOME`/`ASCEND_HOME_PATH` at
-   one consistent CANN root so only one ACL header set can be reached; if the wheel
-   itself ships the new `acl_base.h`, that is a torch_npu packaging defect (vendored
-   headers must not reuse CANN's guards) — file it there rather than in vllm-ascend.
+3. The cheapest check: the script above on their two roots, plus the image tag and
+   the `torch-npu` line its recipe installs (one grep) — that answers "which wheel"
+   without asking, and on a published tag it is the same artefact for every reporter.
+4. Options, cheapest first. **"Use the release image / the wheel the ref pins" is not
+   a rung on this tag** — that artefact is the one failing (#6271). (a) In-container
+   hotfix: give the installed `torch_npu/csrc/framework/interface/AclOpCompileInterface.h`
+   the line it is missing above `:146` — `typedef struct aclOpExecutor aclOpExecutor;`
+   (or `#include "third_party/acl/inc/acl/acl_base.h"`); it is one file in
+   site-packages, holds until the wheel is reinstalled, and `rm -rf ~/.triton/cache`
+   only if a *stale* `precompiled.h` is suspected (in #6271 the cache directory was
+   created by the failing compile itself, so stale cache is not the story). (b) A
+   `torch_npu` build whose vendored `acl_base.h` still declares the type over the
+   reporter's CANN — a reinstall, not a vllm-ascend rebuild. (c) If the vendored copy
+   itself stops typedefing the type, the defect is torch_npu packaging (vendored
+   headers must not reuse CANN's guards) **and** the image recipe (requirements.txt
+   says 2.8.0, the recipes install post1): file both outside vllm-ascend.
 5. Gaps: the `-I` composition lives in the installed `triton-ascend` backend and is
-   not in the snapshot; the exact `torch_npu` build; whether the reporter's CANN root
-   and `ASCEND_TOOLKIT_HOME` are the same tree.
+   not in the snapshot; whether that `torch_npu` build's vendored `acl_base.h` still
+   typedefs the type (the recipe names a version, not header content); whether the
+   reporter's CANN root and `ASCEND_TOOLKIT_HOME` are the same tree.
 
 ## Stop rule
 
-After the header facts and the wheel version there is nothing left to derive: the
+After the header facts and the image recipe there is nothing left to derive: the
 `-I` order is in a wheel the snapshot does not carry, so a page-by-page hunt through
 `triton-lang` or `Ascend/pytorch` cannot settle which `#include` fired first. #6429
 spent the whole recorded session exactly there (grep for the token in the skill,
 then the `precompiled.h` producers, then the CANN header set) and never emitted the
 answer, although both header copies and the guard collision were in hand by the
-middle of it.
+middle of it. The "which wheel is supposed to be paired" half is likewise closed by
+one grep of the image recipe — #6271's run re-read `requirements.txt`, the install
+doc, the release contract and then all six Dockerfiles for it, and finished at the
+16 384-token output cap with the tail of an otherwise correct answer cut off.
 
 ## Scope and recheck
 
@@ -163,4 +188,5 @@ evidence — the reporter-side script settles that on their install. Re-read bef
 reuse on another release: the guard names and whether CANN still declares
 `aclOpExecutor` in `acl_meta.h` only, whether `AclOpCompileInterface.h` gained its
 own include of `acl_base.h` (that would end this lane), the `torch-npu` pin in
-`requirements.txt`, and the install doc's version table.
+`requirements.txt`, the `torch-npu` install line in `Dockerfile*` (post1 at
+v0.13.0rc2, i.e. the pairing that ships), and the install doc's version table.

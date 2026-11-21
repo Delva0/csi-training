@@ -9,6 +9,10 @@ input_type=NoneType]`. The client sees a truncated stream (the SSE generator die
 a 400 and not a JSON-parse error, so this is not the client-assembly lane. Inherit
 `index.md`; recorded #10376 (v0.20.2rc1 + 910B, `minimax-m2.7`).
 
+A paste whose stream **completes** and merely shows `"content": null` (or
+`id`/`type`/`name`: `null`) is the opposite shape — every field is nullable, nothing
+validates wrongly — `delta-null-envelope-fields.md`.
+
 ## Mechanism (verified at vllm-ascend v0.20.2rc1 `367b8e62da79`, vllm v0.20.2 `bc150f502991`)
 
 - the pinned protocol model declares `tool_calls` **non-Optional**:

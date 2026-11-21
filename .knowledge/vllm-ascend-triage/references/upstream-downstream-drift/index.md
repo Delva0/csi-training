@@ -118,6 +118,13 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   `legacy-wrapper-contract-audit.md`. A signature that matches line for line is not a
   contract match.
 
+- **or the patch does not wrap a function at all — it replaces a public upstream
+  *pydantic model class*** (a `class <X>(upstream.<X>)` plus module rebinding plus
+  `model_fields`/`model_rebuild` rewriting), and an **in-process out-of-tree consumer**
+  (`vllm-omni`, an app, a plugin) now fails validation with a message whose
+  `input_type` is the very class it names. The patch is the owner and the consumer's
+  dict-passing is only the workaround: `protocol-model-class-swap.md` (#8201, v0.18.0rc1).
+
 The one `NotImplementedError` that belongs to startup instead: a **custom op**
 registered by the downstream C++ extension without a Meta/fake implementation
 (`_C::rotary_embedding` at v0.9.2rc1, `_C_ascend::<op>` after the rename) fails the
@@ -330,7 +337,36 @@ answer is not "downstream drift".
    fix. Page, pins and the two empty `__init__.py` files that prove the dead branch:
    `version-gate-branch-selection.md`.
 
+16. **A patch that rebinds a public *class* to a subclass breaks consumers that imported
+   the name earlier — and "pass a dict" is the proof, not the fix.** When the report
+   quotes `engine_protocol.<X> = <X>` / `chat_protocol.<X> = <X>` and a field
+   `model_rebuild(force=True)`, stop looking for a vllm bug: at vllm-ascend `v0.18.0rc1`
+   `patch/platform/patch_minimax_usage_accounting.py:40-62` does exactly that for
+   `UsageInfo` and three `usage`-bearing models, is imported unconditionally
+   (`patch/platform/__init__.py:32`), and lands at `platform.py:138`
+   `pre_register_and_update` — after the API server and any OOT package imported
+   `vllm.…protocol`. pydantic v2 validates model instances by exact/subclass type, so a
+   consumer holding the pre-patch class (or a cached schema for it) is rejected with
+   `type=model_type` on the field the patch re-annotated; a dict validates and passes,
+   which is why the reporter's "改用字典传参" works and is the discriminator, not the
+   repair. The repair split is fixed: root cause downstream (do not swap the class —
+   `OpenAIBaseModel` is `extra="allow"`, so the field can ride the existing model — or
+   gate the patch), shipped workaround in the consumer; acceptance is a non-MiniMax
+   request whose `usage` keys stay baseline **and** a MiniMax-M2 request carrying
+   `completion_tokens_details.reasoning_tokens`. Page, the pinned line table, the
+   two failure forms, the probe script and the public resolution (maintainer reply,
+   vllm-omni#2777): `protocol-model-class-swap.md`.
+
 ## Pages
+- `protocol-model-class-swap.md` — worked case vllm-ascend #8201 (v0.18.0rc1
+  `99e1ea0` / vllm v0.18.0 `bcf2be9`, image `vllm-omni:v0.18.0`, qwen-image-edit):
+  the patch replaces `engine.protocol.UsageInfo` with a subclass and rewrites three
+  models' field annotations, so an in-process consumer that bound the old class fails
+  pydantic v2 `model_type` validation. The verification table, why `extra="allow"`
+  makes the subclass unnecessary, the two failure forms and the `loc`/`input_type`
+  discriminator, the no-NPU probe, why the consumer's dict-passing is the workaround
+  rather than the fix, the two-request acceptance test, and the same patch's latent
+  mismatch on the non-chat endpoints.
 - `fork-ctor-arg-sweep.md` — worked case vllm-ascend #18688 (v0.23.0 `5cb98caa` /
   vllm v0.23.0 `0fc695fc`, 910B3, Qwen3-0.6B): `TypeError:
   SchedulerDynamicBatch.__init__() got an unexpected keyword argument

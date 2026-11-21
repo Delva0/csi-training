@@ -19,7 +19,13 @@ Sibling lanes: `rtMemcpy:ErrCode=107030` / `MemCopySync` in the same phase is th
 comes from the fallback splitfuse mask under MTP + `FULL_DECODE_ONLY`:
 `../soc-platform-paths/310p-mtp-graph-splitfuse-mask.md`); the opaque
 `npuSynchronizeDevice … 507015` with a device dump is the addressing-fault lane —
-`acl-graph-capture.md`, v0.21–v0.23 section.
+`acl-graph-capture.md`, v0.21–v0.23 section. A block that carries **both** the
+`107030` `aclrtMemcpy` refusal and this CANN sentence (plus
+`synchronize stream failed, runtime result = 107027`) is one refused readback, not
+two lanes: the blocking copy's own stream sync reports `107027` and the copy reports
+`107030` (#15536's 310P paste). There the deepest `vllm_ascend/` frame is a
+`.to("cpu")` and the discriminator is `kind = 2` — take the 310P/107030 route above,
+not section 6's env lever.
 
 **A `107030` record does not stay in its capture window**: PTA latches the runtime code per
 thread (`AclrtPeekAtLastError`, peeked and never cleared) and re-prints it — with its cached

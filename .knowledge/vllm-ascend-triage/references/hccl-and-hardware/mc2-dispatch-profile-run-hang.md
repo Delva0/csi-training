@@ -193,6 +193,64 @@ DeepSeek-R1-0528-W8A8, DP4×TP4, EP, MTP 3, `FULL_DECODE_ONLY`, `HCCL_BUFFSIZE=2
   (non-expert weights sharded 4 ways), and prefix caching/chunked prefill left on. Quote
   the file; do not assemble a launcher from the constraints.
 
+## Step 3b2 — the same `561000` + `ret = 4` on a **single-node** multi-die A2 box
+
+When the paste is one container mounting `davinci0…15` (a `# SingleNode` script, no
+second node in the deployment), the `ret = 4` is **not** the link lane and there is
+no cross-node leg to audit — read the SoC term of the HCCL entry first. Verified in
+the exported `cann/hcomm` content export (`818068c8ef5f`, `basis:
+merged_public_pr_head`; `src/framework/op_base/src/` is present, the tree otherwise
+`files=1647/2307 TRUNCATED`):
+
+- `HcclAllocComResourceByTiling` (`op_base_mc2.cc:96`) returns
+  `HcclCreateComResourceByComm(comm, streamMode=0, isOpbaseMode=true, commContext, isMC2=true, Mc2Tiling)`
+  for every SoC that is not `DEV_TYPE_910_93` (`:120-121`:
+  `*pVersion < MC2_TILING_VERSION || devType != DevType::DEV_TYPE_910_93`). On A2 /
+  910B the MC2 tiling + `aicpuStream` branch therefore never runs. The tutorials'
+  own **one-node** recipe for these DeepSeek models is A3 (`910_93`), so "the same
+  launch command works on one node" is a statement about the *other* branch of the
+  same call site — say that before any flag theory.
+- On 910B that generic path appends `_MC2MultiServer` whenever the comm holds more
+  than one die (`op_base.cc:3282-3284`; `HCCL_DEVICE_NUM_ONE = 1` in
+  `src/pub_inc/hccl_common.h:74`, suffix in `algorithm/pub_inc/common.h:205`), so a
+  **single-box 16-die** group takes the A2 *multiserver* resource path with no
+  remote peers, and `HcclCommunicator::CreateCommResource` then calls
+  `InitNic(true)` for it (`hccl_communicator_host.cc:6256-6258`).
+- The topology refusal is a **different code**: `(deviceType_ != 910_93 &&
+  moduleNum_ > 1 && !isA2MC2MultiServer_) || (910_93 && superPodNum_ > 1)` returns
+  `HCCL_E_NOT_SUPPORT` (**5**) after printing `MC2 does not support in the current
+  scenario` (`:6260-6266`). A paste with `ret = 4` did **not** hit that guard: the
+  `HCCL_E_INTERNAL` comes from below it — `CreateCommAndStreamRes` (`:6272`) or
+  `Mc2CreateAndLaunchContext`'s `InitWorkSpace`/`GetWorkSpace` (`:6274`,
+  `:6283-6285`), or the `InitNic` above — i.e. a NIC/workspace question, not
+  "MC2 unsupported here". Quote the number you read; 4 and 5 are not
+  interchangeable.
+- The A2 hierarchical dispatch algorithm is taken only when the tiling's
+  `algConfig` names `DispatchCombineHierarchy` (or `BatchWriteBySdma` with
+  `HCCL_INTRA_PCIE_ENABLE=1 && HCCL_INTRA_ROCE_ENABLE=0`), `:6248-6254` — the pair
+  `is_hierarchical_communication_enabled()` reads (`vllm_ascend/utils.py:964-966`),
+  Step 2 above.
+
+**Then the recipe diff, one pass, from the pin.** Each tutorial names the topology
+on the first line of its deployment section: at v0.13.0rc1
+`docs/source/tutorials/DeepSeek-V3.2.md:19-22` gives w8a8 as *1 Atlas 800 A3
+(64G × 16)* **or** *2 Atlas 800 A2 (64G × 8)*, and `DeepSeek-V3.1.md:84-130` holds
+**one** single-node recipe — A3, `--data-parallel-size 4 --tensor-parallel-size 4`,
+`# AIV` at `:101` — while its A2 recipe is the multi-node one and carries
+`HCCL_INTRA_PCIE_ENABLE=1` / `HCCL_INTRA_ROCE_ENABLE=0` (`:174-175`, again
+`:227-228`). A paste carrying the single-node A3 env block
+(`HCCL_OP_EXPANSION_MODE=AIV`, `VLLM_ASCEND_ENABLE_MLAPO`,
+`VLLM_ASCEND_BALANCE_SCHEDULING`) with `--tensor-parallel-size 16` and no
+`--data-parallel-size` on one A2 box is the A3 recipe with the DP factor folded into
+TP: quote both doc lines and order the ladder (a) the documented A2 2×8 shape or the
+documented single-node DP4×TP4, (b) the `HCCL_INTRA_*` pair if the box really is A2,
+(c) the plog line at the failure second before any CANN-internals rung. Say plainly
+that "is it fixed in a later release" cannot be answered from the snapshot.
+
+Recheck: those are `hcomm` content-export line numbers with **no public tag**, so
+re-grep the symbol in another export before citing; the tutorial numbers are
+v0.13.0rc1-specific.
+
 ## Step 3c — the fabric is a control, not a premise
 
 A body that says "双机灵衢直连可以正常运行, 双机 roce 组网下 … 报错" hands you a
@@ -301,14 +359,26 @@ traceback is `worker.py:343 determine_available_memory` → `model_runner_v1.py:
 this page's extra dummy run, and the post-hoc reporter observation (2026-04-17) says
 every env combination including all-unset failed at the same phase.
 
-A `561002` is **not** always this page's hang. If the paste carries
-`moeExpertNum is N, in case of unlayered, it must no more than 24`
-(`MoeDistributeDispatchA2CheckAttrAndSetTiling`) the op refused its arguments and
-returned immediately: that is the A2 MC2 per-card **expert cap** — `N` =
-`global_experts // ep_size` plus EPLB redundant experts — decided at
-`../feature-enable-recipes/moe-expert-parallel-with-dp.md` § Step 2b
-(reporter-confirmed on #7635, fallback merged as PR #7364), not a transport
-question and not worth a plog.
+A `561002` is **not** always this page's hang. The op's tiling has two recorded
+argument refusals and both return immediately, so neither is worth a plog:
+
+- `moeExpertNum is N, in case of unlayered, it must no more than 24`
+  (`MoeDistributeDispatchA2CheckAttrAndSetTiling`) — the A2 MC2 per-card **expert
+  cap**, `N` = `global_experts // ep_size` plus EPLB redundant experts —
+  `../feature-enable-recipes/moe-expert-parallel-with-dp.md` § Step 2b
+  (reporter-confirmed on #7635, fallback merged as PR #7364);
+- `batchsize is invalid.` with `[FUNC:MoeDistributeDispatchA2TilingFuncImpl]` /
+  `CheckShapeAndSetTiling` and `MoeDistributeDispatchA2 CheckShapeAndSetTiling
+  Failed` — the **token dim** (`x.shape[0]`, i.e. `padded_num_tokens / tp`), the
+  same op on a 2-node A2 MoE start (recorded #2858, v0.10.1rc1). Read the
+  `FUNC:`/`FILE:` pair rather than the aclnn name: the entry point can carry `V2`
+  while the tiling impl is the older `moe_distribute_dispatch_tiling.cc`. The bs
+  arithmetic, the per-rank-uniformity requirement and the ask are
+  `../feature-enable-recipes/moe-expert-parallel-with-dp.md` § Step 2c.
+
+Both arrive as `EZ9999: <arg> is invalid` under `NnopbaseExecutorDoTiling` with no
+`fault kernel_name` and no `[AIC_INFO]` block, which is what separates them from this
+page's hang without any device artefact.
 
 Pins: vllm-ascend v0.13.0rc1 `1b5d5ab`, vllm v0.13.0 `72506c9`; re-pinned for
 the symmetry step and the A2 selector rows at vllm-ascend v0.18.0rc1 `99e1ea0`,

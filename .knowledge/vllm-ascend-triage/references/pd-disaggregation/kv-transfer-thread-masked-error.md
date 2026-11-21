@@ -111,9 +111,18 @@ That is the one-line fix, and it also proves the flatten is intended.
 
 ## Recheck conditions
 
-- Later refs may have flattened `_mark_failed_recv_request` (the layerwise file
-  already is) — re-grep `invalid_block_ids.update` at the reporter's release
-  before presenting the bug as present.
+- Later refs have flattened `_mark_failed_recv_request` — **resolved at
+  `v0.23.0rc1` (`f4a08bddd0cc`)**: `mooncake_connector.py:605-608` now reads
+  `self.invalid_block_ids.update(local_block_ids[0])`, group 0 only — no model can
+  raise `unhashable type: 'list'` through this site at that tag (`[0]` of
+  `list[list[int]]` is flat; multi-group models just lose groups ≥1). Read it in the other direction too: the mask
+  **in** a paste that names that release means the installed tree is not the tag
+  (cross-check the line numbers — `:626` / `:940` / `:1851` there for the three
+  messages — and expect the real `Failed to transfer KV cache for request …:
+  <error>` line to be reachable in *their* build,
+  `adxl-connect-status-same-host.md` §2-§3). Re-grep
+  `invalid_block_ids.update` at the reporter's release before presenting the bug
+  as present.
 - If `get_unhashed_block_ids_all_groups()` is ever replaced by a flat accessor at
   the call site, the grouped type disappears and the bug becomes unreachable.
 - The `finally` cleanup behaviour (`:587-599`) is the part that turns the mask
@@ -127,3 +136,10 @@ the whole ranked answer written on the last turn and cut mid-sentence at the
 16 384-token cap — the mechanism above was source-verified by the end of the third tool result. The answer to ship from this page is four lines plus the unmask patch;
 the transport ladder is the *follow-up*, not the deliverable
 (`../evidence-workspace/delivery-discipline.md`).
+
+#13175 (`v0.23.0rc1`, same-host 2×card, Qwen3-8B-w4a4) is the worse repeat: this
+page was opened on the **3rd** assistant turn and the answer was never typed — 19
+assistant turns, **zero** characters of message text, cut at the 16 384-token cap
+inside a reasoning block, 18 turns spent on the transport/plog program that only
+the reporter's machine can run. So section 4's "send back" list is the
+*deliverable*, not a step to earn first.

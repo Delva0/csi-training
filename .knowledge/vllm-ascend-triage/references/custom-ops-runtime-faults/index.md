@@ -25,7 +25,12 @@ The third Triton shape **is** this topic: a kernel that runs and **faults the de
 where the plog's `fault kernel_name=` resolves to a `@triton.jit` function in
 `vllm_ascend/` (the sampler/penalty kernels are the recorded family). The kernel is
 downstream code and the owner is the launch site's arguments —
-`triton-jit-kernel-device-fault.md`.
+`triton-jit-kernel-device-fault.md`. Its **launch-refused** sibling belongs here too:
+`EE1001 … The argument is invalid.Reason: coreDim=<N> can't be greater than UINT16_MAX`
+with `rtKernelLaunch execute failed, reason=[invalid value]` is a host-side grid
+overflow in a `@triton.jit` kernel (the backend launches one block per program, ceiling
+65 535), so `N ÷ (per-rank head count)` is the token count of that forward and the
+caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #3971).
 
 ## Rules
 
@@ -180,10 +185,15 @@ downstream code and the owner is the launch site's arguments —
   "this parallelism is unsupported". On #115 the rejected input was the **rank of a
   caller-built attention mask** (`atten mask dim should be 2 or 4, but got 3` out of the
   vision tower, `tiling-attribute-rejection.md` §*Mask rank*), which no card, TP degree or
-  mode flag can change. Two shapes recur on MoE deployments: a
+  mode flag can change. Three shapes recur on MoE deployments: a
   **built-in routing op** fed by the token dispatcher (`aclnnMoeInitRoutingV3` /
   `MoeInitRoutingV2`, where the EZ9999 line names the offending argument —
-  `moe-init-routing-tiling.md`), and the backport custom op the tree builds itself.
+  `moe-init-routing-tiling.md`), the **MC2 dispatch's own tiling** at
+  `MoeDistributeDispatchA2 CheckAttr/CheckShapeAndSetTiling` (the EZ9999 line names
+  the argument it refused — the per-card expert count or the token dim `x.shape[0]`;
+  compute both from the launch line before any transport theory,
+  `../feature-enable-recipes/moe-expert-parallel-with-dp.md` §Step 2b/2c), and the
+  backport custom op the tree builds itself.
   The op name in the paste may not exist in the tree at all: the caller's
   `torch_npu` function, the aclnn entry point and the tiling opType can carry three
   different names in one block, so grep the *Python* caller before any `csrc/` walk.

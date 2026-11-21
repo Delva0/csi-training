@@ -25,6 +25,7 @@ It prints all of the following at the checkout you point it at. At v0.10.1rc1:
 | NNAL is **sourced, never installed**, by the recipe | `Dockerfile:51` `source /usr/local/Ascend/nnal/atb/set_env.sh` — no `Ascend-cann-nnal*.run` line exists in any Dockerfile, so the component is already in the base image |
 | `devlib` on `LD_LIBRARY_PATH` (for `libascend_hal.so`) | `Dockerfile:48` comment + `:52` append — **no doc reproduces this line**; a pip install on a CANN image that skips it differs from the image by one path |
 | torch_npu pin and the index that can serve it | `requirements.txt:25-27` (`--pre`, `--extra-index-url https://mirrors.huaweicloud.com/ascend/repos/pypi`, `torch-npu==2.7.1.dev20250724`) |
+| **the recipe can override that pin** (script §1b) | at v0.13.0rc2 `Dockerfile:76`, `Dockerfile.openEuler:75`, `Dockerfile.310p:61` and `Dockerfile.a3:75` all `pip install … 'torch-npu==2.8.0.post1'` while `requirements.txt:31` pins `2.8.0` — so a paste from the published tag showing post1 is the *image's* pairing, not a hand-modified env (#6271, image tag reporter-confirmed). Check §1b before advising a version change |
 | triton deliberately absent | `Dockerfile:44` `python3 -m pip uninstall -y triton` |
 | extras | `Dockerfile:57` `modelscope 'ray>=2.47.1' 'protobuf>3.20.0'` |
 
@@ -85,7 +86,10 @@ quote it as one.
    the one `.run`/`source`/pip line that supplies it.
 2. The recipe pointers (`Dockerfile:18,40,44,51,52`, `requirements.txt:25-27`,
    `installation.md:91-95`) so the reporter can diff for themselves — that is the
-   literal question.
+   literal question. When the paste's version line disagrees with `requirements.txt`,
+   run script §1b first: a recipe that installs a different build makes the reporter's
+   line the *shipped* one, and recommending the release image would recommend the same
+   artefact back.
 3. The pair caveat from the table above, with the four-package `pip show` ask.
 4. The in-container diff block, and — when the symptom was a lane A silent worker
    exit — the `--tensor-parallel-size 1` re-run that turns the wrapper into a real

@@ -56,7 +56,9 @@ verified at vllm-ascend **v0.21.0rc1** (`80610e44`) + vllm **v0.21.0** (`ad7125a
    speculative_config is not None and method == "mtp" and not use_mla`, and
    `:191-193` then forces `attn_state = AscendAttentionState.SpecDecoding` for the
    dummy capture run. Without MTP the same capture is `DecodeOnly` and goes
-   `forward_paged_attention`, which never builds the splitfuse mask.
+   `forward_paged_attention`, which never builds the splitfuse mask. (Names and terms
+   are v0.21.0rc1's — at v0.23.0 the flag is `_spec_dummy_capture` with no
+   `method == "mtp"` term: see the version section below before quoting this.)
 
 ## Answer shape (owed on the first message)
 
@@ -82,12 +84,63 @@ between eager and graph reproduces.
 At v0.21.0rc1 the 310P tutorial states `FULL_DECODE_ONLY` is supported
 (`docs/source/tutorials/hardwares/310p.md:20-22`) and, elsewhere, that the
 chunked-prefill path has "no compressed-mask path" (`:83`) — i.e. the documented
-310P path *is* the capture-unsafe fallback. The 310P UTs force the flag off
-(`tests/ut/_310p/attention/test_attention_v1_310.py:97,144,180`,
-`test_attention_mask_310.py:32`), so the compressed branch has no coverage, and no
-`tests/e2e` case pairs 310P with MTP + `FULL_DECODE_ONLY`. Title suggestion:
+310P path *is* the capture-unsafe fallback. That tutorial is gone by v0.23.0; the
+page to quote there is the model tutorial's Atlas 300I DUO tab (version section
+below), which spells the failing combination out as the recipe. The 310P UTs force
+the flag off (`tests/ut/_310p/attention/test_attention_v1_310.py:100,147,183`,
+`test_attention_mask_310.py:32` at v0.23.0; `:97,144,180` at v0.21.0rc1), so the
+compressed branch has no coverage, and no `tests/e2e` case pairs 310P with MTP +
+`FULL_DECODE_ONLY`. Title suggestion:
 `[Bug][310p] FULL_DECODE_ONLY + MTP crash 107030: fallback splitfuse mask does
 host readback inside capture`.
+
+## What v0.23.x changed, and what it did not (recorded #15536)
+
+Same three-part block, Qwen3.6-27B, 8x 300I Duo, image `0.23.0RC1-310P`, MTP +
+`FULL_DECODE_ONLY`. Pin read: vllm-ascend **v0.23.0** (`5cb98caaadeff42b`). Three
+differences decide what to answer:
+
+1. **The qlens readback was fixed; the mask readback was not.** `attention_v1.py:253`
+   now takes `qlens = get_query_lens_cpu(attn_metadata)` from the metadata builder
+   (`_310p/attention/metadata_builder.py:39-48` accessors, `:83-101` the pinned CPU
+   buffer + its fill, `:126-131` where `build()` attaches it) and `:257-261` raises a
+   *named* RuntimeError when `_EXTRA_CTX.capturing` and that host tensor is absent;
+   `:262-263` is the eager `.cpu()` fallback. The fallback mask itself is untouched:
+   `:293` still calls `AttentionMaskBuilder310.get_splitfuse_mask`, which
+   does `query_start_loc.to("cpu")` at `attention_mask.py:90` and `seq_lens.to("cpu")`
+   at `:93`. **So "upgrade rc1 -> final" is not a rung**: the reported frames
+   (`:293` and `:90`) are line-identical at v0.23.0 final, and the guard does not fire
+   because the host qlens is present. Say that before the reporter spends a night on
+   an image swap.
+2. **The capture gate was renamed and broadened.** `_spec_dummy_capture`
+   (`_310p/model_runner_310p.py:631-637`, assigned `:637`, reset `:655`, applied at
+   `:196-197`) is `uniform_decode and not is_profile and speculative_config is not
+   None and not use_mla` — the `method == "mtp"` term is gone, so any
+   `--speculative-config` (a draft model, or `qwen3_5_mtp` as the tutorial writes it)
+   forces `SpecDecoding` on the dummy capture. Do not answer "your method string is
+   not `mtp`, so this gate is not yours".
+3. **The block can carry both codes in one refusal.** #15536's paste shows
+   `copy_between_host_and_device_opapi … aclrtMemcpy, error code is 107030` *plus*
+   `EE9999 … Not allow to synchronize captured-stream, stream_id=35` and
+   `synchronize stream failed, runtime result = 107027`. It is still this lane: the
+   blocking copy's own stream sync (`107027`) and the copy (`107030`) are one
+   refused readback. Route by `kind = 2` and by the deepest `vllm_ascend/` frame
+   (`.to("cpu")`), not by which code the reporter bolded —
+   `../startup-failures/captured-stream-host-sync.md`'s `ASCEND_LAUNCH_BLOCKING`
+   lever is unrelated here.
+
+The doc contradiction is also sharper at that pin: the recipe to quote is
+`docs/source/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.md`, Atlas 300I DUO tab
+(`:348-428`), whose serve line at `:377-379` / `:407-409` is exactly
+`--speculative-config '{"method": "qwen3_5_mtp","num_speculative_tokens":1}'` +
+`--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY", "cudagraph_capture_sizes": [2,8]}'`
+and `--additional-config '{"ascend_compilation_config": {"enable_npugraph_ex": false}}'`,
+with no mention of the torch_npu `_npu_*` requirement. Two rules on that page also
+close cheap distractors: `:427` computes each MTP capture size as
+`n * (num_speculative_tokens + 1)` (so a reporter's `[2,4]` at `num_speculative_tokens: 1`
+is valid, not the bug), and `enable_npugraph_ex` is force-disabled on 310P anyway
+(`ascend_config.py:642-650` logs a warning and sets it False), so quoting it as a
+lever is a no-op.
 
 ## Not local, and version scope
 
@@ -97,5 +150,8 @@ Whether a given wheel carries the two `_npu_*` ops is decided only by the
 (`MemCopySync` from a framework-side blocking copy) is the capture-mode copy lane
 in `../startup-failures/acl-graph-capture.md` Step 2; the `107027` stream-sync
 sibling is `../startup-failures/captured-stream-host-sync.md`. Re-grep
-`is_compressed_mask_supported`, the `.to("cpu")` sites and the
-`_mtp_spec_dummy_capture` gate on any other tag — all three are version-specific.
+`is_compressed_mask_supported`, the `.to("cpu")` sites (`attention_mask.py:90,93` at
+both v0.21.0rc1 and v0.23.0) and the capture gate (`mtp_spec_dummy_capture` at
+v0.21.0rc1, `_spec_dummy_capture` from v0.23.0) on any other tag — all three are
+version-specific, and the lane ends the day `get_splitfuse_mask` takes the
+precomputed CPU qlens instead of reading the device tensors back.

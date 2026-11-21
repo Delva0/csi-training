@@ -22,6 +22,21 @@ mid-session, spent its whole budget deriving *why* a module can lack `language`
 (a property of the reporter's site-packages) and shipped no answer —
 `../image-dependency-faults/triton-module-residue.md`.
 
+**#11681** vllm-ascend v0.18.0rc1 (`99e1ea0f`) + vllm v0.18.0 (`bcf2be9`), 910C 64G,
+CANN 9.0.0, torch/torch-npu 2.9.0, triton-ascend 3.2.0, reporter's env matches the
+pin's own `requirements.txt:16,35,40`: the paste's title is
+`Failed to import Triton kernels … Error: No module named 'triton.language.target_info'`,
+and its body lists an already-tried ladder (`triton 3.5.0`/`3.6.0` →
+`module 'triton' has no attribute 'next_power_of_2'`, hand patches → `triton.csdiv`,
+then a `kernel[grid]` launch raising `TypeError: 'function' object is not
+subscriptable`), with the failures "集中出现在 `ops/layernorm_gated.py`" and a dense VL
+model serving fine on the same box. The title sentence is **upstream vllm's logged,
+non-fatal `logger.error`** (`fused_moe/config.py:25-34` at vllm v0.18.0), so the
+report's own advice is out of scope; the missing name is `triton_kernels`' import of a
+submodule only newer triton ships (`triton_kernels/target_info.py:5`), resolved against
+triton-ascend's tree. Track: image/environment (hand-installed triton beside
+triton-ascend) — `../image-dependency-faults/triton-kernels-import-error.md`.
+
 **#11308** vllm-ascend v0.21.0rc1 (`80610e4438db`) + vllm v0.21.0 (`ad7125a431e1`),
 Atlas 300I Duo, Qwen3.5-35B-A3B-w8a8 + MTP, image CANN hand-upgraded to 9.1.0.beta3: engine
 start reaches `Capturing CUDA graphs (decode, FULL)` and a rank dies with `aclrtMemcpy, error

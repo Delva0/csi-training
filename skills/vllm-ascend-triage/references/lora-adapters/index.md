@@ -3,7 +3,7 @@
 ## Scope
 
 The deployment was started with `--enable-lora` / `--lora-modules` and the
-complaint is one of four shapes:
+complaint is one of six shapes:
 
 - **It dies on a request**, after a clean startup, with an ACL/CUDA
   graph-capture error (`CUDA graph capturing detected at an inappropriate time.
@@ -38,6 +38,14 @@ complaint is one of four shapes:
   ViT adapters are **filtered out by upstream** at these refs, so they are never
   the crash and the quoted tensor shape is not the allocator's victim →
   `multimodal-vit-lora-ignored.md`.
+- **The base model is a MoE** (`Qwen3-*-A3B/A22B`, DeepSeek, Mixtral …) and the report is
+  "<model> cannot use `enable-lora`": the run dies before the first token, and the exception
+  names *which* of five gates failed — the rank default, the adapter's key set, the warm-up
+  dummy in `profile_run`, a `None` weight half in `set_lora`, or a fused-MoE LoRA layer that
+  does not exist / is CUDA-only at the pin. Each gate has its own sentence, so read the map
+  in `moe-base-enable-lora-gates.md` before choosing one; on these models the answer is a
+  ranked gate list plus the `--enable-lora`-without-`--lora-modules` ablation, never a
+  single flag.
 
 Evidence that decides these: the two serve commands (with and without
 `--enable-lora`), **which phase** the failure sits in (engine init / profile run
@@ -125,3 +133,17 @@ Not this topic, leave immediately:
    downstream site is LoRA-aware, so the bug is the plugin's, and the report's
    three-command matrix (quant+LoRA fails / fp16+LoRA works / quant alone works) is
    the whole attribution → `fusion-reader-vs-lora-wrapper.md`.
+7. **On a MoE base, "cannot use `--enable-lora`" is five gates, and the paste names which.**
+   Do not answer it with `--max-lora-rank` alone, however well the body's
+   `adapter_config.json` supports that rung (`"r": 32` against `max_lora_rank: int = 16`,
+   `vllm/config/lora.py:33`): the same recorded report (`#3377`, whose log arrived later)
+   showed `AttributeError: 'NoneType' object has no attribute 'shape'` at
+   `vllm/lora/layers/base_linear.py:125` from the **warm-up dummy** block of
+   `profile_run`, i.e. before the adapter was ever loaded. Two facts widen most such
+   reports: `vllm/lora/models.py:59-67` warns `For MoE models, vLLM currently does not
+   support fused MoE LoRA inference …` on **every** MoE `--enable-lora` start (scope, not
+   cause), and the MoE × LoRA intersection is dead on both sides — no
+   `vllm/lora/layers/fused_moe.py` at v0.11, and at vllm `v0.13.0` that file exists but
+   `select_gemm_impl` reaches a CUDA-only import, so `NameError: name 'TritonExperts' is
+   not defined` (`#6114`). One run splits adapter from pin: the same command with
+   `--enable-lora` and **no** `--lora-modules` → `moe-base-enable-lora-gates.md`.

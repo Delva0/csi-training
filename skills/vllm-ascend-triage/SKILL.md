@@ -291,7 +291,13 @@ delivery pattern is rule 1.
      that block *is* the answer — and a turn that reasons "the gate has passed, I
      must send the deliverable" while sending empty text and another tool call is
      the recorded way to ship nothing (#6243: 15 turns, 67 characters of text, cut
-     inside a 14 K character block that held the whole ranked answer). The
+     inside a 14 K character block that held the whole ranked answer). Its second
+     form is the **hypothesis sweep** — three or more "alternatively / another
+     candidate" branches weighed in one breath: #15527 spent ~12 K characters
+     twice on two competing length hypotheses and shipped nothing at the cap,
+     while the same content as message text is one ranked line per candidate with
+     its one check. Two candidates is already the deliverable's shape: send the
+     pair, then run the single check that separates them. The
      #14731/#12102 pair shows the arithmetic: 42.9 K and 39.4 K characters of
      reasoning against 1.3 K and 2.7 K characters of delivered answer, both cut at
      the 16 384-token cap — the bigger run spent an 11.8 K character block deriving
@@ -410,6 +416,23 @@ delivery pattern is rule 1.
      `vllm/lora/models.py:613-624` drops vision-tower adapters, and the middle `1` is
      the Ascend VL tower's own batch axis — came from two greps
      (`references/lora-adapters/multimodal-vit-lora-ignored.md`).
+   - **A refusal that quotes an argument value is answered by the contract, not by the
+     producing line.** When the op error names the value it rejected — a mask shape, a
+     seq-len list, a dtype, an out-of-range index — the deliverable is the contract, the
+     one call site (or the two candidates) that feeds it, the single print or repro that
+     discriminates, and the workaround; *which* line computed the value is a
+     confirmation. Both forwards of one recorded minibatch held that contract by their
+     3rd–5th turn and spent the rest proving provenance with **zero** message text after
+     their first turn: #6573 walked `attention_v1.py` → `AscendMMEncoderAttention` → the
+     `Attention` dispatch before finding the mask in the model file's
+     `get_extended_attention_mask`, and #10757 spent most of its budget on whether the
+     encoder branch's gate (`not attn_metadata.causal`) could ever be true instead of
+     ranking the invariant it had already derived
+     (`references/custom-ops-runtime-faults/fa-tiling-argument-refusals.md`, both
+     members). **Dead-branch variant:** when the snapshot shows a gate that nothing sets
+     (a hardcoded flag), that is a version-skew fact to *ask* for — the reporter's build
+     differs from the pin — not a mechanism to derive; the paste's own op name can prove
+     the branch ran.
    - **Truncation eats the tail, not the head — and the body has a size too.** One minibatch showed both halves (#1255 typed no message text across 24
      tool turns and shipped nothing; #3170 kept its verdict and ranked causes but lost the
      action ladder's last commands), so type the ladder before the scope block.
@@ -742,7 +765,13 @@ delivery pattern is rule 1.
     … Recommended solutions` block prints for *any* capture exception
     (`model_runner_v1.py:3553-3565` at v0.11.0rc0, gone by v0.20.2rc1: re-grep per
     version). Before adopting a log's own explanation, `rg -n '<fragment>'
-    vllm_ascend/` and read the emitting site: an `except Exception` that appends
+    vllm_ascend/` — and in the upstream `vllm/` tree when that comes back empty, since
+    a message naming triton/torch internals is usually upstream's: `Failed to import
+    Triton kernels … please make sure your triton version is compatible` is vllm's
+    `logger.error` around an optional `triton_kernels` import, so its advice names the
+    action the reporter already tried and the crash is elsewhere
+    (`references/image-dependency-faults/triton-kernels-import-error.md`) — and read
+    the emitting site: an `except Exception` that appends
     `{str(e)}` and re-raises carries the inner error as evidence, not the wrapper.
     Same family as procedure step 3's sync-point trap: where an error surfaced is
     not necessarily its owner. CANN prints the same kind of wrapper under the code:
@@ -814,6 +843,17 @@ delivery pattern is rule 1.
     nearest the reported time before declaring the fault absent. Formats, the
     `W<MMDD>` blind spot and both worked cases:
     `references/hccl-and-hardware/error-report-timestamps.md`.
+    **The third mechanism is in the emitting macro, and it decides the code you would
+    otherwise rank on.** For `RuntimeError: <op>:<file> NPU function error: call aclnnX
+    failed, error code is N`, `N` is not necessarily this call's status: PTA's
+    `NPU_CHECK_ERROR` overrides the printed code with `AclrtPeekAtLastError(ACL_RT_THREAD_LEVEL)`
+    (peeked, never cleared) and `getDeviceErrorMessage` supplies the text — so a
+    capture-window `107030` can be printed two hours later by an unrelated aclnn op, with
+    that op's own words around it, and the op's real status is masked (the macro only fires
+    when the call itself returned non-zero). Test the number against what the named op can
+    mint (`107030` = `ACL_ERROR_RT_CAPTURE_MODE_NOT_SUPPORT`) rather than against the
+    timestamp gap, and deliver the plog at the failure second, not the capture block —
+    `references/hccl-and-hardware/latched-runtime-error-masking.md`.
 14. **A "how do I enable F" question is a capability question, and the verdict comes
     first.** When the report asks how to turn a feature on for a model/hardware pair
     and pastes no log, the reporter is asking whether it is *known to work*: give
@@ -937,6 +977,16 @@ delivery pattern is rule 1.
     make true locally — the **one-node** run of the same EP group, the same flags with the
     feature off — over the fabric or node the reporter believes is healthy
     (`references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3c).
+    **Its most common form is "direct `curl` at one node works".** That is a *body*
+    control, not an endpoint control — a shorter prompt or a smaller `max_tokens` is
+    exactly the variable under test — and a `400` from a P/D node is its frontend
+    rejecting a body before the engine runs, with the reason in a response body the
+    example proxy discards (`send_request_to_service` / `stream_service_response_with_retry`
+    log only httpx's text). Recorded #15527 (v0.23.0, D node 400 through the proxy,
+    direct curl fine, `--max-model-len` 40960 and 128000 fail while 1M works) is one
+    arithmetic, not a connector question: the proxy sends the prefill leg
+    `max_tokens = 1`, so a 400 there bounds the **prompt**
+    (`references/pd-disaggregation/proxy-upstream-400-body.md`).
 16. **A release candidate's experimental mode is a version question before it is a
     mechanism question.** When the mode printed its own banner
     (`FULL_DECODE_ONLY compilation enabled on NPU`, `PIECEWISE …`), every rank finished
@@ -984,7 +1034,7 @@ kernel defect: `references/image-dependency-faults/custom-op-build-stage.md`. A 
 already says `--cmakedir`, and a host-side downgrade is inert under build isolation:
 `references/image-dependency-faults/pybind11-cmake-option-rename.md`. Then, when the signature is specific — a log
 fragment, an error string, a flag that did nothing, a title that names a mechanism —
-the exact row in `references/first-checks/signature-routes/index.md` (five pages split by
+the exact row in `references/first-checks/signature-routes/index.md` (six pages split by
 the shape's home track): each row carries the lane or track it
 belongs to and the page that owns it. Read the row's middle cell before opening the
 page; it carries the decisive local rule. A token you cannot place: one
@@ -992,7 +1042,15 @@ page; it carries the decisive local rule. A token you cannot place: one
 body, which is the version that pays. **A traceback whose deepest frame is in
 `torch/`, `torch_npu/` or `vllm/` rather than in `vllm_ascend/` is a routing
 signature: search the helper's name or the exception text in the same call as the
-history search, before any source read.** Those trees are frequently absent from the
+history search, before any source read.** Its **import-time form** is the same
+signature and is decided arithmetically: an `ImportError` / `cannot import name`
+naming a `vllm.attention*` symbol from a `vllm_ascend` module, enclosing line
+`if vllm_version_is("X.Y.Z"): … else: …`, on an install whose vllm is an rc/dev/post
+of that release line — the gate is exact PEP 440 equality, so the pre-release takes
+the *other* generation's branch. One equality probe settles it, and rung 1 is
+`VLLM_VERSION=X.Y.Z` before launch (or the paired final), not a patch
+(`references/upstream-downstream-drift/version-gate-branch-selection.md`).
+Those trees are frequently absent from the
 export (this snapshot's pytorch is `files=1733/19378`, no `torch/_dynamo/`), so no
 source walk can confirm such a frame and the library is the only local evidence
 there is — recorded #7947 spent its entire 16 384-token budget re-deriving
@@ -1171,8 +1229,6 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
 - Ranked causes, each with the evidence you have, the exact check that confirms
   or refutes it, and its confidence label (reporter-confirmed / source-verified
   at commit X / hypothesis).
-- An evidence table (`path:line`) for code claims, with precedent issue ids
-  quoted as `#<id>: <one-line fact>`.
 - The action ladder, cheapest first: **the request's own sampling value**
   (`temperature`/`top_p` — on a reasoning-distill checkpoint a ≤0.1 temperature is
   itself a degeneration, so the rung *raises* it; `references/accuracy-benchmarks/
@@ -1183,6 +1239,13 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   `--enforce-eager` / `ASCEND_LAUNCH_BLOCKING=1`, `return_token_ids: true` on the
   same request body, one `num_speculative_tokens` step, `asys health -d=$i`, a
   version correction — before any patch proposal.
+- The evidence table (`path:line` for code claims, precedent ids as
+  `#<id>: <one-line fact>`) comes **after** the ladder, never between the verdict and
+  the actions — the table is the most compressible block and truncation eats the tail
+  (`references/evidence-workspace/delivery-discipline.md`, *Truncation eats the tail*).
+  #8926 shipped the verdict and rung 1 in its first paragraph, spent the rest of the
+  16 384-token output budget in the table, and lost every later rung; keep the table to
+  the rows the verdict needs and move the rest into "what to send back".
 - Version and hardware scope of the conclusion, plus what to send back (full
   per-rank log, plog, tiling I-line, raw request/response dumps, `npu-smi info`,
   `asys health` output, `dmesg` OOM lines, both PD serve commands).

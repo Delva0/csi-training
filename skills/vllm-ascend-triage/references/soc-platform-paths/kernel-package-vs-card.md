@@ -192,3 +192,68 @@ reporter's own next action), the three doc lines, the host-vs-container split, t
 two causes above with the docs statement that separates them, and the red herring.
 Ask for: image tag, `npu-smi info`, the probe output, and whether the card is on
 the release's documented list.
+
+## Third wording: the kernel **manifest itself** is unreachable (`Get path and read binary_info_config.json failed … opp_kernel`)
+
+Verified at vllm-ascend `v0.7.3rc2` (`00459aea2110`) and vllm `v0.7.3`
+(`ed6e9075d31e`), recorded for #573: an 8-card 910B host whose `npu-smi` header reads
+`23.0.rc2`, `quay.io/ascend/vllm-ascend:v0.7.3rc2` started from the docs'
+`docker run` template with `--privileged=true`, a dense `qwen2.py`-architecture
+model. It dies in the first `profile_run`
+(`vllm_ascend/worker/worker.py:227` → `vllm_ascend/worker/model_runner.py:1366` → MLP frame
+`vllm/model_executor/models/qwen2.py:96` → `vllm_ascend/ops/activation.py:25`):
+
+```
+RuntimeError: call aclnnSwiGlu failed, detail:EZ1001: [PID: 426] … Get path and read
+binary_info_config.json failed, please check if the opp_kernel package is installed!
+        Check NnopbaseCollecterWork(binCollecter.get()) failed
+        Assert ((NnopbaseInit()) == 0) failed
+        Check NnopbaseCreateExecutorSpace(&executorSpace) failed
+[ERROR] ERR01100 OPS call acl api failed
+```
+
+`NnopbaseInit` never received a collector: opbase had **no kernel manifest to read**, which
+is a different failure from both wordings above (no kernel for the running SoC; op not
+registered for the SoC). The phrase that separates the three is one clause:
+
+| Text after `EZ1001` / `call aclnn…` | What it means | Owner |
+|---|---|---|
+| `Get path and read binary_info_config.json failed … opp_kernel package is installed!` | the manifest file was **never found** | install / environment of that process |
+| `EZ1001 Get regInfo failed … does not support opType [X] … socVersion [Y]` | the manifest was read, this SoC has no entry for the op | build stamp, stale vendor package, image tag (`../custom-ops-runtime-faults/op-not-registered-for-soc.md`) |
+| `EZ9999 Parse dynamic kernel config fail` / `Op <X> does not has any binary` | the manifest was read, no kernel binary at all | image/CANN kernel package vs the live card (this page, above) |
+
+Three checks, in this order — the first is the sentence's own precondition:
+
+1. Inside the container: `echo $ASCEND_OPP_PATH`,
+   `ls $ASCEND_OPP_PATH/built-in/op_impl/ai_core/tbe/kernel/config/`, and
+   `find /usr/local/Ascend -name binary_info_config.json | head`. An unset
+   `ASCEND_OPP_PATH` (a shell that never sourced `set_env.sh`) produces exactly this
+   sentence with a perfectly good install.
+2. The pin's own install list shows the manifest is a **separate package**: at v0.7.3rc2
+   `docs/source/installation.md:84-96` runs `Ascend-cann-toolkit_8.0.0 … --full`, then
+   `source /usr/local/Ascend/ascend-toolkit/set_env.sh`, then
+   `Ascend-cann-kernels-910b_8.0.0 … --install` (and `Ascend-cann-nnal`). A manual/source
+   install that stopped after the toolkit has the toolkit and no op kernels — so ask which
+   of the three `.run` packages that environment installed, rather than re-running pip.
+3. The generation axis: the image's base is CANN 8.0.0 (`Dockerfile:18`) while the paste's
+   `npu-smi` header reads `23.0.rc2`. Read
+   `cat /usr/local/Ascend/driver/version.info` on the host **and** in the container and
+   compare it with the CANN release's own driver requirement. Label it a hypothesis: a
+   driver generation gap does not by itself explain a missing file, and the pairing table
+   is not in the snapshot.
+
+Do not walk source for it. `cann/opbase` is not among the exports, and the six exported
+trees of the #573 view return **zero** hits for
+`binary_info_config|opp_kernel|NnopbaseCollecter` (one scoped `rg` per tree, then stop) —
+the checks above are the evidence. The vllm-ascend side is a three-line wrapper
+(`vllm_ascend/ops/activation.py:22-25`, `out = torch_npu.npu_swiglu(x)`) and the tree
+neither sets nor reads `ASCEND_OPP_PATH` there, so the plugin is exonerated at the
+reporter's own commit — say that with the `path:line` rather than with an argument. First
+rung is the framework-free probe in the same container:
+
+```bash
+python3 -c "import torch, torch_npu; x = torch.randn(8, 2*512, dtype=torch.float16, device='npu:0'); print(torch_npu.npu_swiglu(x).shape)"
+```
+
+The same `EZ1001` there makes it the container, not vLLM; a pass sends the case back to the
+model path with the `profile_run` shapes.

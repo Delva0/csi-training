@@ -64,6 +64,15 @@ Inherit the rules in SKILL.md. Four that decide this topic:
 
 Conditional routes:
 
+- The launch carries `--pipeline-parallel-size > 1` **and a KV pool**
+  (AscendStore/MemCache) and the engine dies **before any request** with a bare
+  `AssertionError` at `memcache_backend.py` `_setup_store` ("PP + memcache
+  不兼容"), optionally beside `External prefix cache hit rate: 0.0%` →
+  `../kv-pool-store/pp-topology-pool-init-and-zero-hits.md`. PP enters that
+  failure only through the participant count and the `@pp_rank` key axis; the
+  assert discards the backend's return code, so the first ask is the memcache log
+  line, not a PP mechanism. Do not start from the PP pages above — the crash is in
+  kv-transfer init, before any pipeline stage runs.
 - **PP > 1 and the symptom is numeric, not a crash** — first generated token wrong,
   logits differing from the TP-only run, correct with chunked prefill off or with PP
   off, or the capability question "PP 和 chunked prefill 能一起开吗" → open

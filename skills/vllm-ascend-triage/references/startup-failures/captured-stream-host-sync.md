@@ -21,6 +21,15 @@ comes from the fallback splitfuse mask under MTP + `FULL_DECODE_ONLY`:
 `npuSynchronizeDevice … 507015` with a device dump is the addressing-fault lane —
 `acl-graph-capture.md`, v0.21–v0.23 section.
 
+**A `107030` record does not stay in its capture window**: PTA latches the runtime code per
+thread (`AclrtPeekAtLastError`, peeked and never cleared) and re-prints it — with its cached
+EE1016 description — as `call aclnnX failed, error code is 107030` when an unrelated op fails
+hours later, so a report that pairs this block with a runtime `RuntimeError` is a
+masked-status diagnosis, not a capture abort. Take
+`../hccl-and-hardware/latched-runtime-error-masking.md` before reading the custom-op sources:
+the blocking H2D tiling copy that mints the record is in the `csrc/<op>/op_host/` adapters,
+and the op-plugin `.cpp` in the reporter's traceback is not in any export.
+
 **Scope gate - this lane needs the CANN sentence, not just the number.** Only
 `AclrtSynchronizeStreamWithTimeout(copy_stream)` **plus**
 `EE9999 ... Not allow to synchronize captured-stream, stream_id=N` puts a report

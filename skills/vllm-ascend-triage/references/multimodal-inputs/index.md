@@ -26,8 +26,11 @@ degenerate or wrong with sane counts
 inside the vision tower or in the LM prefill of a long/chunked image prompt
 (`fault kernel_name=unpad_flashattention_…` + MTE DDR out of range: read the dumped
 `SchedulerOutput` before any source walk, `../custom-ops-runtime-faults/aclnn-error-dump-reading.md`
-built-in-kernel section), or a checkpoint architecture question
-(`../startup-failures/model-type-not-recognized.md`).
+built-in-kernel section), a **tiling** refusal of the vision tower's own mask rank
+(`call aclnnFlashAttentionScore failed … atten mask dim should be 2 or 4, but got 3` on the
+first image request: upstream's `TORCH_SDPA` ViT branch built a 3-D mask —
+`../custom-ops-runtime-faults/tiling-attribute-rejection.md` §*Mask rank*), or a checkpoint
+architecture question (`../startup-failures/model-type-not-recognized.md`).
 
 Inherit the rules in SKILL.md.
 
@@ -100,3 +103,12 @@ Inherit the rules in SKILL.md.
   `'string'` vs `'openai'` chat-template content-format discriminator, the
   one-command special-token-id print, and the reporter-confirmed fix (refresh the
   model files).
+- `../custom-ops-runtime-faults/fa-tiling-argument-refusals.md` (member A) — an
+  **audio/VL tower's own HF mask** reaching the fused kernel: `get unsupported
+  atten_mask shape … supported atten_mask shape can be [B, N, Sq, Skv], [B, 1, Sq,
+  Skv], [1, 1, Sq, Skv] and [Sq, Skv]` under `call aclnnFlashAttentionScore failed`,
+  reported as "a VM/audio model that stopped deploying" (#6573, Ultravox on vllm
+  v0.14.1 + vllm-ascend v0.14.0rc1). The producing line is in the model file
+  (`get_attention_mask_by_audio_len` → `get_extended_attention_mask`), not in the
+  plugin, so this topic's placeholder/cache rules do not apply — send the
+  `scaled_dot_product_attention` mask repro.

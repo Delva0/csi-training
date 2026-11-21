@@ -89,6 +89,15 @@ at request time. The shapes:
   fast path copies target-width hidden states into a draft-width buffer. Which
   `__init__` computes the flag is the one grep that decides the ref, and at v0.17.0rc1
   the owner is downstream (`draft-model-serial-hidden-size-crash.md`).
+- or the **same function's PCP branch** assigns a `None` CPU tensor:
+  `TypeError: 'NoneType' object does not support item assignment` at
+  `cad.seq_lens_cpu[-num_prefill_reqs:] = seq_lens_p` (`eagle_proposer.py:1158`), on a
+  launch carrying `--async-scheduling` **and** `--speculative-config` with K > 0 **and**
+  `--prefill-context-parallel-size` > 1, once a step mixes prefills with decodes. The
+  runner deliberately passes `seq_lens_cpu=None` in async spec-decode mode and keeps the
+  CPU copy only in `_seq_lens_cpu`, whose upstream lazy fallback the downstream dataclass
+  field shadows; rung 1 is `--async-scheduling` off and the fix is post-pin
+  (`pcp-async-spec-seq-lens-cpu-none.md`, recorded #8926, reporter-confirmed #8749).
 - or the **first** request on a launch that also sets `--pipeline-parallel-size`
   > 1 dies with a plain `IndexError`/`AttributeError` (no device record), with
   `suffix`, `ngram` or `mtp` alike and startup clean: the PP × spec-decode
@@ -435,6 +444,15 @@ from the acceptance numbers.
   v0.18.0 control (#9024 / #10326), and the history search keyed on the upstream frame
   names that finds them in one call. A GLM-5.x `glm_moe_dsa` launch is **not** this pair
   (no mamba layers): `../dsa-sparse-attention/glm-moe-dsa-tag-regression-corruption.md`.
+- `pcp-async-spec-seq-lens-cpu-none.md` — `TypeError: 'NoneType' object does not
+  support item assignment` at `cad.seq_lens_cpu[-num_prefill_reqs:] = seq_lens_p` under
+  PCP > 1 + `--async-scheduling` + MTP: the `:2466-2469` `None` decision, the
+  `_seq_lens_cpu` / `seq_lens_cpu` split at `:2479-2481`, the upstream property
+  (`backend.py:394-397`) shadowed by `utils.py:158`, the mixed-step trigger from
+  `pcp_utils.init_batch_info`, the pin's own release-note claim (`release_notes.md:21`,
+  #7924), the ladder that starts with `--async-scheduling` off, and the two coverage
+  facts (the UT pins `pcp_size = 1`; every PCP e2e graph row runs
+  `async_scheduling=False`). Recorded #8926, fix reporter-confirmed as #8749.
 - `../accuracy-benchmarks/mtp-prefix-cache-310p.md` — when spec decode is the
   *second* feature on a **310P** hybrid model: MTP over an `align`-mode prefix cache
   (per-block SSM state, `num_speculative_blocks`, `accept_token_bias`, the fp16 state

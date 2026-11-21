@@ -1,4 +1,4 @@
-# Load-phase `KeyError: '<param>.weight_scale'` / `.weight_offset`: the checkpoint's quant aux tensors vs the engine's quant config
+# Load-phase `KeyError: '<param>.weight_scale'` / `.weight_offset`, or `ValueError: There is no module or parameter named '<module>.<aux>'`: the checkpoint's quant aux tensors vs the engine's quant config
 
 Lane B, every rank, after `Starting to load model` (the shard bar is usually
 visible). The traceback's deepest frames are the model loader:
@@ -153,6 +153,70 @@ prints it under that same `[multiproc_executor.py:749]` prefix) plus
 `scripts/checkpoint-key-prefix.py --scales <model dir>`. Do not fill the gap with the
 nearest unusual flag — in #7744 that was `--mm_processor_cache_type shm`, whose page
 requires its own `Data for address:id …` error.
+
+## The `ValueError` form: the autoloader names a module that has no quant aux home (recorded #7200)
+
+Same family, other raise site, and the message itself carries the classification:
+
+```text
+(Worker_DP0_TP3_EP3 pid=1596) ERROR ... vllm/model_executor/models/kimi_k25.py", line 478, in load_weights
+    return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
+(Worker_DP0_TP3_EP3 pid=1596) ERROR ... vllm/model_executor/models/utils.py", line 326, in _load_module
+    raise ValueError(msg)
+ValueError: There is no module or parameter named 'vision_tower.encoder.blocks.0.mlp.fc0.weight_offset' in
+KimiK25ForConditionalGeneration. The available parameters belonging to
+vision_tower.encoder.blocks.0.mlp.fc0 (AscendColumnParallelLinear) are:
+{'vision_tower.encoder.blocks.0.mlp.fc0weight', 'vision_tower.encoder.blocks.0.mlp.fc0bias'}
+```
+
+1. **Every field of that sentence is computed — none of it is checkpoint text.** The
+   raise is upstream's `AutoWeightsLoader._load_module` (vllm v0.16.0 `89a77b1`:
+   `vllm/model_executor/models/utils.py:249`, `raise ValueError(msg)` at `:326`, reached
+   from `load_weights` at `:329-342`), i.e. the *common* loader — the model file's own
+   `load_weights` only forwarded to it, so its frame is not the owner. The parenthesised
+   class is the **runtime** class: vllm's CustomOp swaps `ColumnParallelLinear` for
+   `AscendColumnParallelLinear` at registration (`vllm_ascend/utils.py:634`, inside
+   `REGISTERED_ASCEND_OPS`), so a model file that writes `ColumnParallelLinear` still
+   reports the Ascend subclass — it says nothing about the checkpoint and nothing about
+   a plugin having replaced a layer. The `{…}` set is `base_prefix + k` with no
+   separator inserted, so `'…fc0weight'` is `prefix` + `weight`, not a name missing a dot.
+2. **The aux suffix on the quoted name is the diagnosis.** `.weight_offset` /
+   `.weight_scale` / `.deq_scale` / `.quant_bias` after a module path means the export
+   quantised that module while the module was built with **no** quant method: the
+   message's own parameter set is `weight`/`bias` only. Same two-sided question as the
+   KeyError form above read from the other end — there a downstream `params_dict[name]`
+   misses an engine name, here the upstream loader meets a checkpoint tensor for a module
+   whose `named_parameters()` has no home for it.
+3. **Which side over-reached is one artifact: the export's declaration.** At #7200's pin
+   (vllm v0.16.0 `89a77b1` + vllm-ascend v0.16.0rc1 `a78a00e`) `kimi_k25.py:352` reads
+   `vllm_config.quant_config`, but `:362-365` builds
+   `MoonViT3dPretrainedModel(config.vision_config, prefix=…)` with no `quant_config`,
+   `kimi_k25_vit.py:544-547` has no such parameter, and `:313-326` builds the MLP's
+   `fc0`/`fc1` without it — the tower is unquantised **by construction**, so every
+   `vision_tower.*` aux key is homeless. The checkpoint's
+   `quantization_config.config_groups.group_0.targets` (or the description's per-module
+   method) says what the converter covered; a blanket `["Linear"]` covers a ViT MLP whose
+   model half never accepts a quant method. The repo documents the narrowing step for a
+   Kimi sibling — `docs/source/tutorials/models/Kimi-K2-Thinking.md:74` edits that field
+   from `["Linear"]` to `["MoE"]` — so ask for that block before offering a patch.
+4. **Never offer "delete the aux tensors".** In w4a8 the packed `weight` already holds two
+   int4 values per int8 (`vllm_ascend/quantization/methods/w4a8.py:60-68`,
+   `_packed_factor=2`) and the aux set is allocated per group (`:78-88`: `weight_scale`,
+   `weight_offset`, `weight_scale_second`, `weight_offset_second`, `scale_bias`).
+   Dropping only the offsets makes the start succeed and feeds packed integers to a bf16
+   MLP — the exception-only fix. Either re-export (or take the vendor's narrower variant)
+   so the tower stays bf16, or plumb `quant_config` into the tower upstream; acceptance is
+   one image request compared against a bf16 tower's answer, not "it starts".
+5. **Ask for the census, not the layout**: `scripts/checkpoint-key-prefix.py --scales
+   <dir>` grouped by family shows whether the whole tower is quantised (`patch_embed`,
+   `attn.wo`, every `blocks.*.mlp`), which decides "exclude one MLP" vs "re-export".
+
+Scope: the raise site, the CustomOp class map and the Kimi constructors are verified at
+that pin; the ValueError form itself is generic (any model file that builds a submodule
+without `quant_config` — ViT towers and multimodal projectors are the common ones), so
+re-read that constructor at the reporter's ref before quoting lines. If upstream later
+passes `quant_config` there, this error disappears and the question becomes which variant
+the export should carry.
 
 ## Procedure — two calls before any source walk
 

@@ -1,6 +1,6 @@
-# Quantization method: rejected at config time, unnameable on the CLI, never selected, or renamed onto a foreign checkpoint
+# Quantization method: rejected at config time, unnameable on the CLI, never selected, renamed onto a foreign checkpoint — or read from the wrong filename
 
-Five failures live on this page and they point in different directions. **A** is a
+Six failures live on this page and they point in different directions. **A** is a
 method that is named and refused before any worker starts; **B** is a method that
 was never named, on a checkpoint whose own layout deliberately carries no
 `quantization_config` — so nothing refuses it, the engine starts, and it dies in a
@@ -15,7 +15,10 @@ command line, so `argparse` rejects the flag before `ModelConfig` is built at al
 **E** is a checkpoint whose *weights* are FP8/E4M3 — no method name, config edit or
 graph flag makes it run, and it surfaces as A's refusal or as C's `KeyError` depending
 on whether that install registered `ascend` at all, so read the two error messages
-together before ranking anything.
+together before ranking anything; **F** is the method selected *correctly* on a
+checkpoint whose description file carries a name this ref does not glob, so the
+engine stops while its config is being built and the message names the method, not
+the file.
 A and D are one grep apart and are told apart by the message form alone — `… not
 supported in npu` versus `invalid choice`.
 
@@ -591,6 +594,64 @@ no `ascend` after an explicit import means the installed package lacks the modul
 an import-order problem. Report it as a gap and stop: recorded #119 spent its whole
 16 384-token budget on that question and shipped no answer.
 
+## F. The method is right and the description file has the wrong name
+
+```text
+pydantic_core._pydantic_core.ValidationError: 1 validation error for VllmConfig
+  Value error, Cannot find the config file for ascend [type=value_error, input_value=ArgsKwargs((), {'model_co...': {'enabled': False}}}), input_type=ArgsKwargs]
+```
+
+Recorded #6931 (image `vllm-ascend:v0.11.0-a3-openeuler`, atlas A3,
+`deepseek-R1-0528-w8a8`, body announces 「启动服务脚本如下」 and then pastes only the
+log): the checkpoint directory holds `quant_model_description_w8a8_dynamic.json`, and
+the reporter already tried `"model_type": "deepseekv2"` and `"deepseek_v3"`.
+
+- **The `ascend` in that sentence is the method, not a file or a device.**
+  `ASCEND_QUANTIZATION_METHOD = "ascend"` (`vllm_ascend/utils.py:43`) is the only name
+  the platform lists (`vllm_ascend/platform.py:57`), so reaching this raise *proves*
+  the flag or `config.json` was accepted — §D's flag hunt is over, and so is
+  `model_type`: `deepseekv2` versus `deepseek_v3` only moves the non-fatal
+  `You are using a model of type deepseekv2 to instantiate a model of type
+  deepseek_v3` warning under it.
+- **The owner is one line.** `AscendQuantConfig.get_config_filenames()` returns exactly
+  `["quant_model_description.json"]` (`vllm_ascend/quantization/quant_config.py:85-86`,
+  pinned by its own UT `tests/ut/quantization/test_quant_config.py:54-56`), and
+  upstream keeps the `*.json` files whose name **ends with** one of those strings
+  (`vllm/model_executor/model_loader/weight_utils.py:302,308-311` at vllm v0.13.0)
+  before raising at `:313-314`. `quant_model_description_w8a8_dynamic.json` does not
+  end with the accepted name, so to the reader the directory holds no description at
+  all. The sibling raise `Found multiple config files for ascend` (`:315-319`) is the
+  same suffix rule hitting a second match, e.g. a `…-w8a8` tree where someone already
+  made a copy — check `ls <ckpt>/*quant_model_description*.json` before the `cp`.
+- **Where the suffixed name comes from, and why the version is not the fault.** Newer
+  msmodelslim exports write `quant_model_description_<quant_type>.json`, and the tree
+  records that pairing one release earlier: at v0.8.5rc1 its own quantization tutorial
+  lists `quant_model_description_w8a8_dynamic.json` as the converted output while the
+  reader accepts only the short name
+  (`weight-scale-keyerror-quant-variant.md`). The FAQ's
+  「check if your model is converted by the `br_release_MindStudio_8.1.RC2_TR5_…`
+  ModelSlim version」 is the doc-side statement of that converter↔reader contract
+  (`docs/source/user_guide/feature_guide/quantization.md:102,106`). Do not claim which
+  later ref first globs the suffixed name unless that ref is exported.
+- **Rung 1 is a copy, and it changes no semantics.**
+  `cp <ckpt>/quant_model_description_w8a8_dynamic.json <ckpt>/quant_model_description.json`
+  (keep the original; a symlink or a copied tree if the mount is read-only), then the
+  same serve line. Precedent #1270's own conversion steps say exactly this —
+  「`quant_model_description_w8a8_dynamic.json` 重命名为 `quant_model_description.json`」 —
+  and the reader stores the file's content as `quant_description`
+  (`quant_config.py:55`), so nothing but the name moves.
+- **What the message rules out, and what to say next.** The phase is engine-config
+  construction: the paste's frames are `create_engine_config` → `VllmConfig(...)`, so no
+  worker, device, TP/EP/PD, CANN or HBM fact bears on it (in the pinned vllm v0.13.0 the
+  same sentence comes from `get_quant_config` on the loader path — either way the
+  decision is read off the model directory, not off runtime state). A
+  `quantization_config` in `config.json` would have taken the HF-dict branch at
+  `weight_utils.py:239-249` and never globbed, so this exact sentence is itself
+  evidence that `config.json` carries no such key (§E's last paragraph). After the
+  rename the next failure, if any, is either §B-i/§C's `KeyError` on an aux tensor the
+  description calls `FLOAT`, or a plain load-phase mismatch — name which lane each would
+  be before they report back, and ask for the launch line the body promised.
+
 ## Cost note
 
 The recorded run (#6800) reached the right answer in 10 turns / 17 tool calls, all
@@ -606,6 +667,13 @@ three on the custom-op warning (the paragraph above says it in one line), three 
 whether a msmodelslim `quant_model_description.json` can select the method by itself
 (§B answers it). Six calls establish the whole lane: `supported_quantization` + the hook
 body, the two `arg_utils` sites, `quantizer.py`, `setup.py:371`, the FAQ line.
+
+The §F run (#6931) reached the rename verdict in 20 tool calls, but four of them —
+and the version sentence in its answer — went to reconciling the pasted
+`arg_utils.py:1431`/`requirements.txt` against the snapshot's vllm pin, which the
+release matrix had already replaced (`environment-correspondence.md` step 2,
+`dated_reference_only`); the answer needed the one `quant_config.py:85-86` read plus
+the `cp`.
 
 The §E pair is instructive in both directions. #3534 shipped the right verdict (an FP8
 checkpoint cannot run) after 12 reads, but its cheapest check went to `config.json`

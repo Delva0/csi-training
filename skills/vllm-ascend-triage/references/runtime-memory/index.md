@@ -188,6 +188,26 @@ Caveat for cross-version work: the same `--gpu-memory-utilization` yields a ~1 %
 smaller KV on v0.21+ than on an older release, and the per-rank `21.26` / `25.78`
 GiB numbers differ by ~0.02 GiB between ranks. Neither is growth.
 
+**The two KV figures in that line are an identity, not a warning.** `Current KV cache
+memory` exceeds the `--kv-cache-memory=<N> … to fit into requested memory` suggestion by
+exactly `NPU graph memory + 150 MiB` on every graph run, because
+`available_kv_cache_memory_bytes = requested_memory − non_kv_cache_memory` comes from the
+profile that runs **before** capture (`vllm_ascend/worker/worker.py:563-590` at v0.23.0,
+`5cb98caaadef`; the comment says "Record torch peak INSIDE the context and BEFORE graph
+capture"), while the suggestion subtracts `npugraph_memory_bytes` too (`:732`, `:743-750`,
+`logger.info` at `:771`). `requested_memory` is the `gpu_memory_utilization` *policy*
+target, never the card: physical headroom is `free_memory − (weights + peak activation +
+non-torch + graph + KV)`. Recorded #16649 (`gmu=0.92` on a `60.61/60.96 GiB` device:
+23.1 + 4.01 + 1.59 + 0.9 + 27.38 = 56.98 GiB accounted) leaves **~3.6 GiB unused** on the
+card while a 20 MiB physical segment fails — but the same line read against `requested
+56.08` looks like 0.3 GiB of headroom, and the recorded answer published "the config
+overshot by ~1 GiB, 0.3-0.4 GiB left" and ranked `capacity` first on it. Read the line as
+three numbers — policy target 56.08 / accounting 56.98 / physical free 3.63 — and treat a
+shortfall against `requested` alone as expected on any CUDAGraph run; the growth sample
+(`hbm-growth-and-oom.md`) and the allocator's segment map
+(`allocator-expandable-segments-unmap-crash.md` §*The map direction*) are what the
+physical free figure sends you to.
+
 Conditional routes:
 
 - Any memory-growth report, or "VRAM not released then crash" where the process is
@@ -219,7 +239,13 @@ Conditional routes:
   allocator lane, `allocator-expandable-segments-unmap-crash.md` (reporter-confirmed
   #12534: `expandable_segments:False` starts; note vllm-ascend injects `True`
   unless the variable already carries another of the three keys, so "unset" is
-  not "off").
+  not "off"). The **map** direction of the same allocator —
+  `torch.OutOfMemoryError: map:…NPUCachingAllocator.cpp:457 … aclrtMallocPhysical,
+  error code is 507899` beside `[drv api]halMemCreate failed drvRetCode=17 …
+  [FUNC:MallocPhysical]`, on an engine that has been serving for hours — is that
+  page's §*The map direction*: there an allocation **did** fail, so the headroom
+  arithmetic above comes first and `expandable_segments:False` is an ablation, not
+  the cure.
 - Start-up dies **at KV sizing, before any allocation fails**: `Available KV cache
   memory: … (halved for workspace)` then `ValueError: To serve at least one request
   with the model's max seq len …`, or `Available memory: 0` / `-1.33GB` on the

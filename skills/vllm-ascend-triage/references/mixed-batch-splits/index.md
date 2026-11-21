@@ -36,7 +36,11 @@ Two entry shapes, same class:
   `num_scheduled_tokens` array, one offset by a request count and one by a token
   count. Do **not** route this to the PCP enablement lane
   (`../feature-enable-recipes/index.md`) as a card/flag problem, and do not ask
-  for an MTP-only ablation: the offset only exists because MTP is on.
+  for an MTP-only ablation: the offset only exists because MTP is on. Its `TypeError`
+  sibling — `'NoneType' object does not support item assignment` at
+  `eagle_proposer.py set_inputs_first_pass`, `cad.seq_lens_cpu[-num_prefill_reqs:]`,
+  because async spec-decode mode nulls that CPU field while `_seq_lens_cpu` carries it
+  — is `../spec-decode-mtp/pcp-async-spec-seq-lens-cpu-none.md`.
 
 A **Python `UnboundLocalError` in `mla_v1.py`'s forward** (`decode_hs_or_q_c`, then
 `decode_k_pe` after a hand patch) under `torchair_graph_config` is *not* this topic even

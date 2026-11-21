@@ -141,6 +141,49 @@ absent ⇒ the penalty is inert and the upgrade is rung 1; present ⇒ do not ra
 only applies when the failing request actually carries a penalty above its
 default; a body without one makes the whole lane irrelevant.
 
+## A mid-answer word loop in a VL rollout is not the `!!!!` tower profile (recorded #3452)
+
+The screenshot OCR of a Qwen2.5-VL answer (vllm-ascend v0.9.1 `0740d10` + vllm v0.9.1
+`b6553be`, 910B, GRPO first-round rollout, `repetition_penalty` raised with no effect)
+shows a correct, on-topic paragraph that names the state in the image and restates the
+question, then `Court Court Court …` to the cap, with one `COur`. One observation splits
+this from the vision-tower row: **the text before the loop is correct and image-derived**.
+The `!!!!`/感叹号 profile (`vl-vision-tower-degeneracy.md`) is wrong from its first token,
+and `constant-token-degeneracy.md`'s own routing ("image present ⇒ tower page") is the
+wrong way round for a loop that starts after a good paragraph — an answer that first reads
+the image correctly had an encoder that delivered, so dtype/tower/padding rows are not the
+cheap owners here.
+
+Rows on the same image+body, cheapest first:
+
+- identity: `temperature: 0`, serial, **N ≈ 3/p** reruns (this page's identity row). A
+  rollout at temperature ~1 with `n > 1` is the cheapest place to get p at all; ask for
+  the count, not a retry.
+- sampling: the rollout body (`temperature`/`top_p`/`top_k`, `max_tokens`, and the
+  prompt's `<|image_pad|>` count) before any engine row — a word loop with casing drift
+  is a sampling-side shape.
+- sampler implementation: the gate is per release and **off** at old pins —
+  `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE` defaults to `'0'` at v0.9.1
+  (`vllm_ascend/envs.py:55-56`), so the fused top-k path is not in it unless the harness
+  set it (`sampler-implementation-gates.md`).
+- the penalty-inert section above **cannot apply here**: vllm v0.9.1 has no
+  async-scheduling flag at all (`grep -rn async_scheduling vllm/` finds only
+  `disable_async_output_proc`, `vllm/engine/arg_utils.py:411`), so "the penalty did
+  nothing" has no runner-bookkeeping reading at that pin — state that rather than ranking
+  it.
+- engine rows (reuse/preemption/MTP) only if the greedy rerun still loops; then the VL
+  padding row (`USE_OPTIMIZED_MODEL=0`, live for Qwen2.5-VL at v0.9.2rc1+) needs a
+  text-only control of the same question answering cleanly first, otherwise the tower is
+  still not implicated.
+
+The paste's environment block is a **confound sentence, not a rung**: `Failed to load
+plugin ascend` / `module 'vllm_ascend' has no attribute 'register'` with
+`No module named 'vllm_ascend._version'` and `vllm/_C.abi3.so: undefined symbol …` mean
+that interpreter resolved a different `vllm_ascend` (`../image-dependency-faults/plugin-load-module-missing.md`),
+while the loop was produced by the reporter's engine — so one command
+(`python -c "import vllm_ascend; print(vllm_ascend.__file__)"`) and one paragraph, not a
+version walk.
+
 ## The deliverable
 
 Verdict plus one action in the first paragraph, then a ranked list where every

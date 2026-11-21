@@ -16,6 +16,14 @@ no measured output here) and from `references/tutorial-verification/index.md`
 (there the graded object is a document that a user must follow; here it is a
 release claim that a user must weigh).
 
+**Second shape this topic owns:** a user quotes the release's own **highlights
+bullet** for a feature ("Support EAGLE-3 for speculative decoding. [#1032]", under
+`## v0.9.1rc1`) and reports it missing from the later rcs, asking whether the final
+release will carry it — no log either, and the graded object is a capability claim
+about one release line. That one needs the feature's consumer at the pin plus the
+tree's own test and CI wiring, not the bulletin procedure: route to
+`highlights-bullet-vs-pinned-tree.md`.
+
 ## Rules
 
 1. **Claim-check, not a second root cause.** Deliver: which signatures the notice
@@ -81,4 +89,6 @@ release claim that a user must weigh).
    cheapest next action for both issues in the first paragraph, then cap each
    ranked list at 3 causes with one check apiece.
 
-Route: `bulletin-claim-check.md` for the worked case and its verified anchors.
+Route: `bulletin-claim-check.md` for the worked case and its verified anchors;
+`highlights-bullet-vs-pinned-tree.md` for a feature a release note claims (three
+co-signs in the tree, then a dated answer — #2562 EAGLE-3 on v0.9.1rc3).

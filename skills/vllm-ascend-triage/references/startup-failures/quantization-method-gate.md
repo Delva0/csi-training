@@ -4,7 +4,8 @@ Four failures live on this page and they point in different directions. **A** is
 method that is named and refused before any worker starts; **B** is a method that
 was never named, on a checkpoint whose own layout deliberately carries no
 `quantization_config` — so nothing refuses it, the engine starts, and it dies in a
-worker while loading int8 tensors into a dense model; **C** is a *foreign* format
+worker while loading int8 tensors — or their static-W8A8 `deq_scale` aux tensor, §B-i —
+into a dense model; **C** is a *foreign* format
 (GPTQ/AWQ/…) that **is** named in `config.json` and is silently renamed to `ascend`,
 so the refusal never happens and the format question surfaces as a construction-time
 `KeyError` instead; **D** is a method the release supports but never named on its own
@@ -142,7 +143,68 @@ section owns it: at v0.8.5rc1 only `W8A8_DYNAMIC` allocates MoE offsets (the sta
 `W8A8` MoE raises `NotImplementedError` before load), so a load-phase
 `…mlp.experts.w2_weight_offset` `KeyError` means the description in effect marked the
 experts `FLOAT` — a wrong/hand-merged description, not a full-precision release
-(recorded #986).
+(recorded #986). The **static-W8A8** aux spelling (`KeyError: '…gate_up_proj.deq_scale'`)
+is the mirror neither: the directory is the quantised variant the release validates and
+the engine was never quantised at all — §B-i, and §B-ii for the pasted launch block that
+cannot be the command that ran.
+
+### B-i. The aux-tensor spelling: `KeyError: '<prefix>.deq_scale'` — static-W8A8 checkpoint, dense engine
+
+Same direction as the section above, entered from the other side of the same paste: the
+unmatched key is a **quant aux tensor**, not a `.weight`, so it reads like the mirror
+page and is not. Recorded #5812 (vllm-ascend v0.13.0rc1 `1b5d5ab` + vllm v0.13.0
+`72506c98`, 4×910B3 Euler container, the tutorial's own `vllm-ascend/Qwen3-8B-W8A8`
+directory, same on `0.11.0`):
+
+```text
+File ".../vllm/model_executor/models/qwen2.py", line 496, in load_weights
+    param = params_dict[name]
+KeyError: 'layers.0.mlp.gate_up_proj.deq_scale'
+```
+
+`deq_scale` is allocated by exactly one method at that pin —
+`AscendW8A8LinearMethod.get_perchannel_param` (`vllm_ascend/quantization/w8a8.py:66-84`,
+`deq_scale` at `:72-75`, float32 for bf16 params and int64 for fp16), the `W8A8` row of
+`ASCEND_QUANTIZATION_METHOD_MAP` (`quantization/utils.py:19-47`); `W8A8_DYNAMIC`
+allocates `weight_scale`/`weight_offset` and no `deq_scale`. So the key itself says the
+served directory is a **static** modelslim export, and one grep decides the direction:
+had `--quantization ascend` been in effect with a description saying `W8A8` for that
+layer, that parameter would exist and the loader would never ask for it. The `KeyError`
+therefore means **the engine built the linear unquantized** — this page's direction, not
+`weight-scale-keyerror-quant-variant.md`'s ("checkpoint carries more scales than the
+engine expects"). Precedent with the identical key: #1329, on `0.7.3.post1`, where
+`--quantization ascend` was still an `invalid choice` and the same dense-model load
+followed. Exonerate the directory in one read: the pin's own
+`tests/e2e/models/configs/Qwen3-8B-W8A8.yaml` validates that exact model with
+`quantization: ascend` (gsm8k 0.80), so "this W8A8 model is unsupported" is refutable
+before any loader walk.
+
+### B-ii. Ask for the effective command: a pasted launch block can be falsified in one grep
+
+Since the whole direction is "the flag never took effect", the cheapest decisive
+artefact is the **command that actually ran**, and a block can be shown not to be it
+without leaving the snapshot: pick any flag in it and check the pinned tree defines it.
+In #5812 the block ended `… --tensor-parallel-size 1 # 使用x个NPU --device ascend
+--dtype auto … --quantization ascend`, and `--device` is **not an argument** of either
+tree — `rg -n -- '--device' vllm/` at vllm v0.13.0 matches a single comment
+(`vllm/engine/arg_utils.py:1997`, *"a new device to `--device` argument"*, i.e. a plugin
+*could* add one), and `rg -n -- '--device' vllm_ascend/` at v0.13.0rc1 matches nothing
+(`pre_register_and_update`, `platform.py:94-110`, appends only `ascend` to
+`--quantization`). A launch carrying `--device ascend` therefore dies in `argparse`
+before `APIConfig`; a log that reached `Starting to load model` cannot have come from it.
+
+The mechanical reason worth naming, because it silently drops *every* later flag: a
+docker-compose `command: >` **folds** its lines into one, and the inline `#` comments in
+that folded line (here `1 # 使用x个NPU`) start a bash comment inside the `bash -c`
+string — so `--device`, `--dtype`, `--max-model-len`, `--max-num-batched-tokens` and
+`--quantization ascend` never arrive, and no "unknown quantization method" `ValueError`
+is printed to contradict the block. This is the same truncation family as the
+backslash-spaces-`#` `docker run` in
+`device-id-invalid-at-worker-init.md` §*A `docker run` can silently map one card*, one
+layer up. Ask for `docker inspect <ctr> --format '{{json .Config.Cmd}}'` (or
+`docker exec <ctr> cat /proc/1/cmdline | tr '\0' ' '`) and the model directory's
+`config.json` — a `quantization_config` there makes the flag unnecessary, its absence
+makes the flag mandatory — then answer with the corrected command, not a mechanism.
 
 What the answer says, in order: (1) pass `quantization="ascend"` (serve:
 `--quantization ascend`) — that is the documented enabling switch and the pinned

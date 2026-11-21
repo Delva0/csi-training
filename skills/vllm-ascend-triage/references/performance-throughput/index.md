@@ -55,6 +55,15 @@ A/B on the prefiller: `../pd-disaggregation/pd-vs-colocated-ttft.md`.
 path — the perf complaint and the garbled-output complaint are one decision:
 `moe-comm-path-when-ep-off.md`.
 
+**And this topic:** the reference point is another **engine** or another **card count** —
+"8卡 910B3 … 平均 6 token/s", "单卡跑 Qwen3-4B 可以到 17 token/s 也比 mindie 慢了一半多",
+"多卡跑更慢 应该是多卡通信机制上没有优化" (recorded #770). A vendor-engine number is a data
+point, not "same conditions", and a report that already carries two card counts is an ablation
+matrix with the single-card control inside it: the deliverable is the per-request decode rate
+plus a one-client TP sweep, and the pin decides whether a comm lever even exists (at v0.8.x the
+MC2 MoE decode path is DeepSeek-only and `VLLM_ENABLE_MC2`-gated, and there is no EP flag at
+all) — `multicard-scaling-and-vendor-baseline.md`.
+
 **And this topic:** the two runs differ by one `--speculative-config` and the direction
 is **negative** ("开启 mtp 性能下降 30 %", while a sibling model on the same release
 improves). Acceptance is healthy there, so this is the token-per-step arithmetic, not
@@ -230,7 +239,10 @@ Not this topic, leave immediately:
   is a wall clock, a total throughput or an OCR'd table cell, and none of those is the
   quantity the reporter thinks it is: totals mix input and output lengths, wall clock
   moves with the token count, and the small columns of a screenshot table get
-  transposed. One call —
+  transposed. **Gate on the fields first:** an OCR that lost the concurrency or the request
+  count cannot be normalized at all — say so and ask for the summary text instead of
+  multiplying two recovered cells (recorded #770 published an "in-flight ≈ 233 → 602"
+  Little's-law count from an OCR'd latency column that no cell supported). One call —
   `uv run --no-project python <skill_root>/scripts/benchmark-table-normalize.py --run … --compare A B` —
   gives per-request token counts, the decode step, the prefill cost per input token
   and which axis actually moved; rank causes on that axis only. Two recorded shapes:
@@ -264,6 +276,12 @@ Not this topic, leave immediately:
   treat per-step parity as the null hypothesis, with the launch-command flags that
   have no reader at the pinned ref (`VLLM_ASCEND_ENABLE_DENSE_OPTIMIZE` removed at
   v0.13.0rc1, `release_notes.md:35`) as a correction rather than a cause.
+- `profiler-no-kernel-details-graph-mtp.md` — `kernel_details.csv` **absent** on a
+  graph-mode + MTP launch: read the file-existence semantics first (the dir must be
+  analysed; torch_npu's own test treats it as the device-collection predicate), the
+  profiler flags are the tree's not the reporter's, and an "it collected on an older
+  release" statement makes the deliverable a regression plus a bisect — not a CANN
+  limitation.
 - `profiler-shape-columns-custom-op-launch.md` — one row of the table is `N/A`:
   `SetCustomHandler` is not the discriminator (vllm-ascend's own `EXEC_NPU_CMD` uses
   it too, `csrc/aclnn_torch_adapter/op_api_common.h:584` at v0.18.0); the
@@ -338,6 +356,16 @@ Not this topic, leave immediately:
   while v0.9.x (#2099, a 1B VL serve on one 910B3) runs V0 only because non-CUDA hardware falls
   back unless `VLLM_USE_V1=1`, which the release notes require and the singlecard CI already
   uses for its `Qwen2.5-VL-3B` multimodal case.
+- `multicard-scaling-and-vendor-baseline.md` — the reference point is another engine
+  ("比 mindie 慢了一半多") or another card count ("多卡跑更慢"; recorded #770: v0.8.4rc2 reported,
+  pin v0.8.5rc1, 8×910B3 Qwen3-30B-A3B ≈6 tok/s against one-card Qwen3-4B 17 tok/s): the OCR
+  field gate that decides whether the table can be priced at all, the TP 1/2/4/8 sweep as the
+  discriminating check, and the pin's own MoE comm map — a non-DeepSeek MoE goes through
+  `ops/common_fused_moe.py:27-67` → `fused_experts` → a per-layer
+  `tensor_model_parallel_all_reduce` (`ops/fused_moe.py:668-670`), MC2 is DeepSeek-only and
+  env-gated (`:35`, `:496`, `models/deepseek_v2.py:208`), no `enable_expert_parallel` exists,
+  everything is eager (`platform.py:124,133`), and the tree holds no 8-card MoE recipe or
+  throughput number to grade against.
 - `cross-run-ratio-normalization.md` — two runs, one number each (#2833 Ascend-vs-H800
   EvalScope screenshots; #14291 v0.23→v0.24 PD "12s vs 4s"): the reconcile step and
   what each field survives OCR, `step = concurrency / output tok/s` vs

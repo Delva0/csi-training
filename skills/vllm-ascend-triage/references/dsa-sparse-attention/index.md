@@ -2,8 +2,10 @@
 
 ## Scope
 
-Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deepseek_v3_2.py`,
-`vllm_ascend/attention/sfa_v1.py`, the `npu_lightning_indexer` top-k selection, MLAPO):
+Reports on the DSA / SFA sparse-attention families — DeepSeek-V3.2-Exp
+(`vllm_ascend/models/deepseek_v3_2.py`), DeepSeek-V4 and GLM-5/5.1
+(`model_type: glm_moe_dsa`, same `vllm_ascend/attention/sfa_v1.py`, the
+`npu_lightning_indexer` top-k selection, MLAPO):
 - a device fault whose Python frame is `indexer_select` / `_sfa_preprocess` and whose
   dump names a scatter/gather kernel — `indexer-cache-scatter-fault.md`;
 - "服务崩溃 / 崩溃" under concurrency or high load **with no error text pasted** —
@@ -39,6 +41,12 @@ Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deeps
   (`_reshape_kv_cache_tensors`), on a DSA model with C8 and/or DCP/MTP — a page-size
   arithmetic/spec-consistency question, not memory or a card —
   `c8-page-size-reshape-assertion.md`.
+- a `glm_moe_dsa` (GLM-5/5.1) **w4a8** serve that starts cleanly and emits repeated junk
+  from the first token, on a **newer image tag** whose older tag answered the same
+  weights correctly, while a plain-text prompt on the broken tag is correct — a
+  per-model branch (`sfa_v1.py` `model_type == "glm_moe_dsa"`), the W4A8 shared-expert
+  overlap stream, and a launch diff against the tutorial's own multi-node w4a8 row:
+  `glm-moe-dsa-tag-regression-corruption.md`.
 
 Not this topic: startup failures before the engine is ready (see
 `../startup-failures/index.md`), generic collective/HCCL faults
@@ -123,3 +131,12 @@ is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
   command at the pinned commit, the 1-2 cheapest A/Bs, and the known-family list,
   inside the normal delivery gate. The recorded run that did not do this spent its
   whole output cap.
+- **A corruption report on this family gets two evidence steps before any source read,
+  and only one of them is free.** Match the launch against the pinned tutorial row for
+  that exact topology (the GLM-5 page ships a multi-node w4a8 row, so "off-matrix" is
+  usually several named rows, not a guess), and buy the content-vs-numerics split with
+  **one** request: a plain-text prompt padded to the failing prompt's own
+  `usage.prompt_tokens`. When the reporter's control differs in token content *and*
+  length, that single request is the discriminator — the recorded #10984 run spent its
+  turns on code rows and offered it third
+  (`glm-moe-dsa-tag-regression-corruption.md`).

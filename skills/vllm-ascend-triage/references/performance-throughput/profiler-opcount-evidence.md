@@ -14,7 +14,9 @@ walk. This is not the rate arithmetic of the parent index (there a metric block 
 trusted and the question is why a rate is low); here the table itself is the
 suspect. It is also not `../observability-and-logs/online-profiling-endpoints.md`,
 which is about vLLM's own `/start_profile` route: an external `msprof`/MindStudio
-collection has no route, and its owner is the CANN/profiler stack.
+collection has no route, and its owner is the CANN/profiler stack. And it presumes the
+table exists: a collection that wrote **no** `kernel_details.csv` under graph mode + MTP
+is a capability/regression report — `profiler-no-kernel-details-graph-mtp.md`.
 
 Verified pins for the case below: vllm-ascend **v0.13.0rc1** (`1b5d5ab`,
 QwQ-32B-W8A8, TP=2, `FULL_DECODE_ONLY`, `--async-scheduling`), vllm **v0.13.0**

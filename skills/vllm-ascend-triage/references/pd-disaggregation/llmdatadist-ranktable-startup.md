@@ -67,8 +67,11 @@ table arithmetic decides before any byte moves.
    `cluster_id` per engine (each `cluster_id` is also the `BlocksCacheKey` cluster, so
    it must be globally unique across P and D).
 7. Only then transport: pod-to-pod reachability on the advertised port, and the two
-   `device_ip`s mutually pingable. Cilium/vxlan carries the Pod network, not RoCE, and
-   `hostNetwork` is not the first instrument when the table itself was wrong.
+   `device_ip`s mutually pingable. `hostNetwork` is *not* the first instrument while the
+   table may still be wrong (steps 2-4 are what test that) — but the opposite shape, a link
+   that runs and then loops on `Checking query_register_mem_status again` for two engines on
+   one machine in two container-network namespaces, **is** the host-network case:
+   `llmdatadist-register-mem-loop.md` (reporter-confirmed #2498, `--net=host`).
 
 ## Pin's own recipe defects (report them separately)
 

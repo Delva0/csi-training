@@ -73,7 +73,11 @@ Why the lifetime reading is the better rank, and where it is weak:
   which part is source-derived and which is still the reporter's control.
 - Sampling itself is **not** inside the captured region at this pin (only the
   forward is), so no "the sampler was captured" explanation is available; graph
-  mode enters only through overlap/timing.
+  mode enters only through overlap/timing. That bounds the *mechanism* for a
+  corruption report; it does not retire the graph ablation for a **device fault**
+  in a sampling kernel — a sporadic `507035` in `ApplyTopKTopPWithSorted` cleared
+  under `--enforce-eager` at v0.10.1rc1 (reporter-confirmed #2763, ~5 vs ~40 tok/s;
+  `../custom-ops-runtime-faults/aclnn-error-dump-reading.md` §sampler mask op).
 
 ## The `enable_async_exponential` row localizes the function, not the sync primitive
 

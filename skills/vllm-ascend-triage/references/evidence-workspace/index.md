@@ -73,7 +73,13 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   in one snapshot), so `-i 'spec'` / `-i 'npu'` / `-i 'model'` buy a listing, not a
   search: recorded #2071 spent two calls on `-i 'ngram|spec'` (84 hits) and
   `-i 'attn_mask|paged_attention|speculat'` (52 hits) before a plain source grep
-  answered it. Anchor on an op name, an error string or a flag. #9278 is the same
+  answered it. Anchor on an op name, an error string or a flag — and **when the deepest
+  frame is an upstream `vllm/` symbol, anchor on that symbol, not on this project's
+  names**: a hybrid-GDN `IndexError` inside
+  `vllm/model_executor/layers/mamba/mamba_utils.py get_temporal_copy_spec` is filed in
+  the corpus under the upstream frames — `-b
+  'preprocess_mamba|get_temporal_copy_spec|mamba_state_idx|mamba_cache_mode'` returns
+  #9024 — while a `vllm_ascend`-only pattern returns nothing. #9278 is the same
   accident from the other side: `-i 'suffix|507035|aivec|MPU address'` returned
   **207 hits / 207 distinct ids** (every one via `ATB_SHARE_MEMORY_NAME_SUFFIX=`), the
   run called it noise and stopped, and the same listing held #488 with the reporter's

@@ -242,8 +242,9 @@ downstream code and the owner is the launch site's arguments —
   `batchIdx = tensorAShape[0] - 1` against `constexpr MAX_CAPTURE_NUM = 1024` — the **token**
   dim, not `max_cudagraph_capture_size` and not any request-count knob. Reconcile the
   printed number with the reporter's named parameter first (their 128 vs the printed
-  1024 refutes their mechanism in one line), then read the caller's `-> 1024` guard
-  **in the reporter's release, not only in the pin**, and stop: nothing launches, so
+  1024 refutes their mechanism in one line), then read the caller's guard
+  **in the reporter's release, not only in the pin** — absent at v0.13.0rc1, where it is a
+  `not has_prefill` proxy the tree's own TODO calls a bug — and stop: nothing launches, so
   `cudagraph_mode` / drafter-eager / capture-size ablations cannot move it —
   `host-tiling-table-bound.md`.
 - Check the error family before the operator. When the same output also carries
@@ -336,7 +337,11 @@ downstream code and the owner is the launch site's arguments —
   the V1 `Dumping scheduler output … SchedulerOutput(...)` disaster dump read field by field
   (`scheduled_encoder_inputs` ⇒ vision tower vs LM, `num_computed_tokens > 0` ⇒ continuation
   chunk, `num_common_prefix_blocks` ⇒ *not* a cache hit), and recorded #3810 (v0.11.0rc0,
-  Qwen3-VL-8B image request, fixed by the v0.13.0rc0 image).
+  Qwen3-VL-8B image request, fixed by the v0.13.0rc0 image). Its **sampler-mask**
+  sub-case (`fault kernel_name=ApplyTopKTopPWithSorted_fp32_high_performance_0`, 偶现
+  `507035` while the serve replays a captured graph) carries the two rungs that precede
+  any op-defect theory — `--enforce-eager` (reporter-confirmed on #2763 at ~5 vs ~40
+  tok/s) and `--compilation-config '{"cudagraph_mode": 0}'`.
 - `cannot-find-bin-integral-key.md` — `EZ9999 … Cannot find bin of op <Op>,
   integral key <dtype/format list>` + `Kernel Run failed. opType: N` (#2387,
   v0.10.0rc1): its pre-launch wording table and their owners, how to read the key
@@ -360,10 +365,13 @@ downstream code and the owner is the launch site's arguments —
 - `host-tiling-table-bound.md` — `<name> is out of range: N` from a `csrc/<op>/op_host/`
   adapter (#8392 `batchIdx` 1024 in `sfa_v1._v_up_proj`): the printed number is the
   table's `constexpr`, the index is a token count, the caller guard
-  (`BMM_TRANS_MAX_SUPPORTED_TOKENS`) exists in **both** v0.13.0 and v0.18.0rc1 — so the
-  "your release lacks the guard" answer is the trap — plus the layout mismatch that
-  survives the guard, the host-side `TORCH_CHECK` implication for graph-mode ablations,
-  and the MLAPO-1024 coincidence that governs perf claims.
+  (`BMM_TRANS_MAX_SUPPORTED_TOKENS`) exists at v0.13.0 and v0.18.0rc1 but **not** at
+  v0.13.0rc1 (`1b5d5ab`, `not has_prefill` + a TODO calling it a bug) — so grep the
+  reporter's exact build instead of inferring either way — plus the token-vs-heads
+  polarity that keeps `m` equal to the token count, the layout mismatch that survives the
+  guard, the host-side `TORCH_CHECK` implication for graph-mode ablations, and the
+  FlashComm1/`FULL_DECODE_ONLY` assert that explains why `piecewise` appears (and why the
+  op is unreachable with SP on).
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend
   v0.19.1rc1: files, tiling key = dtype*10+mode, mode-selection table, buffer sizes, arch
   macros, python call sites. Read it only once the error family is a device fault.

@@ -45,6 +45,69 @@ default `200` MB, `externalinput_pub.h:36-37`), and the config's magic word/vers
 (`comm_config.cc` `CheckMagicWord` → `EI0003 … Please make sure the config has been initialized by
 HcclCommConfigInit()`, the shape a torch_npu/CANN mismatch takes).
 
+## Code 15 `HCCL_E_RUNTIME` at this entry is HCCL's *device-pair link-type* lookup
+
+`15` is neither a launch-script rejection (that is `1`) nor a live previous process (`7`): during
+communicator setup HCCL asks the runtime for the **link type between two physical devices** and the
+driver declined, so no collective was launched. Verified at `cann/hcomm` `818068c8` — the same
+commit this page's v0.22.1rc1 pin and the v0.18.0rc1 report cited below carry:
+
+- The query is per **same-server rank pair**, from the rank list's `devicePhyId`s:
+  `hccl_communicator_attrs_host.cc:275-299` calls `hrtGetPairDeviceLinkType(rankList[i].devicePhyId,
+  rankList[j].devicePhyId, linkType)` to set `isConnectedWithHCCS` (which for `DEV_TYPE_910B` then
+  picks `deviceNumPerAggregation_ = deviceNumPerServer_/2`, `:301-304`), and
+  `topo_info_extractor.cc:199-208` does the same behind `CHK_RET`, aborting comm creation on the
+  first pair it cannot resolve. A rank's own `devicePhyId_` comes from the attribute collector
+  (`hccl_communicator.cc:462`), i.e. from its own runtime's logic→phy mapping.
+- `hrtGetPairDeviceLinkType` (`…/adapter/adapter_rts.cc:907-948`) skips the runtime only on 310P;
+  otherwise it goes to `hrtGetPairDeviceLinkTypeRaw` (`:831-839`), which prefers the driver's
+  `rtGetPairPhyDevicesInfo` and falls back to `hrtGetPairDevicesInfo` (`:841-880`, phy→logic via
+  `hrtGetDeviceIndexByPhyId` then `aclrtGetDevicesTopo`). `hrtGetPairPhyDevicesInfo` (`:889-897`)
+  folds **any** non-`RT_ERROR_NONE` return into `HCCL_E_RUNTIME` with
+  `[Get][PairPhyDevicesInfo] … rt get pair devices info failed, return[%d], para: phyDevId[%u],
+  otherPhyDevId[%u]` — that is torch_npu's `error code is 15`.
+
+Read the line printed *under* the code; it names which runtime call refused:
+
+| sub-text | case |
+| --- | --- |
+| `get error: phyid:N realDeviceId:N is err:0x7010003[FUNC:GetDeviceIndexByPhyId]` + `rtGetDeviceIndexByPhyId execute failed, reason=[device id error]` | #454, TP4+DP2 on one node |
+| `rtGetPairPhyDevicesInfo execution failed, reason=driver error:internal error` + `Invalid_Argument(EL0003)` | #8519, containerised TP4 on 910B4 |
+
+Both are **driver return codes**: the snapshot carries only declarations
+(`cann/runtime/src/inc/runtime/dev.h:563`, the weak `halGetPairPhyDevicesInfo` at
+`…/feature/src/drv/npu_driver_base.hpp:38`, `cann/driver/pkg_inc/ascend_hal_base.h:1390`) and no
+implementation, and `cann/hcomm` only wraps them — so the precondition is **not in any exported
+tree**, and one more source read cannot name it. Deliver on the turn the code arrives, with the
+enum name, the fact that comm setup wanted the pair's link type, and three artefacts:
+
+1. `ls /dev/davinci*` and `ASCEND_RT_VISIBLE_DEVICES` **inside the container**, plus
+   `npu-smi info -t topo`. The pair query is by *physical* id and covers every pair in the rank
+   list, so the visible set and the phy↔logical mapping must agree on every rank
+   (`../deploy-sizing/card-budget-and-device-visibility.md` owns the ascending-list rule and the
+   "ids index the driver's device list, not the `npu-smi` labels" trap).
+2. A ~10-line `torch.distributed` HCCL `init_process_group` + `all_gather` on the **same image,
+   container and device set**. The same `15` there exonerates vllm-ascend, `torch.compile` and the
+   serve flags in one run; a clean run turns the lane back to the engine.
+3. A **high or non-contiguous `--device /dev/davinciN` list is not a typo.** The #8519 reporter
+   later confirmed (2026-04-22) that the box is an Atlas 800I A2 whose own NPU numbering is
+   `10/12/14/16`, so "that device does not exist" is refuted before it is ranked: the finding is the
+   mapping, i.e. mount the full node set and pin `ASCEND_RT_VISIBLE_DEVICES` to the same ids
+   ascending, or use the contiguous set.
+
+**A `vllm_ascend/` frame in that traceback is a sync point, not the owner.** On #8519 the comm was
+created from `torch.compile`'s pattern registration because the RMSNorm+quant fusion pass
+real-traces a pattern that contains a TP all-gather
+(`compilation/passes/norm_quant_fusion_pass.py:494` → `…/passes/base_pattern.py:49` →
+`torch/_inductor/pattern_matcher.py` `make_fx(…, tracing_mode="real")`), so the process's first
+collective runs there — after the weights load and before the model's own forward. That explains the
+"error after loading the model" position; it does not move the cause, and `--enforce-eager` is
+expected to only move the first collective to the model's forward, where the same comm-creation
+refusal returns (hypothesis, not a verified fix). Recorded #8519 had this lane by its sixth assistant
+turn, then spent five more turns in `cann/hcomm`/`cann/runtime` for a precondition that lives in the
+closed driver: 52 K characters of reasoning against 1.2 K of message text, and no answer at the
+16 384-token cap.
+
 ## Code 7 `HCCL_E_UNAVAIL` beside `EJ0001` is a *live previous process*, not a parameter
 
 `error code is 7` plus `[ERROR] … ERR02200 DIST call hccl api failed` and
@@ -170,7 +233,10 @@ translate it.
 
 ## Precedents
 
-`#672`: same call site with `error code is 15` on a DP+EP offline DeepSeek-V2-Lite run.
+`#672`: same call site with `error code is 15` on a DP+EP offline DeepSeek-V2-Lite run — the
+device-pair lane of §*Code 15*, not a launch-script value. `#454`: the sibling sub-text
+(`rtGetDeviceIndexByPhyId … [device id error]`, `0x7010003`) on TP4+DP2 at one node, i.e. the same
+phy↔logical mapping question.
 `#2712`: `create_config … :148` on a `--pipeline-parallel-size` serve. `#3196`: "how to
 troubleshoot" for code `11`. `#3172`: code `7` + `EJ0001` on the second engine after a
 `sleep()` — the previous process was still alive

@@ -154,6 +154,36 @@ amortised. The recorded run had the backend within its first few calls (one read
 mid-table. Route now:
 `../lora-adapters/decode-overhead-vs-base-model.md`.
 
+**#1629** vllm-ascend v0.9.1rc1 (`c30ddb83`) + vllm v0.9.1 (`b6553be1`), 2×910B3
+TP2, DeepSeek-R1-Distill-Qwen-32B (dense Qwen2, 64 layers) under
+`--enable-lora --max-loras 3`, CANN 8.1.RC1: one report with two faces — the
+adapter serve runs at 2-3 tok/s while the base-only serve reaches **10-12 tok/s**
+(the reporter's own later measurement), and `VLLM_USE_V1=1` never starts because
+the memory-profiling forward dies on a dynamo guard inside `bgmv_shrink`'s
+`torch.einsum` (`punica_npu.py:6` binds upstream `torch_ops` unconditionally; no
+AscendC LoRA kernel at this ref). The recorded run read the attached
+`errorlog.txt` (the crash) and screenshot OCRs (the metrics, `lora_request:
+LoRARequest(...)`) by its third turn, source-verified the binding and the
+upstream Triton contrast, and shipped verdict + anchors + ladder + scope — the
+delivery worked; the gap it left open is the one this page's step 3 names (which
+engine the *slow* run used, and whether base *requests* on the LoRA server pay
+the per-step cost). Routes: `../lora-adapters/pytorch-punica-compile-guard.md`
+(the crash) and `../lora-adapters/decode-overhead-vs-base-model.md` (the ratio).
+
+**#2451** vllm-ascend v0.9.1rc2 (`b9f715d6ce30`) + vllm v0.9.1 (`b6553be1`),
+910B, Qwen2.5-32B-Instruct TP4 with `VLLM_USE_V1=1 … --enforce-eager`:
+"vllm 0.9.1 搭配 mindie-turbo 2.1.rc1 没有吞吐提升，vllm0.7.3 + 2.0.rc2 有提升",
+plus the reporter's own observation that the `MindIE Turbo is installed.` log line
+they saw on 0.7.3 is missing on 0.9.1. That line is the only probe
+(`utils.py:75-85` `try_register_lib` at this pin, silent `except Exception: pass`),
+so the plugin never loaded in the 0.9.1 worker and the two 0.9.1 numbers are one
+baseline; the recorded run read the helper, the release policy table (MindIE
+Turbo column empty from `v0.8.4rc2` up, `2.0rc1` only beside `v0.7.3`) and
+`faqs.md:72` in four turns and shipped the verdict, the swallowed-`ImportError`
+precedent #1144, and the independent finding that the baseline was measured with
+`--enforce-eager` (not the 0.9.x graph-mode path). Route:
+`../image-dependency-faults/mindie-turbo-graph-break.md` (variant B).
+
 **#6833** v0.14.0rc1 + vllm v0.14.1 Qwen3-Next-80B-A3B on 4×910B4, "多并发 请求排队
 那么久 + 缓存命中为 0", a seven-sample `loggers.py` metrics block: the recorded run
 computed the right ratios by its fourth turn (queue prefill-bound, ~5.5 K tok/s
@@ -581,3 +611,23 @@ recommended widening the gate over the deletion. One correction left for this pa
 the branch as `ChunkedPrefill`/`DecodeOnly` and the "widen to `SpecDecoding`" patch
 as phrased would miss it. Page (new):
 `../performance-throughput/graph-mode-slower-than-eager.md`.
+
+**#770** reported vllm-ascend `v0.8.4rc2` ("[Usage]: 推理速度太慢"), snapshot pins
+vllm-ascend v0.8.5rc1 (`ec27af3`) + vllm v0.8.5.post1. The body was the template stub plus
+one screenshot; the attachment OCR is a benchmark table whose `并发数`/`成功率` columns were
+lost (`RPS 14.791 / 24.522`, `均延迟 15.752 / 24.555`, `平均TPS 0.402`), so nothing in the
+paste fixes model, card count or ISL/OSL. The recorded run answered the era question well
+(`platform.py:124` forces `enforce_eager`, `:133` logs `Compilation disabled`, torchair is
+the V0-only opt-in for DeepSeek, `pytest.ini:60` blocks `VLLM_USE_V1=1` on NPU) and shipped
+it in Chinese — but it also published a Little's-law `in-flight ≈ 233 → 602` from two OCR
+cells, and it never reached the scaling lane. The reporter's later comments on the thread
+give the setting: 8×910B3 Qwen3-30B-A3B ≈ 6 tok/s, one-card Qwen3-4B 17 tok/s "比 mindie
+慢了一半多", "多卡跑更慢 应该是多卡通信机制上没有优化". At the pin that hypothesis is
+source-verified for every non-DeepSeek MoE (per-layer TP all-reduce via
+`ops/common_fused_moe.py:27-67` → `ops/fused_moe.py:668-670`, MC2 DeepSeek-only and
+`VLLM_ENABLE_MC2`-gated, no `enable_expert_parallel` anywhere, eager decode), and the tree
+holds no 8-card MoE recipe or throughput number — multi-card tutorials are QwQ-32B TP4
+(`multi_npu.md:45`) and DeepSeek-V2-Lite-w8a8 TP4 (`multi_npu_quantization.md:78`) while
+`supported_models.md:8-9` prints Qwen3/Qwen3-Moe ✅ and CI covers only `Qwen/Qwen3-0.6B-Base`
+single card (`tests/singlecard/test_offline_inference.py:35`). Page (new):
+`../performance-throughput/multicard-scaling-and-vendor-baseline.md`.

@@ -40,9 +40,10 @@ and v0.18.0rc1 (`99e1ea0`):
 | `:107-112` / `:107-113` | `global_tiling_data[tilingSize * batchIdx]` written by `aclrtMemcpy(… ACL_MEMCPY_HOST_TO_DEVICE)`, else `TORCH_CHECK(false, "batchIdx is out of range: ", batchIdx)` |
 
 So the index is the **first dim of the tensor the caller passed**, and the caller
-(`sfa_v1._v_up_proj`) passes `x.view(-1, local_num_heads, kv_lora_rank)` — the first dim
-being the batch's **token count**. `batchIdx 1024` therefore means 1025 tokens in one
-forward: a prefill chunk or mixed batch larger than the table, not a spec-decode bucket.
+(`sfa_v1._v_up_proj`) passes `x.view(-1, self.num_heads, kv_lora_rank)` — the first dim
+being the batch's **token count** (`num_heads` and `local_num_heads` coincide wherever the
+custom op is reachable, §3). `batchIdx 1024` therefore means 1025 tokens in one forward: a
+prefill chunk or mixed batch larger than the table, not a spec-decode bucket.
 
 ## 3. Find the caller's guard — and check the reporter's release, in both directions
 
@@ -56,7 +57,8 @@ and `:810`. The guarded branch calls the custom op, the `else` runs
 `torch.bmm(x.transpose(0, 1), self.W_UV)` — the fallback **is** the repair, and it is
 present in *both* releases.
 
-Two consequences, and the recorded run got this wrong once:
+Consequences — the recorded run got the first one wrong, and the `rc` builds change who
+reaches the op at all:
 
 - "The pinned tree has the guard, so the reporter's release lacks it — tell them to
   upgrade" is only valid if you can grep their release. In #8392 the snapshot pinned
@@ -68,11 +70,46 @@ Two consequences, and the recorded run got this wrong once:
   attribution unverified instead of asserting it.
 - With the guard present the refusal means the guard's scalar and the op's index
   disagreed: `num_input_tokens` comes from `x.shape[0]` while the op's `m` is
-  `numel / (local_num_heads × kv_lora_rank)`, so any layout where those differ (heads
+  `numel / (heads × kv_lora_rank)`, so any layout where those differ (heads
   gathered or sliced across TP/CP, a 4-D input, `dsa_cp` o_proj variants) passes the
   guard and still overflows. That is one print, not an upgrade: ask for
   `x.shape` + `num_input_tokens` logged at the call site, or the `VLLM_LOGGING_LEVEL=DEBUG`
   rerun that prints them.
+- **The `rc` builds do not carry that constant at all, and their proxy guard is the
+  defect.** Verified in vllm-ascend v0.13.0rc1 (`1b5d5ab`, the reporter's own release in
+  the #8390 case view): `rg -n 'BMM_TRANS_MAX_SUPPORTED_TOKENS|MLAPO_MAX_SUPPORTED_TOKENS' .`
+  returns **nothing**, and `_v_up_proj` (`sfa_v1.py:479-492`) gates the custom op on
+  `… and not self.enable_sfa_cp and not has_prefill`, above its own comment:
+
+  ```text
+  # TODO(zzzzwwjj): We should not judge by whether `has_prefill` or not.
+  # The true criteria for judgment is tensorA's shape[0] <= 1024 (num_tokens <= 1024).
+  # This is a bug in the previous code.
+  ```
+
+  `has_prefill = any(query_lens_cpu > self.decode_threshold)` (`:179`) with
+  `decode_threshold = 1 + num_speculative_tokens` (`:136-140`), so the proxy is a
+  per-request query-length test and any >1024-token batch it labels decode reaches the
+  op. When the reporter's env block and the case pin are both this rc, the version
+  attribution **is** verifiable — quote that TODO and the missing constant, put "move to
+  the release line's final (or backport the two-line `else`-branch condition)" at rung 1-2,
+  and keep the mechanism open for the batch that was mislabelled. What stays unsupported
+  is the converse: a newer pin's constant never proves an older reporter lacks the guard.
+- **Do not derive a head/token factor.** In the branch that can crash, `m` *is* the token
+  count: the custom branch views with `self.num_heads` (`:487`) while the `else` uses
+  `self.local_num_heads` (`:496`), and the two differ only when `enable_sfa_cp` is true
+  (`local_num_heads = num_heads × tp_size`, `:378-382`) — which the same `if` excludes. So
+  `batchIdx 1024` is 1025 tokens, not `tokens/4` or `tokens/8`; deriving a factor from
+  `kv_lora_rank`/`v_head_dim` (the recorded #8390 run spent three blocks there) buys
+  nothing the paste cannot already say.
+- **`piecewise` in such a launch is forced, and that also fixes who can reach the op.**
+  `enable_sfa_cp = enable_sp() and hasattr(hf_config, "index_topk")` (`:148-150`) and an
+  assert forbids FlashComm1 with `FULL_DECODE_ONLY` (`:152-156`, *"Please set graph_mode to
+  'piecewise' or disable FlashComm1"*) — so a DSA model launched with
+  `VLLM_ASCEND_ENABLE_FLASHCOMM1=1` prints `piecewise` for that reason, not as a free
+  choice, and the `not self.enable_sfa_cp` term means the custom op is **unreachable**
+  there. A crash inside `batch_matmul_transpose` therefore says SP/FlashComm1 was off at
+  run time: ask for the effective `env` rather than reconciling the block that mentions it.
 
 ## 4. The graph-mode theory dies at the `TORCH_CHECK`
 

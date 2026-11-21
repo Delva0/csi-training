@@ -167,7 +167,11 @@ generated, and the same two outcomes.
 - `#1680: 0.9.1-dev ... llm_datadist link error` — per-rank tables in one log with
   `server_count: 2`, `device_id` repeated inside a server, and different
   `device_ip` sets per rank.
-- `#1528`, `#2498` — same `server_id`/`server_list` JSON in the pasted logs.
+- `#1528`, `#2498` — same `server_id`/`server_list` JSON in the pasted logs. #2498 is now
+  reporter-resolved and belongs one rung further on: `LLMDataDistCMgrConnector`, two
+  bridge-network containers each holding one card on **one** host, the link runs and then
+  `query_register_mem_status` loops forever → `--net=host` was the fix (CANN limitation) —
+  `llmdatadist-register-mem-loop.md`.
 
 Use these as "the same symptom was reported with a different connector", not as
 proof about the HIXL case: the string formatting and the API differ

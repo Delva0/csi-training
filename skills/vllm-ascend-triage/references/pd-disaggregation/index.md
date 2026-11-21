@@ -27,6 +27,15 @@ output, or did no request ever reach a decode engine?**
   correctly`, `get dev list error:serverId[...]`, P/D pairs that only work with
   `hostNetwork: true`, `--net=host`, or one shared IP →
   `transport-topology.md`.
+- The same no-pool `LLMDataDistCMgrConnector` pair **links and then never registers** —
+  `INFO … Checking query_register_mem_status again` once a second, forever, after the
+  decoder already printed the rank table, `comm name` and `cluster rank info`: the wait is
+  the connector's own `while True` with no timeout, and when both engines are on **one**
+  machine in two bridge-network containers the two `get_ip()`s make the table's
+  `server_count` `"2"`, so the datapath required is cross-server RoCE over `device_ip` from
+  inside a container net namespace. `--net=host` on both containers is the reporter-confirmed
+  fix (#2498, a CANN limitation; the printed `server_count` then becomes `"1"`) →
+  `llmdatadist-register-mem-loop.md`.
 - The same *no-pool* failure with the **Mooncake** connector instead of HIXL:
   `E … ascend_direct_transport.cpp:820] Failed to connect to target: <P ip>:<port>,
   status: 103900` + `:581] Failed to connect to segment` + `mooncake_connector.py:410]
@@ -490,3 +499,12 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   `hccn_tool`/`npu-smi` id namespace, and the two defects that break "follow the
   example" at that pin (`toy_proxy_server.py` absent, `---max-num-batched-tokens`).
   Verified at v0.10.0rc1 `4604882`; #2379's cause left open.
+- `llmdatadist-register-mem-loop.md` — the same connector gets **further** than that and then
+  stalls: the decode worker prints `try link with remote`, the rank table, `comm name` and
+  `cluster rank info`, and then logs `Checking query_register_mem_status again` once a second
+  forever while the scheduler repeats `WAITING_FOR_REMOTE_KVS`. The pin's own table
+  arithmetic (`is_same_server = remote server_id == local get_ip()` → `server_count`
+  `"1"`/`"2"`), the no-timeout `while True` at `:716-730`, the three rungs (two engines in two
+  bridge-network containers on one host → `--net=host`, reporter-confirmed #2498, CANN
+  limitation; both sides' three printed values must match; then the NPU NIC / after-sales),
+  and the four detours the recorded session took instead. Verified at v0.10.0rc1 `4604882`.

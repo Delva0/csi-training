@@ -26,9 +26,13 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 
 - Wrong or alternating answers in a **PD/EPD** deployment on a hybrid
   linear-attention model (GDN/Mamba: Qwen3.5/Qwen3.6, DeepSeek-V4, GLM) — the
-  suspect is the state the decode node received, not the numerics. Go to
-  `../pd-disaggregation/hybrid-state-transfer.md` (connector matrix plus the
-  `mamba_cache_mode` gate) and bring back its ablation rows as the deliverable.
+  suspect is the state the decode node received, not the numerics. One caveat before
+  that route: GLM-5/5.1 is `model_type: glm_moe_dsa` (DSA/MLA sparse attention, no mamba
+  layers), so `mamba_cache_mode`/`preprocess_mamba` never enter it and a GLM-5.x
+  corruption report starts at
+  `../dsa-sparse-attention/glm-moe-dsa-tag-regression-corruption.md`; for the hybrid
+  families go to `../pd-disaggregation/hybrid-state-transfer.md` (connector matrix plus
+  the `mamba_cache_mode` gate) and bring back its ablation rows as the deliverable.
 - A number printed while the checkpoint is being *converted* (per-layer
   `MSE loss`, an epoch table, a bad quantized artifact) is converter output and
   precedes any engine comparison — go to `quantized-checkpoint-conversion.md`.

@@ -851,6 +851,32 @@ by turn 10 but shipped **no answer** (one 270-character paragraph, the rest reas
 the 16 K cap. Page `../startup-failures/torchair-dynamo-compile-unsupported.md`. Open: the
 image's `torch`/`torch_npu` versions against the pinned 2.7.1 pair.
 
+**#5484** vllm-ascend v0.11.0 image (`quay.io/ascend/vllm-ascend:v0.11.0-my`, a
+`pip install vllm-ascend==0.11.0` build over the CANN 8.2.rc2 base, tree `2f1aed98`),
+DeepSeek-V3.2 `w8a8-QuaRot` on 2 × A2 (910B) DP2/TP8/EP with
+`torchair_graph_config` `{enabled, graph_batch_sizes:[16]}`: the torchair compile dies in
+GE **shape inference** — `RuntimeError: E89999: Inner Error!` + `op[Transpose_5],
+attr[perm], has wrong value[1], it should be less than input shape size[0]` +
+`Call InferShapeAndType for node:Transpose_5(Transpose) failed` + `[Compile][Graph]Compile
+graph failed … [FUNC:ge_api.cc][LINE:1365]` — from `_compile_torchair_graph` →
+`_dummy_run(is_torchair_compile=True)` (`torchair_model_runner.py:286,245,223` at v0.11.0),
+i.e. host-side before any kernel. Verified locally: `ascend_config.py:285` refuses
+`torchair_graph_config` + `--enforce-eager`, so the graph-off ablation is deleting the
+key; the pin has **no** rotation handling (`rg -il 'quarot|qua_rot|hadamard' vllm_ascend/`
+→ 0) while `docs/source/tutorials/multi-node_dsv3.2.md:298-340` validates
+`vllm-ascend/DeepSeek-V3.2-Exp-W8A8` on exactly this DP2/TP8 shape; the
+`graph_batch_sizes` torchair fix (#2760) predates the pin, and no `tests/e2e/**` case
+compiles DS3.2 in torchair mode. `cann/ge` (the error's own files) and the
+`torch_npu/dynamo/torchair` package are both outside the case view's exports, so the
+producing `.permute` cannot be sourced locally. Recorded run: verdict text at turn 35,
+then ~10 calls hunting transpose sites, and a final 10.9 K-character reasoning block —
+1.2 K characters of message text, cut at the cap with the ranked answer unsent.
+Reporter's public follow-up refutes the upgrade rung: `0.11.0`, then an
+`0.11.0-dev` source build, same error. Page
+`../startup-failures/torchair-ge-infershape-rejection.md`. Open: which node produced the
+rank-1 operand (decided by the compile's GE graph dump) and whether the rotated
+checkpoint's `quant_model_description.json` is the owner.
+
 **#12059** vllm-ascend v0.19.1rc2.dev849 (`05e095a20`, from the reporter's `collect_env`)
 + vllm 0.24.0, aarch64 Ubuntu 22.04 host, Mooncake-adjacent report: "env vars set in
 `~/.bashrc` are missing on non-interactive container startup (`LD_LIBRARY_PATH` /

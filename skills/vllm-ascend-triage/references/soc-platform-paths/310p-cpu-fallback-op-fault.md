@@ -75,6 +75,69 @@ thing is one op, and the report can tell you where it was launched from.**
   `../startup-failures/graph-mode-not-applied.md`) plus the plog
   `[AIC_INFO] fault kernel_name=` block from the same request.
 
+## When the paste names two ops, and the model has no `_310p/ops/fla/` path
+
+Recorded #11450: vllm-ascend v0.21.0rc1 (`80610e4`) + vllm v0.21.0 (`ad7125a4`),
+`v0.21.0rc1-310p`, **PaddleOCR-VL-1.6** on a 300I Duo (`--max-model-len 1024 --dtype
+float16 --enforce-eager --no-enable-prefix-caching`). `/v1/models` answers, the first
+chat request kills EngineCore, and the paste carries **two** op names:
+
+```text
+08:53:33.404  AclNN_Runtime_Error(EZ9903): aclrtLaunchKernelWithHostArgs failed, return: 507018
+              Aicpu kernel execute failed, device_id=0, stream_id=9, task_id=4507,
+              soName=libpt_kernels.so, funcName=RunCpuKernel, kernelName=IndexPut, errorCode=0x2a
+08:53:33.856  SubKernelNpuOpApi.cpp:57 NPU function error: call aclnnInplaceSub failed, error code is 507018
+              KernelLaunch failed: …/ascend310p/ops_legacy/sub/Sub_…_high_performance.o
+              Kernel Run failed. opType: 34, Sub / launch failed for Sub, errno:361001
+```
+
+Read them in **timestamp order**, not in the order the wrapper screams: the aicpu task
+is the fault, and the later `aclnnInplaceSub` is the next launch on the poisoned stream
+(`errno:361001`, and its `.o` is an ordinary AI-Core kernel). "Which op does
+`aclnn<Op> failed` name" is not the question — `kernelName=` is. The op **name** in
+the fault block is aten's, not a CANN/ATB op's (`libpt_kernels.so` / `RunCpuKernel` is
+the CPU-dispatch library; its ownership is in *Limits* below), so `IndexPut` =
+`aten::index_put_`, i.e. tensor indexed assignment (`t[idx] = v`, `index_copy_`,
+`index_fill_`, `scatter`-style stores).
+
+**The `_310p/ops/fla/` hits are unreachable on a VL/OCR checkpoint.** Every indexed
+write this page lists lives in the GDN/FLA path, which PaddleOCR-VL, GLM-OCR and MinerU
+never enter — move the grep to the generic path (`vllm_ascend/worker/`,
+`_310p/model_runner_310p.py`'s mrope position building, the vision tower, `patch/**`)
+instead of re-reading `gdn_310.py`.
+
+**One candidate that looks right and is not: the sampler's Triton-absent penalty
+fallback.** The first sampling step prints `[sample/sampler] Triton not available,
+falling back to vLLM default penalty implementation` (`vllm_ascend/sample/sampler.py:53-58`,
+a `warning_once`), and `_310p/sample/sampler.py`'s `AscendSampler310` does **not**
+override `apply_penalties`, so upstream's torch body runs
+(`vllm/model_executor/layers/utils.py:79-88` → `vllm/_custom_ops.py:472-485`, chosen
+because `logits.is_cuda` is False). It explains the `aclnnInplaceSub` in the paste
+exactly — `logits -= frequency_penalties… * output_bin_counts` at `:87-88` — but it
+contains **no indexed write**: `get_token_bin_counts_and_mask` uses `scatter_add_`
+and the repetition op is `where`/`div`/`mul`. It explains the Sub, not the `IndexPut`;
+one grep of that body saves the turn, and it must not be delivered as the IndexPut
+owner without the launch-blocking traceback. Two traps around the line: it is
+`warning_once`, so it lands in the same second as *any* first-request fault; and the
+`no_penalties` early return (`vllm/v1/sample/sampler.py:414`) makes the torch body
+unreachable for a default-sampling request.
+
+**Ladder for this shape, cheapest first:**
+
+1. `ASCEND_LAUNCH_BLOCKING=1` with the same request — the statement, which is the only
+   thing that names the indexed write.
+2. The same request body with default sampling (`repetition_penalty` /
+   `presence_penalty` / `frequency_penalty` removed) — kills the penalty lane above.
+3. A text-only prompt on the same serve — splits the vision tower from the text path.
+4. The pinned tutorial's own Atlas-300 tab as the config control: for PaddleOCR-VL
+   `docs/source/tutorials/models/PaddleOCR-VL.md:51` ("supported from version
+   0.15.0rc1") and `:93-115` (`--max_model_len 16384`, whose `:115` note says the option
+   exists to avoid attention-mask errors; the reporter used 1024). Follow the tab, but
+   say it does not explain this fault — the prompt was 168 tokens. Note the contrast
+   with the Qwen3.6 row below: here the pinned docs *do* validate the model on Atlas
+   300, so "unsupported" is not the answer.
+5. The plog `[AIC_INFO] fault kernel_name=` block, `npu-smi info`, the full log.
+
 ## Then the capability verdict, in the same message
 
 The reported model is outside the pin's validated set on three axes, and the same document

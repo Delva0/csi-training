@@ -92,6 +92,10 @@ Conditional routes:
   compare: that is not this topic's route and not vLLM's `/start_profile`, it is
   collection validity plus per-step normalization —
   `../performance-throughput/profiler-opcount-evidence.md`.
+- The collection produced **no table at all** (`kernel_details.csv` absent) on a
+  graph-mode + MTP launch: a capability/regression question, decided by the analysed
+  directory's file listing and then by a version bisect, not by an op-count argument —
+  `../performance-throughput/profiler-no-kernel-details-graph-mtp.md`.
 - An endpoint that is simply *not there* — `POST /start_profile` /
   `/stop_profile` → `404 Not Found` after `--profiler-config '{…}'`, or a 500
   naming `Profiling is not enabled` — a route-registration question in the

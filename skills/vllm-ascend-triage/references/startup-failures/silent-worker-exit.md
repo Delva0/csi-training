@@ -24,6 +24,15 @@ raising. That distinction decides the next question.
   (line 597). Newer versions log `WorkerProc hit an exception.` (seen at
   `multiproc_executor.py:880` in the v0.17 log). A raised worker therefore leaves
   a rank-prefixed traceback; a killed worker leaves nothing.
+  **The traceback follows that message, it does not precede it.** At vllm v0.14.1
+  `d7de043` the site is `except Exception:` → `if ready_writer is not None:
+  logger.exception("WorkerProc failed to start.")` (`multiproc_executor.py:744-751`),
+  and `logger.exception` attaches `exc_info`, so the rank's whole stack is printed
+  *below* the message with the **same** `[multiproc_executor.py:749]` prefix on every
+  line. A traceback whose lines all repeat one wrapper's `file:line` is that one
+  logging call's block, so asking for "the lines above `WorkerProc failed to start.`"
+  asks for the wrong block — ask for the lines below it (per rank), or a paste of
+  `grep -A80 'WorkerProc failed to start' <log>`.
 - **A kill after the engine is ready looks different from a kill during init:**
   there is no `wait_for_ready` message at all. The EngineCore instead dumps the
   in-flight `SchedulerOutput` and dies with `RuntimeError: cancelled` raised from
@@ -48,6 +57,42 @@ raising. That distinction decides the next question.
   `## The startup variant` — a trivial CPU `torch.zeros` at the top of the dump
   is where the damage surfaced, not an arithmetic bug, and the TBE block above is
   already accounted for as a messenger.
+
+## When the traceback exists but the paste cannot carry it
+
+A screenshot whose `*.ocr.txt` is noise (`0 ， 以 ' 彐 《 27i 力 …`) is a **data gap**,
+not a lane: the wrapper line is all the paste holds, so classify from the other
+tokens the launch line and the model path do carry, and make the traceback request
+the deliverable. Recorded #7744 (v0.14.0rc1 `52d4acf` ↔ vllm v0.14.1 `d7de043`,
+Atlas 800I A2 ×8, title `使用v0.14.0rc1 … Qwen3-VL-235B-A22B-Instruct-W8A8模型，报错
+WorkerProc failed to start.`, body = the `vllm serve` line plus one OCR-garbage
+screenshot) is the shape: the recorded answer read the OCR as "no traceback",
+ranked `--mm_processor_cache_type shm` first and told the reporter to drop that flag,
+and the reporter's later posts show the failure was load-phase
+`KeyError: 'layers.37.mlp.experts.w2_weight_offset'` in `qwen3_vl_moe.py`, with the
+same weights and command working on `v0.17.0rc1`.
+
+What to read instead, in this order:
+
+1. **The model directory's quant suffix.** `…-W8A8`, `…-w8a8_dynamic`,
+   `…-bf16-hfd-w8a8` in the serve path means the engine loads a *quantised variant*,
+   and the load-phase quant aux-key `KeyError` (`…weight_scale`, `…weight_offset`) is
+   the first hypothesis — `weight-scale-keyerror-quant-variant.md`, whose "no
+   traceback reaches the paste" section holds the two-call procedure (the line below
+   the wrapper, plus `scripts/checkpoint-key-prefix.py --scales <dir>`).
+2. **The support matrix cell for that quant.** `supported_models.md` at the pin can
+   mark the model `✅` and leave the W8A8 column empty (Qwen3-VL-MOE, line 81 at
+   v0.14.0rc1) — an unvalidated combination, which makes the newer tag a rung rather
+   than a mechanism question.
+3. **A flag that is merely absent from the tutorial is not a cause.** `--mm_processor_cache_type
+   shm` killed workers only when its own error string appeared (`Data for address:id …
+   has been modified or is invalid.` on a request, `../multimodal-inputs/shm-mm-cache-invalid-object.md`)
+   or when `/dev/shm` could not hold the 4 GiB segment (`MemoryError: Not enough space
+   in the data buffer`). Neither text is in the paste, so the flag is a hypothesis at
+   the bottom of the ladder with its own grep, never rung 1.
+4. **The newer tag when the pin is one or more rcs behind and the combination is
+   unvalidated.** #7744's resolver was exactly that (`v0.17.0rc1`, reporter-confirmed),
+   not a code fix on the failing host.
 
 ## What the timing tells you
 

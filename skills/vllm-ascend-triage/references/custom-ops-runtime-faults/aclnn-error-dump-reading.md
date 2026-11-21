@@ -123,3 +123,46 @@ reporter posted the same serve answering `The information in this picture is` on
 then confirmed the **v0.13.0rc0 image** answers the identical request correctly. A
 post-pin fix exists, so no source walk at the pinned ref can find it — say that,
 and hand over the two ablations as the interim workaround.
+
+### When the built-in kernel is a sampler mask op
+
+A `fault kernel_name=ApplyTopKTopPWithSorted_fp32_high_performance_0` (or an
+`ApplyTopP…` sibling) reads as CANN's `aclnnApplyTopKTopP` — the op the pin's own
+comment names at `vllm_ascend/sample/sampler.py:33` — dispatched from
+`torch_npu.npu_top_k_top_p` there (`:26-35` at v0.10.1rc1, reached once any request
+in the step is non-greedy), and the Python frame that reports it is the
+sampled-token readback (`model_runner_v1.py:1827 sampled_token_ids.tolist()`), i.e.
+a sync point. Recorded
+#2763 (v0.10.1rc1 `7e16b4a7` + vllm v0.10.1.1 `1da94e67`, Qwen3-Coder-30B-A3B TP2,
+chunked prefill + prefix caching, 偶现 under load): `errorStr: When the D-cache reads
+and writes data to the UB, the response value returned by the bus is a non-zero
+value`, `subErrType:4`, and **no** `[ASSERT] … Index N out of range` line — so
+unlike the `GatherV3_*` 507035 family (`gather-index-out-of-range.md`) there is no
+host-side index arithmetic to read here.
+
+Two rungs come before any op-defect theory, and the first is the one a recorded
+session dropped as "not relevant":
+
+1. **`--enforce-eager` on the same load.** The flag is real at this pin and prints
+   its own line (`platform.py:145-147` → `Compilation disabled, using eager mode by
+   default`, `CompilationLevel.NO_COMPILATION`; `_use_aclgraph()` at
+   `model_runner_v1.py:376-377` turns False). On this issue's own thread a
+   v0.10.1rc1 user reports the 偶现 ACL runtime error gone with the flag, and the
+   same comment prices it: **~5 tok/s with the flag against ~40 tok/s without**.
+   Send it as the isolation run plus the throughput trade-off, never as the fix —
+   and label the commenter's own "ACL graph compilation incompatibility between
+   container and host runtime" as their attribution, not a verified mechanism
+   (the flag also removes torch.compile at this ref).
+2. **A narrower split that keeps `torch.compile` and drops only replay**:
+   `--compilation-config '{"cudagraph_mode": 0}'` (`-O` is the same flag,
+   `vllm/engine/arg_utils.py:850`; field at `vllm/config/compilation.py:226`,
+   `NONE = 0`). Clean ⇒ graph replay; still faulting ⇒ the code path itself. Source
+   reads only — the run is what decides, so present it as a second rung.
+
+Rank after those: the CANN/driver/torch_npu triple against the release contract
+(`requirements.txt:27` pins `torch-npu==2.7.1.dev20250724`, CANN 8.2.RC1 at this
+ref; #5236 was reporter-confirmed solved by a driver update), then a
+shape/geometry trigger (row count from the dumped `total_num_scheduled_tokens`,
+`k == vocab_size`), then the single chip named in the dump. "Does this CANN
+version have the defect" is not answerable from the snapshot: `ApplyTopKTopP*`
+occurs in no exported tree and `cann/ops-*` are `unavailable` — say so.

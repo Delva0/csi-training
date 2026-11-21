@@ -44,6 +44,19 @@ build lacked it, not which reader is wrong —
    naming a vllm file absent from the pinned tree is therefore a
    snapshot-coverage gap, not evidence about upstream — say so, ask for
    `pip show vllm`, and do not hunt for the missing line.
+   **Two gaps make the row lookup come back empty, and neither is a missing matrix.**
+   The tag's table can stop at the last rc: at vllm-ascend `v0.11.0` (`2f1aed98`)
+   `docs/source/community/versioning_policy.md:23-43` runs `v0.12.0rc1 … v0.7.3` with
+   **no** `v0.11.0` row, so read the nearest rc row (`v0.11.0rc3 | v0.11.0 | … |
+   8.3.RC2 | 2.7.1 / 2.7.1.post1`) and confirm it against `requirements.txt`'s
+   `torch==2.7.1` / `torch-npu==2.7.1` (`:13,28`). And when `SOURCES.json` marks the
+   vllm entry `version_role: "dated_reference_only"` (with `reported_ref_status:
+   "image_variant_recipe_unverified"`), that pin is a dated reference, not the
+   reporter's upstream: the matrix row plus the requirements pins are the pair to
+   cite, and a pasted `arg_utils.py:N` matching neither is the image's own build (the
+   `ARG VLLM_TAG` paragraph above), not a "nearby build" to hedge about. Recorded
+   #6931 cited the snapshot's vllm `v0.13.0` for a vllm-ascend `v0.11.0` image and
+   then spent four calls reconciling line numbers the matrix row had already answered.
    The same rule covers every library the snapshot does not carry **at all**: `torch`
    (only the `Ascend/pytorch` `content_export` is present — it holds `torch_npu/` but no
    `torch/`), CANN, the driver. When a traceback's deepest frames are inside one of

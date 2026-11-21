@@ -12,11 +12,17 @@ Recorded on the DeepSeek-V3.x latent-KV write, `npu_kv_rmsnorm_rope_cache` (#624
 v0.12.0rc1, SFA path; #2732 DS-V3.1, torchair MLA path) and on
 `npu_interleave_rope` (#2702, non-MLA).
 
+Also this page, on a **built-in** op with no `csrc/` owner: the same argument check
+applied to the **rank of a caller-built attention mask** — `atten mask dim should be 2 or
+4, but got 3` from `flash_attention_score_tiling_general.cpp` (§*Mask rank*).
+
 Not this page: `EZ1001 … Get regInfo failed`/`does not support opType` (the op was never
 resolved for the SoC — `op-not-registered-for-soc.md`), a dump naming a kernel with a
-chip id (`../hccl-and-hardware/index.md`, `aclnn-error-dump-reading.md`), and a numeric
+chip id (`../hccl-and-hardware/index.md`, `aclnn-error-dump-reading.md`), a numeric
 aclnn code with **no** `EZ9999` body (`moe-init-routing-tiling.md` for `561103` on MoE
-routing, which is the same argument-rejection family on another op).
+routing, which is the same argument-rejection family on another op), and the **shape**
+of a caller-built mask (`get unsupported atten_mask shape … [B, 1, 1, Skv]`, same
+`AnalyzeOptionalInput`) — `fa-tiling-argument-refusals.md` member A.
 
 ## What the line proves, and what the reporter's title usually gets wrong
 
@@ -159,3 +165,71 @@ deterministic on the numbers, so the dump above *is* the tiebreaker. Answer with
 rows must agree and their pinned construction sites, (c) the two artefacts, and (d) the
 `--enforce-eager` / one-request-versus-load A/Bs from the regime list. Do not claim the op
 or the caller is at fault before the shape line exists.
+
+## Mask rank: `atten mask dim should be 2 or 4, but got 3` (a built-in op, a VL vision tower)
+
+Verified at vllm `v0.7.1` (`4f4d427ac2ce`) and vllm-ascend `v0.7.1rc1` (`f17417f2d5b5`),
+recorded for #115: 8×910B2, `quay.io/ascend/vllm-ascend:v0.7.1rc1`, Qwen2-VL-72B-Instruct,
+`--tensor-parallel-size 4 --limit-mm-per-prompt image=6 --gpu-memory-utilization 0.9`,
+`ASCEND_LAUNCH_BLOCKING=1`. Engine init, KV profiling and the 87 s warmup all finish; the
+**first image request** kills every rank.
+
+```
+RuntimeError: call aclnnFlashAttentionScore failed, detail:EZ9999: Inner Error!
+EZ9999: [PID: 480] … atten mask dim should be 2 or 4, but got 3[FUNC:AnalyzeOptionalInput]
+        [FILE:flash_attention_score_tiling_general.cpp][LINE:1473]
+        fail to analyze context info.[FUNC:GetShapeAttrsInfo][…][LINE:835]
+        Tiling failed / Tiling Failed. / Kernel GetWorkspace failed. opType: 40
+        launch failed for FlashAttentionScore, errno:561103.
+[ERROR] ERR01100 OPS call acl api failed
+deepest Python frame: vllm/model_executor/models/qwen2_vl.py:345
+        output = F.scaled_dot_product_attention(q,
+```
+
+`AnalyzeOptionalInput` is the tiling entry's optional-input check, so this is the same
+family as the rows above — **an argument was refused, nothing launched** — with three
+differences worth typing before any walk: the op is a CANN **built-in** (no `csrc/`, no
+`_cann_ops_custom`, no `ASCEND_CUSTOM_OPP_PATH` question); the rejected argument is a
+**rank**, so no `--enforce-eager`, `ASCEND_LAUNCH_BLOCKING=1`, graph-mode or dtype knob can
+move it; and the mask was built by **upstream vLLM's model file**, which dates the run.
+
+The chain, verified line by line at that pin (the traceback's other frames — `:400`,
+`:612`, `:614` — match the same file, so the container is running this tree):
+
+- `vllm/model_executor/models/vision.py:79-103` `get_vit_attn_backend`: an explicit
+  `VLLM_ATTENTION_BACKEND` wins, otherwise `current_platform.is_cuda()` decides and **every
+  non-GPU platform falls through to `_Backend.TORCH_SDPA`** (`:102-103`, the comment says
+  so). Ascend therefore never takes the flash-attn branch.
+- `vllm/model_executor/models/qwen2_vl.py:336-349` — the `TORCH_SDPA` branch builds
+  `attention_mask = torch.zeros([1, seq_length, seq_length], dtype=torch.bool)` and fills
+  it per `cu_seqlens` block (`:339-344`), then calls
+  `F.scaled_dot_product_attention(q, k, v, attention_mask, dropout_p=0.0)` at `:345` — a
+  **3-D** mask. torch_npu lowers SDPA to `aclnnFlashAttentionScore`, whose `atten_mask`
+  accepts 2-D or 4-D, hence `got 3`.
+- `vllm_ascend/` at `v0.7.1rc1` has **no** `qwen2_vl` and no
+  `scaled_dot_product_attention` reference (`rg -n 'qwen2_vl|scaled_dot_product_attention'
+  vllm_ascend/` → empty), so there is no downstream patch to read and no plugin defect to
+  argue: the owner is the upstream model file. vllm-ascend's own
+  `tools/npu-vllm-test.sh:165,191,208` shows the Qwen2-VL ViT tests **commented out** at
+  that ref — quotable as coverage, never as the cause.
+
+The two checks that make this a verdict instead of a theory: a **text-only** request must
+succeed (the mask exists only on the ViT path) while one image request reproduces the
+crash; then
+`sed -n '336,350p' /usr/local/python3.10/lib/python3.10/site-packages/vllm/model_executor/models/qwen2_vl.py`
+inside their container shows whether that branch is what ran.
+
+Ladder: (1) the version rung — the same request on the current image, because the branch
+was rewritten after this pin and the snapshot cannot hold any later fix; (2) the mask
+repair, which must keep the block-diagonal semantics: `attention_mask.unsqueeze(1)` to
+`[1, 1, S, S]`, acceptance = one image request whose transcription matches a working
+reference **plus** a two-image request (a single-image-only trick such as `attn_mask=None`
+is equivalent for one segment and silently lets images attend to each other). Do **not**
+offer `VLLM_ATTENTION_BACKEND=FLASH_ATTN`/`XFORMERS` as a rung without checking the image:
+those branches `import flash_attn` (`qwen2_vl.py:318`) and `xformers` (`:352-353`).
+
+Do not chase: the `current tensor is running as_strided, don't perform inplace operations …
+allow_internal_format = False` warning is the `x = x.unsqueeze(1)` at `:612` two frames up
+(a layout advisory, not the mask); `Token indices sequence length … 114688 > 32768` and the
+`profiling.py:184` multimodal-budget warning come from `--limit-mm-per-prompt image=6` and
+are warnings only; and `561103`/`ERR01100` name no lane by themselves.

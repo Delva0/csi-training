@@ -1,9 +1,15 @@
 # The container has no NPU at all: `npu-smi` itself fails (dcmi / `rtGetDeviceCount`)
 
-Scope: "容器中获取不到NPU信息" reports whose **first** failing command is `npu-smi
-info`, not a serve command — the paste is the container's `npu-smi` output plus
-`collect_env.py`, there is no `EngineCore`, no worker and no `vllm_ascend` frame.
-Recorded for **#632** (image `quay.io/ascend/vllm-ascend:v0.8.4rc1` → vllm-ascend
+Scope: "容器中获取不到NPU信息" reports — the container's `npu-smi` output plus
+`collect_env.py`, or **the same driver-probe chain arriving during a serve's engine
+start**: config lines and `Platform plugin ascend is activated` above it, then
+`get platform info failed, drvRet=87` and `507899`, and no `Starting to load model`.
+Route by the **chain** (`drvRet=87` + `507899` + `g_deviceLogicId[-1]`), not by which
+command failed first — a serve-time paste is not lane B either, because nothing ever
+reaches a `vllm_ascend` frame and no weight byte is loaded. Two recorded cases: **#632**
+(below) and **#1905** (image `quay.io/ascend/vllm-ascend:v0.9.2rc1-310p`, 300I Duo /
+310P, pasted as two OCR screenshots of one log — `…/attachments/<issue>/*.ocr.txt` is
+the log). Recorded for **#632** (image `quay.io/ascend/vllm-ascend:v0.8.4rc1` → vllm-ascend
 `086423dc352e`, vllm 0.8.4; CANN `8.0.0` `V100R001C20SPC001B251` aarch64, torch
 2.5.1, torch-npu `2.5.1.dev20250320`, 910 host). The issue carries no resolution in
 the snapshot: every claim below is about what the pasted text means, not about the
@@ -25,8 +31,13 @@ dcmi model initialized failed, because the device is used. ret is -8020
 [ERROR] ASCENDCL … aclrtGetDeviceCount: get device count failed, runtime result = 507899.
 [ERROR] APP … device_count:25: "[PTA]:"get device count of NPU failed""
 [ERROR] TBE … AscendCheckSoCVersion:cur soc version unknowsoctype not found.
+[INFO] HCCL … [adapter_rts.cc][CallBackInitRts] g_deviceType [6] g_deviceLogicId [-1] g_devicePhyId [-1]
+[ERROR] DVPP … [PlatformInfo.cpp:37] [GetHardwareVersion] get device num fail, ret = 507899
 INFO … Platform plugin ascend is activated
 ```
+
+The two middle lines are how the chain looks from the other consumers: HCCL's adapter
+prints the unbound ids, DVPP re-uses the same count call. Both belong to this page.
 
 | Line | Reading |
 |---|---|
@@ -34,6 +45,8 @@ INFO … Platform plugin ascend is activated
 | `halGetDeviceInfo` / `drvGetDevNum` / `rtGetDeviceCount` all `87` → `507899` | one refusal walking up the stack: device probe → device count → ACL. `507899` is the generic `[driver error:internal error]`; the **verb** names the operation, and a device-count failure before any model op means the device stack is already unusable (`../hccl-and-hardware/transport-destlink-ipc-import.md` carries the same reading for the HCCL context) |
 | `get device count of NPU failed` from `device_count` | torch_npu's own wrapper around the same call — the consequence, not a second fault |
 | `TBE … AscendCheckSoCVersion: cur soc version unknown` | downstream of the failed probe (SoC detection goes through the same driver). Inference, not proof — but it is *not* the `PlatformInfoInit … SocVersion <name>` line that `acl-init-500001-and-soc-version.md` asks you to read; in that lane the name **is** resolved and matches the card |
+| `HCCL … CallBackInitRts g_deviceType[6] g_deviceLogicId[-1] g_devicePhyId[-1]` | the same refusal seen from HCCL's `adapter_rts`: `-1` logical **and** physical id means no card was bound to the process. Recorded #248 (whose own trigger, quoted from its body, is one card's `/dev` node mapped into two containers) and #1905 |
+| `DVPP … PlatformInfo.cpp:37 GetHardwareVersion … get device num fail, ret = 507899` | a second *consumer* of the failed count (DVPP's platform info), not a second fault — it carries no new code |
 | `DrvMngGetConsoleLogLevel failed (g_conLogLevel=3)` | a console-log-level getter printing the level it could not set; it carries no device identity and no error code path. Not a lead (that the getter is harmless is read from the message; the driver body is not in the snapshot) |
 | `Platform plugin ascend is activated` | vllm-ascend's plugin loaded fine: nothing in this paste implicates the wheel, the model or a serve flag |
 
@@ -60,7 +73,11 @@ supplies the driver version the version-mismatch rung needs.
    DEVICE=/dev/davinci0`, the four `--device` lines, `dcmi` + `npu-smi` + driver
    `lib64/` + `version.info` + `/etc/ascend_install.info`, `-p 8000:8000`). A paste
    that matches character for character (the recorded case below) exonerates "a missing mount"
-   but the list is a **minimum**: it carries no `--privileged`/`--cap-add`.
+   but the list is a **minimum**: it carries no `--privileged`/`--cap-add`. Inference
+   to keep the ranking straight: `get platform info` / `drvGetDevNum` refuse **before**
+   any `/dev` node is opened, so a `/dev` list shorter than the tutorial's cannot be the
+   owner of a *count* failure — when the host's own `npu-smi` is healthy, go to rung 3
+   (host vs container user-space driver) before re-mapping devices.
 2. **Another holder of the same device.** `docker ps` for a second container on those
    devices and the host's process table (`npu-smi info`, `fuser -v /dev/davinci0
    /dev/davinci_manager`). A card that is busy is a container/host-state finding, and
@@ -104,3 +121,19 @@ prior-month corpus for `-8020`/`dcmi` (12 body hits, none with this text) and
 answered with the ranked ladder above. It spent its first passes in
 `acl-init-500001-and-soc-version.md` and the HCCL IPC page, both of which are the
 *later* stages — enter here instead when the paste's first failure is `npu-smi`.
+
+## Recorded run (#1905)
+
+Two OCR screenshots of one 310P serve log (`attachments/1905/*.ocr.txt`, identical
+bytes for both). The session pinned v0.9.2rc1 (`b5b7e0ec`) / vllm v0.9.2
+(`a5dd03c1`) by matching three pasted line numbers (`platform.py:161`,
+`vllm/config.py:1472`, `:2285`), classified it as the device probe **before** weight
+load, matched it to this page plus the `#248` HCCL-id line, ranked host-driver ×
+image-CANN pairing first, card occupation second, container mapping and
+`--privileged=true` third (citing #302 as the permission precedent at a *later*
+stage), and asked for host + container `npu-smi info`, both `driver/version.info`
+and `ls -l /dev/davinci*`. The reporter's public follow-up (2025-07-22) is just
+「已解决」 with **no mechanism**, so nothing here may be published as "what fixed it";
+the ladder stands on the driver/user-space reading alone. It also confirmed Qwen3-8B
+single-die is not in the pin's 300I validated set (`single_node_300i.md:50`) while the
+lane itself is labelled experimental (`:3-5`) — a separate, model-side gap.

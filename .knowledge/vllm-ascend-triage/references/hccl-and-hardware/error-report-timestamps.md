@@ -201,7 +201,7 @@ capture-mode switch (reporter's reading; no confirmed fix in the record), and #8
 is reporter-confirmed to serve normally with `multistream_overlap_shared_expert`
 off (`../startup-failures/acl-graph-capture.md`).
 
-Two conditions before you adopt it:
+Three conditions before you adopt it:
 
 - **It must belong to this process.** A record older than the failure *minute* is
   either the previous crash (#9183: 36 h and a different process) or **this
@@ -209,6 +209,16 @@ Two conditions before you adopt it:
   `init engine (profile, create kv cache, warmup model)`, reported at `10:28:19`).
   Compare it with the log's own startup lines before discarding it — see
   "A record from this process's own init is not a stale replay" below.
+- **It can also be re-printed by a different op, with the op's own words and the
+  record's code** — read the traceback's shape before treating the block and the
+  `RuntimeError` as the same event. PTA's `NPU_CHECK_ERROR` replaces a failing
+  call's printed code with `AclrtPeekAtLastError(ACL_RT_THREAD_LEVEL)` (peeked,
+  never cleared) and takes the text from `getDeviceErrorMessage`, so an op that
+  dies two hours later on the same thread prints `call aclnnX failed, error code
+  is 107030`: the sentence is this call's, the number and its description belong
+  to the capture window, and the op's real status is masked. That report is a
+  *diagnosability* finding, not the replay mechanism, and the artefact is the plog
+  at the failure second — `latched-runtime-error-masking.md`.
 - The same block prints `threadCaptureMode=0, exchangeCaptureMode=0,
   contextCaptureMode=0`, i.e. its own diagnostic fields show no capture in
   progress. The sentence therefore does not explain itself; ask for a re-run with

@@ -5,6 +5,11 @@ and the failing call is a **free/unmap**, not an allocation — so no memory fig
 is short and nothing was served. It belongs to the allocator lane, not to the OOM
 track and not to the collective/device track, even though the text is loud.
 
+The opposite verb is a **sibling, not a copy of this page**: a long-running engine
+that dies on `map:… aclrtMallocPhysical … 507899` with `halMemCreate … drvRetCode=17`
+(§*The map direction* below) has had an allocation fail, so the headroom arithmetic
+comes first and this page's "no figure is short" shortcut is the wrong way round.
+
 ## Signature
 
 ```text
@@ -120,6 +125,57 @@ Two cheap splits, in this order:
    `--enforce-eager`, then `cudagraph_capture_sizes: [1]`
    (`../soc-platform-paths/atlas-300i-310p.md`,
    `../startup-failures/acl-graph-capture.md`).
+
+## The map direction: `halMemCreate` / `aclrtMallocPhysical` (same allocator, opposite verb)
+
+```text
+[drv api]halMemCreate failed drvRetCode=17, size=20971520(bytes), flags=0, ErrCode=507899,
+  desc=[driver error:internal error], InnerCode=0x7020022[FUNC:MallocPhysical][FILE:npu_driver_mem.cc][LINE:345]
+torch.OutOfMemoryError: map:../torch_npu/csrc/core/npu/NPUCachingAllocator.cpp:457
+  NPU function error: aclrtMallocPhysical, error code is 507899
+```
+
+Recorded #16649: v0.23.0 image, GLM-5.3 W8A8C8, 2 × 16-card A2 mixed deployment
+(DP4 × TP8 × EP16 × DCP8, `--max-model-len 1048576`), 33 h after a healthy start — one
+rank (`Worker_DP2_TP0_DCP0_EP16`) fails creating a 20 MiB physical segment, its
+EngineCore takes the fatal error and the rest are killed. Four reads, in this order:
+
+1. **Three codes, three different facts** (v0.23.0, `5cb98caaadef`;
+   `cann/runtime/include/external/acl/error_codes/rt_error_codes.h`): `507899` = `:140`
+   `ACL_ERROR_RT_DRV_INTERNAL_ERROR`; `207001` = `:62` `ACL_ERROR_RT_MEMORY_ALLOCATION`
+   ("only used by out of memory"); `107030` = `:51` `ACL_ERROR_RT_CAPTURE_MODE_NOT_SUPPORT`.
+   `drvRetCode=17` is `DRV_ERROR_IOCRL_FAIL`
+   (`cann/driver/pkg_inc/ascend_hal_error.h:51`), **not** `DRV_ERROR_OUT_OF_MEMORY`
+   (`:40`, value 6) — so `torch.OutOfMemoryError` here is torch_npu's text predicate
+   (`oom-class-is-not-a-cause.md`), and the driver's own word is "ioctl failed". Order the
+   lines by timestamp (`scripts/plog-timeline.sh`) before deciding which is first.
+2. **Physical headroom, from the log's own profile line** — the identity in `index.md`
+   §*Reading a v0.21+ startup memory block*: `free_memory` minus the five categories. On
+   #16649 that leaves ~3.6 GiB **unused** while a 20 MiB segment fails, so "the ratio target
+   was already oversubscribed" is not the answer; a small map failing with GiBs free points
+   at the segment/driver layer or at growth since startup.
+3. **Growth or one-off**: two `npu-smi info` samples across the window. Without them a 33 h
+   report cannot separate a climb from a flat ceiling (`hbm-growth-and-oom.md`).
+4. **The launch block is the artefact** — ask for it in the first reply. #16649's reporter
+   supplied exactly that script, and the flags decide every branch here: a written-out
+   `PYTORCH_NPU_ALLOC_CONF=expandable_segments:True` (so the question is the *value*, not
+   the injector at `vllm_ascend/platform.py:772-788`, `"expandable_segments" not in` at
+   `:784`), `--max-model-len 1048576`, `--max-num-batched-tokens 1024`,
+   `--gpu-memory-utilization 0.90`, `HCCL_BUFFSIZE=256`, `TASK_QUEUE_ENABLE=1`,
+   `enable_cpu_binding`, `multistream_overlap_shared_expert`, `enable_dsa_cp` /
+   `enable_sparse_li_c8`, `cudagraph_mode: FULL_DECODE_ONLY` + `enable_npugraph_ex`, MTP
+   `num_speculative_tokens: 3`. Reconcile its `--gpu-memory-utilization 0.90` with the
+   log's own `Desired GPU memory utilization is (0.92, 56.08 GiB)`: that script is a
+   *later* copy (the reporter edited the suggested value in), so every number in the
+   arithmetic above comes from the log, never from the pasted command. The neighbouring
+   `107030 … synchronized memcpy failed, kind = 1` in the same paste is the capture lane
+   (`../startup-failures/acl-graph-capture.md`), not the allocator.
+
+`expandable_segments:False` — this page's cure in the unmap direction — is an **ablation
+here, not the answer**: under the segment map an allocation that cannot reuse a cached
+block has to create a physical segment, so a map failure can be a real shortage or a
+driver/segment limit, where the unmap failure had nothing to allocate at all. Keep it as
+rung 2 after the headroom and growth reads, and say which of the two it turned out to be.
 
 ## What this page does not establish
 

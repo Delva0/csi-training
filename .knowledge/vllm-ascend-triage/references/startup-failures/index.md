@@ -295,7 +295,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   `../pooling-embedding/embedding-checkpoint-as-generate.md` (one call:
   `../../scripts/checkpoint-key-prefix.py <model dir>`). The message's prefix and
   class name are computed, not part of the checkpoint's text — read them before
-  the loader.
+  the loader. The same raise with a **quant aux suffix** in the quoted name
+  (`…blocks.0.mlp.fc0.weight_offset`, `…weight_scale`, `…deq_scale`) is the other
+  reading: the export quantised a module the model file built without `quant_config`
+  (ViT towers, multimodal projectors), and the message's `(`class`)` is the runtime
+  CustomOp class, not evidence that the checkpoint named it →
+  `weight-scale-keyerror-quant-variant.md` §the `ValueError` form (recorded #7200).
 - The loader dies on a **file**, not on a config: `safetensors_rust.SafetensorError:
   Error while deserializing header: HeaderTooLarge` (or `HeaderTooSmall` / `invalid
   JSON`) in the same second as `Loading safetensors checkpoint shards: 0% ... 0/N`, on

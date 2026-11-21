@@ -105,6 +105,21 @@ table and the largest fitting length for a given host.
   `collect_env` before pricing anything, and label an upgrade rung as
   version-gated/untested unless the reporter runs it: the shipped images pair a
   specific CANN with their own torch_npu, so it is not a free flip.
+- **Reporter-confirmed afterwards (#3324, the 8.3 branch landing).** That reporter
+  rebuilt `vllm_ascend 0.11.0rc0` from source and moved to
+  `Ascend-cann-toolkit 8.3.RC1.alpha003`, then posted "CANN升级到8.3似乎还是解决不了" —
+  but the paste is a **different phase**:
+  `RunOpApiV2 … AclrtSynchronizeStreamWithTimeout(stream), error code is 107027` out of
+  `[model_runner_v1.py:3556]` (the canned capture wrapper of SKILL.md rule 11) +
+  `ERR00100 PTA call acl api failed`, with "使用`--enforce-eager`倒是可以运行，但是速度非常非常慢".
+  So on that pair the host mask stopped deciding the budget — the 8.3 branch
+  above sizes it by `max_num_batched_tokens` — and the live lane is the bare `107027`
+  (`../startup-failures/captured-stream-host-sync.md` §6). Limits: the follow-up pastes no
+  serve command and no `--max-num-batched-tokens`, so neither the mask value nor the eager
+  run's cost is measured; the moving part is the **pair** (newer vllm-ascend × CANN 8.3),
+  so a CANN-only upgrade on an older vllm-ascend keeps the `max_model_len` mask; and
+  "still not solved" is the reporter reading a new symptom, not a refutation of the
+  arithmetic that matched their 100K/128K numbers.
 
 ## A works/fails model pair is only a control after both configs are read
 
@@ -173,6 +188,13 @@ confirmed, and say explicitly that a bigger value is a budget experiment, not a
 promise. Two rungs that do **not** move it on a pre-8.3 CANN: `--enforce-eager`
 (the mask is built in `__init__`, graph or not) and `--max-num-batched-tokens`
 (only the 8.3+ branch reads it).
+Keep that version condition on the sentence instead of writing a flat "`--enforce-eager`
+is inert": the same flag doubles as this lane's cheap **discriminator**, since it cannot
+remove a constructor-time host allocation — a serve that *runs* under it has refuted this
+page for **its** build, and asks for the `collect_env` `vllm_ascend`/CANN pair instead of a
+debate. Recorded #3324 published the flat claim and the reporter's next public comment
+showed eager running (0.11.0rc0 + CANN 8.3), i.e. report and paste were one release apart;
+on an 8.3+ pair the value that now sets the mask is `--max-num-batched-tokens`.
 
 ## Ranked causes and their checks (#2873)
 
@@ -202,6 +224,11 @@ promise. Two rungs that do **not** move it on a pre-8.3 CANN: `--enforce-eager`
    release that follows for the real repair.
 4. Do not propose TP changes as the fix: TP multiplies the footprint, it does not
    create it (a TP=1 262144 serve needs 576 GiB peak on its own).
+5. On a **CANN 8.3+** host the term is `max_num_batched_tokens`, so the release pairing
+   that carries the 8.3 branch (v0.11.0rc0 and later) keeps long context without patching —
+   say in the same sentence that this pairing's next failure is the capture lane's bare
+   `107027`, where `--enforce-eager` is the isolation run and not the deployment
+   (reporter: "速度非常非常慢", #3324).
 
 ## Answer shape
 

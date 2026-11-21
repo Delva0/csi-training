@@ -205,10 +205,31 @@ parser puts you back on rule 1.
    and which one instrument decides the next step. **Downstream does patch this
    path, so establish that it does not own the symptom before saying "upstream"**:
    grep `vllm_ascend/patch/` by *model family* (`glm`, `deepseek`, `minimax`), not
-   by the symptom's word — `patch_glm_tool_call_streaming.py` wraps
+   by the symptom's word, and by the spelling **that release** uses: at v0.23.0
+   the family is two files — `patch_glm_tool_call_streaming.py` wraps
    `OpenAIServingChat.chat_completion_stream_generator` and replaces
-   `_create_remaining_args_delta` while `patch_glm47_tool_call_parser.py` rewrites
-   the GLM47 region extractor, and neither filename contains `tool_parser`.
+   `_create_remaining_args_delta`, `patch_glm47_tool_call_parser.py` rewrites the
+   GLM47 region extractor — while at **v0.18.0 both jobs sit in one file,
+   `platform/patch_glm_tool_call_parser.py`** (header: "backport GLM tool-call
+   parser and finish-suffix fixes"; `:1083` assigns the patched generator and
+   `:1084` the patched `Glm4MoeModelToolParser.extract_tool_calls_streaming`, both
+   re-stamped as upstream names at `:1079-1082`, plus four `_*` helpers at
+   `:1073-1076` and an import-time `RuntimeError` unless the MiniMax
+   usage-accounting patch ran first; imported unconditionally at
+   `platform/__init__.py:32`, and `glm47` subclasses `glm4_moe` so both
+   `--tool-call-parser` names are covered). A grep that finds no match for one
+   spelling at an older pin is **name drift**, not "downstream does not patch this
+   path" — `ls vllm_ascend/patch/platform/` before blaming upstream. Recorded
+   #12244 (v0.18.0, GLM-5.1 1P1D, 11-turn tool-call body): `content` deltas
+   repeated prefixes and carried `</arg_value>`/`<arg_key>` fragments, and the
+   reporter's own follow-up made **MTP on the prefill node**
+   (`num_speculative_tokens: 3`) the lever — MTP off on P stopped the garbling —
+   so this patch is the assembler, not the cause. The residue it then showed
+   (`think` text inside `content`, `reasoning_content` empty) is the pre-filled
+   `</think>` path: `is_reasoning_end` scans backwards and returns `True` when the
+   last marker is `end` (`vllm/reasoning/basic_parsers.py:64-73` at vllm v0.18.0),
+   which the patched generator consumes as `prompt_is_reasoning_end_arr`
+   (`:354-355`, `:419`, `:484`, `:525`) to route every later token to `content`.
    `patch/__init__.py` carries one numbered comment block per patch with its
    `Why`/`How`/`Future Plan` and the upstream PR it backports; quote the branch
    condition that excludes it (see `arg-type-gate-unquoted-value.md`).

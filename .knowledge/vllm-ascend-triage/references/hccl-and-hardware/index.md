@@ -19,7 +19,15 @@ TIMEOUT, `19` NETWORK, `20` AGAIN, `21` REMOTE
 (`cann/hccl/docs/api/context/HcclResult.md:10-35`), so quote the enum name, not
 the number. A code that is neither `1`, `3` nor `9` is a
 generic rejection: the surrounding message text names the precondition, the code
-does not. The one-sided `HcclBatchPut` / store-put variant of that argument is
+does not.
+
+**`… NPU function error: …, error code is N` from a `torch_npu` op is a different
+namespace**, and `N` may not be that op's status at all: PTA's `NPU_CHECK_ERROR`
+overrides the printed code with the thread's latched runtime error
+(`AclrtPeekAtLastError`, "仅获取但不清空"), so a capture-window `107030` can be printed by
+an unrelated op hours later and mask the real failure —
+`latched-runtime-error-masking.md`. The one-sided `HcclBatchPut` / store-put variant of
+that argument is
 `../kv-pool-store/hccl-onesided-store-put.md` §1.
 
 **First decide whether a communicator can be created at all.** If the text is
@@ -466,6 +474,14 @@ debugging" caveat.
    produce it, the one-grep `died unexpectedly (exit code: N)` decode, the
    in-flight-`SchedulerOutput` dump, the candidate table (driver/firmware × CANN
    first, reporter-confirmed on #16023), and the deliver-first budget rule.
+15. `latched-runtime-error-masking.md` — a `torch_npu` op failure whose
+   `error code is N` also appears in a capture-window plog record: PTA's macro replaces the
+   printed code with `AclrtPeekAtLastError(ACL_RT_THREAD_LEVEL)` (peek, never cleared) and
+   `getDeviceErrorMessage` supplies the text, so the code is stale and the op's own status is
+   masked; the two exported CANN doc semantics that make it possible, the blocking H2D tiling
+   `aclrtMemcpy` in the custom-op host adapters that mints `107030` at capture, why no flush
+   exists (`clear_device_error_info` only via `torch_npu.npu.restart_device`), and the
+   deliverable (plog at the failure second, not the capture block).
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server

@@ -316,6 +316,20 @@ answer is not "downstream drift".
    (`:207-223`), so the "fixed" index may still be the wrong mask. Worked case, the
    reporter's two comments and the body-diff probe: `patched-forward-api-drift.md`.
 
+15. **A branch selected by `vllm_version_is('<X.Y.Z>')` is chosen by exact PEP 440
+   equality, so an rc/dev/post build of that very release takes the *other*
+   generation's branch.** That is the answer to "版本号不严格是 X.Y.Z 时 … 出 bug" and
+   to any `ImportError` naming a `vllm.attention*` symbol the reporter's vllm never
+   had: the gate (`utils.py:360-376` at v0.15.0rc1, `@functools.cache`,
+   `VLLM_VERSION` else `vllm.__version__`) turns a reader's "same release line"
+   reading into "this exact final", and the `else` branch must then hold a name that
+   is right on *every other* upstream version — impossible after two upstream
+   renames. Settle it with `vllm.__version__`, one equality probe and a
+   `VLLM_VERSION=<target>` re-run, not a code walk; rung 1 is that env var before
+   launch or the paired final version, and a try/except around the import is not the
+   fix. Page, pins and the two empty `__init__.py` files that prove the dead branch:
+   `version-gate-branch-selection.md`.
+
 ## Pages
 - `fork-ctor-arg-sweep.md` — worked case vllm-ascend #18688 (v0.23.0 `5cb98caa` /
   vllm v0.23.0 `0fc695fc`, 910B3, Qwen3-0.6B): `TypeError:
@@ -331,6 +345,12 @@ answer is not "downstream drift".
   (`platform.py:713-725`), the CI gap (`rg -ln 'SchedulerDynamicBatch' tests/` = 0 hits,
   `test_platform.py:58` pins `-1`), the `profile_table.csv` degrade path that makes
   "it starts" ≠ "the feature works", and the one-call sweep script.
+- `version-gate-branch-selection.md` — the `vllm_version_is` gate: exact-equality
+  semantics (rc/dev/post/local all unequal to the final), the three-generation MLA
+  rename with `vllm/attention/__init__.py` and `vllm/model_executor/layers/attention/__init__.py`
+  both 0-line at vllm v0.15.0, why the rc takes the dead branch, the three commands
+  that settle it, the versioning-policy pairing row that makes the env override the
+  right rung 1, and why try/except on the import is rejected.
 - `impl-and-oot-signature-drift.md` — the **question** form of this topic as well as the crash
   forms (Rule 6: "0.13.0 vllm-ascend MLA interface is different from 0.13.0 vllm" with
   two failed image uploads is answered by the two call sites — upstream

@@ -123,6 +123,18 @@ output, or did no request ever reach a decode engine?**
   proxy (`load_balance_proxy_server_example.py:801`) and the native disagg API
   builds `TokenizeParams(max_total_tokens=None, max_output_tokens=0)`, so the
   question is which leg could have validated it → `invalid-max-tokens-and-p-refill.md`.
+- The example proxy's **upstream** call returns `400 Bad Request`
+  (`httpx.HTTPStatusError … for url 'http://<node>:8078/v1/…'` in
+  `send_request_to_service` / `stream_service_response_with_retry`, `Attempt
+  1/2/3 failed`), the node shows only the status line, and a direct `curl` there
+  "works": the proxy **throws the response body away**, and that body is the whole
+  diagnosis. Which leg it is comes from the log text (`… failed for streaming …` =
+  decode, bare `… failed for <path>` = prefiller, `--prefiller-ports`/`--decoder-ports`
+  overlap so the port says nothing), and the prefill leg is sent `max_tokens = 1`
+  (`:801`), so a 400 there is a prompt-length question, not the client's output
+  length — the four frontend 400 sites at the pin, the arithmetic and the
+  identical-body control are `proxy-upstream-400-body.md`. Not the connector, the
+  fabric or the P/D flag parity.
 - Requests **are** served on `LLMDataDistCMgrConnector` but the prefiller prints
   `Some requests in prefill node fail to receive KV Cache transfer done signal in 120s.
   … 'export VLLM_LLMDD_ABORT_REQUEST_TIMEOUT=600' …`, alone or alongside "TTFT extremely

@@ -409,3 +409,31 @@ size-set check, not a confirmed mechanism. Coverage note: neither tree in that
 snapshot registers `Gemma4ForConditionalGeneration`
 (`vllm/model_executor/models/` stops at `gemma3n`), so that pair carries no validated
 FULL-graph path for the model at all - state it as the coverage gap, not the cause.
+
+### The same signature at v0.23.0: arity 13 → 22, and a third argument creates a new divergence
+
+Verified at vllm-ascend **v0.23.0** (`5cb98caa`) — the #8370 shape recurred with a different
+number and a different trigger, so count both numbers at the reported pin instead of
+reusing the v0.18.0rc1 ones:
+
+| Anchor (v0.23.0) | Fact |
+|---|---|
+| `attention/utils.py:104-120` | `using_paged_attention(runtime_shape, vllm_config, head_size=None)` gained a third argument; `:109-113` is a **Gemma4 fallback** — `if head_size == FIA_TND_LARGE_HEAD_FALLBACK_HEAD_SIZE: return True` (`= 512`, `device/utils.py:23`), returned **before** the `cudagraph_mode`/`pa_shape_list` test |
+| `attention_v1.py:1471` | forward/capture dispatch passes `self.head_size`, so a 512-dim global head layer takes PA in **every** mode |
+| `attention_v1.py:464`, `worker/model_runner_v1.py:3502` | `update_graph_params` (and the runner's own call) evaluate the predicate **without** `head_size` |
+| `attention_v1.py:470-489` | PA branch unpacks **9** fields (`query, key_cache, value_cache, num_kv_heads, num_heads, scale, block_table, seq_lens, output`) |
+| `attention_v1.py:715-738` | FIA branch unpacks **22** fields (ends `c8_*_scale/offset`, `layer_name`) — `:715` is the line the ValueError reports |
+| `ascend_config.py:246` | `pa_shape_list` default `[]` |
+
+So a hybrid stack with a 512-dim global head (Gemma4-family `gemma4_unified`) captures the
+9-tuple for those layers and, under `FULL_AND_PIECEWISE`/`FULL`, is unpacked as 22 on the
+first decode — deterministic, mode-independent, and reported as `expected 22, got 9`. Under
+`FULL_DECODE_ONLY` the ladder above works verbatim (`pa_shape_list` = the captured sizes makes
+the update side take PA too); under `FULL_AND_PIECEWISE` no config reaches that branch
+(`:117-118` returns False before the list is read), so the honest answer is `--enforce-eager`
+plus the two-line source fix (pass `self.head_size` at update, or put the branch in the
+captured tuple). Coverage half, verified at the same pin: `release_notes.md:170` "Added
+experimental Gemma4 support on A2 and Ascend 950", while `support_matrix/supported_models.md`
+lists only `Gemma-2` (`:84`) and `Gemma-3` (`:85`, `:185`) — no Gemma-4 row, and no ACL-graph
+e2e for the family. Recheck by listing every `using_paged_attention(` call site and counting
+the unpack targets in each branch: both moved between v0.18.0rc1 and v0.23.0.

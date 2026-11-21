@@ -21,6 +21,13 @@ Launch that produces it: `--compilation-config '{"cudagraph_mode":
 `--enable-expert-parallel`. Nothing crashes at capture; the refusal arrives with
 real requests, sometimes on the first one.
 
+Its **FA sibling is a different op, page and owner**: `npu_fusion_attention` →
+`aclnnFlashAttentionVarLenScore` with `The end of actualSeqQLen & actualSeqKvLen should be
+0 in EOD scenario, but got (N) and (N)` (no `queryT`/`actualSequenceLengthQ` sentence) is
+`../custom-ops-runtime-faults/fa-tiling-argument-refusals.md` member B — the pooling/encoder
+attention path, not spec decode, and the mask-shape member above it is the same CANN file
+reached from a model-side mask.
+
 A **second launch reaches the same refusal through a different lane**:
 `cudagraph_mode: "FULL"` with `--speculative-config '{"method": "ngram",
 "prompt_lookup_max": 2, "prompt_lookup_min": 2, "num_speculative_tokens": 3}'`

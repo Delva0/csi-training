@@ -664,7 +664,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   expert offset name with no expert index (`…mlp.experts.w2_weight_offset`) is
   upstream's remap of a per-expert key, and at v0.8.5rc1 only `W8A8_DYNAMIC`
   allocates MoE offsets — so the description in effect marked the experts `FLOAT`
-  (ask for that entry; recorded #986).
+  (ask for that entry; recorded #986). The same family's upstream
+  `ValueError: There is no module or parameter named '<module>.<aux>'` is the same
+  census plus one constructor read: the export quantised a module the model file
+  built without `quant_config` (ViT tower, projector), and its `(`class`)` is the
+  runtime CustomOp name (recorded #7200).
 - A `RuntimeError: Promotion for Float8 Types is not supported … Float8_e4m3fn and
   Bool` in `ops/fused_moe/token_dispatcher.py` on the first MoE forward: three
   `sed` reads and one ablation, never a device theory

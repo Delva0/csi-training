@@ -66,7 +66,8 @@ the most specific row wins.
 
 | The paste is… | Rows live in |
 |---|---|
-| a startup/load/capture log, a SoC- or image-conditional gate, a model/quantization/arg gate, a Ray or multi-process launch, or a sizing question | `startup-and-load.md` |
+| a startup/load/capture log, a SoC- or image-conditional gate, a model/arg gate, a Ray or multi-process launch, or a sizing question | `startup-and-load.md` |
+| an **artifact** stops it rather than a phase: a quantization method or a checkpoint's weight/aux keys, a pip resolution, an image tag or arch, an install/build step, a version string, two files disagreeing about a pin | `checkpoint-quant-and-install.md` |
 | a device-op failure: an aclnn/custom-op error, a tiling rejection, a device dump, an `EZ1001` family, an HCCL collective or an MC2 dispatch | `device-ops-and-collectives.md` |
 | a served request or an answer: chat template/tokenizer mode, reasoning routing, tool calls, truncation, a score gap, garbled or repeated text, a logging flag | `serving-output-and-toolcalls.md` |
 | a parallel or stateful deployment: PD/KV transfer and pools, pooling services, spec decode/MTP, PP, mixed-batch attention, LoRA, host/device memory, a downstream patch | `parallel-state-and-kv.md` |

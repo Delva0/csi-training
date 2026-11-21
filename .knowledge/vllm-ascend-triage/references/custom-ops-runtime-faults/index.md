@@ -79,7 +79,7 @@ downstream code and the owner is the launch site's arguments —
   same answer, on 310P most often for a torch_npu *built-in* (`aclnnIsNegInf` on a
   VL/vision path, recorded #6082) — where the Python caller is in no pinned tree, so
   one `rg` is the whole budget before the standalone op probe on that page.
-  **Six pre-launch wordings, six owners — and the one with an `integral key`
+  **Seven pre-launch wordings, seven owners — and the one with an `integral key`
   is the dtype axis.** `EZ1001 … does not support opType` = no registry entry for
   the SoC (`op-not-registered-for-soc.md`); `EZ9999 … does not has any binary` /
   `Parse dynamic kernel config fail` = no kernel for the op at all on this SoC
@@ -97,8 +97,22 @@ downstream code and the owner is the launch site's arguments —
   aclnn<Op>GetWorkspaceSize not in libopapi.so`** is the *dlsym* root: the symbol was
   not in the vendored `libcust_opapi.so` nor in the toolkit's `libopapi.so`, so the
   container's custom-op package is the first suspect and the CANN release the last —
-  `opapi-symbol-absent.md`; and **`EZ1001` wrapped round `Check
-  NnopbaseRunWithWorkspace(executor, stream, workspace, workspaceSize) failed` /
+  `opapi-symbol-absent.md`; and **`EZ1001` wrapped round `Get path and read
+  binary_info_config.json failed, please check if the opp_kernel package is installed!`
+  with `Check NnopbaseCollecterWork(binCollecter.get()) failed` → `Assert ((NnopbaseInit())
+  == 0) failed` → `Check NnopbaseCreateExecutorSpace(&executorSpace) failed`** is the
+  **kernel manifest never found**: opbase built no collector, so nothing could be looked
+  up at all. Its checks are environmental and come first — `echo $ASCEND_OPP_PATH`, the
+  `…/opp/built-in/op_impl/ai_core/tbe/kernel/config/<soc>/binary_info_config.json` path
+  *inside that container*, whether `set_env.sh` reached the process, and the pin's own
+  separate `Ascend-cann-kernels-<soc>` install — then the image's CANN against the driver
+  generation `npu-smi` prints. One phrase separates it from the registry wording above: **`Get path and read …
+  failed` = the file was never found (install/env); `Get regInfo failed … does not support
+  opType` = the file was read and has no entry for this SoC (build/tag).** Recorded #573
+  (v0.7.3rc2, `aclnnSwiGlu` at `profile_run`) opened the registry page first —
+  `../soc-platform-paths/kernel-package-vs-card.md` §*Third wording*; and **`EZ1001`
+  wrapped round
+  `Check NnopbaseRunWithWorkspace(executor, stream, workspace, workspaceSize) failed` /
   `Assert ((executor) != nullptr) failed`** is the *opbase launch* path, not a registry
   statement, so the registry page's remedy does not apply. Read the `Check …` lines
   **between** the `EZ1001` and the assert: `NnopbaseExecutorPrepareParamsExt` →
@@ -111,7 +125,7 @@ downstream code and the owner is the launch site's arguments —
   discriminator, so ask for the block before classifying — recorded #6488 (310P MoE, 21
   turns, no answer) read the `EZ1001` registry page first and then hunted the op's Python
   caller across vllm-ascend, torch_npu and op-plugin for the rest of the session. None of
-  the six got a kernel to run in the recorded cases, so `561000` / `ERR00100` / `EZ9999` /
+  the seven got a kernel to run in the recorded cases, so `561000` / `ERR00100` / `EZ9999` /
   a bare `EZ1001` is a wrapper and a grep on it alone lands in the MC2/HCCL rows.
 - **A garbled MoE output or an AI-Core invalid-GM-address under
   `enable_fused_mc2=1` is a workspace/stride question inside one of three op variants,
@@ -163,13 +177,24 @@ downstream code and the owner is the launch site's arguments —
   code is 561103` states that this launch's tiling rejected one input; the same
   561103 appears on `aclnnFlashAttentionScore` (#115), `aclnnInplaceNormal` (#2892)
   and `aclnnIndexPutImpl` (#4430), so it must never be graded as hardware, HCCL or
-  "this parallelism is unsupported". Two shapes recur on MoE deployments: a
+  "this parallelism is unsupported". On #115 the rejected input was the **rank of a
+  caller-built attention mask** (`atten mask dim should be 2 or 4, but got 3` out of the
+  vision tower, `tiling-attribute-rejection.md` §*Mask rank*), which no card, TP degree or
+  mode flag can change. Two shapes recur on MoE deployments: a
   **built-in routing op** fed by the token dispatcher (`aclnnMoeInitRoutingV3` /
   `MoeInitRoutingV2`, where the EZ9999 line names the offending argument —
   `moe-init-routing-tiling.md`), and the backport custom op the tree builds itself.
   The op name in the paste may not exist in the tree at all: the caller's
   `torch_npu` function, the aclnn entry point and the tiling opType can carry three
   different names in one block, so grep the *Python* caller before any `csrc/` walk.
+  **And the printed code may not be this call's code at all.** PTA's
+  `NPU_CHECK_ERROR` replaces the failing expression's return with
+  `AclrtPeekAtLastError(ACL_RT_THREAD_LEVEL)` — peeked, never cleared — when the thread
+  holds a latched runtime error, so `call aclnnQuantMatmulV5 failed, error code is 107030`
+  on a serve that has been decoding for hours is a **capture-window** code with this call's
+  static text beside it, and the op's real status is masked. Judge the number by whether
+  this op could mint it before ranking anything on it, and answer with the plog at the
+  failure second (`../hccl-and-hardware/latched-runtime-error-masking.md`).
 - **`Failed to register custom ops, all custom ops will be disabled` is not a defect
   in every image.** At vllm-ascend v0.7.3 the official image ships without the
   extension by design: `setup.py:296-298` builds `vllm_ascend.vllm_ascend_C` only
@@ -343,6 +368,14 @@ downstream code and the owner is the launch site's arguments —
   regimes that change the rows at the call (MLAPO's 1024-token branch, graph buckets,
   DSA-CP slicing, SP gather), the five-line shape-dump spy, the framework-free `torch_npu`
   sweep, and how to answer when the op owner returns the case as a "调度问题".
+- `fa-tiling-argument-refusals.md` — the built-in **`FlashAttentionScore`** tiling family, where
+  the `FUNC:`/`FILE:` pair in the paste (`flash_attention_score_tiling_general.cpp`) names which
+  argument was refused: `AnalyzeOptionalInput` → `get unsupported atten_mask shape` for a mask
+  broadcast on the query axis (the accepted list has `Sq` in slot 3, so `[B,1,1,Skv]` is never
+  legal — the model-side `get_extended_attention_mask` of an audio/VL tower, #6573), and
+  `Analyze3DimLayout` → `The end of actualSeqQLen & actualSeqKvLen should be 0 in EOD scenario`
+  for the TND tail invariant, where the pooling/encoder FA call is the one site that never trims
+  `query` to `actual_seq_lengths_q[-1]` while its FIA sibling does (#10757).
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
   each line does/does not pin down, plus the **built-in CANN kernel** lane where there is no
   `csrc/<op>/` to open (`fault kernel_name=unpad_flashattention_…`, `FlashAttentionScore…`):

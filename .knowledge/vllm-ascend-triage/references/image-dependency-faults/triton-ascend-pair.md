@@ -161,6 +161,11 @@ deployment served.
 - Same banner, loader detail (`libkernel.so: failed to map segment from shared object`):
   `../runtime-memory/dlopen-map-count-exhaustion.md`.
 
+- Same stack, **hand-installed**: `Failed to import Triton kernels … Error: No
+  module named 'triton.language.target_info'` (a logged, non-fatal vllm line) beside
+  the reporter's own `no attribute 'next_power_of_2'` / `'function' object is not
+  subscriptable` ladder → `triton-kernels-import-error.md`; the fix is removal of the
+  foreign `triton`/`triton_kernels`, never another triton version.
 - Same pair at **startup**, before any kernel runs: an `Error in inspecting model
   architecture '<Arch>'` whose logged tail is an import-time
   `AttributeError: module 'triton.language' has no attribute '<x>'` (a triton is

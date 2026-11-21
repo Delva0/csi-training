@@ -23,7 +23,11 @@ Sibling lanes: a *complete* triton-ascend whose ascend backend cannot map the So
 fails later and differently (`SystemError: <built-in function get_arch> returned
 NULL` at the worker import — `../soc-platform-paths/atlas-300i-310p.md`); a
 complete pair that compiles bad IR fails on the first request
-(`triton-ascend-pair.md`). This page is the **import-time resolution** form.
+(`triton-ascend-pair.md`); and an upstream triton or a `triton_kernels` package
+installed beside triton-ascend logs `Failed to import Triton kernels … No module
+named 'triton.language.target_info'` and then fails later in
+`ops/layernorm_gated.py` (`triton-kernels-import-error.md`). This page is the
+**import-time resolution** form.
 
 ## Why a normal install cannot produce it
 

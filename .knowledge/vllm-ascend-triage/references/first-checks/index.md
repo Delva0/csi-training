@@ -30,10 +30,10 @@ gates; this topic keeps the per-track detail that used to sit beside them.
 ## Routes
 
 - `signature-routes/index.md` — the classification index (log fragment →
-  track A/B/C/D → owning page), moved out of `SKILL.md` and split into five pages by
-  the shape's home track (startup/load, device ops, serving/output, parallel/KV,
-  capability/docs/throughput). Its scope defines the four tracks and routes to the
-  five; open it when the signature is specific, and read the middle cell before
+  track A/B/C/D → owning page), moved out of `SKILL.md` and split into six pages by
+  the shape's home track (startup/load, checkpoint/quant/install, device ops,
+  serving/output, parallel/KV, capability/docs/throughput). Its scope defines the four
+  tracks and routes to the six; open it when the signature is specific, and read the middle cell before
   following the link, since it carries the decisive local rule.
 - `scripts-catalogue.md` — every script under `scripts/`, with its arguments and
   what its output decides. Open it when a track or topical page names a script;

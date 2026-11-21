@@ -560,6 +560,24 @@ had this in hand from its fifth turn and shipped **386 characters** of text acro
 the 16 384-token cap. Page:
 `../custom-ops-runtime-faults/gather-index-out-of-range.md`.
 
+**#1603** vllm-ascend `v0.9.0rc2` (`8dd686d`) + vllm `v0.9.0` (`58738772410c`),
+Qwen3-32B bf16 TP4 on 910B, `--max-model-len 32768`, `--enable-prefix-caching`,
+chunked prefill at `max_num_batched_tokens=2048`, PIECEWISE ACL graph
+(`cudagraph_capture_sizes [512 … 1]`): after an hour of single-request serving, six
+requests inside 8 s, then `[ASSERT] … gather_v3_base.h:137 … Index 775 … 829 out of
+range[0 391)` on every rank, `RuntimeError: ACL stream synchronize failed, error
+code507035` and `EngineDeadError`. Track: host-side index-space overflow **whose
+table only the dump names** — 391 is the new request's own
+`prompt_token_ids_len=391` (`SchedulerStats(queries=391, hits=256)`), the step
+scheduled `135` tokens for it with `block_ids=[[47,48,116,117]]`, so `775 … 829`
+belongs to the co-scheduled decoding request; the same log's RoPE cache is 40960
+rows and `GPU KV cache size: 631,424 tokens`, so neither config table matches. The
+deepest frame is `eval_with_keys-1.1 line 49` → `torch/ops.py:1116`, i.e. the op is
+not in the paste. The recorded run spent all 16 384 output tokens naming that op and
+shipped **0** characters; the reporter later confirmed a code patch fixed it. Page:
+`../custom-ops-runtime-faults/gather-index-out-of-range.md` (§*When M matches
+no config value*).
+
 **#6018** vllm-ascend `0.12.0rc1` in the title / `0.12.0rc2` in the environment
 block (`SOURCES.json`: `reported_ref_status: conflicting_versions`; snapshot pins
 v0.13.0rc1 `1b5d5ab`), 910B4 ×8 single node, "Qwen2.5 30B" (dense 32B vs MoE

@@ -106,6 +106,16 @@ reading any code:
    failed and the missing bytes are between the pod and the client →
    `client-hang-after-200-ok.md`. Not a serialization, dtype or prefix-cache lane.
 
+10. **It dies at the first step in graph mode on a bidirectional-attention model, and
+   only graph mode** — `npu_fusion_attention` / `aclnnFlashAttentionVarLenScore` +
+   `AclNN_Parameter_Error(EZ1001): FlashAttentionScore launch kernel failed`, with
+   `The end of actualSeqQLen & actualSeqKvLen should be 0 in EOD scenario` in the
+   tiling block, while `--enforce-eager` serves
+   → the pooling/encoder FA site's TND tail invariant under graph-mode token padding
+   → `../custom-ops-runtime-faults/fa-tiling-argument-refusals.md` (member B). This is
+   the *runtime* sibling of class 8 (which dies at capture): same `--runner pooling`
+   models, different phase, and eager is the control that separates them.
+
 Not this topic: a score/MMLU gap between harnesses (`../accuracy-benchmarks/index.md`),
 garbled *text* from a generation model (`../accuracy-benchmarks/`), a device dump
 or a kernel-launch aclnn error from a custom op (`../custom-ops-runtime-faults/`),
@@ -258,6 +268,14 @@ Three scripts serve this topic's startup classes directly:
   sibling is `../startup-failures/nz-weight-format-refusal.md`), and the
   v0.23.0 gate rewrite (`_should_trans_nz`, "FP32 cannot use NZ") that makes the
   verdict ref-specific.
+- `../custom-ops-runtime-faults/fa-tiling-argument-refusals.md` — class 10, member B:
+  `aclnnFlashAttentionVarLenScore` / `FlashAttentionScore launch kernel failed` +
+  `… should be 0 in EOD scenario, but got (15) and (15)` under graph mode with eager
+  working (#10757, bge-m3 on vllm-ascend v0.18.0 + vLLM `dev`, 910B4, CANN 9.0.0):
+  the encoder FA call does not trim `query` to `actual_seq_lengths_q[-1]` the way the
+  FIA sibling does, the padding hook that would reconcile it runs only under
+  `cudagraph_mode: FULL`, and the `causal` gate that opens the branch is unsettable at
+  the pin — so the version question is asked, not derived.
 - `client-hang-after-200-ok.md` — class 9. Recorded case vllm-ascend #6424
   (v0.11.0 / vllm v0.11.0, bge-m3 on 910B, CANN 8.3.RC2, K8s): the two log lines the
   report treats as cause and evidence, the tutorial `path:line` that makes the

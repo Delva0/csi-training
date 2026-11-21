@@ -71,6 +71,17 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   that resolved is a leftover/shadow, not a version-pin problem: one `python -c`
   printing `triton.__file__` / `__path__` / `__version__` decides it, and the
   repair is removal, never `pip install triton-ascend`.
+- The log carries `Failed to import Triton kernels. Please make sure your triton
+  version is compatible. Error: No module named 'triton.<x>'` (recorded
+  `triton.language.target_info`), often beside the reporter's own history of
+  `module 'triton' has no attribute 'next_power_of_2'` and a `kernel[grid]` launch
+  raising `TypeError: 'function' object is not subscriptable`, on a box where
+  triton/triton_kernels was hand-installed → `triton-kernels-import-error.md`.
+  That title sentence is upstream vllm's `logger.error` around a swallowed
+  `triton_kernels` import (`fused_moe/config.py:25-34` at vllm v0.18.0), **not** the
+  crash, and its advice is the action already tried: on an Ascend box the only valid
+  `triton` is the one triton-ascend's wheel provides, so the fix is removal of the
+  foreign distributions plus one `python -c` probe, never another triton version.
 - The **platform plugin fails to import**: `vllm serve` prints
   `ERROR Failed to load plugin ascend` + `ModuleNotFoundError: No module named
   'vllm_ascend'`, then `No platform detected, vLLM is running on
@@ -439,6 +450,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   (`AttributeError: module 'triton' has no attribute 'language'` at `import torch`,
   no `vllm_ascend` frame, usually a `-310p` box where the Dockerfile removes it on
   purpose): the resolved module is uninstall residue or a shadow directory.
+- `triton-kernels-import-error.md` — the logged `Failed to import Triton kernels …
+  Error: No module named 'triton.language.target_info'` on a hand-built box: the
+  `triton_kernels` → `triton.language.target_info` chain, the placeholder forms
+  (`no attribute 'next_power_of_2'`, `'function' object is not subscriptable`), why
+  the failures concentrate in `ops/layernorm_gated.py` (unguarded import at
+  `ops/layernorm.py:24`, `triton.next_power_of_2` at `:139`), and why
+  `pip uninstall triton` on a triton-ascend box leaves a gutted tree (#11681).
 - `custom-op-build-stage.md` — a `COMPILE_CUSTOM_KERNELS=1` source build that fails
   in the compiler/linker log: which stage the last frames name, whose code it is
   (vllm-ascend `CMakeLists.txt`/`setup.py` vs the CANN toolkit), the version

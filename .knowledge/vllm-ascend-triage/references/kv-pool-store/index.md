@@ -23,6 +23,16 @@ transport topology to inspect.
   "device id" anomaly → `memcache-a3-dsv4-init.md`. Do not walk `MemcacheBackend`
   or the memcache C++ first: the lazy-init behaviour, the config keys and the
   failure family are already recorded there.
+
+- **A PD deployment whose layout includes PP** ("PP + memcache 不兼容",
+  `PP<n>_TP<n>_EP<n>` worker prefixes) dies **before any request** with
+  `AssertionError` at `memcache_backend.py` `_setup_store` / `assert res == 0`, and
+  the same body shows `External prefix cache hit rate: 0.0%` beside a healthy
+  local `Prefix cache hit rate` → `pp-topology-pool-init-and-zero-hits.md`. The
+  assert carries no code (ask for the `mmc_init` log line above it), the
+  eager-vs-lazy reading of the `:58` frame is version-specific, and the hit-rate
+  half is the `@pp_rank` key axis. A fix merged after the pin is invisible in the
+  snapshot, so the release rung comes first.
 - `503900` / `E19999` / `HcclCommPrepare ret: 0x13` on the **first** transfer with
   a pool configured → the store segment size:
   `../pd-disaggregation/kv-pool-store-segments.md` and
@@ -110,6 +120,13 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   lazy init (and why it is not the bug), the two inits a reporter sees, the
   `dram.size` / separated-deployment key gates, the version pins, and the
   put-failure → collective-desync family with its ablation ladder.
+- `pp-topology-pool-init-and-zero-hits.md` — PP>1 + AscendStore/memcache: the
+  five-frame pin match that proves the reporter's tree, the four `mmc_init` return
+  classes behind a bare `assert res == 0`, the `lazy_init` gate difference between
+  the 0.23 and 0.26 lineages (and the inference each licenses), what PP does and
+  does not change (participant arithmetic vs device id vs `prefill_pp_size`), the
+  `@pp_rank` key asymmetry behind a 0.0 % external hit rate, the pin's own
+  PP-coverage gap and the `PP+MTP` refusal, and the release-first ladder.
 - `cross-engine-lookup-zero-hits.md` — write path healthy, read path 0: the four derived
   facts (hash_block_size = gcd vs the worker's `min*cp_scale`, chunk keys at group
   granularity, the dense chain from chunk 0 with the `min` over groups and rounding to

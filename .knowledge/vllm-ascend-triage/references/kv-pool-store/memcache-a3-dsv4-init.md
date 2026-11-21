@@ -5,6 +5,15 @@ memcache/memfabric exports in that case's `SOURCES.json` were `v1.1.2` while the
 tree pins `1.2.0` — say which one a claim comes from. Re-grep the `path:line`
 below at other refs (the lazy-init block is recent, #9771/#9975 lineage).
 
+**The lazy-init gate itself is version-specific.** At v0.23.0rc1 `f4a08bdd`
+`_init_backend` passes `lazy_init=True` for memcache **unconditionally**
+(`pool_worker.py:248-252`) and the `use_compress` gate at `:256` covers only the
+mooncake branch, so at that lineage an eager `memcache_backend.py:58` frame *does*
+mean the resolved conf's protocol is not `device_sdma` — the inverse of the 0.26
+reading below. A PP>1 topology that dies at init with a bare
+`assert res == 0` is `pp-topology-pool-init-and-zero-hits.md`, which also carries
+this table.
+
 ## The report shape this answers
 
 800I/T A3 single node, `DeepSeek-V4-Flash-*` (w8a8) with `--data-parallel-size 4
@@ -68,6 +77,9 @@ Read the *resolved* file, not the launcher JSON, and state that you did.
 
 - `requirements.txt:33-35` at v0.26.0rc1: `memfabric_hybrid==1.2.0`,
   `memcache_hybrid==1.2.0`.
+  At v0.23.0rc1 those same three lines list the pair **unpinned**
+  (`memfabric_hybrid`, `memcache_hybrid`), so there the tree has no target to diff
+  an install against and `pip show` alone has to carry the version verdict.
 - Layerwise pool transfer requires `>=1.2.0` for both (#12390 item 1), and SSD
   cache requires `memcache_hybrid >= 1.2.0` (`kv_pool.md`).
 - The snapshot export of `Ascend/memcache` may be `v1.1.2` (as in the recorded

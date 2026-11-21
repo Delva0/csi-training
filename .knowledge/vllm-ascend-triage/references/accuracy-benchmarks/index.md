@@ -46,7 +46,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   corruption on this page — go to `../tool-call-streaming/index.md` and run its
   audit on the raw SSE first.
 - A **vision** request answered as a long run of one token (`!!!!!!!!`, 感叹号,
-  `，，，`) with "and it is very slow", **or** a VL/OCR answer that is merely
+  `，，，`) with "and it is very slow" — **wrong from the first token**; an answer
+  that reads the image correctly and only *then* collapses into one repeated word is
+  a decode loop, not this row (`long-output-repetition.md` §*mid-answer word loop*,
+  recorded #3452), **or** a VL/OCR answer that is merely
   *wrong* — one coarse element, boxes without text, unreadable OCR — only when the
   serve is multi-card while the single-card run of the same request is correct
   (two screenshots, no log), **or** the deployment is 1P1D/EPD and a single-instance
@@ -132,9 +135,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `finish_reason: "length"`, a `major X: major Y:` word loop and no `<think>` — inside
   `/workspace/attachments/<issue>/*.ocr.txt` while the run re-derived the MoE gating op for
   26 turns and shipped nothing. Page: `../performance-throughput/graph-mode-from-the-serve-line.md`.
-- **A repeated newline/punctuation loop from a reasoning distill at low temperature
-  is the sampler value, not a code path.** DeepSeek-R1-Distill-Qwen-7B/32B offline
-  `LLM.generate` returns `'\n\n,\n\n ( (\n ( or'` at temperature ≤ 0.1 and
+- **A repeated newline/punctuation loop — or a run of digits, "a chain of numbers" —
+  from a reasoning distill at low temperature is the sampler value, not a code
+  path.** DeepSeek-R1-Distill-Qwen-7B/32B offline `LLM.generate` returns
+  `'\n\n,\n\n ( (\n ( or'` at temperature ≤ 0.1 and
   normal text at `temperature=0.6` — reporter-confirmed #7191, *"anything number
   >0.1"*, after the same script had "failed from v0.7.3 to v0.11.0". So here the
   greedy row is the reproducing condition rather than the control that the
@@ -142,7 +146,11 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   impose, and the first ladder rung *raises* the temperature. Read the pasted
   `SamplingParams` as a claim about the run, not as the run: #7191's body names
   0.6 while its sample is the low-temperature one →
-  `short-prompt-corruption.md` §*Grade the symptom first*.
+  `short-prompt-corruption.md` §*Grade the symptom first*. Recorded #892 is the same
+  lane in a different wording and against the same checkpoint (title "[Bug]: v0.7.3
+  model outputs a chain of numbers", DeepSeek-R1-Distill-Qwen-7B, offline
+  `LLM.generate`, `temperature=0.0`), so read the digit-run wording here rather than
+  as wrong-KV corruption.
 - **The whole answer is one repeated character or token** (`!!!!!!!!`, `，，，`, a
   single word) on a text serve: grade it at the id level before any theory, because
   a constant character is a constant token id and a constant-tie logits vector

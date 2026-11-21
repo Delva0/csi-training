@@ -57,7 +57,21 @@ VL page does not apply (Step 0b).
   temperature walks away from the fix. Rung 1: same script, same prompt,
   `SamplingParams(temperature=0.6, top_p=0.95, max_tokens=128)` — one run, and
   fluent text retires prompt templating, dtype, TP sharding and first-call state
-  together, because none of them predicts a temperature-only cure.
+  together, because none of them predicts a temperature-only cure. **The same lane is
+  reported as "a chain of numbers"** (recorded #892, the same
+  DeepSeek-R1-Distill-Qwen-7B, offline `LLM.generate`, `temperature=0.0`,
+  `enable_chunked_prefill=True, max_num_batched_tokens=2048, block_size=16`): a digit
+  run reads like wrong-KV corruption, which is how it gets ranked below the engine.
+  **A version-onset phrase does not promote the version lane** — #7191's own body dates
+  the loop "from v0.7.3 to v0.11.0" and its fix was still `temperature=0.6`, so
+  "starts occurring from vllm-ascend v0.7.3" is the reporter's version history, not a
+  regression datum. The pre-0.8 lanes stay *named and ranked below* rung 1: at the
+  v0.7.3 pin only prefix caching refuses a non-128 `--block-size`
+  (`vllm_ascend/platform.py:132-134`, so `block_size=16` survives under chunked
+  prefill), and the release note ties chunked prefill/APC to CANN 8.1.RC1 while the
+  matrix's v0.7.3 row wants Stable CANN 8.1.0 (`release_notes.md:11`,
+  `versioning_policy.md:70`) — one flag, one package, each an ablation after the
+  sampler run.
 - **The pasted `SamplingParams` can be the wrong value.** #7191's body shows
   `temperature=0.6` while the symptom it reports is the low-temperature one — a
   body edited after the fix, or a snippet that does not match the run that

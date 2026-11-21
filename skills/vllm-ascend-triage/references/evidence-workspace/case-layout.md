@@ -68,6 +68,17 @@ question is the torch_npu/CANN pin, the card count or host RAM, and reporters al
 free prose into that field (#4554's whole symptom sits there). Flat layout:
 `/workspace/history/<issue>.md`.
 
+**A `not found` id is usually newer than the corpus, not a missing precedent.** Each
+case view's corpus stops at the highest `<id>.md` it carries (at the #6533 view:
+6436), while this skill's own pages and the recorded-cases index cite ids past that
+(8590, 7689, 13591 …) from earlier sessions. `history-body.sh` reports the miss on
+stdout *and* stderr for exactly this reason: the recorded #6533 run typed
+`history-body.sh 8590 2>/dev/null | head -120`, saw an empty result, read it as an
+empty body, spent the next call on `/repos/…/issues/8590` (404 in this dated replay)
+and then treated the page's same-pin #8590 precedent as unusable. The page's pin,
+status lines and verdict are the evidence of record — quote them, and drop the id
+from the search instead of retrying it through another lens.
+
 With a per-case history root the same issue id can appear once per case directory
 (`history/<issue>/<id>.md`); `history-titles.sh` now reports `hits / distinct issue
 ids` and prints one line per id, so a `limit` is not spent on copies. Read one copy

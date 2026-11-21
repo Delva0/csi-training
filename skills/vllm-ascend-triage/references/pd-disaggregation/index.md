@@ -72,6 +72,15 @@ output, or did no request ever reach a decode engine?**
   others = one address per side) → `proxy-endpoint-vs-api-server-count.md`.
   Reporter-confirmed on #12432: the fix was writing only the DP master's IP and the
   start port per role.
+- `/v1/chat/completions` works through the example proxy while `/v1/messages`
+  (Anthropic), `/metrics`, `/v1/models`, `/tokenize` or `/start_profile` cannot be
+  called ("需要对所有 vllm 的接口都做兼容"): an **endpoint-coverage gap of the example
+  script**, inherited from upstream's `toy_proxy_server.py`, not a serve or
+  transport fault. The answer is the route table plus the three tiers — P/D-split
+  generation endpoints, `kv_transfer_params` check first; stateless passthrough with
+  `/metrics` and the profilers fanned out; docs — and two silent traps on
+  `/v1/messages` (the `recomputed` marker is erased by the Anthropic stop-reason map,
+  and the retry rewrite assumes string `content`): `proxy-example-endpoint-coverage.md`.
 - Requests **are** served on `LLMDataDistCMgrConnector` but the prefiller prints
   `Some requests in prefill node fail to receive KV Cache transfer done signal in 120s.
   … 'export VLLM_LLMDD_ABORT_REQUEST_TIMEOUT=600' …`, alone or alongside "TTFT extremely
@@ -124,6 +133,17 @@ output, or did no request ever reach a decode engine?**
   single-axis ablations → `layerwise-split-metadata-crash.md`. Symmetric TP means
   `asymmetric-tp-pull-count.md` (different TP sizes, non-layerwise connector) is
   not this page.
+- The **prefiller's** EngineCore dies with `RuntimeError: cancelled` out of the
+  response queue (`patch_shm_broadcast.py:70` / `shm_broadcast.py:701`) under the
+  `dump_input.py` dump block, with no connector frame anywhere and no worker
+  traceback — "短请求 curl 正常，百k输入 prefill 节点挂了" is one recorded title.
+  This is **not** a transport, connector or KV-ownership fault: one worker process
+  died and the executor cancelled its queue, so grep `died unexpectedly (exit code:
+  N)` and rank the environment (driver/firmware × CANN) plus the long-chunk kernel
+  lanes → `../hccl-and-hardware/cancelled-executor-teardown.md` (reporter-confirmed
+  #16023: a CANN/HDK firmware+driver mismatch, solved by the upgrade, not a patch).
+  A `start_load_kv` frame or a connector assert in the same paste outranks this
+  bullet.
 - The **decode** worker dies before any byte moves when P and D use different TP
   sizes (P `TP=8`, D `TP=2`) on an MLA (DeepSeek/Kimi) or DSA-sparse model:
   `chosen_rank_list([…]) does not match num_group_pulls(…) and prefill pp size(1)`
@@ -147,6 +167,13 @@ output, or did no request ever reach a decode engine?**
   have named it, so the paste carries **no** transport information, and the
   request may go on to decode on partial KV → `kv-transfer-thread-masked-error.md`
   (unmask with the one-line flatten or the layerwise connector, then classify).
+- The same thread prints a **bare** `AttributeError` on a metadata field —
+  `Error in KVCacheTransferThread: 'ReqMeta' object has no attribute 'block_ids'` —
+  and the issue carries no environment block: the pin's own class has that field as a
+  compat property over `block_ids_by_group`, so this is a **build** mismatch between
+  the nodes, and the first artefact is per-node `vllm_ascend.__file__` plus that
+  class's source, not a reader hunt → `node-build-skew-attribute-error.md`
+  (reporter-confirmed #10398: P and D were not on one code version).
 - Nothing connects at all because the connector module itself fails to import —
   `ImportError: ascend_transport.so: cannot open shared object file` at
   `kv_p2p/mooncake_connector.py:24`, `No module named mooncake` — or the decode
@@ -300,6 +327,18 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   request decode anyway, and the unmask-then-classify ladder (MambaSpec
   block-count mismatch, transfer-engine pull, the *unmasked* pull-count assert).
   A 2-3 call answer; upstream has no such bookkeeping.
+- `node-build-skew-attribute-error.md` — the pool thread's
+  `Error in KVCacheTransferThread: 'ReqMeta' object has no attribute 'block_ids'`
+  (recorded #10398, v0.20.2rc1 `367b8e62da79`): which of the three sites owns the
+  basename and why the paste's `kv_transfer.py:84` versus the pin's `:91` is already a
+  build signal, the pin's `ReqMeta` (`config_data.py:557`, `block_ids_by_group` `:563`,
+  compat `block_ids` property `:620-626`, sibling at `:697`/`:731`) that makes the tag
+  unable to raise it, the per-node commands that end the case in one reply, the mirror
+  message (`no attribute 'block_ids_by_group'`) that gives the direction of the skew,
+  the `run()` handler that skips `task_done`/`set_finished_request` against
+  `pool_worker.py:599`'s `request_queue.join()` (a stall, not log spam), and why the
+  group-0-only shim is not a fix. Reporter-confirmed: the nodes were not on one code
+  version.
 - `asymmetric-tp-pull-count.md` — P/D with different TP sizes on an MLA/DSA-sparse
   model: `chosen_rank_list(…) does not match num_group_pulls(…)`, the three
   derivations of the pull count and the one that omits the MLA/sparse rule, the

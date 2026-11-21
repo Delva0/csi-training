@@ -634,6 +634,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `../deploy-sizing/card-budget-and-device-visibility.md`). A sibling
   project's yaml/CLI absent from `SOURCES.json` (vllm-omni) is a stated gap,
   not something to infer.
+- A first-worker device open returning `ERR99999` + `set default device id failed,
+  ret: 107001` / `invalid device ID` (frames `worker.py` → `check_ascend_device_type()`
+  → `get_soc_version()`): two host calls settle it — `ls /dev/davinci*` + `npu-smi info`
+  inside the container, and one `python -c "import torch, torch_npu;
+  print(torch_npu.npu.device_count(), torch_npu.npu.get_soc_version())"`. Before ranking
+  any serve flag, grep the flag set in the tree: a line copied verbatim from
+  `tests/e2e/**` is exonerated in one call
+  (`../startup-failures/device-id-invalid-at-worker-init.md`).
 - A parallel-topology question about EP **with** DP, or an engine-init crash whose
   deepest frame is the MoE `prepare/finalize` `dist.all_gather` on a 910B DP×TP
   deployment: read `_select_moe_comm_method`

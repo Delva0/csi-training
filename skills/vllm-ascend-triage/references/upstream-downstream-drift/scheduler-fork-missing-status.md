@@ -1,9 +1,17 @@
 # Downstream scheduler fork missing an upstream request status
 
-Recorded #3979: vllm-ascend `v0.11.0rc0` (`00ba07102212`) + vllm `v0.11.0rc3`
-(`8ce5d3198d00`), QwQ-32B-w8a8 on Atlas 800I A2, "其他模型有同样问题". A plain chat
-request is fine; the same request with `extra_body={"guided_choice": [...]}` kills
-the server:
+Recorded twice, at two pins, with the same gap underneath:
+
+- **#3979** — vllm-ascend `v0.11.0rc0` (`00ba07102212`) + vllm `v0.11.0rc3`
+  (`8ce5d3198d00`), QwQ-32B-w8a8 on Atlas 800I A2, "其他模型有同样问题";
+- **#3904** — vllm-ascend `v0.10.2rc1` (`048bfd555319`) + vllm `v0.10.2`
+  (`01efc7ef7813`), GLM-4.5-Air (non-MLA MoE), 8×910B3, TP8, serve command not
+  pasted; the reporter's traceback ends at `scheduler.py, line 260`, which is the
+  `raise` in this tree. Same shape: ordinary chat fine, a 500 on the requests that
+  carry `response_format`/guided parameters, which is why it reads as 偶发.
+
+A plain chat request is fine; the same request with `extra_body={"guided_choice":
+[...]}` kills the server:
 
 ```
 File ".../vllm/v1/engine/core.py", line 283, in step
@@ -36,6 +44,14 @@ first request carrying a grammar reaches a whitelist that only knows `WAITING` a
 | The fork has **no** `get_grammar_bitmask` and no `should_advance` call (`grep -n '    def '` on both files shows the method-set gap) | fork `def` list: `__init__`, `schedule`, `_check_watermark_for_prefill`, `_get_prompt_limit`, `finish_requests`, `update_from_output` |
 | The worker half is already ported and gated on the payload | `vllm_ascend/worker/model_runner_v1.py:1706 apply_grammar_bitmask`, applied only `if scheduler_output.grammar_bitmask is not None` at `:2022-2023` |
 
+Same two gaps at `048bfd5`: the whitelist `raise` is
+`vllm_ascend/core/scheduler.py:255-260`, the payload is hardwired empty at
+`:459-460` (`structured_output_request_ids={}, grammar_bitmask=None`), the `def` set
+is the same six methods, and the worker half is ported but gated
+(`vllm_ascend/worker/model_runner_v1.py:1537 apply_grammar_bitmask`, called only
+`if scheduler_output.grammar_bitmask is not None` at `:1814-1815`). So this is not a
+one-release regression: it predates v0.11.
+
 **The second gap is the one to warn about.** Adding `WAITING_FOR_FSM` to the
 whitelist stops the crash but leaves the payload empty and the FSM unadvanced, so
 guided decoding silently stops constraining anything — a correctness bug that is
@@ -45,49 +61,62 @@ computation before building the SchedulerOutput, `should_advance` in
 drops an upstream state, enumerate every field that state fills, not just the branch
 that reads it.**
 
-## Is the fork even in play? Yes by default at this pin
+## Is the fork even in play? Yes by default at both recorded pins
 
 The natural first guess — "the reporter must have enabled the Ascend scheduler" — is
-**wrong at v0.11.0rc0**, and the code says so:
+**wrong at v0.11.0rc0 and at v0.10.2rc1**, and the code says so:
 
 - `vllm_ascend/platform.py:125` builds `AscendConfig` from `--additional-config`
   (`enabled` defaults `False`, `ascend_config.py:169`);
-- `platform.py:139-150` then **forces** `ascend_scheduler_config.enabled = True`
-  whenever the model is not MLA, `async_scheduling` is off, the model is not
-  multimodal, `structured_outputs_config.backend == "auto"` (the default),
-  `scheduler_delay_factor` is 0, `send_delta_data` is off and `policy == "fcfs"`.
-  The assignment is unconditional, so an explicit `"enabled": false` in
+- the force-enable block then **assigns** `ascend_scheduler_config.enabled = True`
+  whenever the model is not MLA, the model is not multimodal, the guided-decoding
+  backend is `"auto"` (the default), the delay-factor input is 0,
+  `send_delta_data` is off and `policy == "fcfs"` (`:139-150` at `00ba0710`,
+  `:136-145` at `048bfd5`; the delay/backend spellings differ per pin — next
+  table). The assignment is unconditional, so an explicit `"enabled": false` in
   `--additional-config` is overwritten — a config-only opt-out does not exist there;
 - `platform.py:288-293` then swaps `vllm_config.scheduler_config` for
   `AscendSchedulerConfig`, whose dataclass sets
   `scheduler_cls = "vllm_ascend.core.scheduler.AscendScheduler"`
   (`core/schedule_config.py:32-33`);
 - the same block logs `Non-MLA LLMs forcibly disable the chunked prefill feature …`
-  — that startup line is the marker that the block ran, and the cheapest thing to
-  ask for when the reporter's build is unknown;
+  — but that INFO sits on the **outer** `not use_mla` condition
+  (`platform.py:141-144` at `00ba0710`, `:136-140` at `048bfd5`), *before* the gate
+  above. It prints for every non-MLA model even when the gate fails, so **it does
+  not prove the fork is in play** — and it still prints after the reporter applies
+  the `backend` escape below, so its continued presence is not evidence the escape
+  failed. The gate test is the assignment line
+  (`grep -n "ascend_scheduler_config.enabled = True" …/platform.py`) or the
+  reporter's own successful `guided_*` request;
 - **v0.11.0rc1 has no such block**: `grep -n "ascend_scheduler" vllm_ascend/platform.py`
   at `c5fe179cef7f` (read from the #4309 snapshot, not this case's) shows only the
   opt-in gate at `:288`. So the
-  force-enable is a short-lived rc0 behaviour: while it exists, a *default* dense
-  serve hits this bug; afterwards the fork must be requested (the tutorials and
+  force-enable spans v0.10.2rc1 → v0.11.0rc0 and is gone by rc1 (#3904 and #3979
+  are the same bug on either side of that window): while it exists, a *default*
+  dense serve hits this bug; afterwards the fork must be requested (the tutorials and
   `feature_guide/graph_mode.md:48,55`, `tutorials/multi_node.md:139,180`,
   `multi_node_pd_disaggregation.md:131,171,210`, `multi_node_kimi.md:96,136` are
   where reporters do request it).
 
 **Cheapest next action, first paragraph of the answer.** Get the fork out of the
-path, using the escape that matches their build:
+path, using the escape that matches their pin. **Which gate inputs exist — and what
+the escape flag is called — follows the installed *vllm* version, not the
+vllm-ascend one**, because the same vllm-ascend tree serves both:
+
+| Pin | backend gate input | escape that clears the gate |
+|---|---|---|
+| `048bfd5` (v0.10.2rc1) + vllm 0.10.2 | `decoding_config.backend == "auto"` (`platform.py:141-142`) | `--guided-decoding-backend xgrammar` (vllm 0.10.2 `config/__init__.py` `DecodingConfig.backend = "auto"`, flag `arg_utils.py:615`), or `--scheduler-delay-factor 0.1` — `delay_factor` **is** a real 0.10.2 `SchedulerConfig` field (`config/scheduler.py:85`), and the gate reads it directly (`not scheduler_config.delay_factor > 0`). `--async-scheduling` is **not** in the gate at this pin |
+| `00ba0710` (v0.11.0rc0) + vllm 0.11.x | `platform.py:134-137` picks the object by version: `if vllm_version_is("0.10.2"): …decoding_config else …structured_outputs_config`, then tests `.backend == "auto"` | `--structured-outputs-config '{"backend": "xgrammar"}'` on vllm 0.11 (or `--guided-decoding-backend …` if the image pairs it with vllm 0.10.2), or `--async-scheduling` (it removes the whole block at this pin). The `--scheduler-delay-factor` route is **dead here**: vllm 0.11.0rc3's `SchedulerConfig` has no delay-factor field and `arg_utils.py` no such flag, while the gate asks `getattr(scheduler_config, "scheduler_delay_factor", 0)` — a name nothing sets, so it always evaluates 0 |
 
 1. One grep decides which world they are in:
    `grep -n "ascend_scheduler_config.enabled = True" <site-packages>/vllm_ascend/platform.py`.
-   Present → step 2; absent → step 3.
-2. Build carries the force-enable (rc0): changing `ascend_scheduler_config` cannot
-   help, so change a *gate input* — `--structured-outputs-config
-   '{"backend": "xgrammar"}'` (the default is `"auto"`; flag registered at vllm
-   `vllm/engine/arg_utils.py:938`) or `--async-scheduling`. Label these two as
-   reporter-side flags to verify, not as measured fixes, and re-run the same
-   `guided_choice` script.
-3. Fork is opt-in: drop `ascend_scheduler_config` from `--additional-config`
+   Present → row of the table; absent → fork is opt-in.
+2. Fork is opt-in: drop `ascend_scheduler_config` from `--additional-config`
    (or set `enabled: false`) and restart; upstream's `Scheduler` has the FSM branch.
+3. An explicit `"enabled": false` is overwritten wherever the force-enable exists,
+   so *changing `ascend_scheduler_config` is not an escape there* — move a gate
+   input instead, and label it a reporter-side flag to verify rather than a measured
+   fix: re-run the same `guided_choice`/`response_format` request after it.
 
 Only if the reporter needs the fork (graph-mode performance, a recipe that requires
 it) does the three-site patch matter — and say plainly that a partial patch degrades
@@ -130,8 +159,9 @@ on it, and do not send the reporter to xgrammar or the model.
 
 ## Version scope and recheck
 
-- Mechanism verified at vllm-ascend `v0.11.0rc0` / vllm `v0.11.0rc3`; the rc1
-  comparison comes from the `v0.11.0rc1` tree in the #4309 snapshot. The reporter was
+- Mechanism verified at vllm-ascend `v0.11.0rc0` / vllm `v0.11.0rc3` and at
+  `v0.10.2rc1` / vllm `v0.10.2` (#3904); the rc1 comparison comes from the
+  `v0.11.0rc1` tree in the #4309 snapshot. The reporter was
   on `0.11.0` final, which this snapshot does not carry, so whether the final release
   keeps the rc0 force-enable or the rc1 opt-in behaviour — and whether the FSM status
   is handled there — is **open**: phrase it as the grep in step 1 of the escape,

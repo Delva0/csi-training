@@ -28,6 +28,25 @@ a wheel and a compiler from different builds is exactly how that conversion step
 rejects valid IR. Sibling pages cover AscendC/aclnn device faults
 (`../custom-ops-runtime-faults/index.md`); this page is the Triton compiler lane.
 
+## Step 0 — read the `[ConvertLinalgRToBinary]` *detail* line, not the header
+
+The banner `///------------------[ERROR][Triton][BEG]------------------` +
+`[ConvertLinalgRToBinary] encounters error:` is emitted by the Triton compile wrapper for
+**any** exception raised inside that stage, so the header alone does not name this lane.
+What follows it does:
+
+- `operation's operand is unlinked`, a `bishengir-compile … returned non-zero exit status 1`
+  line, or IR diagnostics → the wheel/compiler pair, this page.
+- **`/tmp/tmpXXXX/libkernel.so: failed to map segment from shared object`** → the loader:
+  `ctypes.CDLL` in the backend's metadata-callback read returned ENOMEM from `mmap`. That is
+  the mapping-count lane on a worker that has been up for days, **not** a mismatched wheel
+  — `../runtime-memory/dlopen-map-count-exhaustion.md` (reporter-confirmed on #10551, where
+  the convert block was explicitly a red herring; the worker's own traceback carries the
+  `OSError` first and the `MLIRCompilationError` only as the re-raise in
+  `During handling of the above exception`). Reinstalling or upgrading the pair fixes
+  nothing there.
+- Any other detail — read it as the exception class it is; no shape here implies a pair.
+
 ## Reading the report correctly
 
 - **"Failed to compile custom operators with Triton Ascend" is usually the
@@ -113,7 +132,34 @@ answer settles the *action*, not the ABI detail.
    `vllm_ascend/ops/triton/` directory at all), so `path:line` for the 0.13 line
    can only come from the reporter's own traceback — say so.
 
+## The same pairing's numeric lane: NaN in quantized operators
+
+Not every bad triton-ascend build fails to compile. The recorded #5606 (Qwen3-Next
+W8A8 at vllm-ascend v0.12.0rc1, `--quantization ascend`) had a *serving* engine whose
+answers were a run of `!` to `finish_reason: length`, and the maintainer's statement in
+that issue names the wheel: the triton-ascend `1107` build "will led to the occurrence
+of **NAN** problems for some operators in the quantization scenario, just like all the
+answers here are full of exclamation marks"; the reporter then changed the build and the
+deployment served.
+
+- One command decides it: `pip show triton-ascend` (or `pip list | grep -i triton`).
+  `collect_env` filters `pip list` by the substring `triton`
+  (`vllm/collect_env.py:81-92`, applied at `:540-543`), so a paste with no `triton*`
+  line is a fact to ask about, not a version you can assume.
+- Compare against the *model's* tutorial, not a global pin: at vllm-ascend v0.12.0rc1
+  `docs/source/tutorials/Qwen3-Next.md:58-59` installs
+  `triton_ascend-3.2.0.dev2025110717` — i.e. the build the maintainer calls known-bad
+  for quantization. The repair direction is a **newer** build than that page's pin.
+- A NaN here does not raise: it collapses logits to one token, so the symptom looks
+  like a sampler collapse. Route on it from
+  `../accuracy-benchmarks/qwen3-next-gdn-numeric-path.md` §*triton-ascend build*,
+  which also fixes the ordering against the bf16 control (a bf16 run on the same bad
+  wheel can be clean).
+
 ## Related
+
+- Same banner, loader detail (`libkernel.so: failed to map segment from shared object`):
+  `../runtime-memory/dlopen-map-count-exhaustion.md`.
 
 - Same pair at **startup**, before any kernel runs: an `Error in inspecting model
   architecture '<Arch>'` whose logged tail is an import-time

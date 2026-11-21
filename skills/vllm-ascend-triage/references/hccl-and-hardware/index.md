@@ -301,6 +301,23 @@ block after it — is the startup section of that page: `-11` is SIGSEGV, a triv
 CPU `torch.zeros` at the top of the dump is where the damage surfaced, and the
 answer is the image/CANN pairing plus the release's own validated command.
 
+**Then separate a death reported as a plain Python traceback from a queue bug.**
+`RuntimeError: cancelled` raised at `vllm_ascend/patch/platform/patch_shm_broadcast.py:70`
+(or `shm_broadcast.py:701`), reached from `multiproc_executor.py:390`
+(`mq.dequeue`) under `core.py:693 model_output = future.result()`, is the same
+family as the segfault marker with the marker absent: a worker **process** died,
+`monitor_workers` logged `Worker proc … died unexpectedly (exit code: N)` and shut
+the response queue down, and the parked reader re-raised. The
+`Dumping input data / scheduler output / scheduler stats` block above it is that
+step's in-flight `SchedulerOutput` (one call site: `core.py:486-496` around
+`future.result()`), not the fault. A worker *Python* exception never produces this
+text — `worker_busy_loop` catches it and returns a `FAILURE` response, so the
+EngineCore re-raises the worker's own exception instead. Ask for the dying rank's
+log and the plog, decode the exit code, and rank the driver/firmware × CANN
+pairing while waiting: on #16023 that pairing was the reporter-confirmed cause
+("CANN 与 HDK 存在冲突 … firmware 与 driver 不匹配 … 升级到 26.1.1 后解决").
+`cancelled-executor-teardown.md`.
+
 **Then separate a peer that *finished* from a peer that died.** `Connection closed
 by peer` also appears when the DP group's gloo `cpu_group` loses a rank that exited
 **normally**: the offline multiprocess DP demo (`VLLM_DP_*` env vars plus
@@ -406,6 +423,12 @@ debugging" caveat.
    the MC2 selector arithmetic that says whether the all-to-all was even the expected
    path, `HCCL_BUFFSIZE` as the `mc2` group's only comm-space source (MB × 1024², while
    `bufferSize` is printed in bytes), and the follow-up-turn delta (#8975).
+14. `cancelled-executor-teardown.md` — a runtime worker death surfacing as
+   `RuntimeError: cancelled` in the EngineCore: the verified
+   monitor→shutdown→`acquire_read` chain, why a Python worker exception cannot
+   produce it, the one-grep `died unexpectedly (exit code: N)` decode, the
+   in-flight-`SchedulerOutput` dump, the candidate table (driver/firmware × CANN
+   first, reporter-confirmed on #16023), and the deliver-first budget rule.
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server

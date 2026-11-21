@@ -34,7 +34,11 @@ Not this page when the paste says only **`RuntimeError: setup failed!`** with no
 `<Op>` name and no `op_plugin_atb` frames: that is a call site in the deepest
 `vllm_ascend` frame handing its own mask/size arguments to the op —
 `../custom-ops-runtime-faults/setup-failed-call-site.md` (recorded #393, a V0
-prefix-cache-hit prefill). The four surfaces and which one owns each are tabulated
+prefix-cache-hit prefill). Nor when the op is named `SelfAttentionOperation` but no
+`--speculative-config` is in play and a dense model gets one long prompt: that is the
+V1 one-shot prefill branch handing a `[prompt, prompt]` mask to
+`torch_npu._npu_flash_attention` (`attention_v1.py:346`, #2239) — same page, its second
+section, cause left open. The five surfaces and which one owns each are tabulated
 there.
 
 ## Read it in three layers

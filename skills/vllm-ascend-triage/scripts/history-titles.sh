@@ -25,7 +25,8 @@
 # line that five other reporters already carry. Env-dump words stay title-only.
 #
 # `-i` makes the match case-insensitive (issue titles capitalise tokens:
-# `reranker` vs `Reranker`).
+# `reranker` vs `Reranker`). Short flags may be combined (`-ib`, `-bi`) --
+# `-ib` used to exit 2 as "unknown option" and cost a retry per call.
 # Never `ls` the history directory: it holds thousands of files.
 set -u
 
@@ -35,9 +36,21 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -i|--ignore-case) icase=1; shift ;;
     -b|--body) body=1; shift ;;
+    -[ib][ib]*)
+      # Combined short flags: -ib / -bi (anything else after `-` still errors).
+      for ((k = 1; k < ${#1}; k++)); do
+        case "${1:k:1}" in
+          i) icase=1 ;;
+          b) body=1 ;;
+          *) echo "history-titles.sh: unknown option '$1'" >&2
+             echo "usage: history-titles.sh [-i] [-b] <extended-regex> [history-root] [limit]" >&2
+             exit 2 ;;
+        esac
+      done
+      shift ;;
     --) shift; break ;;
     -h|--help)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      awk 'NR == 1 { next } /^set -u/ { exit } { sub(/^# ?/, ""); print }' "$0"
       exit 0 ;;
     -*)
       # A grep-style flag as the first argument used to be taken for the regex and

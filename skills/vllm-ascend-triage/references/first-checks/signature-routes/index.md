@@ -10,10 +10,11 @@ tables have to stay readable, while these rows are read per case, once.
 
 Reach for it when the report's signature is **specific** — a log fragment, an
 error string, a flag that did nothing, a title that names a mechanism. When the
-shape is already clear at track level, `SKILL.md`'s *Support entry points* table
-routes straight to the topic, and the topic's own `index.md` routes to the page;
-that path needs no row here. It is the expanded form of `SKILL.md`'s *Support entry
-points* table: finer signatures, the same topic pages. Rows describe **shapes seen in
+shape is already clear at track level, the dispatch table in
+`../../dispatch/classified-shapes.md` (reached from *Support entry points*) routes
+straight to the topic, and the topic's own `index.md` routes to the page; that path
+needs no row here. It is the expanded form of that same table: finer signatures,
+the same topic pages. Rows describe **shapes seen in
 recorded reports**, not causes; the owning page carries the mechanism, the pinned
 `path:line` and the version scope.
 

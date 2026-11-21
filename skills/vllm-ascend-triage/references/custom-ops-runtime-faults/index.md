@@ -201,6 +201,37 @@ downstream code and the owner is the launch site's arguments —
   table row count you can compute (RoPE `cos_sin_cache` = the checkpoint's
   `max_position_embeddings`, the KV block table = `num_gpu_blocks`, a token
   buffer, the vocab) before any hardware theory — `gather-index-out-of-range.md`.
+- **A built-in KV store that faults (`fault kernel_name=reshape_and_cache_…`, MTE GM
+  address / `The DDR address of the MTE instruction is out of range`) on a hybrid
+  GDN/Mamba model is not a KV-group contamination question.** On Qwen3-Next at
+  v0.10.2rc1 the per-group metadata loop writes one shared `slot_mapping_cpu` buffer
+  (`worker/model_runner_v1.py:1329-1360`, with a `# TODO: change this to the right block
+  table for linear attn`), but each group's `build()` copies it to the device inside its
+  own iteration (`attention/attention_v1.py:234-238`, `.to(self.device, non_blocking=True)`),
+  so a later group's values cannot reach an earlier group's device copy — settle that
+  with one `sed` instead of deriving it (recorded #2976 spent five turns on the
+  derivation and never shipped an answer). Two facts worth carrying: the mamba group is
+  rewritten to `block_size=max_model_len` with one block per sequence
+  (`model_runner_v1.py:2838-2846`) and prefix caching is refused for mamba on that path,
+  so `num_gpu_blocks` cannot be recovered by dividing the logged `GPU KV cache size`
+  token counts (the four lines with one differing value are per-rank budgets) — do the
+  arithmetic for a per-group block size and it will not close. Grade the release
+  contract first: v0.10.2rc1 is the *first* release with Qwen3-Next support and states
+  EP and MTP do not work (`docs/source/user_guide/release_notes.md:9`), and the
+  reporter's serve line is the tutorial's own
+  (`docs/source/tutorials/multi_npu_qwen3_next.md:89`), so the command is not the
+  variable.
+- **A pre-launch `TORCH_CHECK` from a host adapter is a table-slot bound keyed on a
+  tensor dimension, and the number it prints is the op's own constant.** `RuntimeError:
+  batchIdx is out of range: 1024` out of `torch.ops._C_ascend.batch_matmul_transpose`
+  (#8392) is `csrc/batch_matmul_transpose/op_host/batch_matmul_transpose.h` refusing
+  `batchIdx = tensorAShape[0] - 1` against `constexpr MAX_CAPTURE_NUM = 1024` — the **token**
+  dim, not `max_cudagraph_capture_size` and not any request-count knob. Reconcile the
+  printed number with the reporter's named parameter first (their 128 vs the printed
+  1024 refutes their mechanism in one line), then read the caller's `-> 1024` guard
+  **in the reporter's release, not only in the pin**, and stop: nothing launches, so
+  `cudagraph_mode` / drafter-eager / capture-size ablations cannot move it —
+  `host-tiling-table-bound.md`.
 - Check the error family before the operator. When the same output also carries
   `SUSPECT REMOTE ERROR` / `error code is 507057` / an `EZ9999 … chipId:` dump /
   `error code = 0x8…`, it is a lane C device fault: the `fftsplus aivector error` there
@@ -312,6 +343,13 @@ downstream code and the owner is the launch site's arguments —
   overflow (`VLLM_ALLOW_LONG_MAX_MODEL_LEN=1` only warns), the two-command
   decider, the fix ladder with the YaRN mscale caveat, and the `dfx/ops/*.json`
   artefact that names the table.
+- `host-tiling-table-bound.md` — `<name> is out of range: N` from a `csrc/<op>/op_host/`
+  adapter (#8392 `batchIdx` 1024 in `sfa_v1._v_up_proj`): the printed number is the
+  table's `constexpr`, the index is a token count, the caller guard
+  (`BMM_TRANS_MAX_SUPPORTED_TOKENS`) exists in **both** v0.13.0 and v0.18.0rc1 — so the
+  "your release lacks the guard" answer is the trap — plus the layout mismatch that
+  survives the guard, the host-side `TORCH_CHECK` implication for graph-mode ablations,
+  and the MLAPO-1024 coincidence that governs perf claims.
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend
   v0.19.1rc1: files, tiling key = dtype*10+mode, mode-selection table, buffer sizes, arch
   macros, python call sites. Read it only once the error family is a device fault.

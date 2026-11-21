@@ -21,7 +21,7 @@ launched, so no card, HCCL, OOM or driver claim applies. The `mki_log … atb` l
 immediately before it is ATB's first-use banner (string in no export — label it as
 consistent-with, not proof).
 
-## Which of the four `setup failed!` surfaces this is
+## Which of the five `setup failed!` surfaces this is
 
 | Text | Owner | Page |
 |---|---|---|
@@ -29,6 +29,7 @@ consistent-with, not proof).
 | `SelfAttentionOperation setup failed!` + `op_plugin_atb` frames at a proposer line, spec decode on | ATB at the drafter (join point; the Python line is a victim) | `../spec-decode-mtp/atb-op-setup-failure-at-proposer.md` |
 | `ReshapeAndCacheOperation setup failed!` on a `-310p` image with `--kv-cache-dtype fp8`/`bfloat16` | 310P has no non-fp16 KV path | `../soc-platform-paths/310p-kv-cache-dtype.md` |
 | `<Op>Operation setup failed!` beside `507018` / `RunCpuKernel` | the op ran on the CPU/AICPU fallback kernel | `../soc-platform-paths/310p-cpu-fallback-op-fault.md` |
+| `SelfAttentionOperation setup failed!` with **no** `--speculative-config` at all, a dense model and one **long** prompt (12 732 tokens on `--max-num-batched-tokens 14336`) | the dense V1 one-shot prefill branch handing ATB a `[prompt, prompt]` mask — branch first, kernel contract not derivable (§ below) | this page, second section |
 
 All four mean the same phase. What differs is *who assembled the pack*, and the
 paste answers that: read the deepest `vllm_ascend` frame, then read the size
@@ -67,6 +68,41 @@ a data-order trigger, not a step count.
 ref; ATB's own validation text is not in the snapshot, so "the pack is rejected
 because the mask does not cover those lengths" is the hypothesis the two ablations
 below settle.
+
+## `SelfAttentionOperation` with **no** spec decode: the one-shot prefill mask
+
+Derived at vllm-ascend `v0.9.2rc1` for #2239 (Qwen2.5-7B bf16 on a 910B4/32 GB,
+`torch-npu 2.5.1.post1.dev20250619`, CANN 8.1.RC1, `--max-model-len 14336`,
+`--max-num-batched-tokens 14336`, one 12 732-token prompt, cause left open). The
+named op appears with no drafter anywhere, so read the **branch** before the ATB
+contract — the same message has three different owners in the table above.
+
+- Backend: V1, non-MLA, non-torchair → `AscendAttentionBackend`
+  (`platform.py:228-229`) → `attention/attention_v1.py`.
+- Branch: `model_runner_v1.py` selects `PrefillNoCache` when
+  `seq_lens == num_scheduled_tokens`, i.e. **the whole prompt fit in one step**
+  because `--max-num-batched-tokens` ≥ prompt length. That branch calls
+  `torch_npu._npu_flash_attention` (`attention_v1.py:346`) with
+  `mask = AttentionMaskBuilder.get_attn_mask(max(seq_lens))` — a dense
+  `[12732, 12732]` bf16 tensor. A prompt that does **not** fit one step takes the
+  splitfuse branch instead (`_npu_paged_attention_splitfuse`, `:420`).
+- `PAGED_ATTENTION_MASK_LEN` is **not** a mask cap: the builder is seeded with
+  `min(max_model_len, int(os.getenv("PAGED_ATTENTION_MASK_LEN", 10000)))`
+  (`model_runner_v1.py:213-215`) and `get_attn_mask`/`_update_attn_cache` grow the
+  cache on demand (`attention/attention_mask.py:49-53`, `:98-103`). Do not report
+  "masks above 10000 are unsupported" out of that default.
+- The version lane was clean and proves nothing: `requirements.txt:27` pins
+  `torch-npu==2.5.1.post1.dev20250619`, exactly the reporter's pta, and that
+  release raises CANN to 8.1.RC1 *to enable* chunked prefill/APC — which they had.
+- Discriminators, cheapest first: does a **short** prompt serve (branch vs op)?
+  then `--max-num-batched-tokens 8192` (forces chunked → splitfuse) and, if it
+  still dies, `VLLM_USE_V1=0` (the V0 `attention.py` path uses
+  `npu_fused_infer_attention_score`). Unlike #393 above, the batched-token knob is
+  the lever here, precisely because it changes the branch.
+- What cannot be settled: no exported tree carries ATB's `SelfAttention` contract
+  (`Ascend/op-plugin` exports no `atb/` sources; `Ascend/pytorch` and
+  `Ascend/torchair` contain no `SelfAttention` string). Ship the branch, the mask
+  size and the two ablations; do not derive the kernel's limit.
 
 ## Ladder
 

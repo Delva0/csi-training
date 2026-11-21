@@ -106,7 +106,12 @@ gate, not by a class drift — `../startup-failures/meta-kernel-missing.md`.
 It is the wrong entry for an aclnn/AscendC device fault
 (`../custom-ops-runtime-faults/index.md`), for a collective or `ERR00100`
 (`../hccl-and-hardware/index.md`), for "model type not recognised"
-(`../startup-failures/model-type-not-recognized.md`), and for a raise that never
+(`../startup-failures/model-type-not-recognized.md`), for an `AttributeError` on a
+downstream metadata field that the **pin's own class already has** — a
+`'ReqMeta' object has no attribute 'block_ids'` out of a KV-transfer thread on a
+two-node deployment is a *build* comparison across the nodes, not a signature drift
+(`../pd-disaggregation/node-build-skew-attribute-error.md`, reporter-confirmed #10398),
+and for a raise that never
 touches downstream code at all — a traceback over `vllm/**` plus
 `site-packages/**` with no Ascend class involved (`RuntimeError: Already
 borrowed` in a fast tokenizer, a thread race in the OpenAI frontend) is

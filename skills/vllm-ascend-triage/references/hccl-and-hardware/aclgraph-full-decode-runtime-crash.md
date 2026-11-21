@@ -22,6 +22,22 @@ the **target** model's `FULL_DECODE_ONLY` buckets and the drafter's host-side in
 preparation (padded-batch indices, `_get_positions`) is an equally ranked candidate —
 `../spec-decode-mtp/empty-first-response.md` Step 6b.
 
+On a **DeepSeek-V3.2 (`deepseek_v32`) MTP** launch read one more gate before ranking
+anything: the combination is eager-only **upstream**, and the plugin deliberately overrides
+that. Upstream vLLM v0.13.0 sets `self.enforce_eager = True` when
+`target_model_config.hf_text_config.model_type == "deepseek_v32"`, commented
+`# FIXME(luccafong): cudgraph with v32 MTP is not supported, remove this when the issue is
+fixed` (`vllm/config/speculative.py:254-257`); vllm-ascend force-clears it —
+`vllm_ascend/platform.py:359-369` at v0.13.0 (`6281c120`) and `:504-517` at v0.18.0rc1
+(`99e1ea0`), under a comment that admits the fix "will also implicitly ignore user setting
+of `speculative_config.enforce_eager`". Four consequences: (a) the spec-scoped
+`"enforce_eager": true` inside `--speculative-config` is a **dead lever** for this family —
+never offer it as an ablation or a fix (global `--enforce-eager` still works); (b) there is
+no startup gate left to ask for, because the plugin removes upstream's; (c) the block
+survives v0.13.0 → v0.18.0rc1, so a reporter who reports "upgrading fixed it" is not
+pointing at this gate — re-grep both symbols in the new tree before crediting an upgrade;
+(d) the support status is the upstream FIXME, not the plugin's comment.
+
 ## 1. Parse the code before the mechanism
 
 `507011` is `ACL_ERROR_RT_MODEL_EXECUTE` "model execute failed"
@@ -39,6 +55,18 @@ nothing by itself. The lines that name the owner:
 
 Ask for those two first. Without them the ranked list below is a family, not a
 cause.
+
+`107030` is `ACL_ERROR_RT_CAPTURE_MODE_NOT_SUPPORT`, "stream is captured, not support
+current oper" (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h:51`). That
+definition is stronger than the ordering heuristic: the code can only be minted **while a
+stream is in capture**, so an `rtMemcpy … the current capture mode does not support this
+operation` / `synchronized memcpy failed, kind = 1, runtime result = 107030` record is
+never the *replay* mechanism, however the reporter words it ("an rtMemcpy inside graph
+replay is illegal"). Treat it as a capture-window call that did a blocking copy
+(`.item()`, `.cpu()`, a host-visible scalar) — a defect of its own when it is in this
+process (#6002, #8502) — and take the replay-time death from the other records in the same
+block (`507011`, `fftplus aivector error`, `The DDR address of the MTE instruction is out of
+range`).
 
 ## 2. The victim lines are victims
 
@@ -216,6 +244,33 @@ Recorded #11680: that file matches the reporter's serve command on every env var
 in the first answer, not after a source walk.
 
 ## 8. Recorded case
+
+#8587 — vllm-ascend **v0.13.0** (`6281c120`, the reporter's exact pair with vllm
+`72506c98`), 2×A2 × 8 cards, DeepSeek-V3.2 w4a8 QuaRot, `--data-parallel-size 2
+--data-parallel-size-local 1 --tensor-parallel-size 8 --enable-expert-parallel`,
+`--max-num-seqs 16 --max-model-len 65536 --max-num-batched-tokens 4096`,
+`FULL_DECODE_ONLY`, `--additional-config '{"layer_sharding": ["q_b_proj", "o_proj"]}'`,
+`deepseek_mtp` n=3, `VLLM_ASCEND_ENABLE_MLAPO=1`; all eight node-1 workers die together at
+**concurrency 4** in `vllm bench serve` (c=1 and c=2 clean), and removing the
+`--compilation-config` removes it. The paste carries the `EE9999` 107030 block plus
+`The DDR address of the MTE instruction is out of range` and a **reconstructed** call stack
+(`sample_tokens → propose_draft_token_ids → mtp_proposer._propose → deepseek_mtp forward →
+acl_graph.__call__ → aclnnKvRmsNormRopeCache`) — no plog, no `fault kernel_name=`, no first
+`[E…]` — that ask was the right one, and the reporter's later comment supplied complete
+node0/node1 logs. Read it as §1/§7: the 107030 record is the capture window, the MTE-DDR line is the
+replay death, and the reconstructed op is `torch_npu.npu_kv_rmsnorm_rope_cache`
+(`sfa_v1.py:527-549` at that pin), the DSA KV scatter. The header gate above *is* the answer
+to the reporter's ask ("raise a clear error at startup if this is unsupported"): upstream
+already does, and `platform.py` removes it. Outcome, attribution still open: the reporter's
+later comment confirms **v0.18.0 *and* dropping `layer_sharding`** fixed it — two variables
+at once — and the `enforce_eager` override is still present at v0.18.0rc1, so the upgrade
+cannot be credited to that gate. `layer_sharding` gets no cross-check against graph mode at
+either pin: its only validation is the FLASHCOMM2-conditional one that demands `["o_proj"]`
+alone (`utils.py:1020-1029` at v0.13.0, `:1030-1037` at v0.18.0rc1 ⇒ `Found invalid
+layer_sharding`), so a plain launch with `["q_b_proj", "o_proj"]` is accepted while
+`mla_v1.py:751-759` registers both layers into the shard-weight series. Cheapest
+single-axis test, therefore, is dropping `--additional-config layer_sharding` on the release
+the reporter already has; say that instead of a source walk.
 
 #9944 — vllm-ascend **V0.18.0** image (the snapshot pins only v0.19.1rc1 `da421af`, so
 "upstream already fixed it" is unverifiable there), two A2 nodes, Qwen3.5-397B-A17B-w4a8,

@@ -149,6 +149,11 @@ Inherit the rules in SKILL.md. Conditional routes:
   `python -m vllm.model_executor.models.registry` subprocess, so it is an
   import-time failure of `vllm_ascend.models.<model>` (wrong triton, or an image
   that is not the tag). Ask for the tail *and* give the reproducing one-liner.
+  The same crash also arrives as
+  `pydantic_core._pydantic_core.ValidationError: 1 validation error for ModelConfig`
+  / `Value error, Model architectures [...] failed to be inspected` with **no**
+  `[registry.py]` line (recorded #4206): still not the gate — that wording exists
+  only for a registered architecture — and still the same ask.
 - Suspicion of "model X is unsupported", wrong image/vllm pairing, or an
   obvious maintainer "works on my machine" reply → `environment-correspondence.md`.
   That page also carries the scope of the question: the launch environment is
@@ -174,6 +179,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   `Starting to load model` line: the installed package was **built** for another
   SoC family than the card reports. Two one-liners settle it and the guard must not
   be patched → `../soc-platform-paths/device-type-build-vs-runtime.md`.
+- The per-rank traceback shows the **same** first-worker frame (`worker.py` →
+  `check_ascend_device_type()` → `utils.py` `torch_npu.npu.get_soc_version()`) but the
+  text is `ERR99999 PTA call acl api failed` + `set default device id failed, ret: 107001`
+  / `[FUNC:SetDefaultDeviceId]` / `invalid device ID. Check whether the device ID is valid.`
+  (+ `ctx is NULL` / `context is a null pointer`, the 107002 cascade): the ACL open
+  rejected an **id the container does not expose**, so `ASCEND_RT_VISIBLE_DEVICES` and the
+  `docker run`'s `--device /dev/davinciN` are the pair to compare — not the wheel, not a
+  flag, not the model. Read the text before routing to the SoC-mismatch bullet above:
+  `device-id-invalid-at-worker-init.md` (`ls /dev/davinci*` + `npu-smi info` inside the
+  container, then one framework-free `torch_npu.npu.device_count()` line).
 - `EngineCore failed to start` / `WorkerProc failed to start` whose deepest frame is
   `torch_npu` device open (`set_device` → `npu_setDevice`) and whose text is
   `RuntimeError: SetPrecisionMode: … aclrtSetCompileOpt(aclCompileOpt::ACL_PRECISION_MODE,
@@ -361,8 +376,12 @@ Inherit the rules in SKILL.md. Conditional routes:
 - The log reached graph capture — `Starting to capture ACL graphs for cases:
   [...]`, `Capturing ACL graphs (...): 0/N`, `ACLgraph sizes capture fail`,
   `NPUGraph.cpp` "Waiting for pending NCCL work" — then failed or stalled →
-  `acl-graph-capture.md` first. If instead the startup was clean and the
-  capture error arrives on a **request** (`CUDA graph capturing detected at an
+  `acl-graph-capture.md` first. When the raised text is a *guard on an env value*
+  (`Do not support TASK_QUEUE_ENABLE = 2 during NPU graph capture, please export
+  TASK_QUEUE_ENABLE=1/0.`), that page's Step 0 owns it: the value comes from the
+  worker process's own environment, and the attached launcher script is not that
+  environment. If instead the startup was clean and the capture error arrives on a
+  **request** (`CUDA graph capturing detected at an
   inappropriate time`, `Worker failed with error …`), that is a descriptor the
   startup never captured →
   `../lora-adapters/graph-capture-descriptor-mismatch.md`. The `ACLgraph has

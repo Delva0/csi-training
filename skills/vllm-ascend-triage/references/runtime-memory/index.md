@@ -37,6 +37,14 @@ OOM but of a **communicator creation** refusal (`sleep-mode-multi-instance.md`).
 as an offload-capability question: what `sleep()` returns to the allocator, and what it
 leaves resident on the device.
 
+Scope, part 6: the host had RAM to spare and no device error at all — a worker that
+served for **days** dies inside a Triton-Ascend kernel compile with
+`OSError: /tmp/tmpXXXX/libkernel.so: failed to map segment from shared object` (often
+followed by `MLIRCompilationError: [ConvertLinalgRToBinary] encounters error` carrying the
+same text). That is `mmap` returning ENOMEM because the **per-process mapping count**
+(`vm.max_map_count`, default 65 530) is exhausted by leaked `dlopen` handles, not because
+memory, disk or `/tmp` permissions are short — `dlopen-map-count-exhaustion.md`.
+
 Not an accuracy or corruption report, and not a collective error even when the
 crash text names one (`HcclAllGather` in a late OOM is the allocation site); go
 to `../hccl-and-hardware/index.md` first only when a real collective failure
@@ -131,6 +139,15 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    `oom-class-is-not-a-cause.md` before any capacity arithmetic — and correct the code
    names in the report (`107020` is `ACL_ERROR_RT_TASK_TIMEOUT`, not a synchronize
    timeout).
+9. **A loader failure is a mapping question, never a memory question until the mapping
+   count is printed.** `failed to map segment from shared object` with no errno suffix is
+   glibc's `dlopen` reporting ENOMEM from `mmap`; `free -g`, `df -h /tmp` and a `noexec`
+   check cannot confirm or refute it, and the recorded #10551 host had 979 GB free with
+   171 GB free in `/tmp`. Two numbers decide it: `sysctl vm.max_map_count` and
+   `wc -l /proc/<worker-pid>/maps`. The same reading applies to the `unmap` direction
+   (`507899`), and to `MLIRCompilationError` text whose *detail* is an `OSError` — the
+   compiler banner is the wrapper, the loader line is the cause
+   (`dlopen-map-count-exhaustion.md`).
 
 ## Reading a v0.21+ startup memory block
 
@@ -164,6 +181,16 @@ Conditional routes:
 - The crash instead happens during `profile_run`/`determine_available_memory`
   before the server is ready → `../startup-failures/index.md`
   (`max-model-len-budget.md`) — that is a configuration budget, not a leak.
+- The traceback is a **loader/mapping** failure on a worker that ran for days —
+  `OSError: /tmp/tmpXXXX/libkernel.so: failed to map segment from shared object` from
+  `ctypes.CDLL(callback_path)` in triton-ascend's
+  `linalg_to_bin_enable_npu_compile_A2_A3`, wrapped by
+  `MLIRCompilationError: [ConvertLinalgRToBinary]` and surfaced as
+  `RuntimeError: Worker failed with error '…'` on EngineCore →
+  `dlopen-map-count-exhaustion.md`: the leak is 7 VMAs per JIT compile
+  (`ctypes.CDLL`, no `dlclose`), the ceiling is `vm.max_map_count`, and the remedy is
+  `sysctl -w vm.max_map_count=1048576` (live) plus a persisted `TRITON_CACHE_DIR` and the
+  triton-ascend fix — **not** free RAM, `/tmp` space, `noexec`, or the compiler.
 - The failure is a **free/unmap**, not an allocation: `unmapHandles …
   AclrtUnmapMem(… getHcclComm()) error code is 507899` with `ERR00100` /
   `EL0003`, raised in `torch.npu.empty_cache()` inside the `memory_profiling`

@@ -106,6 +106,45 @@ which disables chunked prefill by default … we will support this after the req
 and pta is available"), and the reporter's next message after being pointed at
 `mla_v1.py#L1075` was "I was careless".
 
+## The chance-level accuracy variant (same three-flag cell, no crash)
+
+The other report shape on this cell has **no traceback**: `torchair_graph_config.enabled:
+true` + `ascend_scheduler_config.enabled: true` + `enable_prefix_caching: true` on an MLA
+checkpoint, and a benchmark score at chance — recorded #1553 (reported vllm-ascend 0.9.1
+`6db7dc2`, pin v0.9.1rc1 `c30ddb8`; `vllm-ascend/DeepSeek-V3-Pruning`, TP4, lm_eval
+`--tasks mmlu --apply_chat_template --fewshot_as_multiturn --batch_size 1`) at
+`0.2584 ± 0.0037`, i.e. 4-way chance with every subset flat.
+
+The pinned release notes do name this cell, and that is the trap: `release_notes.md:37`
+(Known Issues, v0.9.1rc1) reads "Prefix cache feature does not work with the Ascend Scheduler
+but without chunked prefill enabled … [#1350]". It is a statement about the **prefix-cache
+path**, not about the score, and the reporter's own follow-up retires it: with
+`"enable_prefix_caching": false` and everything else identical the same MMLU task scored
+`0.2585 ± 0.0037`. A known-issue row whose trigger you removed without the symptom moving
+has not explained anything — say that in the answer instead of ranking it first.
+
+What the ablation leaves, in this order, one launch each:
+
+1. **Graph capture.** `enforce_eager=True`, or delete the `torchair_graph_config` key (the
+   two are mutually exclusive: `ascend_config.py:131-136`), keeping AscendScheduler + APC.
+   The pinned CI row for torchair is TP4 on the same model family
+   (`tests/e2e/multicard/test_torchair_graph_mode.py:46-60`, four prompts), not an accuracy
+   run, so graph mode's score is not validated by anything in the tree.
+2. **The scheduler fork.** Drop `ascend_scheduler_config` (and its `enable_chunked_prefill`
+   key with it) so upstream `Scheduler` runs with chunked prefill at its default, APC on,
+   torchair off — the first launch in which APC and chunked prefill can coexist at this pin
+   (`schedule_config.py:43` forces `enable_chunked_prefill = False` inside the fork, which is
+   why the reporter's `"enable_chunked_prefill": false` is inert rather than a lever).
+3. **The checkpoint and the harness.** One greedy request, one dumped response body, on an
+   eager all-defaults serve: `-Pruning` is a size-reduced export, and a chance-level table
+   with a tight standard error is equally consistent with a checkpoint that emits a random
+   letter. `usage.prompt_tokens` + the body separate "engine produced garbage" from
+   "extraction found nothing" (the latter scores 0.0, not 0.25) —
+   `../accuracy-benchmarks/harness-vs-engine-attribution.md`.
+
+Do not answer this variant with the `decode_hs_or_q_c` contract alone: nothing crashed, so
+the deliverable is the *ranking* above plus the reporter's own APC-off row as the control.
+
 ## Ladder
 
 1. Add `"ascend_scheduler_config": {"enabled": true}` beside `torchair_graph_config`, with

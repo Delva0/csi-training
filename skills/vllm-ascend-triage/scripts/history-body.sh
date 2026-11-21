@@ -30,6 +30,11 @@
 # One id per argument, several allowed, so 2-3 precedents cost one call. Output is
 # prefixed `=== #<id> :: <title>`; each line is capped at 1000 chars. Exit 1 = an id
 # was not found, 2 = usage/regex error. Read-only: it never writes to the tree.
+#
+# A missing id prints its line on **stdout and** stderr: a run that pipes the script
+# `2>/dev/null | head -n` (recorded #6533) otherwise sees an empty result and reads it
+# as an empty body. Many ids this skill's pages cite as precedents are newer than a
+# case's own corpus, so `not found` is expected there -- the page is the evidence.
 set -u
 
 lines=80
@@ -156,12 +161,18 @@ rc = 0
 for issue in ids:
     found = sorted(paths.get(issue, []), key=lambda p: (len(p), p))
     if not found:
-        print(f"=== #{issue} :: not found under {root}", file=sys.stderr)
+        msg = (f"=== #{issue} :: not in this corpus (no {issue}.md under {root});"
+               " ids that this skill's reference pages and recorded-cases index cite"
+               " are often newer than a case's corpus -- use the page's own pin and"
+               " facts as the evidence, do not re-open the id")
+        print(msg)                  # stdout: `2>/dev/null | head` must not hide it
+        print(msg, file=sys.stderr)
         rc = 1
         continue
     try:
         raw = open(found[0], encoding="utf-8", errors="replace").read().splitlines()
     except OSError as exc:
+        print(f"=== #{issue} :: unreadable ({exc})")
         print(f"=== #{issue} :: unreadable ({exc})", file=sys.stderr)
         rc = 1
         continue

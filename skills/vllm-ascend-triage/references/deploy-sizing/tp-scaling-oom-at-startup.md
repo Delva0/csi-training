@@ -55,6 +55,7 @@ assuming the path:
 | Ref | Validated Qwen3-Next-80B-A3B line | Card rule on the same page |
 |---|---|---|
 | v0.14.0rc1 (`52d4acf`) | `Qwen3-Next.md:64`: TP4, `--max-model-len 32768`, gmu 0.8, `--max-num-batched-tokens 4096`, `FULL_DECODE_ONLY` | — |
+| v0.13.0 (`6281c12`) | same file and line as v0.14.0rc1 — `Qwen3-Next.md:64`: TP4, `--max-model-len 32768`, gmu 0.8, `--max-num-batched-tokens 4096`, `FULL_DECODE_ONLY` | — (the v0.11 card-count note is **gone** at this ref) |
 | v0.11.0rc2 (`a2e4c3f`) | `multi_npu_qwen3_next.md:89`: TP4, `--max-model-len 4096`, gmu 0.7, `--enforce-eager` — byte-for-byte the #4474 reporter's *working* command | `:86` "for an Atlas A2 with 64 GB of NPU card memory, tensor-parallel-size should be at least 4, and for 32 GB of memory, at least 8" |
 
 So "TP4 at 256K" (#6572) is already outside the documented envelope and "TP8 at
@@ -62,7 +63,8 @@ So "TP4 at 256K" (#6572) is already outside the documented envelope and "TP8 at
 recipe and TP8 at 4K is the **32 GB-card** recipe run on 64 GB cards. Say that
 first: it is the answer to the literal question ("is TP8 broken?" — no, it is
 unvalidated), and it costs one file read. The CI file
-(`tests/e2e/multicard/4-cards/test_qwen3_next.py` at v0.14.0rc1) is TP4 as well.
+(`tests/e2e/multicard/4-cards/test_qwen3_next.py` at v0.14.0rc1, and unchanged
+at v0.13.0) is TP4 as well.
 
 ## Step 2 — place the allocation by its frame, then read it as a budget
 
@@ -127,6 +129,22 @@ that function's own reshape loop).
 On a two-group hybrid a row carries one full-attention and one mamba layer, so the
 rows that carry both are paid for twice: 48 tensors for 36 rows = **×4/3** of the
 budget.
+
+At v0.13.0 (`6281c12`) it reads the same way under new line numbers —
+`_allocate_kv_cache_tensors` at `model_runner_v1.py:2469`, the
+`# TODO: REFACTOR ME to sharing hybrid cache` at `:2492`, the `linear_attn` branch's
+full-size `torch.zeros(kv_cache_tensor.size)` at `:2499`, and the function's own
+`# TODO: remove this after the OOM issue is located and fixed` at `:2627` — while
+upstream vllm v0.13.0 (`72506c9`) still allocates **one** `torch.zeros` per
+`kv_cache_tensor` and maps every `shared_by` name onto it
+(`v1/worker/gpu_model_runner.py:5056-5075`). So on a v0.13.0 report the divergence is
+current behaviour, not a stale v0.11 reading. Recorded #6611 (910B3-64G, `v0.13.0`
+reported on both sides, `Tried to allocate 2.57 GiB … 57.49 GiB already allocated …
+1.96 GiB free, 57.62 GiB reserved`) died on `:2499` — the mamba branch, i.e. **inside**
+the divergent loop — and its four frame line numbers (`worker.py:455`, `:2426`,
+`:2450`, `:2499`) match the pinned tree exactly, so the installed tree is the tag and
+the frame needs no re-derivation. That body carried no serve command at all, so the
+envelope row above is the first thing to quote and the TP/gmu/context are the ask.
 
 That is a verified upstream↔downstream divergence and the first thing to check when
 the frame is the pool loop — but it is not by itself the #4474 answer: on that
@@ -273,7 +291,8 @@ the pair of printed numbers above is *not* a contradiction to resolve.
 
 Sub-shape A verified at vllm-ascend v0.14.0rc1 (`52d4acf`) + vllm v0.14.1
 (`d7de043d`); sub-shape B at vllm-ascend v0.11.0rc2 (`a2e4c3f`) + vllm v0.11.0
-(`b8b302c`), where `patch_mamba_config.py` is `vllm_ascend/patch/platform/` (it
+(`b8b302c`) and re-verified at vllm-ascend v0.13.0 (`6281c12`) + vllm v0.13.0
+(`72506c9`), where `patch_mamba_config.py` is `vllm_ascend/patch/platform/` (it
 moves between releases). Re-read before reusing on another release: the tutorial's
 serve line **and file name**, the `patch_mamba_config` page arithmetic (it has
 changed shape across releases — see `../accuracy-benchmarks/hybrid-block-size-corruption.md`

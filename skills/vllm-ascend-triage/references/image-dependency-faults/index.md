@@ -132,8 +132,14 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   the pasted block the A2 or the A3 section of that model page, and does the log's
   `EngineCore_DP<N>` prefix agree with the pasted `--data-parallel-size` (#11300
   v0.22.1rc1 was closed by its reporter as "A3机器跑了A2的命令"; the same paste
-  carried `EngineCore_DP1`/`DP2` against a dp1 command) — then the stock-model
-  discriminator, the three `python -c` native probes, and
+  carried `EngineCore_DP1`/`DP2` against a dp1 command). Run it before writing
+  anything when a launch script is in hand: #8745's reporter later posted theirs,
+  it is the A2 tab verbatim ("A2单机", unsuffixed `v0.13.0rc3`), and the abort came
+  back — that case's tab lane is closed, and at v0.13.0rc3 both tabs export
+  `USE_MULTI_BLOCK_POOL`/`OMP_*`, so "missing the A3 exports" is not a cause there.
+  Then the stock-model discriminator, the one-env bisect of the recipe
+  (`USE_MULTI_BLOCK_POOL=0` first — it selects six extra patch imports right after
+  the last printed log line), the three `python -c` native probes, and
   `gdb -ex 'break std::__throw_logic_error'` to name the `.so`. The checkpoint's
   config, processor and architecture are not the owner (#8745 v0.13.0rc3
   DeepSeek-V4-Flash and #10943 v0.20.2rc1 print the same two lines; #10943's

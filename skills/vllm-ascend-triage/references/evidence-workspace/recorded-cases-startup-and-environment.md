@@ -22,6 +22,23 @@ shipped a complete ranked answer; the dispatch condition, the launch-side rung
 and the check that the code is unchanged at v0.23.0rc1 are on
 `../startup-failures/env-write-in-compiled-forward.md`.
 
+**#10481** image v0.18.0rc1 (`99e1ea0f`), Atlas A2 with one visible card,
+`ASCEND_RT_VISIBLE_DEVICES=7`, Qwen3.5-0.8B: every rank's `WorkerProc` dies at the first
+statement of `Worker.__init__` (`worker.py:109 check_ascend_device_type()` →
+`utils.py:723 get_soc_version()` → torch_npu `_lazy_init` → `_npu_init`) with
+`ERR99999 PTA call acl api failed` + `set default device id failed, ret: 107001`
+(`[FUNC:SetDefaultDeviceId]`, `reason=device id error`) + `invalid device ID` and the
+`107002` `ctx is NULL` cascade. `107001 = ACL_ERROR_RT_INVALID_DEVICEID`; the guard never
+compared a SoC, so no serve flag and no model question is reachable from that log. The run
+also showed the reporter's entire flag set is verbatim
+`tests/e2e/multicard/2-cards/test_qwen3_performance.py:61-82`, which retires the flag
+hypothesis in one grep — and it over-reached once, calling the `--device /dev/davinci0 \  #注释`
+line a docs-template defect although both pinned trees list `davinci0` … `davinci7` on clean
+continuations (`installation.md:434-441`). The shell behaviour itself is real (the `#` ends
+the `docker run`, so only `davinci0` is mapped and the `-v` lines fail as separate
+commands), which is why `ls /dev/davinci*` inside the container is the first check —
+`../startup-failures/device-id-invalid-at-worker-init.md`.
+
 **#13199** image v0.23.0rc1 `-310p` on x86 310P3, Qwen3-VL-8B: `import torch`
 dies with `AttributeError: module 'triton' has no attribute 'language'` inside
 `torch/_dynamo/utils.py` (`common_constant_types.add(triton.language.dtype)`),
@@ -790,6 +807,29 @@ the paste: an absent triton cannot produce `AttributeError: module 'triton.langu
 `cat SOURCES.json` (~21 KB, rule 7) and a full read of the tutorial including its
 x86_64 "Coming soon" tab. Route:
 `../startup-failures/model-type-not-recognized.md` (inspection-crash section).
+
+**#4206** image `quay.io/ascend/vllm-ascend:v0.11.0rc0` (snapshot pin: vllm-ascend
+`v0.11.0rc1` `c5fe179` + vllm `v0.11.0` `b8b302c`), Qwen3-Next-80B-A3B, body in
+Chinese: start dies in `create_model_config` with
+`pydantic_core._pydantic_core.ValidationError: 1 validation error for ModelConfig` /
+`Value error, Model architectures ['Qwen3NextForCausalLM'] failed to be inspected.
+Please check the logs for more details.` — the pydantic wrapper around #3325's crash,
+with no `[registry.py]` line pasted at all. Track: the model-inspection look-alike,
+**not** the version gate (`../startup-failures/model-type-not-recognized.md`). What the
+pin settles: `failed to be inspected` is raised only for an architecture that is
+registered (`_raise_for_unsupported`); the replacing class is downstream
+(`vllm_ascend/models/__init__.py:46-48` → `CustomQwen3NextForCausalLM`), so the
+subprocess import goes through `vllm_ascend/models/qwen3_next.py`, which at rc1 imports
+**only** upstream `vllm.*` names and no `vllm_ascend` internal module; and Qwen3-Next
+was supported from v0.10.2 and "stable" at `v0.11.0rc0` (`release_notes.md:22`), so the
+architecture is not the question. Delivery: **no answer at all** — 37 messages, every
+turn after the opener a bare tool call, the whole output budget spent on two dead
+lanes: a missing `triton` ranked first off the tutorial's mandatory `triton_ascend` +
+BiSheng install step, then refuted against `find_spec`/`HAS_TRITON` placeholders four
+turns later; and reconstructing the `v0.11.0rc0` image's `qwen3_next.py` from the
+`v0.11.0rc1` export, which a one-commit snapshot cannot contain. Owed at turn 5: the
+classification, one `python -c "import vllm_ascend.models.qwen3_next"`, and the ask for
+the `[registry.py]` lines.
 
 **#4948** vllm-ascend v0.11.0rc3 image (`quay.nju.edu.cn/…`, tree `b6d63bb`) + vllm v0.11.0,
 "部署满血版 DeepSeek R1 0528 BF16 失败" on Atlas 800I A2 / 910B4, `--tensor-parallel-size 8

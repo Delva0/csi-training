@@ -188,7 +188,11 @@ recurs at a fixed interval (a leak/slow-rank shape) or at random (a fabric shape
 
 ## Where `107030` belongs
 
-`rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this
+`107030` is `ACL_ERROR_RT_CAPTURE_MODE_NOT_SUPPORT`, "stream is captured, not support
+current oper" (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h:51`), so
+the code is minted **only while a stream is in capture** — that is a definition, not an
+inference from timing, and it rules out "an rtMemcpy inside graph *replay*" however the
+reporter words it. `rtMemcpy:ErrCode=107030, desc=[the current capture mode does not support this
 operation]` with `synchronized memcpy failed, kind = 1` and small `cnt` (72 and
 456 bytes in #9183) is a real capture-path family in the history — #6002 (v0.11.0,
 DS-V3.1-w8a8, MTP + `FULL_DECODE_ONLY`), #4208, #8502 — where #6002's reporter

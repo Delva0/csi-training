@@ -5,16 +5,20 @@ token — `!!!!!!!!`, 感叹号, `，，，`, a single word — from the first g
 token, with no traceback and a healthy process; often reported together with
 "特别耗时 / unusually slow". The first suspect is the downstream vision tower
 (`vllm_ascend/models/qwen2_5_vl*.py`, `qwen2_vl.py`), not the sampler — and the
-first check is one env var. Text-only prompts answered as garbage are the
-`short-prompt-corruption.md` / `garbled-long-context-output.md` profile instead —
-unless only the **first** call degenerates or the run is a text-only launch of a
-VL-capable checkpoint, which is `first-generate-degenerate.md`.
+first check is one env var. Text-only prompts answered as word salad are the
+`short-prompt-corruption.md` / `garbled-long-context-output.md` profile instead — and a
+serve whose **every** text-only request degenerates is `short-prompt-corruption.md`
+Step 0b (recorded #6533: `prompt_tokens: 12` on `Qwen3-VL-8B-Instruct`), where the token
+count alone excludes the tower; only a **first-call-only** degenerate answer, or the
+`is_multimodal_model` crash on a text-only launch, is `first-generate-degenerate.md`.
 It also owns the **wrong-but-not-repeated** vision answer — a document/OCR run whose
 TP=2 reply collapses to one trivial element (`[{"bbox":[0,0,307,307],"category":
 "Picture"}]`, no text) while TP=1 returns the full box+text list. Same owner (what
 the vision tower produced), different surface: the answer is present and plausible,
-just poorer. Either way the presence of an **image** is what selects this page; the
-`AAAA…`/`!!!!` text-only profiles are `short-prompt-corruption.md`.
+just poorer. Either way the presence of an **image** is what selects this page; a
+**text-only** serve whose whole answer is one repeated token (`AAAA…`, `!!!!`) is
+`constant-token-degeneracy.md` (word salad on a text prompt stays
+`short-prompt-corruption.md`).
 
 ## Grade the symptom before theorising
 

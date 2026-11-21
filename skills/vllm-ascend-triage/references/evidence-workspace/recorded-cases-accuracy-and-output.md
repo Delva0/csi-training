@@ -355,6 +355,23 @@ cannot be 2 ranks on DP2×TP4. Both lessons are in
 `../spec-decode-mtp/drafter-count-copy-device-fault.md` and in the classification
 row that now routes there.
 
+**#6533** vllm-ascend `v0.14.0rc1` (`52d4acfa`) + vllm `v0.14.1` (`d7de043d`), one
+**910B4** (reporter-confirmed 2026-02-05, answering triage's "B4 or B4-1?" — so the
+32 GB card, not the 64 GB `910B4-1`), `Qwen3-VL-8B-Instruct`: a **text-only** chat request
+(`prompt_tokens: 12`, no image, no `temperature`, `max_tokens: 100`) comes back degenerate
+from about the fifth token (`你好，，，我是一个AI，我叫Qwen，…我，我，我`) to
+`finish_reason: "length"`, with no serve command and no log in the report. The recorded run
+classified it correctly at turn 3 and had an answer available by turn 10 (the pin's own
+`tests/e2e/models/configs/Qwen3-VL-8B-Instruct.yaml`: `hardware: "Atlas A2 Series"`,
+`mmmu_val 0.55`, wired at `nightly_test_a2.yaml:120`; the two one-request controls), then
+spent five calls trying to reopen the page's #8590 precedent — `history-body.sh 8590
+2>/dev/null` (the miss is printed to stderr), then `/repos/…/issues/8590` (404 in this dated
+replay) — and its last four turns on `AscendMRotaryEmbedding.forward_oot` → upstream
+`triton_mrope` argument parity. **Shipped no message text at all**: 45 turns, 1.26 M prompt
+tokens, output-capped. Two harness corrections came from it: `history-body.sh` now prints a
+missing id on stdout as well, and a shared-kernel hypothesis is checked against the pin's
+wired accuracy row first — `../accuracy-benchmarks/short-prompt-corruption.md` Step 0b.
+
 **#8590** vllm-ascend `v0.14.0rc1` (`52d4acfa`) + vllm `v0.14.1` (`d7de043d`),
 single 910B-class card, TP=1, Qwen2.5-1.5B: repeated 猞猁 from the first generated
 token whenever `<|im_start|>`/`<|im_end|>` are in the prompt; reporter later confirmed
@@ -878,3 +895,20 @@ never read `../accuracy-benchmarks/long-output-repetition.md`, and it invented a
 Qwen3-VL vision `head_dim` from memory before noticing the export has no such config —
 both avoidable. Page: `../accuracy-benchmarks/vl-vision-tower-degeneracy.md`
 (“The lever is older than this pin”, “A 双机 / multi-node VL report”).
+
+**#1553** reported vllm-ascend 0.9.1 (`6db7dc2`), pin v0.9.1rc1 (`c30ddb8`) + vllm v0.9.1
+(`b6553be`), `vllm-ascend/DeepSeek-V3-Pruning` TP4, lm_eval `--tasks mmlu
+--apply_chat_template --fewshot_as_multiturn --batch_size 1`, MMLU `0.2584 ± 0.0037` with
+`enable_prefix_caching: true` + `torchair_graph_config.enabled: true` +
+`ascend_scheduler_config.enabled: true` (and a no-op `"enable_chunked_prefill": false`): the
+recorded run answered from the pinned v0.9.1rc1 release-notes Known-Issue row
+`release_notes.md:37` (#1350, "prefix cache … does not work with the Ascend Scheduler but
+without chunked prefill enabled") and made "turn APC off, MMLU recovers" its rank-1 ladder
+rung. The reporter's later public comment (`2025-07-01`) is the control: `enable_prefix_caching:
+false` with everything else identical scored `0.2585 ± 0.0037` — the row is a functionality
+statement about the cache, not this score's cause, so the remaining stack (graph capture, the
+scheduler fork, the `-Pruning` checkpoint, the harness) owned it and the answer's first rung
+was already refuted. Same pin and same three-flag cell as the `decode_hs_or_q_c` contract, so
+the doc/test anchors were cheap to reach — and the right move was to rank them, not to quote
+the known issue. Page: `../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md`
+§*chance-level*.

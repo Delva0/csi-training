@@ -58,6 +58,14 @@ release claim that a user must weigh).
    the section heading: a v0.11.0rc1 bullet still stands in the v0.13.0rc1 tree), then
    say what changed since — a later release that no longer lists it, or a pta patch
    release that fixes it (`../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0).
+   **A row is scoped to the symptom its wording names.** "Prefix cache feature does not
+   work with the Ascend Scheduler but without chunked prefill enabled" (v0.9.1rc1
+   `release_notes.md:37`, #1350) is a *functionality* statement about the cache path; the
+   same flag cell also produced a chance-level MMLU that survived with prefix caching turned
+   off (`0.2585` vs `0.2584`, recorded #1553), so the row was not that report's cause. Quote
+   the row, then test it by removing the one feature it names — a row whose trigger you
+   removed while the symptom stayed is a control, not a diagnosis
+   (`../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md` §*chance-level*).
 7. **Budget one message per tracked issue.** A two-issue bulletin at the 16 K
    completion cap was cut mid-ladder (#15985: verdict + both ranked lists
    survived, the action ladder did not), so lead with the verdict and the

@@ -85,7 +85,8 @@ ablation-sized facts below.
 
 At a v0.9.x pin **the docs tree has a different shape**, and grepping the layout
 you remember wastes calls: `docs/source/tutorials/` is flat (`single_npu.md`,
-`single_npu_multimodal.md`, `single_node_300i.md`, `multi_node.md`, …) with no
+`single_npu_multimodal.md`, `single_node_300i.md` — the last **only from v0.9.1rc1**,
+see the next subsection — `multi_node.md`, …) with no
 `models/` and no `hardwares/`; the support matrix is
 `docs/source/user_guide/supported_models.md` with no `support_matrix/` directory;
 and `vllm_ascend/` has **no `_310p/` subpackage**. Locate by a *content* token, not
@@ -141,6 +142,36 @@ recheck: a later `-310p` image carries the `_310p/` package (its gate list is in
 this page) and its rope override answers a different question
 (`310p-vl-ocr-garbage-output.md` §4), so "MRoPE is unpatched" is a version fact,
 not a permanent one — re-grep before reusing this block.
+
+### One release earlier the lane does not exist at all: v0.9.0rc2 has no 310P
+
+Verified at vllm-ascend **v0.9.0rc2** (`8dd686d`) + vllm **v0.9.0** (`5873877`), recorded
+for #1609 (Atlas 300I Duo, `qwen2.5-vl-7b`, no log, answered at its 9th assistant turn).
+`git grep -n -i -E '300i|310p'` over the whole tree returns **one** hit —
+`docs/source/faqs.md:18` "Below series are NOT supported yet: Atlas 300I Duo … might be
+supported on 2025.Q2" (with `:12` "Currently, **ONLY Atlas A2 series**"). There is no
+`docs/source/tutorials/single_node_300i.md` (that directory is `index.md`, `multi_node.md`,
+`multi_npu.md`, `multi_npu_quantization.md`, `single_npu.md`, `single_npu_multimodal.md`),
+no `Dockerfile.310p` (only `Dockerfile`, `Dockerfile.openEuler`) and no `is_310p` in any
+`.py`. The VL class is still registered unconditionally (`vllm_ascend/models/__init__.py:11-13`,
+`:24-26`, `:30-31`), so the engine resolves the architecture and a run *starts* — the
+verdict is **"the lane is absent from this release"**, not "the model is unregistered".
+
+**The doc the reporter quotes is itself the version marker.** #1609 quoted a 300I page
+listing "Qwen3-0.6B: 1 card, Qwen2.5-7B-Instruct: 2 cards, Pangu-Pro-MoE-72B: 8 cards" —
+the v0.9.1rc1 `single_node_300i.md:46` list above. At v0.9.0rc2 the string `Pangu` occurs
+in **no** file (`grep -rni pangu` is empty), so one grep proves they are reading
+`latest`/v0.9.1+ docs, and the first paragraph is "your pin predates 300I support; the page
+you quote is a later release" plus the move to a `-310p` tag. Do not walk the VL/rope code
+here: at this pin there is no 310P branch to read, which is why the same question has a
+completely different answer one rc later (the MRoPE block above).
+
+Do not promise that the upgrade fixes it. **#1383** on the first `-310p` release
+(v0.9.1rc1, 310P3) could not start even `Qwen/Qwen2.5-0.5B-Instruct`:
+`Optype [TransData] of Ops kernel [AIcoreEngine] is unsupported … op type TransData is not
+found in this op store`. When the paste carries a card table, take capacity from it —
+**#1141**'s `npu-smi` shows `310P3` ×4 at `1460 / 44280 MB` per die — and label it a
+reporter run, never a datasheet.
 
 ## An image that carries triton-ascend cannot import the worker at all
 

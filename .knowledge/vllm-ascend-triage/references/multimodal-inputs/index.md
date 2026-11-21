@@ -16,7 +16,9 @@ upstream's `shm_object_storage.py` in every worker (`shm-mm-cache-invalid-object
 the model file's `get_input_embeddings` on
 `attn_metadata.multi_modal_placeholder_index_maps['audio']`, usually during memory
 profiling rather than on a request (`placeholder-index-map-keyerror.md`).
-Not this topic: an adapter said to cover the vision tower ("LoRA（with ViT）",
+Not this topic: an engine start that stalls **after** `Encoder cache will be initialized
+with a budget of N tokens` with no traceback (→ `../startup-failures/mm-encoder-profile-stall.md`);
+an adapter said to cover the vision tower ("LoRA（with ViT）",
 `target_modules` naming `visual.*`) — upstream filters it before any kernel
 (`../lora-adapters/multimodal-vit-lora-ignored.md`); a VL answer that is merely
 degenerate or wrong with sane counts

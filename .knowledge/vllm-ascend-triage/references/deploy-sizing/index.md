@@ -9,6 +9,11 @@ of a plan — a measured per-token footprint several times the reporter's own
 calculation, or "is there a path to 512K/1M context on this card in this release"
 (`dsv4-kv-footprint-terms.md`).
 
+The same topic owns the *runtime* card map — a process from another worker
+appearing on a card, one engine's PID on every die, "who owns this NPU" on a shared
+node (`node-processes-and-device-attribution.md`): nothing crashed, so the
+deliverable is the process identity, not a source walk.
+
 Leave this topic when there is a real startup traceback with a lane
 (`../startup-failures/index.md`), a collective/device error
 (`../hccl-and-hardware/index.md`), or a long-run memory report
@@ -40,6 +45,14 @@ Inherit the rules in SKILL.md, plus these:
    `GLM5.md`, `DeepSeek-V3.1.md`, and `CUDA_VISIBLE_DEVICES` occurs nowhere in
    `docs/source/`). A command copied from a GPU page therefore exposes **all**
    cards to **every** process, which looks exactly like a stage-collision bug.
+   When the observation is at *runtime* rather than at start ("a worker process
+   from another card appeared on this NPU, after the second benchmark round"),
+   attribute the PID before the layout: `npu-smi info` lists a PID against a die
+   whenever that process holds a context there, so a monitoring/perf agent, a
+   KV-transfer engine that opens a context on **every** visible device, and a
+   genuine slice overlap all look identical — `node-processes-and-device-attribution.md`
+   (recorded #12338: reporter-confirmed as the msservice-metrics monitoring
+   platform, fixed in msserviceprofiler #419, vllm-ascend unaffected).
 3. **A sibling project's config that the snapshot does not carry is a gap, not a
    hypothesis — but ship what reporters already established.** vllm-omni itself is
    in no `SOURCES.json`, so its parsing is unverifiable. What is known without the
@@ -167,12 +180,32 @@ Conditional routes:
   (#6572 for the post-sizing shape, #4474 for the pool-loop shape, where
   `already allocated > gmu × total` is expected and the number to check is
   `#tensors × page_size × num_blocks` against the `Available memory:` line).
+- An extra process/PID on a card, one engine's PID on every die, or "a process
+  from another card appears on a certain NPU" while the service keeps serving →
+  `node-processes-and-device-attribution.md` first (PID identity and its own
+  `ASCEND_RT_VISIBLE_DEVICES`; the legitimate multi-die cases; the monitoring-agent
+  precedent #12338). Only after that, the collision form
+  `../pd-disaggregation/same-host-pd-device-partition.md`.
 - The worked #9335/#8068 case: the 30B-A3B Omni model on 2×64 GB 910B, the
   three-stage NPU yaml, the reporter-confirmed `--stage-configs-path` override
   that runs it on two cards, the `ASCEND_RT_VISIBLE_DEVICES` traps, the card
   arithmetic and the answer shape → `card-budget-and-device-visibility.md`.
+- "The entire model is loaded on every card instead of being split across the NPUs"
+  (usually no traceback; maybe a near-symmetric `npu-smi` table) →
+  `sharding-not-applied-full-model-per-card.md` first: the per-rank
+  `Loading model weights took X GB` (or the V0 `model weights take X GiB` block)
+  against `params × bytes ÷ TP` separates "TP never requested", "one process per
+  card" (which really does replicate) and "sharding works — the symmetric HBM is the
+  `gpu_memory_utilization` reservation". `npu-smi` and a single shard bar are not
+  evidence either way, and head divisibility bounds which TP is even legal.
 - The model's own documented envelope and CI config (which TP the project
   actually runs) → `../startup-failures/max-model-len-budget.md` and
   `../tutorial-verification/tutorial-command-audit.md` (checklist item 5).
+- The OOM (or a footprint jump) appears the **first time a performance env flag is switched
+  on** — `VLLM_ASCEND_ENABLE_MLP_OPTIMIZE=1` on a TP-only serve, a hand-set fine-grained
+  `mlp`/`oproj` tensor-parallel size, `VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE` — with one sentence of
+  configuration and often no log at all → `mlp-tp-group-oom.md` first: those flags swap the
+  linear's **comm group**, and the group's size is what `divide(...)` shards the weight by, so a
+  group of one member means the MLP is replicated on every card (dp=1 ⇒ +75 % of MLP bytes).
 - The layout is right and the process still dies during profiling/load →
   `../runtime-memory/index.md` (capacity vs growth vs a dead config key).

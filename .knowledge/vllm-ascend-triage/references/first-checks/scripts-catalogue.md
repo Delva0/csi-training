@@ -185,6 +185,18 @@ after that keeps the header, not this text.
   which is itself the finding (a host run, not the image's interpreter).
 - `scripts/sources-summary.sh [SOURCES.json ...]` — the version contract, one line
   per repo with coverage and `runtime_verified`, plus the unavailable repos.
+- `scripts/fork-ctor-sweep.sh <repo-root> --base '<regex on the base class name>'
+  [--kwarg NAME] [--glob '*.py']` — every subclass of one base class with its
+  `__init__` parameter list in one call (#18688,
+  `vllm_ascend/core/scheduler_dynamic_batch.py` missing `hash_block_size` while the
+  engine passes it unconditionally). Per class: `OK` (declares the kwarg; the
+  declaration's line is printed as the fix pattern to copy), `IMMUNE` (`**kwargs`),
+  `MISSING` (neither — the bug set), `NO-CTOR`; the tail name of each base is
+  matched, subclasses of a subclass are followed (an `Async…` twin counts), and the
+  last line summarises the MISSING set plus the in-tree fix pattern. Run it in the
+  reporter's vllm-ascend tree with `--base '^Scheduler$'`; the upstream caller side
+  is one `rg -n '<kwarg>' <vllm-root>/vllm | head`. Exit 0 always, 2 on bad usage.
+  Step 3 of `../upstream-downstream-drift/fork-ctor-arg-sweep.md`.
 - `scripts/oom-budget-split.sh --line '<OOM line>' --gmu F [--params P] [--tp N]
   [--dtype D] [--hbm GB]` — splits a device-side OOM into inside vs outside the
   `gmu x total` budget, then prices weights/TP and the remainder (#6572). It does

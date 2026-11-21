@@ -203,6 +203,13 @@ enqueued earlier — the tower's sharded linears (`vllm/model_executor/models/qw
   one function settles it, and recorded #7239 spent several turns on a tie-break /
   `PYTHONHASHSEED` theory before running out of output budget.
 
+**The no-traceback form of this line is a different page.** When the same
+`Encoder cache will be initialized …` line is followed by silence and EngineCore's
+`shm_broadcast … 60 seconds` warnings instead of a traceback, nothing has faulted in a
+collective: that is the vision-tower dummy forward inside `profile_run`, and the
+knobs are `--max-num-batched-tokens` / `--limit-mm-per-prompt`
+(`../startup-failures/mm-encoder-profile-stall.md`). Rank no HCCL cause there.
+
 When the reporter set `cudagraph_mode` in `--compilation-config` (FULL_DECODE_ONLY is
 common on Omni/VL launches), the Step 2 command must carry both
 `ASCEND_LAUNCH_BLOCKING=1` and `--enforce-eager`, because the guard above otherwise

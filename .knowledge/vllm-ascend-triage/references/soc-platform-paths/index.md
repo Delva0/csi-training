@@ -38,7 +38,7 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    pinned doc for their SoC before any source walk.** On 310P the doc's own note —
    `docs/source/tutorials/hardwares/310p.md:5`, "only supports eager mode and the
    float16 data type" (the path moves by release — flat
-   `docs/source/tutorials/310p.md:5` at v0.14.0rc1, `single_node_300i.md` at v0.9.x, so
+   `docs/source/tutorials/310p.md:5` at v0.14.0rc1, `single_node_300i.md` from v0.9.1rc1, so
    `rg --files docs/source/tutorials | rg 310` once instead of trusting a quoted path)
    — plus a `--kv-cache-dtype fp8` or a bf16 checkpoint *is* the verdict. Neither value
    is refused up front: the KV dtype is not read in
@@ -67,7 +67,11 @@ Conditional routes:
   report needs: at v0.22.1rc1 the `_310p/` subpackage (the older gate line
   numbers are gone), the release's own validated `310p.md` table, the inert
   `fuse_norm_quant` flag and the `max_model_len`-sized mask — quote the block for
-  the reporter's release, not the v0.11 one.
+  the reporter's release, not the v0.11 one. It also carries the pre-lane check: an
+  experimental SoC lane can **postdate the reported pin**, so place its first release
+  (300I/310P arrives in v0.9.1rc1; v0.9.0rc2 has one `310p` string in the whole tree)
+  before quoting any doc, and read the reporter's quoted model list as the version
+  marker it is.
 - 310P start-up dies at **KV sizing** with `Available KV cache memory: … (halved
   for workspace)` and `ValueError: To serve at least one request with the model's
   max seq len …`, while `npu-smi` shows free HBM (often the second engine on one

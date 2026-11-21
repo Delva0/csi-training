@@ -70,6 +70,23 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   `torch._dynamo`/torchair: the contract is the signature, and for the constructor form
   the *routing* (which backend class was selected, and whether that engine has an MLA
   impl at all) is the finding — `impl-and-oot-signature-drift.md`;
+- the message is an **arity** mismatch on a method the downstream shim calls on its own
+  instance rather than a kwarg mismatch — `TypeError: <Class>.forward_native() takes from 3 to 4
+  positional arguments but 5 were given` out of `torchair/ops/torchair_rotary_embedding.py:47`,
+  where the printed class is the one that *defines* the method (so a subclass without an
+  override still prints the base name). Which sibling class the checkpoint resolves to decides
+  the crash: at v0.11.0rc0 upstream's base `forward_native` no longer takes `offsets` while
+  `DeepseekScalingRotaryEmbedding.forward_native` still does, so only an *unscaled-rope* model
+  under `torchair_graph_config` dies — `torchair-rope-native-arity.md`;
+- **or the named class is a fork of a whole upstream base class, not an attention
+  impl** — the engine constructs `scheduler_cls` itself and passes a keyword the base
+  grew later (`TypeError: SchedulerDynamicBatch.__init__() got an unexpected keyword
+  argument 'hash_block_size'`, #18688 at v0.23.0), so the finding is *which sibling
+  forks already carry the optional kwarg* — that is both the fix pattern and the
+  bounded repair set — plus whether any test constructs the class at all:
+  `fork-ctor-arg-sweep.md` and `scripts/fork-ctor-sweep.sh`. The same sweep applies to
+  any subclassed base (`BaseModelLoader`, a backend, a coordinator); only the base
+  regex changes;
 - the error is a Python attribute/type/state error (including a `RuntimeError`
   raised by a fork's own state handling), not a device dump, not a collective.
 - or the object named in the `AttributeError` is a **library** type and the missing
@@ -284,6 +301,20 @@ answer is not "downstream drift".
    reporter's two comments and the body-diff probe: `patched-forward-api-drift.md`.
 
 ## Pages
+- `fork-ctor-arg-sweep.md` — worked case vllm-ascend #18688 (v0.23.0 `5cb98caa` /
+  vllm v0.23.0 `0fc695fc`, 910B3, Qwen3-0.6B): `TypeError:
+  SchedulerDynamicBatch.__init__() got an unexpected keyword argument
+  'hash_block_size'` kills EngineCore after the KV cache is sized. The engine passes the
+  kwarg unconditionally (`vllm/v1/engine/core.py:149-157`) and the base defaults it to
+  `None`, so the crash is deterministic on the image, not configuration-specific; the
+  sibling fork already ships the optional parameter with the upstream PR in a comment
+  (`scheduler_profiling_chunk.py:62-64`), a second sibling does too
+  (`patch_balance_schedule.py:63`), two `*args, **kwargs` forks are immune, and the
+  downstream patch that *produces* the value (`patch_kv_cache_utils.py:112-147,345,356-359`)
+  is the ownership anchor. Includes the selector that picks the fork
+  (`platform.py:713-725`), the CI gap (`rg -ln 'SchedulerDynamicBatch' tests/` = 0 hits,
+  `test_platform.py:58` pins `-1`), the `profile_table.csv` degrade path that makes
+  "it starts" ≠ "the feature works", and the one-call sweep script.
 - `impl-and-oot-signature-drift.md` — `TypeError: AscendAttentionBackendImpl.__init__()
   got an unexpected keyword argument 'q_lora_rank'` at vllm-ascend `v0.7.3`: the V1
   branch of `platform.py:167-172` returns the generic backend for *any* model before the
@@ -427,3 +458,13 @@ answer is not "downstream drift".
   repaired only the constructor, main removed it in #11904), and the
   `vllm.v1.kv_offload.abstract` → `base` rename that breaks the documented
   `NPUOffloadingSpec` import at the newer image.
+- `torchair-rope-native-arity.md` — worked case vllm-ascend #3633 (v0.11.0rc0 `00ba071` +
+  vllm v0.11.0rc3 `8ce5d31`, `deepseek-moe-16b-base` on an 8-card DP×TP torchair serve):
+  `TypeError: RotaryEmbedding.forward_native() takes from 3 to 4 positional arguments but 5 were
+  given`. The two rope classes with two signatures in one image (base without `offsets`,
+  `DeepseekScalingRotaryEmbedding` with it), why `get_rope` sends an unscaled checkpoint to the
+  broken one while the tutorial's DeepSeek-V3.1 goes to `native_rope_deepseek_forward`, the
+  `is_qwen_torchair` exemption, the qualname reading rule, the arity as a version fingerprint,
+  that the raise is per-model startup under `profile_run` (so "Multi-Node-DP failed" is a red
+  herring), and the ladder: drop `torchair_graph_config` → local 3-arg patch → scaled-rope
+  checkpoint → newer tag (unverified).

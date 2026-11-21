@@ -78,13 +78,27 @@ Qwen3-4B, put in one pass):
 | per-token KV bytes | `layers × 2 (K,V) × kv_heads × head_dim × dtype_bytes` from the checkpoint's `config.json`; `pool / T` must reproduce it to a rounding step (147,464.7 vs 147,456 in #3479), which is how you prove the geometry you assumed is the one that ran |
 | the failing copy | the `length=<L>` in the `sdma copy` / `memcpy` record — `L = 2 × T × kv_heads × head_dim × dtype_bytes` is **one layer's K+V**, i.e. the per-layer cast loop, not one big allocation |
 
-Verdict rule: `weights + 2 × pool < M` must hold, because the raw int8 pool stays
-live while the NZ copy is written. In #3479 `7.56 + 2 × 26.95 = 61.46 GB` against
-a `46.43 GB` card — a ~15 GB shortfall, so the failure is capacity and the lever
-is `--gpu-memory-utilization` / `--max-model-len`, not the cast. A quick ladder of
-the largest `gmu` that fits is one multiplication per row: `pool = gmu × M −
-weights`, then test `weights + 2 × pool < M` (0.8 fails, 0.55 fits for those
-numbers).
+Verdict rule, and the one place a recorded answer overreached: the raw int8 pool stays
+live while the NZ copy is written, but the copy is **per layer**, so the peak is
+`weights + pool + window`, where `window` is the `length=` of the failing memcpy record —
+one layer's K+V in the two later observations, not a second whole pool. Two 310P
+environments of #3316 measure it (both `Qwen`, fp16, default `gmu`):
+
+| env | card (`total memory:`) | weights | pool | failing `length=` | nominal slack |
+|---|---|---|---|---|---|
+| 310P3, reporter's first box | 46.20 GiB (49,602,220,032 B) | 0.9299 GB | 37.42 GiB (3,269,760 tok × 12,288 B) = 40.18 GB | `3348234240` = **2 layers'** K+V | ~5 GiB |
+| 310P1, official `v0.11.0rc0-310p` image, another host | 93.96 GB (89,608 MB `npu-smi`) | 1.1214 GB | 79.95 GB (697,088 tok × 114,688 B) | `2855272448` = **1 layer's** K+V | ~10 GB |
+
+Both died with `EL0004` + SMMU Terminate at that per-layer copy. Two consequences, and
+the second is the correction: the `weights + 2 × pool` screen used for #3479
+(`7.56 + 2 × 26.95 = 61.46 GB` against a 46.43 GB card) **overstates the demand by about
+2×**, and the usable HBM is nevertheless *smaller* than the printed total (CANN
+reservations, a pool that large fragments) — so 5-10 GB of arithmetic headroom is not
+evidence against the capacity lane, and a computed "gmu X fits to the GiB" prediction is
+not deliverable. Say what the ladder does instead: halve `gmu` (or keep ≥20 % of the
+card free), re-run, and let the outcome decide. The `length=` term is still the useful
+check — reproducing `2 × tokens × kv_heads × head_dim × dtype_bytes` exactly (as both
+rows above do) proves the checkpoint geometry you assumed is the one that ran.
 
 ## Ranked actions
 

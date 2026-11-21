@@ -71,6 +71,38 @@ setting `../spec-decode-mtp/acceptance-collapse.md` and
 `../accuracy-benchmarks/hybrid-block-size-corruption.md` rank first. Check which
 regime the paste is in before reusing the v0.14 reasoning.
 
+## A documented model under PD: the model's own tutorial carries the verdict
+
+Recorded #12093: vllm-ascend v0.22.1rc1 (`5f6faa0cb883`) + vllm v0.22.1
+(`0decac0d96c4`), DeepSeek-V4-Flash-w8a8-mtp, A2 4-machine PD (`1*2P` + `1*2D`),
+30 720-token prompts at `repeat_rate 0.9`, `--enable-prefix-caching` on **both**
+sides, `Prefix cache hit rate: 0.0%`, "开不开MTP都是这样". At that pin the hybrid
+gate above does **not** apply (it is vllm ≤ 0.14.x); the model tutorial answers it
+in one read, and the recipe diff is the first check:
+
+| what | site at `5f6faa0cb883` |
+|---|---|
+| the capability | `docs/source/tutorials/models/DeepSeek-V4-Flash.md:949` (§9.1): "Currently, we support 4K prefix cache hit in an experimental manner. You only need to change the value of `--block-size` from 128 to 32 in the service." |
+| which side may cache | §5.2.2 A2 PD recipe: P node `--enable-prefix-caching` (`:709`), D node **`--no-enable-prefix-caching`** (`:786`), both `--block-size 128`; the A3 recipe disables it on both (`:451`, `:522`) and §5.1 says "to enable it, remove this option" (`:246`) |
+| why granularity matters | per-cache-kind block sizes `vllm_ascend/models/layer/attention/layer.py:33-46` (`_DSV4_BLOCK_SIZES`: `128 -> [mla, swa, c4 state, c128 state] = [128, 128, 8, 32]`), and the compressed groups divide token counts by `compress_ratio` (`vllm_ascend/core/single_type_kv_cache_manager.py:48-49`, `:178-188`), so a hit is quantised by the coarsest group |
+
+The first message owes, in this order: (a) **the metric is per instance** — the D
+(`kv_consumer`) side never prefills, so its line is structurally 0 and the recipe
+disables caching there; read the **P** node's block; (b) 0 % on P at
+`--block-size 128` is the §9.1 note — DSV4 prefix caching at this pin is
+experimental and documented for ~4 K prefixes, switched on with
+`--block-size 32`, so the recipe copy was run outside its validated setting;
+(c) a 27 K-token shared prefix does not rescue (b) — that is an envelope
+statement, not a workload one; (d) MTP on/off changing nothing is consistent with
+both, so it is not an ablation. The discriminator is one re-run: `--block-size 32`
+on the P node only, then read P's `Prefix cache hit rate`.
+
+Do not start from the coordinator/manager or `patch_mamba_config` walk: recorded
+#12093 held both tutorial lines and the `CompressAttentionManager` source around
+turn 20 and shipped no message text at all. Ask for `D.txt`/`P.txt` equivalents
+(the two launch scripts) instead of the mechanism, and quote the §9.1 sentence as
+the project's own position at the pin.
+
 ## Version scope and recheck conditions
 
 - At v0.14.1 there is no `mamba_cache_mode` field at all (`vllm/config/cache.py`

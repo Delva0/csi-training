@@ -63,7 +63,12 @@ builds `SequenceRowParallelOp` at all. `mlp_tp`/`oproj` come from
 `finegrained_tp_config.{mlp,oproj}_tensor_parallel_size > 0` (`utils.py:800-805`, i.e. in
 `--additional-config`), matmul-allreduce from `VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE`
 (`utils.py:808-809`; default `0`, `envs.py:74`), FlashComm2 from
-`VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE > 0` (`envs.py:82`). The matmul-allreduce branch is
+`VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE > 0` (`envs.py:82`). The `mlp_tp` branch is also a
+**memory** switch, not only an op-selection one: at v0.11.0rc0 the same knob is the env var
+`VLLM_ASCEND_ENABLE_MLP_OPTIMIZE` and `_MLP_TP` is sized by `data_parallel_size`
+(`distributed/parallel_state.py:65-81`), so on a TP-only serve the chosen op shards nothing,
+replicates the MLP on every card and turns its own collectives into no-ops —
+`../deploy-sizing/mlp-tp-group-oom.md`. The matmul-allreduce branch is
 the deceptive one — it yields a **fused MatmulAllReduce**, which reads exactly like
 "allreduce is still there" in a kernel-name table while SP is engaged nowhere. So read the
 launch line for those three knobs *before* crediting the token gate, and say which of the

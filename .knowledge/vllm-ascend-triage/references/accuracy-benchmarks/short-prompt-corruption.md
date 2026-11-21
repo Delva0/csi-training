@@ -43,6 +43,31 @@ VL page does not apply (Step 0b).
 - Degenerate from the first tokens and never recovering — repeated function
   words, one token cluster looping — is corruption. Truncation, a stop-string
   mismatch or a budget limit produce short or empty output, not fluent nonsense.
+- **Read the sampling value before any engine mechanism when the checkpoint is a
+  reasoning distill.** Reporter-confirmed #7191 (vllm-ascend `0.11.0` / vllm
+  `0.11.0`, CANN 8.3.RC1, `torch_npu` 2.7.1, TP4, `enforce_eager=True`, offline
+  `LLM.generate` on DeepSeek-R1-Distill-Qwen-7B/32B): the loop
+  `'\n\n,\n\n ( (\n ( or'` is what that model emits at a temperature of 0.1 or
+  below, and the reporter's own resolution was *"adjust the temperature of
+  samplingparams to 0.6 (anything number >0.1), and found problem solved on
+  DeepSeek-R1-Distill-Qwen-7B model"* — a sampler value, no code path. On these
+  checkpoints `temperature: 0` is the **reproducing** condition, not the control
+  the sibling pages below use (`constant-token-degeneracy.md`,
+  `repeated-run-nondeterminism.md`), so a ladder whose first rung lowers the
+  temperature walks away from the fix. Rung 1: same script, same prompt,
+  `SamplingParams(temperature=0.6, top_p=0.95, max_tokens=128)` — one run, and
+  fluent text retires prompt templating, dtype, TP sharding and first-call state
+  together, because none of them predicts a temperature-only cure.
+- **The pasted `SamplingParams` can be the wrong value.** #7191's body shows
+  `temperature=0.6` while the symptom it reports is the low-temperature one — a
+  body edited after the fix, or a snippet that does not match the run that
+  produced the sample. Ask for the args actually passed plus
+  `out.outputs[0].token_ids` / `.finish_reason` instead of reading the pasted
+  value as effective; a degenerate run *at* the named temperature is a different
+  lane. The recorded triage of that issue ranked chat-template, first-call state,
+  `--dtype` and TP sharding above the sampler and offered
+  `SamplingParams(temperature=0, ...)` as its cheapest check, i.e. the
+  reproducing configuration.
 
 ## Step 0 — when the reporter names the trigger, test that claim against the paste
 

@@ -10,7 +10,11 @@ mutate the same mamba/SSM state, and the 310P lane replaces that state machinery
 with its own fallbacks. This page is the mechanism map, the coverage verdict and
 the three launches that decide it. The sibling pages are
 `hybrid-block-size-corruption.md` (a knob-pair 乱码 report with logs) and
-`qwen3-next-gdn-numeric-path.md` (short digit prompt, no scheduling knob).
+`qwen3-next-gdn-numeric-path.md` (short digit prompt, no scheduling knob). The same pair
+on a **non-310P** SoC that *fails the request* rather than corrupting it — typically with
+no error text at all — is not this page: go to
+`../spec-decode-mtp/hybrid-mtp-prefix-cache-unvalidated.md` (coverage verdict, the
+align-mode `MambaManager` asserts, and the six-rung ladder).
 
 ## Grade it before reading any source
 

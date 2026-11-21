@@ -150,6 +150,13 @@ version, gaps stated.
   with its own group ids — so diff the two `--speculative-config` blocks (a draft
   model on one side only adds a group) before any connector or transport read
   (`references/pd-disaggregation/kv-group-count-mismatch.md`, reporter-confirmed #16177).
+  If instead the pair **serves** and then individual *decode* ranks keep their
+  requests `Running` while generation and completion counters stop — health 200, no
+  traceback, one rank taking all the new work, affected ranks recovering hours
+  later — the KV blocks are being freed and reused under an in-flight step on an
+  `--async-scheduling` + hybrid-KV (`--no-disable-hybrid-kv-cache-manager`) serve:
+  `references/scheduler-admission/kv-block-lifetime-async-scheduling.md`
+  (#13964 → vllm-ascend #13518), not a collective and not the throughput topic.
 - **Deployment sizing / stage layout**: the question is a plan — "does this model
   fit on 2×64 GB", "the GPU docs do a 2-device stage deploy and mine does not come up
   on 2 NPUs", a bundled `platforms.<vendor>` yaml with more stages than the reporter
@@ -162,6 +169,10 @@ version, gaps stated.
   device-visibility variable, and for the KV half reconcile the cache-kind term list
   and quote the tutorial's per-SoC envelope before accepting a dtype-promotion
   hypothesis — `references/deploy-sizing/index.md`, `references/deploy-sizing/dsv4-kv-footprint-terms.md`.
+  A report that the **whole model is loaded on every card instead of being split** is
+  the same topic and is *not* answered by `npu-smi`: the per-rank weight-footprint line
+  against `params × bytes ÷ TP` decides it —
+  `references/deploy-sizing/sharding-not-applied-full-model-per-card.md`.
 - **Community-test / doc-verification task** (`[Community Test]`, a 众测任务书 row
   with 蓝区镜像 / 权重链接 / 卡数 / 交付件 测试报告, or a `[Doc]` report that a
   tutorial step does not work as written): the deliverable is a *report about a
@@ -420,7 +431,12 @@ delivery pattern is rule 1.
    about it. Prefer checks the reporter can run — config value, env var, health
    tool, one re-run with a flag — and when the report is hardware-shaped, name
    the artefact that settles it (plog, tiling log, raw request/response dumps,
-   `npu-smi info`).
+   `npu-smi info`). When that artefact **is** a process on a card ("an extra
+   worker process from another card appears on a certain NPU"), it is the PID's own
+   `cmdline` and `/proc/<pid>/environ`: a stray PID is attributed before it is
+   explained, and an engine that keeps serving is exonerated by the attribution
+   rather than by an argument (`references/deploy-sizing/node-processes-and-device-attribution.md`,
+   reporter-confirmed #12338).
 5. **Pin evidence to the reported version.** Read `/workspace/repos/SOURCES.json`
    before citing code: it records repo, ref, commit, basis and coverage cutoffs.
    Every code claim gets `path:line` plus the commit/ref it came from. State
@@ -778,12 +794,31 @@ delivery pattern is rule 1.
     there — global `--enforce-eager` still works, and the plugin, not upstream, owns the
     support claim (`references/hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`).
 
+    **A workaround named in the report's own prose is the first ablation, not
+    background reading.** When the narrative quotes a neighbouring issue's comments
+    ("comments mention disabling async scheduling or MTP, or adding sampling-stream
+    synchronization as workarounds"), the reporter has already said which phase to
+    remove: take it as rung 1 and rank the mechanism it points at, ahead of any
+    theory that needs a code path the paste cannot show. #13964 is the recorded
+    cost — the body carries exactly that line for a progressive per-rank decode
+    stall (`Running` > 0, flat generation counters, no error, one rank still
+    serving), and the session spent its whole output budget on a DP
+    cudagraph-mode-sync / skipped-all-reduce argument that the report's own
+    "DP1 finished 116 requests" sentence refutes, shipping nothing. The resolution
+    was KV-block reuse under `--async-scheduling`
+    (`references/scheduler-admission/kv-block-lifetime-async-scheduling.md`).
+
     **The strongest form of this evidence is a tested-configuration matrix in the body**
     (`DP=1,PP=1,TP=32 → works` / `PP=2,TP=8 → works` / `PP=4,TP=8 → fails` / `DP=2 → fails`):
     each failing row then has a named owner and one check, so the matrix answer — one
     verdict line per row — *is* the G1 message, and the rows that work are the controls
     that close the transport, capacity and labelling lanes. #10910 walked 45 turns and
-    966 K prompt tokens past that matrix and shipped **no** answer text at all.
+    966 K prompt tokens past that matrix and shipped **no** answer text at all. Check each
+    row against the code's own gates before crediting it as a control: on a
+    sparse-attention model a row that toggles `--decode-context-parallel-size` also
+    moves `tp` (`platform.py:723-731` asserts
+    `dcp == tp` at v0.26.0rc1), so "dcp=8 fails, dcp=16 works" compares two recipe rows,
+    not one variable (`references/dsa-sparse-attention/dcp-c8-accuracy-garble.md`).
 
     The same test applies when the reporter's *control* is another platform: "nv 卡多次
     一致，npu 多次不一致" makes sampling randomness (`没有 seed`, `temperature > 0`) a
@@ -997,10 +1032,13 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   at commit X / hypothesis).
 - An evidence table (`path:line`) for code claims, with precedent issue ids
   quoted as `#<id>: <one-line fact>`.
-- The action ladder, cheapest first: an explicit `--max-model-len`, a re-run with `--enforce-eager` /
-  `ASCEND_LAUNCH_BLOCKING=1`, `return_token_ids: true` on the same request body,
-  one `num_speculative_tokens` step, `asys health -d=$i`, a version correction —
-  before any patch proposal.
+- The action ladder, cheapest first: **the request's own sampling value**
+  (`temperature`/`top_p` — on a reasoning-distill checkpoint a ≤0.1 temperature is
+  itself a degeneration, so the rung *raises* it; `references/accuracy-benchmarks/
+  short-prompt-corruption.md`), an explicit `--max-model-len`, a re-run with
+  `--enforce-eager` / `ASCEND_LAUNCH_BLOCKING=1`, `return_token_ids: true` on the
+  same request body, one `num_speculative_tokens` step, `asys health -d=$i`, a
+  version correction — before any patch proposal.
 - Version and hardware scope of the conclusion, plus what to send back (full
   per-rank log, plog, tiling I-line, raw request/response dumps, `npu-smi info`,
   `asys health` output, `dmesg` OOM lines, both PD serve commands).

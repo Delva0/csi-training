@@ -12,6 +12,7 @@ layer construction or at the first attention call:
 | `TypeError: <Ascend…Impl>.__init__() got an unexpected keyword argument '<kwarg>'` | upstream `Attention.__init__` → the backend impl's constructor (`q_lora_rank`, `kv_lora_rank`, `rotary_emb`, …) |
 | `TypeError: rope_forward_oot() got an unexpected keyword argument '<kwarg>'` | a `forward_oot` CustomOp shim vs the *downstream* call site (`mla_v1.py`, `attention_v1.py`) |
 | `AttributeError: 'RotaryEmbedding' object has no attribute 'cos_cached'` under `torch._dynamo` | an attribute name that the paired library never sets, read only on the traced/graph path or from a plugin-patched module |
+| `TypeError: forward_native() takes from 3 to 4 positional arguments but 5 were given` | a **positional** over-supply: a downstream `forward_oot`/`forward` shim forwards an argument the upstream method's signature no longer has (Rule 5) |
 
 This is the *signature* half of drift. Neighbours: `patch-copy-vs-upstream.md` (a
 copied body lagging a state machine), `library-method-typo.md` (a misspelled library
@@ -100,9 +101,65 @@ have is the budget sink this page exists to prevent: #965 spent its whole 16 384
 cap and emitted **no message text on any turn** while the 0.7.3 row had been
 source-verified a third of the way in.
 
+## Rule 5 — an arity message counts `self`, and the printed range names the callee class
+
+`takes from 3 to 4 positional arguments but 5 were given` is a **positional**
+over-supply, not a kwarg. N and M are the callee's required and total positional
+parameters **including `self`**, and K counts the same way: under CPython,
+`def forward_native(self, positions, query, key=None)` bound as a method and called
+`f(positions, query, key, offsets)` prints exactly `from 3 to 4 … but 5 were given`
+(two-line `uv run --no-project python` repro, no source needed). So the printed range
+already names the callee shape, and the extra argument is in the shim:
+
+| range | callee |
+|---|---|
+| 3 to 4 | base `RotaryEmbedding.forward_native(self, positions, query, key=None)` — no `offsets` |
+| 4 to 5 | the DeepSeek-scaling / mRoPE subclass, whose `forward_native` still declares `offsets` |
+
+Worked case #3521 (vllm-ascend `v0.11.0rc0` `00ba0710` ↔ vllm `v0.11.0rc3`
+`8ce5d31`): upstream `vllm/model_executor/layers/rotary_embedding/base.py:82-86`
+declares `forward_native(self, positions, query, key=None)` (3–4), while
+`deepseek_scaling_rope.py:91-95` and `mrope.py:260-264` still declare `offsets`
+(4–5) — upstream kept `offsets` inside those two subclasses only. Downstream,
+`vllm_ascend/torchair/ops/torchair_rotary_embedding.py:36-52` (`rope_forward_oot`)
+forwards four positionals to `self.forward_native(positions, query, key, offsets)`
+whenever `torchair_graph_config.enabled and not is_qwen_torchair`, and
+`torchair/utils.py:206-218` (`torchair_ops_patch`, called from
+`torchair_model_runner.py:62`) binds that shim as `AscendRotaryEmbedding.forward_oot`
+(`:218`); `CustomOp.dispatch_forward` (`vllm/model_executor/custom_op.py:81-106`)
+selects `forward_oot` for the instance, so the shim is the live method. The Qwen2
+torchair call site passes `is_qwen_torchair=True` only *inside*
+`if type(self.rotary_emb) is RotaryEmbedding:` — the *upstream* class object
+(`torchair/models/qwen2.py:133-136`) — so the exemption belongs to that guard, not to
+the family: #3521 (a Qwen2-architecture checkpoint at the same pin) crashed through the
+unguarded **else** call `qwen2.py:136`, i.e. the installed instance failed the identity
+test there. `qwen3_moe.py:240,260` passes the flag explicitly and no recorded run
+exercises it, so claim an exemption only for the branch you can quote. The trigger is
+therefore **torchair graph mode on** plus a call site that never sets
+`is_qwen_torchair`. Case detail — the model-side selector (`rope_scaling`), the tutorial
+line and the reporter ladder — is `torchair-rope-native-arity.md`; this rule is the
+arithmetic every arity message gets.
+
+Two calls, then deliver: `rg -n -A6 'def forward_native' <upstream rope dir>` and
+`rg -n 'forward_native\(|<shim name>\(' vllm_ascend/`. Repair: do not forward
+`offsets` on the base path (its semantics live in the subclass bodies) — branch on
+`isinstance(self, …)`. Same-day rung for the reporter: torchair graph mode off
+(`--additional-config '{"torchair_graph_config": {"enabled": false}}'`) or the
+vllm-ascend release whose shim matches the installed vllm. Recheck both signatures at
+the image's pins; the range in the paste cannot go stale, the file lines can.
+
+Delivery: #3521 had the mechanism inside a message on its 20th turn ("… no longer
+accepts the 4th `offsets`, while `torchair_rotary_embedding.py:47` still passes it")
+and then re-read registration and escape hatches until the 16 384-token cap, shipping
+no verdict, no evidence table and no repair. An arity message is a two-grep answer:
+the ranked diagnosis, the patch direction and the reporter's workaround belong in the
+message that first names the mismatch.
+
 ## What to send back
 
 The image's `vllm_ascend/attention/` listing and `vllm_ascend/__init__.py`
 `__version__`, `pip show vllm`, the two signatures above, and — for the
 `cos_cached` row — `grep -rn 'cos_cached' $SITE/vllm $SITE/vllm_ascend
-$SITE/mindie_turbo`.
+$SITE/mindie_turbo`. For an arity message, the two signatures themselves:
+`python -c "import inspect, vllm.model_executor.layers.rotary_embedding as r; print(inspect.signature(r.RotaryEmbedding.forward_native))"`
+plus the matching `vllm_ascend` shim line.

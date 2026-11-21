@@ -110,6 +110,18 @@ at request time. The shapes:
   This is the one acceptance-collapse shape that is decided *above* the positions and
   block-table code, so the family grep comes before `acceptance-collapse.md`'s Step 3.
 
+- or there is **no error text at all**: the title says "同时开启 mtp+prefix cache 后，推理
+  报错" on a hybrid GDN model (`qwen3_5`) and the bug body is an upload failure or one
+  Chinese line, so the only evidence is the serve command
+  (`--speculative-config … "method": "qwen3_5_mtp"`, `--enable-prefix-caching`,
+  `--async-scheduling`, `FULL_DECODE_ONLY`). Then the pair itself is the finding: the
+  tutorial documents it (`docs/source/tutorials/models/Qwen3.5-27B.md:137`, with the
+  "block_size may be adjusted to 2048" caveat) while every validated row — the nightly
+  yaml, the 4-card `test_qwen3_5.py`, and the dense spec-decode e2e that hard-codes
+  `enable_prefix_caching=False` — runs it off, and at a v0.19+ ref the align-mode block
+  arithmetic (`MambaManager`, `num_speculative_blocks`) is the crash surface. Verdict +
+  ladder in the first message (`hybrid-mtp-prefix-cache-unvalidated.md`, worked #9003).
+
 Not this topic: a first-request fault whose only extra axis is PP > 1
 (`../pipeline-parallel/spec-decode-first-request.md`), a launch/startup failure
 (`../startup-failures/index.md`), a drafter that refuses to **load** (a load-phase
@@ -153,8 +165,12 @@ from the acceptance numbers.
 - **Two launcher axes are outside the project's own validated matrix for hybrid
   GDN models** (Qwen3.5/Qwen3.6, DeepSeek-V4, GLM): `--async-scheduling` together
   with spec decode, and `--enable-prefix-caching` together with MTP. Both are real
-  code paths with their own fix-ups (page below), so "it is supported, therefore
-  not the cause" is not available; they are ablation rows.
+  code paths with their own fix-ups, so "it is supported, therefore not the cause"
+  is not available; they are ablation rows. Which page owns the second one depends on
+  the **symptom**, not the SoC: corrupt text at normal acceptance on 310P is
+  `../accuracy-benchmarks/mtp-prefix-cache-310p.md`, while a **request-time failure
+  with little or no error text on any SoC** is `hybrid-mtp-prefix-cache-unvalidated.md`
+  (coverage verdict first, align-mode `MambaManager` asserts second, ladder third).
 - **A first-response-only symptom needs a restart reproduction before it gets a
   one-shot mechanism.** "The first decode after capture is wrong, the state is
   never zeroed for the first request" is a plausible story that a single report
@@ -184,6 +200,16 @@ from the acceptance numbers.
   ablation says "each feature alone is fine", names the branch condition rather than
   the kernel. Quote the invariant from the helper's own docstring before any source
   walk. Recorded #9088 (`ngram` + FULL, v0.19.1rc1) is that shape.
+  **The arithmetic only classifies while `N` exceeds the real schedule.** When
+  `queryT` is *smaller* than every plausible `M` (recorded #4771: `queryT(1)` beside
+  `actualSequenceLengthQ(33)` and `(2)` in one record, on an eagle3 + dense Qwen2.5
+  launch at v0.11.0rc2), the padding-bucket story is excluded — at a v0.11 ref that
+  branch's own `arange` ends one element short and can only ever give `N = M + 1` —
+  and the pair is the *device record* instead: an AICPU task exception
+  (`kernelName=ScatterElements`, `retCode=0x2a`, `task_id`/`stream_id`/`chipId`) or a
+  second op's refusal in the same block. Then ask for the plog's
+  `[AIC_INFO] fault kernel_name=` segment and put `--enforce-eager` first
+  (`fia-tnd-seqlen-mismatch.md` §*Third reading*).
 
 - **Three tracebacks from a spec-decode deployment are usually one provenance.**
   Read them bottom-up: the worker exception is causal, the EngineCore `None`
@@ -314,6 +340,15 @@ from the acceptance numbers.
   ngram row that splits draft-side from verify-side, the upstream `method` gate, and the
   support-plan paragraph (three support levels, prerequisites with anchors, the flip
   test) — worked #16980, gemma4 MTP on 910B at v0.23.0.
+- `hybrid-mtp-prefix-cache-unvalidated.md` — hybrid GDN + `qwen3_5_mtp` +
+  `--enable-prefix-caching` reported with **no error text**: the documented-but-never-
+  tested pair (tutorial `Qwen3.5-27B.md:118,137` vs the nightly yaml / 4-card e2e /
+  `enable_prefix_caching=False` in the dense spec-decode e2e), why `--mamba-cache-mode
+  align` is redundant (upstream auto-default `models/config.py:436-472`), the plugin's
+  copy (`patch_mamba_config.py:104-107`), the request-time
+  `AssertionError` surface in upstream `MambaManager` (`single_type_kv_cache_manager.py:937-1005`,
+  `:961`/`:1003`/`:1005`), the six-rung ladder, and the worked #9003 row
+  (v0.19.1rc1, where 20 tool turns produced 19 characters of message text).
 - `../accuracy-benchmarks/mtp-prefix-cache-310p.md` — when spec decode is the
   *second* feature on a **310P** hybrid model: MTP over an `align`-mode prefix cache
   (per-block SSM state, `num_speculative_blocks`, `accept_token_bias`, the fp16 state

@@ -95,6 +95,17 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   changed two) and go to `hybrid-block-size-corruption.md`. A short *digit-heavy*
   prompt on the same model family (Qwen3-Next) with **no** knob difference is the
   other hybrid shape: `qwen3-next-gdn-numeric-path.md`.
+- **A repeated newline/punctuation loop from a reasoning distill at low temperature
+  is the sampler value, not a code path.** DeepSeek-R1-Distill-Qwen-7B/32B offline
+  `LLM.generate` returns `'\n\n,\n\n ( (\n ( or'` at temperature ≤ 0.1 and
+  normal text at `temperature=0.6` — reporter-confirmed #7191, *"anything number
+  >0.1"*, after the same script had "failed from v0.7.3 to v0.11.0". So here the
+  greedy row is the reproducing condition rather than the control that the
+  `sampler-side-stream-corruption` / `repeated-run-nondeterminism` rules below
+  impose, and the first ladder rung *raises* the temperature. Read the pasted
+  `SamplingParams` as a claim about the run, not as the run: #7191's body names
+  0.6 while its sample is the low-temperature one →
+  `short-prompt-corruption.md` §*Grade the symptom first*.
 - **The whole answer is one repeated character or token** (`!!!!!!!!`, `，，，`, a
   single word) on a text serve: grade it at the id level before any theory, because
   a constant character is a constant token id and a constant-tie logits vector

@@ -12,6 +12,11 @@ Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deeps
   request** dies with `MTE accesses an invalid GM address` (`0x800000`) in a
   KV-reading kernel under `FULL_DECODE_ONLY`, and a benchmark client that only
   reports `ConnectionResetError` afterwards — `dcp-c8-kv-address-fault.md`;
+- the same DCP (`--decode-context-parallel-size` > 1) × `enable_sparse_sfa_c8`
+  deployment that starts cleanly and returns **garbled output with no fault**, reported
+  as a config matrix ("dcp=8 乱码 / dcp=16 正常 / dcp=8 且 sfa_c8=false 正常") — the
+  `dcp == tp` gate, the skipped interleave override, the pin's "not recommended" line
+  and the in-tree coverage — `dcp-c8-accuracy-garble.md`;
 - a `npu_kv_rmsnorm_rope_cache` `cos or sin shape is invalid` /
   `do tiling failed, ret is -1` after a healthy run, i.e. the op's attribute check refusing
   the rows this batch handed it (graph bucket, DSA-CP slice, chunked-prefill chunk) —
@@ -37,8 +42,10 @@ Reports on the DeepSeek-V3.2-Exp family (DSA / SFA — `vllm_ascend/models/deeps
 
 Not this topic: startup failures before the engine is ready (see
 `../startup-failures/index.md`), generic collective/HCCL faults
-(`../hccl-and-hardware/index.md`), and a silent numerical gap with no fault
-(`../accuracy-benchmarks/index.md`). PCP/DCP enabling for the same model is
+(`../hccl-and-hardware/index.md`), and a silent numerical gap with no fault and no
+DCP/C8 flag in the command (`../accuracy-benchmarks/index.md`). **With DCP > 1 and
+`sfa_c8` on, an accuracy-only or 乱码 report is this topic's
+`dcp-c8-accuracy-garble.md`, not the accuracy topic.** PCP/DCP enabling for the same model is
 `../feature-enable-recipes/context-parallel-pcp-dcp.md`; FLASHCOMM1 on a DSA model
 is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
 `o-proj-quant-attribute-crash.md`.

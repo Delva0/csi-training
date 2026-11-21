@@ -133,7 +133,11 @@ has parameters, which at this family of checkpoints usually means a **full-preci
 release** was served where the tutorial lists only the quantised variant —
 `weight-scale-keyerror-quant-variant.md` (census first, `--quantization ascend`
 second). A plain `.weight` name raised from `is_layer_skipped_ascend` rather than from
-`params_dict[name]` is neither of those: it is section C, a renamed foreign format. The **offset** form reads differently and that page's `.weight_offset`
+`params_dict[name]` is neither of those: it is section C, a renamed foreign format —
+**unless the quoted key starts with a dot** (`KeyError: '.weight'`, i.e. an empty
+prefix), which is not a format question at all: `empty-prefix-quant-keyerror.md` — an upstream model file that
+builds its `embed_tokens` without `prefix=`, met by the downstream hard dict index,
+and fixed by that one missing kwarg. The **offset** form reads differently and that page's `.weight_offset`
 section owns it: at v0.8.5rc1 only `W8A8_DYNAMIC` allocates MoE offsets (the static
 `W8A8` MoE raises `NotImplementedError` before load), so a load-phase
 `…mlp.experts.w2_weight_offset` `KeyError` means the description in effect marked the
@@ -177,7 +181,9 @@ and the `args:`/`Initializing a V0 LLM engine` line already shows
 **#2960**: `Qwen2.5-32B-Instruct-GPTQ-Int8`, vllm-ascend v0.9.0rc2 `8dd686d` + vllm
 v0.9.0 `5873877`). Not section A — nothing was refused — and not the `weight_scale`
 page: the missing key is a plain `.weight`, and the frame is the **quant-method
-lookup**, not `params_dict[name]`.
+lookup**, not `params_dict[name]`. The key still carries a **module path** here; a key
+that is only `.weight` (`KeyError: '.weight'`, empty prefix) is
+`empty-prefix-quant-keyerror.md`, where the checkpoint's format is innocent.
 
 The chain, source-verified at that pin:
 

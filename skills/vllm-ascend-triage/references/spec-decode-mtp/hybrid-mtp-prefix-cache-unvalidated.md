@@ -40,6 +40,14 @@ Coverage — the pair is documented, never tested:
 | `docs/source/tutorials/models/Qwen3.5-27B.md:118` | the tutorial's own serve block passes `--no-enable-prefix-caching` |
 | `docs/source/tutorials/models/Qwen3.5-27B.md:137` | the same page *documents* enabling it — `--enable-prefix-caching` plus `--mamba-cache-mode align` — and adds the caveat to quote verbatim: the hybrid KV implementation "might result in a very large block_size when scheduling. For example, the block_size may be adjusted to 2048, which means that any prefix shorter than 2048 will never be cached" |
 
+**The linked tutorial is usually the previous release's build.** Recorded #9579 quotes
+`https://docs.vllm.ai/projects/ascend/en/v0.18.0/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.html`
+while its env dump says `0.19.1rc1`, and the merged `Qwen3.5-27B-Qwen3.6-27B` page exists in
+neither exported tree — `v0.18.0rc1` and `v0.19.1rc1` both carry
+`docs/source/tutorials/models/Qwen3.5-27B.md`, which is where the two anchors above live.
+Answer from the reporter's own pin and say which ref you verified; do not chase the URL
+(`../tutorial-verification/docs-version-space-and-image-tag.md`).
+
 Config facts that keep the answer honest:
 
 | anchor | fact |
@@ -128,6 +136,18 @@ puts the regression inside the v0.19 line, where the release notes list the rewo
 Run that search first: the recorded #10326 run reached it at its 8th tool turn, after four
 source reads the precedent would have replaced, and still ended its first turn
 output-truncated at the 16 384-token completion cap.
+
+**A 0-hit corpus is the normal result in most case views and it changes nothing.** Recorded
+#9579 (v0.19.1rc1 + vllm v0.19.1, Qwen3.5-27B, "if the server config includes prefix-cache,
+it will abnormal shut down" — no traceback, no serve command) got `0 hits` from the same
+`-b` call: that view's corpus ends at #8849, so neither #9024 nor #10326 can appear in it.
+It then spent two `github /search/issues` pages (both `total_count` 1, i.e. the issue being
+read) plus greps of `enable_prefix_caching`, the two nightly yamls and
+`supports_mamba_prefix_caching` to re-derive anchors already in the table above, and shipped
+its ranked verdict on the 22nd of 24 assistant turns. The ids above are this page's own
+record — quote them and stop. A `/search/issues` call needs a **lexical** signature (an
+exception class, an op name); with no traceback in the paste there is nothing to match, and
+the coverage verdict does not depend on it.
 
 ## Ladder (one axis per launch, cheapest first)
 

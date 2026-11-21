@@ -6,6 +6,13 @@ Verified at vllm-ascend **v0.8.5rc1** (`ec27af3`) with vllm **v0.8.5.post1**
 CANN 8.1.rc1), reproduced by both an `LLM()` example and an `AsyncLLM` script.
 Re-grep the line numbers per release; the ordering below does not move.
 
+**Sibling shape, different backend:** the same silence after the worker-constructor
+warning with `(RayWorkerWrapper pid=…)` prefixes and no `vllm serve` line is a
+*programmatic* Ray start (`AsyncLLM.from_engine_args` in a trainer), where the rank
+arity is Ray's business and the waiting frame is upstream's startup poll —
+`ray-programmatic-init-hang.md`. Read that page instead when
+`distributed_executor_backend="ray"`; the `RANK`/`WORLD_SIZE` checks here do not apply.
+
 ## The shape
 
 The title says "process deadlock during driver initialization … works when TP is 1,

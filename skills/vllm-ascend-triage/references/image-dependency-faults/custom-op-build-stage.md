@@ -14,7 +14,9 @@ of <symbol>`, a header `No such file or directory`, then a `CalledProcessError` 
 install command is normally `python setup.py install` or `pip install .` with
 `COMPILE_CUSTOM_KERNELS=1` exported, as in the pinned page's sleep-mode note.
 
-Not this page: a pip **resolution** error (`pip-index-visibility.md`), the
+Not this page: a pip **resolution** error (`pip-index-visibility.md`), the pybind11 CLI
+rename that fails **before** any CMake work (`pybind11-cmake-option-rename.md` — `--cmake`
+vs `--cmakedir`, build isolation), the
 third-party **fetch** legs of the same build (`offline-source-build.md`), and a host
 C++ compile of a generated TU **at engine start**
 (`host-cxx-compile-header-conflict.md`).
@@ -37,6 +39,7 @@ still a version-contract defect: `../startup-failures/environment-correspondence
 |---|---|---|---|
 | `setup.py` in `get_requirements`/`_read_requirements`, `setuptools` | python metadata | vllm-ascend | the requirement line it died on |
 | `CMake configuration failed`, `cmake_minimum_required`, `ascendc_kernel_cmake does not exist` | cmake configure | vllm-ascend `CMakeLists.txt`, else a missing/mis-set CANN | `echo $ASCEND_HOME_PATH`; `ls $ASCEND_HOME_PATH/tools/tikcpp/ascendc_kernel_cmake` |
+| `usage: __main__.py [-h] [--version] [--includes] [--cmakedir] …` + `__main__.py: error: unrecognized arguments: --cmake`, under `running build_ext` and after the `Found existing ASCEND_HOME_PATH/PYTHON_EXECUTABLE` lines | cmake configure (pre-CMake), the `vllm_ascend_C` pybind extension's prefix path | vllm-ascend `setup.py`'s `python -m pybind11 --cmake` call plus the bare `pybind11` build requirement — pybind11 3.0 renamed it (`pybind11-cmake-option-rename.md`; pinned `setup.py:178-180` already uses `--cmakedir`) | the sdist's own `setup.py`, then `PIP_CONSTRAINT`/`--no-build-isolation` |
 | `ccec_compiler`, `ascendc_pack_kernel`, `[NN%] Building … _aiv_device` | AscendC kernel compile/pack | the CANN toolkit | the kernel file the compiler named |
 | CANN `recompile_binary.py` → `CalledProcessError`, `ld returned 1 exit status`, `collect2: error: ld returned 1 exit status` | kernel host **relink** | the CANN toolkit | the `recompile:` line it just printed |
 | `…host_stub_obj…`, `Linking CXX shared library lib/libvllm_ascend_kernels.so` | host stub link | the CANN toolkit | the object list on that line |
@@ -113,6 +116,48 @@ not this tree. One `python -c "import vllm_ascend; print(vllm_ascend.__file__)"`
 (`plugin-load-module-missing.md` for the general residue
 case, `wrong-vllm-module-shadowed.md` when the tail is `(unknown location)`).
 
+## Step 1c — `Error 1` with **no** compiler line at all
+
+The paste may start at the `gmake` lines: `CMakeFiles/vllm_ascend_C.dir/csrc/torch_binding.cpp.o`
+`Error 1` → `CMakeFiles/Makefile2` → `Makefile:… vllm_ascend_C Error 2` →
+`CalledProcessError: … ['cmake', '--build', '.', '-j=<N>', '--target=vllm_ascend_C']`,
+then the `setup.py` `build_ext` traceback. That is **#676** (v0.8.4rc1 `086423d`,
+x86_64 openEuler 24.03, `python setup.py develop`), and its attached screenshot's
+`.ocr.txt` repeated the same traceback — so the screenshot is not extra evidence and
+the compiler diagnostic really is missing. Say that in the first line instead of
+picking a lane from the paste; then give the ladder that produces the line:
+
+```bash
+MAX_JOBS=8 pip install -v -e . --no-build-isolation 2>&1 | tee build.log
+grep -nE 'TORCH_NPU_PATH is|error:|fatal error|Killed|Error 1' build.log
+```
+
+Three owners fit a paste that shows only `Error 1`, and each has one check:
+
+| Owner | What the full log carries | Check |
+|---|---|---|
+| empty `${TORCH_NPU_PATH}` (step 1b) | `fatal error: torch_npu/csrc/…: No such file or directory` | the configure block's `TORCH_NPU_PATH is …` |
+| `cc1plus`/`c++` killed by the OOM killer | `c++: fatal error: Killed signal terminated program cc1plus`, or **nothing** but `Error 1` when the driver itself is killed | `dmesg -T` and look for `killed process`; rerun with `MAX_JOBS=8` |
+| the reporter trimmed the paste | an `error:`/`note:` block he cut | the 20 lines above `gmake[3]` |
+
+Source-verified at v0.8.4rc1: `setup.py:88-100` `compute_num_jobs()` takes `MAX_JOBS`
+when set and otherwise `len(os.sched_getaffinity(0))`, and `:237` passes
+`-j={num_jobs}` straight to `cmake --build` — so a 192-core box builds with `-j=192`,
+and the fan-out is printed inside the traceback's own `CalledProcessError` command.
+The toolchain gate is documented, not enforced: `CMakeLists.txt:6`
+`set(CMAKE_CXX_STANDARD 17)` plus `docs/source/installation.md:181` "gcc/g++ higher
+than 8 and c++ 17 or higher" — an old `g++` (or no `g++` beside a working `gcc`) fails
+the first TU, so ask for `gcc --version; g++ --version` in the same request.
+
+One free discriminator, labelled a heuristic: under `-j=<nproc>` a **global** include
+or flag fault fails many TUs, so a log with a single `.o Error 1` favours the OOM or a
+single-file error; many favours step 1b. #676's paste showed one — and its later
+`collect_env.py` (posted two days later) settled the rest: CANN 8.1.RC1, gcc 12.3.1,
+192 CPUs, `torch 2.5.1+cpu` / `torch-npu 2.5.1.dev20250320` — i.e. the documented pair
+(`installation.md:12-17`) and a modern toolchain, which leaves the 192-way `-j` and
+the include root. That issue stayed open in public: `COMPILE_CUSTOM_KERNELS=0` was
+rebuffed (step 3) and a later pointer to PR #664 did not fix it either.
+
 ## Step 2 — `multiple definition` at the kernel link is one source under two spellings
 
 Recorded **#1774** (v0.7.3.post1, 910B, CANN 8.1.RC1, `python setup.py install`,
@@ -157,7 +202,14 @@ When `build/` is already gone, the paste is the record and the shape above is en
 
 ## Step 3 — the ladder (a working install first, the mechanism second)
 
-1. **Skip the custom-op build** — one command, and the rung that ended #1774:
+1. **Skip the custom-op build** — one command, and the rung that ended #1774 — but
+   **say whom it does not answer: a reporter who is developing custom ops.**
+   Recorded #676: 「Similar to issue #591 … set COMPILE_CUSTOM_KERNELS=0」 was met with
+   「We want to use the ability of custom operators for develop」, and a following
+   「#664 might be useful」 with 「it still has the same problem using #664」. For that
+   reporter the skip is a *diagnostic* rung (it separates "the extension build is
+   broken" from "the Python metadata is broken"), never the fix — lead with the missing
+   diagnostic and the step 1b/1c lanes, and label this one with its cost.
 
    ```bash
    cd "$(pwd -P)"
@@ -167,7 +219,9 @@ When `build/` is already gone, the paste is the record and the shape above is en
    ```
 
    Source-verified consequence at the pin: `build_extensions` returns at once
-   (`setup.py:217-218`), the extension is never declared (`:297-298`), and at import
+   (`setup.py:217-218`; `:207-209` at v0.8.4rc1), the extension is never declared
+   (`:297-298`; the `ext_modules` block is itself gated by
+   `if envs.COMPILE_CUSTOM_KERNELS:` at `setup.py:288` at v0.8.4rc1), and at import
    `vllm_ascend/platform.py:28-38` swallows the `ImportError` and logs
    `Warning: Failed to register custom ops, all custom ops will be disabled`. Say what
    it costs: no custom ops, and the pinned page states the custom-op build is what

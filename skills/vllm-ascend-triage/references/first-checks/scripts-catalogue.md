@@ -299,7 +299,12 @@ after that keeps the header, not this text.
   `Graph capturing finished` rank count, the crash dump's `cudagraph_mode` tuple with
   its name (`[2,0]` = `FULL_DECODE_ONLY`), and whether the stalled step was a
   new/prefill request — and names `aclgraph-full-decode-runtime-hang.md` when the
-  mode engaged (#4178).
+  mode engaged (#4178). When the same paste names a dump/profiler feature
+  (`dump_config_path`, `dump_config`, `PrecisionDebugger`, `msprobe`,
+  `--profiler-config`, `collect_detailed_traces`), it reports the inverted lane
+  instead: the step is slow on purpose and raising
+  `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` before the launch is the fix
+  (`../hccl-and-hardware/rpc-watchdog-timeouts.md`, #15015).
 - `scripts/mm-placeholder-count.py --tile HxW [--tile … | --grid HxW …] [--patch 14]
   [--mode 16x|4x] [--merge 2] [--stages N] [--placeholders M] [--features N]` —
   the two multimodal token counts of one request side by side (#14014): the

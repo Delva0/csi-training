@@ -1093,3 +1093,20 @@ base class (`SpecDecodeBaseProposer(EagleProposer)` receiving the flag `True` fr
 `eagle.py:1691-1696` and the flag reassigned at `eagle_proposer.py:95`). The lesson is
 one grep at the top of the session: *which* `__init__` computes the derived flag —
 `../spec-decode-mtp/draft-model-serial-hidden-size-crash.md` (new).
+
+**#6424** vllm-ascend v0.11.0 (`2f1aed98ccdb`) / vllm v0.11.0 (`b8b302cde434`) pinned,
+reporter on v0.11.0 (bge-m3, 910B, CANN 8.3.RC2, K8s, `/dev/shm` already cleared by
+the reporter): `POST /v1/embeddings` hangs to timeout while the server logs
+`(APIServer pid=1) INFO: 10.16.x.x:0 - "POST /v1/embeddings HTTP/1.1" 200 OK` and a
+`(Worker_TP0 pid=411)` `torch.save with "_use_new_zipfile_serialization = False" is
+not recommended for npu tensor` warning. The recorded run found the one grep that
+closes the warning (the same text in this release's own embedding tutorial,
+`docs/source/tutorials/single_npu_qwen3_embedding.md:96`, printed in a successful run)
+and still spent the rest of the budget on the ZMQ/tensor serialization path
+(`vllm/v1/serial_utils.py`, `torch/_tensor.py::_reduce_ex_internal`,
+`outputs.py:230`'s `.tolist()`) — 8 assistant turns, 12 tool calls, ~55 K characters
+of reasoning, one 363-character message, no verdict, cut at the cap. The
+discrimination it never used: the body is materialised in the API server
+(`serving_embedding.py:134` → `outputs.py:225-230`) *before* the 200 is written, so a
+completed response is a transport statement and one in-pod loopback `curl` decides it.
+Page (new): `../pooling-embedding/client-hang-after-200-ok.md`.

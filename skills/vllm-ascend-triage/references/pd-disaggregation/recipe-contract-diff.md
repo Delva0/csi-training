@@ -16,6 +16,16 @@ sparse-attention MoE** models and DeepSeek-V3.x is MLA — neither is a GDN/Mamb
 hybrid; the hybrid connector is the DeepSeek-V4/Qwen3.5-family recipe
 (`hybrid-state-transfer.md`).
 
+Row 1 is a **registry key**, not a class name: the factory resolves `kv_connector`
+against `KVConnectorFactory._registry` *before* it ever reads
+`kv_connector_module_path`, and every downstream connector is registered under a
+suffixed key (`MooncakeConnectorV1`, `MooncakeLayerwiseConnector`,
+`MooncakeHybridConnector`), because the bare upstream keys are taken. So a serve line
+that pairs an upstream name with a `*_module_path` runs *upstream's* class, and that is
+a distinct finding from "this side copied the wrong recipe" —
+`connector-name-registry-collision.md` (its symptom is a crash inside upstream's
+`register_kv_caches`, not wrong tokens).
+
 ## The four invariants to check (each one grep of the paste)
 
 | # | Invariant at v0.23.0rc1 (`f4a08bd`) | Where the recipe states it |

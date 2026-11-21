@@ -207,6 +207,17 @@ Not this topic, leave immediately:
   claim) and a user-set `max_cudagraph_capture_size` that the log says was
   **truncated** before it took effect. A flat bare-HCCL all-gather benchmark, if
   the reporter offers one, retires the transport lane for the whole family.
+- **The graph lane is one flag in the reporter's command, and the same flag is a cost on
+  one symptom and a cure on the other.** At v0.10.x, `--enforce-eager` (or
+  `--compilation-config '{"level":0}'`) forces `NO_COMPILATION`
+  (`platform.py:143-145`, log `Compilation disabled, using eager mode by default`), while a
+  command without it and without a torchair block runs `PIECEWISE` ACL graph (`:162-168`).
+  So a throttled decode whose own command carries the flag is answered by *removing* it,
+  and a corruption report on a `--enable-expert-parallel` + `--data-parallel-size` serve
+  whose command does *not* carry it is answered by *adding* it — the pinned release lists
+  "Aclgraph could not work with DP + EP currently" (`release_notes.md:53`, #2229). Pick the
+  direction from the flag before ranking mechanisms; details and both recorded runs:
+  `graph-mode-from-the-serve-line.md`.
 - **On a hybrid GDN MoE, a low single-digit `Avg generation throughput` with
   `Running: 1` may be the release, not the flags.** When the project's own
   tutorial command at that ref already carries `--enforce-eager` and caps graph
@@ -395,8 +406,19 @@ Not this topic, leave immediately:
   DeepSeek MTP recipe is K=1 (`pd_disaggregation_mooncake_multi_node.md:255,315,…`,
   `DeepSeek-R1-W8A8-A2.yaml:33,55`), and #3097 prices the PD MTP gain at +8.6 % and the
   eager step at 4× — worked #5605, which shipped no message text.
+- `graph-mode-from-the-serve-line.md` — a 2×N 910B MoE serve at v0.10.x whose *command*
+  has `--enforce-eager` (or the `torchair_graph_config` key, or a ray backend) and whose
+  complaint is a 300-500 ms/token decode: read the compiled level off the command
+  (`platform.py:143-168` at v0.10.0rc1, one log line per branch), the depth-divided
+  capture clamp that replaces today's `max_cudagraph_capture_size` (`utils.py:47,309-361`),
+  and the same page's second half — the *inverse* rung for a DP+EP corruption report whose
+  command has no `--enforce-eager`, where the release's own Known-Issues row (#2229) owns
+  the lane.
 - `moe-comm-path-when-ep-off.md` — a DP×TP MoE perf report whose command has
-  `--enable-expert-parallel` missing or asymmetric (#2833, GLM-4.5 on 2×8×910B2 at
+  `--enable-expert-parallel` missing or asymmetric — **not** a command that carries the
+  flag on both nodes, however well the model/card count match this row (recorded #2446
+  was routed here by such a match and had to leave the page: `graph-mode-from-the-serve-line.md`)
+  (#2833, GLM-4.5 on 2×8×910B2 at
   v0.10.1rc1): the `ep_size`/`_get_fused_moe_state` table (`1` → AllGather,
   `≥16` decode → MC2) at the ref where the choice is logged **nowhere**, the tutorial
   the release note points at and why its `torchair_graph_config` block raises on

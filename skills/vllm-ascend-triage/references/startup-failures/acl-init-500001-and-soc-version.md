@@ -61,6 +61,18 @@ reported (#302 comment 2716169193, 2025-03-12).
 | `310P3` | `Ascend@910B…` (or any name the card cannot report) | the runtime did not bind to this card: the mounted host driver/firmware, or a toolkit/opp inside the container that is not the card's line. Name the conflict before anything else |
 | matches the card | `500001` still | the container lane first: re-run the **same** `docker run` with `--privileged=true` added and nothing else changed — the reporter-confirmed fix on #302 (910B2, documented mounts, SoC matching). Only if that clears nothing: host driver/firmware older than the image's CANN base, or a device unusable inside the container. A matching line exonerates nothing, and the flag does not say *which* device or capability was short |
 
+## Sibling variant: the same phase without `500001` is a FILE question
+
+If the paste carries `RealPath:Path '<…>/<arch>-linux/lib64/../data/platform_config' does not
+exist.` + `InitializePlatformInfo:File path[] is not valid.` and a final
+`RuntimeError: Get ACL JitCompile default value failed.` — with the SoC name resolved and **no**
+`SetPrecisionMode … 500001` — this page's lane ends: the failure is a missing directory/path in
+the container's CANN tree, the mechanism is readable at
+`cann/runtime/src/platform/platform_info.cpp` (exported, unlike `cann/ge`), and neither
+`--privileged` nor the driver pairing is the lever →
+`platform-config-file-missing.md`. Two reads, and the `lib64/…` prefix in the message is the FE
+`.so`'s own real directory.
+
 ## Containerized run: one flag, one variable, before any pairing theory
 
 The documented `docker run` (`docs/source/quick_start.md:15-30` at v0.7.1rc1,

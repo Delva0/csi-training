@@ -27,6 +27,15 @@ Two conditional routes before the ranked list below:
   out in `../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`. Read it
   instead of re-deriving shapes from source — that derivation is what has
   consumed sessions.
+- **The step is deliberately slow, not stuck** — the launch carries a
+  debug/profiling feature (precision dump through
+  `--additional-config '{"dump_config_path": …}'` or `dump_config`, i.e. `msprobe`'s
+  `PrecisionDebugger`; or `--profiler-config` / `collect_detailed_traces`) and the
+  paste's method is `sample_tokens` or `execute_model` on a serve that had just
+  answered its first request: the deadline is the *finding*, the workers were
+  healthy, and raising `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` **is** the fix — the
+  one lane where it is (§ *A deliberately slow step* below). Do not rank a dead
+  worker here.
 
 ## What the frames are (verified at the pinned commits)
 
@@ -80,6 +89,48 @@ the direction and the next artefacts in one call, plus the graph-mode evidence
 (mode banner, capture-finished ranks, the dump's `cudagraph_mode` tuple) that decides
 whether the stall belongs to the mode's request path — `aclgraph-full-decode-runtime-hang.md`.
 
+## A deliberately slow step: the deadline is the finding
+
+Recorded #15015: vllm-ascend `v0.20.2rc1` (`367b8e62`) + vllm `v0.20.2`
+(`bc150f50`), 4×910B, Qwen2.5-7B-Instruct, `--tensor-parallel-size 2
+--max-model-len 1024 --max-num-batched-tokens 25 --enforce-eager
+--additional-config '{"dump_config_path": "dump/config.json"}'` with a
+`{"task": "tensor", "dump_enable": true, "dump_path": …}` file. The first
+`/v1/chat/completions` request ended in `TimeoutError: RPC call to sample_tokens
+timed out.` + `EngineDeadError` about 300 s later, with `(EngineCore pid=…)`
+frames only, no device or HCCL text, and a trailing
+`(Worker_TP0 …) Parent process exited, terminating worker queues` — that line is
+teardown, not the fault.
+
+**Read the launch command for a dump/profiler feature before ranking a dead
+worker.** When one is there the workers are healthy by construction and the
+classification flips: the framework's own deadline is shorter than a step the
+reporter asked to make slow. Anchors below verified at those two pins; re-grep per
+release.
+
+| Fact | Site |
+|---|---|
+| both step RPCs carry the deadline | `vllm/v1/executor/multiproc_executor.py:314` (`execute_model`), `:326` (`sample_tokens`) — `timeout=envs.VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` |
+| default, and that a shell `export` always wins | `vllm/envs.py:195` (`= 300`), `:1425-1429` (`lambda: int(os.getenv(…, "300"))`, read per access) |
+| it applies only with **TP > 1** | the comment at `vllm/envs.py:1424`; `UniprocExecutor` never issues this RPC. A TP=1 rerun of the same dump is the cheap control |
+| why the error names `sample_tokens` although the dump runs in the forward | `async_scheduling` resolves to **True** when unspecified (`vllm/config/vllm.py:798`, `:838`), `max_concurrent_batches` then returns 2 (`multiproc_executor.py:474-478`), so `batch_queue` exists (`vllm/v1/engine/core.py:188-193`), `step_fn` is `step_with_batch_queue` (`:214-216`) and the blocking `future.result()` that raises is the queued **sample_tokens** future (`:521`). Both RPCs share one deadline from one instant, so the method name is the future that was popped — not evidence that sampling is slow |
+| nothing disables it | `deadline = now + timeout`; `0` means *instant* timeout, not "off" |
+| a second watchdog the env var does not cover | `check_health` uses `timeout=10` (`multiproc_executor.py:470-471`, reached from `vllm/entrypoints/serve/instrumentator/health.py:30`): a worker inside a minutes-long dump cannot answer, and the execute-model bound does nothing for it. Ask whether a readiness prober points at that server, and expect `RPC call to check_health timed out` as the next signature |
+| the downstream dump path never relaxes it | `vllm_ascend/ascend_config.py:96` → `_resolve_dump_config_path` (`:317-332`, `_materialize_dump_config_to_file` at `:307-313`), `PrecisionDebugger` built at `vllm_ascend/worker/model_runner_v1.py:299-307`; `rg -n 'VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS' vllm_ascend/` returns docs and tests only |
+| the guide documents the dump and never the deadline | `docs/source/developer_guide/performance_and_debug/msprobe_guide.md` (450 lines) has zero `timeout` / `VLLM_EXECUTE` matches at that pin |
+| raising it is the project's own lever for heavy runs | `docs/source/tutorials/models/Kimi-K2.5.md:356` (`=30000`), `tests/e2e/nightly/single_node/models/configs/MTPX-DeepSeek-R1-0528-W8A8.yaml:10` (`"3600000"`) |
+
+Then the answer, cheapest first: (1) the export before launch, same request;
+(2) shrink what the dump does — `"level": "L0"`, a `step` range, `async_dump:
+true`, or `task: statistics` instead of `tensor` — because a dump that outruns a
+300 s deadline on every step is volume, not timeout tuning (precedent #6716: the
+guide's own example config produced **empty** data for that reporter, so validate
+the dump before tuning it); (3) if implemented as a downstream fix, auto-relax
+**inside the EngineCore process** — the deadline is built by EngineCore's
+`collective_rpc`, so setting the variable in `model_runner_v1.py` where the
+debugger is constructed is too late; `os.environ.setdefault` from the platform's
+`check_and_update_config` keeps an explicit user value.
+
 ## Why DP>1 makes one stalled rank hang everyone (source-verified, v0.9.2rc1)
 
 - Every MoE layer does a **cross-DP** collective when `dp_size > 1`:
@@ -124,7 +175,9 @@ Actions in order: env + flags from the recipe → `--enforce-eager` re-run →
 `--data-parallel-size 1` at the same world size (removes the DP collectives) →
 TP=8/DP=2 → `ASCEND_LAUNCH_BLOCKING=1` re-run for attribution (it needs
 `cudagraph_mode == NONE`, so pair it with `--enforce-eager`). Raising
-`VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` buys observation time; it is never the fix.
+`VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` buys observation time in this stalled-rank
+lane and is never the fix here; the one lane where it *is* the answer is a
+deliberately slow dump/profiler step (§ *A deliberately slow step*).
 
 **Do not rank `--enable-expert-parallel` off as "the cross-DP collective removed".**
 At vllm-ascend v0.10.2rc1 (`048bfd5`) `_get_fused_moe_state(ep_size, with_prefill)`
@@ -142,7 +195,10 @@ driver / torch_npu versions, and whether any timeout env var was raised.
 ## Scope
 
 Bound to vllm `v0.9.2` line numbers: re-grep `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS`
-and the `raise TimeoutError` sites per version before quoting lines, and re-read
+and the `raise TimeoutError` sites per version before quoting lines (at vllm
+`v0.20.2` they are `multiproc_executor.py:314`, `:326`, `:470-471` and
+`envs.py:195`, `:1425-1429` — the v0.9.2 numbers in the table above no longer
+exist, so the line numbers are per-pin while the classification is not), and re-read
 the DP/EP anchors (`fused_moe.py`, `model_runner_v1.py`, `platform.py`) if the
 deployment is graph-mode or EP. The classification — *watchdog, not HCCL* — holds
 whenever the frames are `multiproc_executor.py` + `shm_broadcast.py`; if the paste

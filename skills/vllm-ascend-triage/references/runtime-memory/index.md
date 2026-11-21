@@ -124,6 +124,12 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    offending term; `gpu_memory_utilization` is a **per-instance** limit
    (`vllm/config/cache.py:66-74` at v0.22.1), so "raise the ratio, it includes the
    other instance" is not the fix — `kv-budget-per-instance-vs-device-global.md`.
+   **A single instance on a quiet device with `Available memory: 0` has the other
+   owner**: the profiling dummy forward is sized by `max_model_len` there, so the
+   peak term — not bookkeeping — is what exceeds the budget, and raising the ratio
+   changes nothing (recorded #3843: 0.5 → 0.9, same error). Read `Using max model
+   len N` from the log first; the mechanism and the context-preserving levers are
+   `../startup-failures/max-model-len-budget.md`.
    On a *negative* budget the log line is not the whole user-visible surface: the
    scheduler path reaches upstream's `_check_enough_kv_cache_memory`, which already
    raises `ValueError("No available memory for the cache blocks. Try increasing

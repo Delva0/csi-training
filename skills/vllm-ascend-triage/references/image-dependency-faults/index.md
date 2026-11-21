@@ -84,6 +84,17 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   (`0.7.3+empty`) beside another env's install. One `python -c "import
   vllm_ascend, sys; print(sys.executable, vllm_ascend.__file__)"` in the serving
   env decides it; the device, CANN and driver are innocent.
+- The same title error, but the plugin **loaded and then its hook raised**:
+  `INFO … plugin ascend loaded.`, no `ERROR Failed to load plugin ascend`, no
+  `Platform plugin ascend is activated`, then `No platform detected …` →
+  `platform-plugin-register-raised.md`. vllm v0.7.1 calls the hook inside
+  `except Exception: pass` (`platforms/__init__.py:153-161`), so the traceback is
+  gone from the paste; at v0.7.1rc1 the hook's first statement imports the quant
+  config, whose bare `import torch_npu` makes the serving shell's CANN env the
+  first suspect. One command recovers it:
+  `python -c "import vllm_ascend; print(vllm_ascend.register())"`. The pin's
+  `release_notes.md:33` lists `No platform detected` / the `vllm._C` warning as
+  harmless — quote it to pre-empt the `vllm._C` follow-up, never to close the raise.
 - A serve installs from a **wheel** and dies *after weights load* with
   `ModuleNotFoundError: No module named 'vllm_ascend.<sub>'` while a container of the
   same release works — the frames are `vllm/compilation/backends.py:298` →
@@ -237,6 +248,15 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   two path spellings, not that the kernel source is wrong (#1774, reporter-confirmed
   「Thanks a lot. Solved!」 on the skip-the-build rung). Do not open `csrc/<op>/` or the
   CANN toolchain source here.
+- The build dies **before any CMake work** in pip's isolated env: `usage: __main__.py
+  [--version] [--includes] [--cmakedir] …` + `__main__.py: error: unrecognized arguments:
+  --cmake` + `CalledProcessError: Command '[…] '-m', 'pybind11', '--cmake']`, above
+  `/tmp/pip-build-env-*/overlay/…`, while the host line reads `Requirement already satisfied:
+  pybind11 (3.0.0)` → `pybind11-cmake-option-rename.md`: pybind11 3.0 renamed the option,
+  vllm-ascend's own `setup.py` calls the old spelling, and both requirement files leave
+  `pybind11` bare, so the isolated env re-resolves it. The pinned `v0.9.2rc1` already uses
+  `--cmakedir` (`setup.py:178-180`); a host-side downgrade is inert without
+  `--no-build-isolation`. Do not rank the reporter's `cmake` 4.x (`CMakeLists.txt:1` is `3.16`).
 - You suspect the image at all: the Dockerfile `cp`s a helper from the repo
   (`Dockerfile.a3:37` copies `tools/mooncake_installer.sh`) and upstream ships
   its own copy of that script. Diff the two dependency lists before blaming the
@@ -317,6 +337,15 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `.pth`/`egg-link` residue check, the two-interpreter signature that the paste's own
   `site-packages` paths already expose, and the `+empty` marker that says vllm was
   source-built. Worked for #540 (v0.7.3rc2), cause left open.
+- `platform-plugin-register-raised.md` — the same title error when the plugin *did*
+  import: `plugin ascend loaded.` with no `Failed to load plugin ascend` and no
+  `Platform plugin ascend is activated` means `register()` raised and vLLM v0.7.x's
+  `except Exception: pass` deleted the traceback (`platforms/__init__.py:153-161`).
+  The pin's hook body (a quant-config import → bare `import torch_npu`), why
+  `platform.py`'s own guard print cannot appear, the un-swallow command, the
+  `torch-npu …dev20250218` that the pin itself prescribes, and the released
+  known-issue bullet naming both this line and the `vllm._C` warning to pre-empt.
+  Worked for #130 (v0.7.1rc1); environment-level resolution, mechanism open.
 - `missing-subpackage-after-wheel-install.md` — `No module named 'vllm_ascend.<sub>'`
   from a pip-installed release: the "who asks for the name" grep that splits packaging
   from a version contract, the `find_packages` + missing-`__init__.py` test at the pin
@@ -415,6 +444,11 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   (vllm-ascend `CMakeLists.txt`/`setup.py` vs the CANN toolkit), the version
   envelope read off the pin's own requirements table, and `multiple definition` at
   the AscendC relink as one source under two path spellings (#1774).
+- `pybind11-cmake-option-rename.md` — an sdist build that dies at `pybind11 --cmake`
+  (`unrecognized arguments`, pybind11 3.0) inside pip's isolated env: the pinned tree's
+  `--cmakedir` line, the bare `pybind11` requirement, the four-rung ladder (release /
+  patch the sdist / `PIP_CONSTRAINT` / `--no-build-isolation`) and the 310X
+  `COMPILE_CUSTOM_KERNELS=1` wall behind it (#1931).
 - `image-recipe-inventory-and-diff.md` — the sourcing question behind a hand-built
   environment or an image regression: the four artefacts that *are* the image's
   dependency set, the version-swap control rule, the container-only rung set, and

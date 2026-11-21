@@ -138,6 +138,16 @@ output, or did no request ever reach a decode engine?**
   wrong yet; the compared numbers are `parallel_config.data_parallel_size` /
   `tensor_parallel_size` after upstream has rewritten a **dense** engine's DP to
   1, so the fix is the block's number, not the launch's DP flag.
+- The same engine start dies **inside `register_kv_caches`** instead, with the deepest
+  frame in upstream's own `vllm/distributed/kv_transfer/kv_connector/v1/mooncake_connector.py`
+  (`AttributeError: 'tuple' object has no attribute 'shape'`, after a
+  `Registering KV_Caches. use_mla: …` line with no `use_sparse`) while the
+  `--kv-transfer-config` names a connector *and* a `kv_connector_module_path`: the
+  name matched an **upstream** registration, so the factory never imported the module
+  path and upstream's GPU-layout class ran on the Ascend per-layer `(k_cache,
+  v_cache)` tuple. The downstream key is suffixed (`MooncakeConnectorV1`), and the
+  `Creating v1 connector with name:` line cannot tell the two apart — the two-field log
+  sentence and the traceback path can → `connector-name-registry-collision.md`.
 - The deployment never gets past engine start because the **second** engine on one
   host cannot bind its HCCL comm port: `Bind_Failed(EJ0003): … port have been bound
   already` plus `HCCL function error: hcclCommInitRootInfoConfig(…), error code is 7`
@@ -230,6 +240,21 @@ output, or did no request ever reach a decode engine?**
   the two `--speculative-config` blocks before any connector read →
   `kv-group-count-mismatch.md` (reporter-confirmed #16177). A symmetric-TP pull-count
   assert and a layerwise traceback cut at the same call are the two neighbours.
+- The **decode node's** EngineCore dies at the scheduler step — before any model
+  execution — with `Warning: The token id -1 is out of range … Rejecting the token`
+  from xgrammar, then `Failed to advance FSM … for tokens -1`, then
+  `AssertionError: (-1, '<req>', {'<req>': [-1, -1, -1]})` from
+  `vllm/v1/structured_output/__init__.py` (`get_grammar_bitmask` above it), on a
+  deployment that carries **both** spec decoding and structured output: the `-1`s
+  are seeded **placeholder** draft slots (count = the decode node's
+  `num_speculative_tokens`), so the assert is a bookkeeping question and not an
+  xgrammar/backend fault. Two competing explanations, one ablation apart: the
+  recorded #6421 resolution is **P/D config parity** ("Inconsistent configuration
+  between prefilling and decoding nodes"), while the pin also has a source-verified
+  seeder (`RecomputeScheduler.add_request` + `recompute_scheduler_enable` on a
+  `kv_consumer`). Diff the two serve commands **and** run the one-launch
+  `recompute_scheduler_enable`-off row →
+  `structured-output-draft-placeholder-assert.md`.
 - The **decode node** logs `Error in KVCacheTransferThread. error=unhashable
   type: 'list'.` during a loaded P/D deployment and keeps serving: that sentence
   is the recv thread's catch-all, and the traceback it replaces was the real
@@ -383,6 +408,16 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   (default `True`, engine-name only, extra-config placement a no-op at that pin),
   the ranked causes and the evidence limits (Mooncake's ascend transport absent from
   the export; #4866 left open).
+- `connector-name-registry-collision.md` — the engine dies at KV-cache registration
+  inside **upstream's** `mooncake_connector.py` (`AttributeError: 'tuple' object has no
+  attribute 'shape'`) although the config names a connector + `kv_connector_module_path`:
+  the name-first resolution in `KVConnectorFactory` (`factory.py:110-122`) plus the
+  suffixed downstream keys (`MooncakeConnectorV1`) make the module path dead config, the
+  per-layer `(k_cache, v_cache)` tuple is the Ascend layout (`model_runner_v1.py:2508-2510`),
+  and the two-field `Registering KV_Caches. use_mla:` sentence vs the three-field Ascend
+  one decides which class ran (`Creating v1 connector with name:` cannot — both classes
+  are named `MooncakeConnector`). Worked for #7864 at v0.14.0rc1 / vllm v0.14.1, with the
+  registry listing command, the fix and its acceptance.
 - `transport-topology.md` — P/D has two Pod IPs on one node and the transport
   will not connect: how the engine id becomes HCCL's `server_id`, the plog grep
   set and rank-table decision, `HCCL_INTRA_ROCE_ENABLE` / `HCCL_INTRA_PCIE_ENABLE`
@@ -489,6 +524,16 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   that hides it, the ranked causes (spec asymmetry, draft-config geometry, HMA parity,
   peer image skew) and the four-row ladder. Reporter-confirmed #16177 at v0.26.0rc1
   `f2f74a16`.
+- `structured-output-draft-placeholder-assert.md` — the decode node's EngineCore dies
+  on `assert accepted` with `-1` draft ids under structured output + spec decode: the
+  three readings of the paste (seeded placeholders, backend-agnostic upstream assert,
+  nothing executed on device), the P/D key diff that was the recorded #6421
+  resolution (`--speculative-config` on both sides, `recompute_scheduler_enable`
+  placement, the extra-config dp/tp lattice), the source-verified seeding chain at
+  `a17059a2` (`recompute_scheduler.py:101-111` / `:289-298` / `:519-532`,
+  `rejection_sampler.py:22`, `scheduler.py:1030-1057`, `structured_output/__init__.py:288`,
+  `backend_xgrammar.py:181`), the one-launch ablation that separates parity from the
+  placeholder path, and why deleting the assert misaligns the bitmask rows.
 - `layerwise-split-metadata-crash.md` — the **producer's** `start_load_kv` dies in the
   layerwise connector and the paste stops at the call line: how `:1627` (full
   attention) differs from the MambaSpec sibling `:1623-1625`, the nine throw sites with

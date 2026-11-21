@@ -385,6 +385,17 @@ answer. Both sessions also show what the last-third of the budget goes to when t
 deliverable is already owed: re-deriving arithmetic the paste plus two functions
 already settle.
 
+**Reasoning is not a draft, and the tell is the commit phrase.** Two runs of one
+minibatch (#2446 perf, #2537 accuracy — the same GLM-4.5 / 2×8 910B / DP2×TP8+EP
+stack) each classified correctly inside three turns, then composed the ranked table
+*inside `reasoning_content`* across 6-10 K-character blocks. #2446 ended two message
+drafts mid-sentence and shipped 159 characters when the 8 192-token item cap cut it;
+#2537 wrote "Now write the answer in Chinese, ranked…" as its final reasoning block
+and shipped 53 characters in 26 turns. So: a reasoning block that already holds the
+ranked causes, or that ends "现在写答案 / now write the final answer", has delivered
+nothing — that turn's **message** is the answer, and the next call is a correction to
+it, not a prerequisite.
+
 A third, from #13002 and #6833 together: **a long source file is not a lead.** Both
 runs chose one big module (a 2600-line KV connector; the hybrid-KV/prefix-cache
 sources) and read it in slices, which is the most expensive way to spend an output

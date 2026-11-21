@@ -334,7 +334,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   → concurrency/`--max-model-len`, and do not lead with the KV arithmetic:
   acceptance dropping to exactly 0.000 everywhere while drafts continue is a
   draft/target context question, and the recorded reporter confirmed the owner by
-  removing MTP (`../spec-decode-mtp/acceptance-collapse.md`).
+  removing MTP (`../spec-decode-mtp/acceptance-collapse.md`). One exception to that
+  order: when the report's own A/B **is** a feature env (`VLLM_ASCEND_ENABLE_FLASHCOMM1`
+  on vs off, TTFT improving as promised, acceptance halving, no error), the ablation is
+  FC1 off and the reads are four lines long —
+  `../feature-enable-recipes/sequence-parallel-flashcomm.md` §*FC1 with a MoE MTP
+  drafter*, which also refutes the `pad_size` / double-shard story such a report usually
+  proposes.
 - A **tool-call** report (client JSON error, "参数被截断", 格式错误, 重复输出, or
   only CoT with `stream: true`): locate the pasted `data:` chunks or ask for one
   `curl -N` capture, then run
@@ -719,8 +725,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   release, one precedent pass, package version the doc installs vs the image's
   own pins, support matrix and release notes, `--hf_overrides` architecture
   string vs the checkpoint family, tab-set block vs its own prose and its own
-  `kv_connector`, printed sample body vs the pinned response models)
-  and write the report file as sections become
+  `kv_connector`, printed sample body vs the pinned response models) — plus,
+  when the 任务书's own two items are "bench 报 404" and "加载要 3 小时", the
+  served-name contract and the weight pre-download of
+  `../tutorial-verification/serve-contract-and-weight-predownload.md`, which are
+  one page grep each. Then write the report file as sections become
   true (`../tutorial-verification/community-test-report.md`). Stop
   auditing after 3-5 tiered defects; never present a doc baseline as a
   measurement.

@@ -53,6 +53,19 @@ first, not after the mechanism is derived from proxies.
    verbatim into `patch_model_runner.py:154`, so the mitigation is a flag, not a
    patch".
 
+5b. **A copy can be textually faithful and still differ in what it hands a pinned
+   model.** When the failing statement *constructs* an upstream object
+   (`DeltaMessage(...)`, `ExtractedToolCallInformation(...)`, a config/spec dataclass),
+   extracting and diffing the function body is not enough: the contract is the field
+   declaration in the pinned upstream module. A rewritten value expression such as
+   `[x] if x else None` where upstream passes a list validates differently as soon as
+   the field is non-Optional, and the traceback names the *pydantic* frame rather than
+   the patch. Read the field at the pin, then the upstream sibling's argument — that
+   pair decides owner and fix in two greps (`../tool-call-streaming/delta-message-none-field.md`
+   is the worked shape, #10376). The same step covers a downstream-only branch the
+   upstream body never had: it is an added statement under step 3, and step 4 decides
+   whether it ran.
+
 ## Worked case: #8724 (vllm-ascend v0.13.0rc3, vllm v0.13.0)
 
 Reporter: A3 16-card, DeepSeek-V4-Flash-w8a8-mtp, `--speculative-config

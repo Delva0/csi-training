@@ -9,11 +9,16 @@ Unknown vLLM environment variable detected: VLLM_ASCEND_<NAME>` for a variable t
 reporter says they never exported. Also the inverse question: which log
 line proves which phase actually ran, and the same question one level down for a
 *route*: `/start_profile` / `/stop_profile` (or any router-attached endpoint)
-answering 404/500 although the reporter configured it.
+answering 404/500 although the reporter configured it. The pure capability form of the
+same question — **"where do I read KV-cache size / utilization"**, `curl metrics` 有没有
+相关的统计, a dashboard gauge stuck at `0` — is the same class: the numbers are two
+startup lines plus `/metrics` gauges, and nothing has to be grepped
+(`kv-cache-capacity-and-usage-metrics.md`).
 
 Leave this topic when the server printed an error and died
-(`../startup-failures/index.md`, `../hccl-and-hardware/index.md`) or when the
-complaint is about numbers rather than text (`../accuracy-benchmarks/index.md`).
+(`../startup-failures/index.md`, `../hccl-and-hardware/index.md`), or when the
+complaint is about the *correctness* of numbers rather than about where they are
+reported (`../accuracy-benchmarks/index.md`).
 
 Inherit the rules in SKILL.md. Rules that decide success here:
 
@@ -42,7 +47,11 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    almost always means one of: chat vs `/v1/completions`, INFO vs DEBUG, a
    `--log-config-file` / `VLLM_CONFIGURE_LOGGING=0` override, `--max-log-len`, or
    the reporter reading a different process's stdout (API server vs
-   `EngineCore`) than the one they piped. Those five are the ranked answer.
+   `EngineCore`) than the one they piped. Those five are the ranked answer. A sixth
+   is a flag the *platform* force-clears with one warning and no output:
+   `--enable-layerwise-nvtx-tracing` prints `relies on NVTX (NVIDIA Tools) and is not
+   supported on Ascend. Resetting to False.` (`vllm_ascend/platform.py:774-783` at
+   v0.18.0rc1), so the answer is "unsupported on this backend", not a logging config.
 4. **A log line the report quotes can be fixed wrapper text** (SKILL.md rule 11):
    before accepting a sentence as the cause, grep its emitting site. One recorded
    instance to recognise by its wording: `skip this step for we receive the data from
@@ -76,8 +85,22 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    prints only upstream-registered names plus the `TORCH`/`PYTORCH`/`ASCEND_`/`ATB_`
    prefixes.
 
+6. **A "where is this number reported" question is answered by the inventory, not by a
+   source walk.** Capacity (bytes / tokens), utilization (gauge + periodic line) and
+   block residency (`--kv-cache-metrics`, off by default) are all named in the pinned
+   tree; the recorded #8285 run spent 16 tool turns re-deriving them from
+   `vllm/v1/core` and `vllm_ascend/worker/` while its own answer held nothing a table
+   would not. Deliver the table, the one `curl`, the conversion formula and the ask for
+   the startup block, and cap the class at ~3 calls
+   (`kv-cache-capacity-and-usage-metrics.md`).
+
 Conditional routes:
 
+- "怎么查看当前HBM上kvcache的使用情况 / 总量、已使用量", `curl metrics` 有没有 kvcache
+  统计, a `/metrics` gauge stuck at `0.0` or carrying the old name
+   `vllm:gpu_cache_usage_perc` → `kv-cache-capacity-and-usage-metrics.md` (the four
+   surfaces with their pins, the block-pool-vs-HBM caveat, the `--disable-log-stats`
+   freeze, and why `npu-smi` cannot answer it).
 - Request/output logging flags, `VLLM_LOGGING_LEVEL`, `--max-log-len`, whether a
   given endpoint logs outputs at all, and how to prove which
   `chat_completion_*_generator` is live in the installed tree →

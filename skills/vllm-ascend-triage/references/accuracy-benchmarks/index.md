@@ -116,6 +116,22 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   changed two) and go to `hybrid-block-size-corruption.md`. A short *digit-heavy*
   prompt on the same model family (Qwen3-Next) with **no** knob difference is the
   other hybrid shape: `qwen3-next-gdn-numeric-path.md`.
+- **On a DP+EP MoE serve at v0.10.x, one flag decides whether the graph lane is even in
+  the ranking — and it is the flag the command is *missing*.** `--data-parallel-size N` +
+  `--enable-expert-parallel` with **no** `--enforce-eager` takes the `PIECEWISE` ACL-graph
+  branch (`vllm_ascend/platform.py:162-168` at v0.10.0rc1) and the pinned release lists
+  "Aclgraph could not work with DP + EP currently … the number of npu stream that Aclgraph
+  needed to capture graph is not enough" (`release_notes.md:53`, #2229). That row names a
+  *functionality* combination, so it is the reason to run one ablation — restart the same
+  serve with `--enforce-eager` (proof line `Compilation disabled, using eager mode by
+  default`) and re-send the same body — not a diagnosis to quote as the cause. Before it,
+  read the request body: a `curl` that sets only model/messages/max_tokens runs at the
+  server default sampling, so greedy plus `return_token_ids` is rung 0. Recorded #2537
+  (GLM-4.5, 2×8 910B, DP2×TP8+EP, 简单问题正常 / 复杂问题混乱) held both `curl` transcripts
+  — `prompt_tokens: 8` with a `<think>` block vs `prompt_tokens: 60`,
+  `finish_reason: "length"`, a `major X: major Y:` word loop and no `<think>` — inside
+  `/workspace/attachments/<issue>/*.ocr.txt` while the run re-derived the MoE gating op for
+  26 turns and shipped nothing. Page: `../performance-throughput/graph-mode-from-the-serve-line.md`.
 - **A repeated newline/punctuation loop from a reasoning distill at low temperature
   is the sampler value, not a code path.** DeepSeek-R1-Distill-Qwen-7B/32B offline
   `LLM.generate` returns `'\n\n,\n\n ( (\n ( or'` at temperature ≤ 0.1 and

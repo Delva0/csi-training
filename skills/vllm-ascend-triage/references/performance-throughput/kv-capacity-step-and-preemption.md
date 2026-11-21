@@ -34,7 +34,9 @@ requests. The 8-request row cannot fit, and the 12-request row states the ceilin
 directly: `Running` pinned at 8, `Waiting` 4, 98.7 %. So the step is a capacity
 wall — going 7 → 8 adds one request's compute, not 4× of it.
 
-Ask for the two startup lines that already carry the same numbers:
+Ask for the two startup lines that already carry the same numbers (the full inventory of
+capacity/usage surfaces — `/metrics` names, the per-rank rule, `--kv-cache-metrics` — is
+`../observability-and-logs/kv-cache-capacity-and-usage-metrics.md`):
 `GPU KV cache size: N tokens` and
 `Maximum concurrency for <max_model_len> tokens per request: X.XXx`
 (vllm v0.13.0 `72506c9`, `vllm/v1/core/kv_cache_utils.py:1291,1297`; the ratio is

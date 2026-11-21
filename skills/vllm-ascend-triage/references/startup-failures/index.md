@@ -67,6 +67,19 @@ Inherit the rules in SKILL.md. Conditional routes:
   at the rendezvous forever instead of raising; count processes and compare
   `MASTER_ADDR`/`PORT` before any HCCL theory, and do not read one process's `npu:0`
   as the other ranks' device.
+- Nothing raised, the paste stops on the worker's **constructor** warning
+  (`[utils.py:2522] Methods add_lora,cache_config,… not implemented in
+  <vllm_ascend.worker.worker_v1.NPUWorker object>`, i.e.
+  `warn_for_unimplemented_methods`, `vllm/utils.py:2488-2529`), every line carries a
+  `(RayWorkerWrapper pid=…)` prefix, and the engine was built **from a program** —
+  `AsyncLLM.from_engine_args` / `LLM(...)` with `distributed_executor_backend="ray"`
+  inside an RLHF trainer, so there is no `vllm serve` line — →
+  `ray-programmatic-init-hang.md` first. The named frame is the *waiter*:
+  `_wait_for_engine_startup` (`vllm/v1/engine/core_client.py:412-443`) raises only when
+  a core process exits and logs progress at DEBUG, so a live-but-stalled child is
+  silent forever; the constructor warning dates the stall to `init_device` /
+  the start of `load_model`, and the actors' existence already refutes the
+  `GPU`-vs-`NPU` resource lane.
 - Every line is prefixed `(EngineCore_DP0 pid=…)`, `Connected to Ray cluster.`
   printed, and the start dies in the same second with
   `WARNING [ray_utils.py:…] The number of required NPUs exceeds the total number of
@@ -232,6 +245,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   `--privileged=true` as its next step (reporter-confirmed #302), and only then the
   driver/firmware-vs-image-CANN pairing
   → `acl-init-500001-and-soc-version.md` (no precision flag is the cause; cap the C++ walk).
+- The **same phase and the same two functions**, but no `500001`: the SoC name resolved and
+  matches `npu-smi`, and the failing statement is a file lookup —
+  `RealPath:Path '<…>/aarch64-linux/lib64/../data/platform_config' does not exist.` +
+  `InitializePlatformInfo:File path[] is not valid.` + `QueryPlatformInfoValue:init runtime
+  platform info failed, SocVersion <name>`, then `RuntimeError: Get ACL JitCompile default value
+  failed.` / `ERR00100 PTA call acl api failed`. That path is the loaded FE `.so`'s own
+  directory plus `../data/platform_config`, so the answer is the container's CANN **tree**, not
+  the mount-boundary/`realpath` theory and not `--privileged`: `cann/runtime` is exported and
+  `src/platform/platform_info.cpp` prints both lines (two reads) →
+  `platform-config-file-missing.md`.
 - The startup dies inside `torch.compile` with `AttributeError: '_OpNamespace' '<ns>'
   object has no attribute '<op>'`, deepest frames `vllm_ascend/compilation/passes/**`
   plus `torch/_inductor/pattern_matcher.py` (`check_fn` → `fwd_only` → `make_fx`), e.g.
@@ -380,7 +403,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   `model.embed_tokens.weight: "FLOAT"`, and does `lm_head` already pass one. Not §C of
   `quantization-method-gate.md` — that key carries a module path — and no blanket
   `quant_description.get(..., "FLOAT")` guard, because the same function also decides
-  the quantised linears.
+  the quantised linears. When the key **does** carry a module path, settle provenance
+  before reading either chain: a directory from the Ascend-native converter
+  (`convert_quant_weight.sh … -type qwen_w8a8`) that MindIE itself serves is §C-ii
+  (its per-weight description is in `quant_model_description.json`, which a
+  0.7.x-era ref never opens), while a foreign format renamed onto `ascend` is §C —
+  same frame, same key, different owner.
 - The first MoE forward (usually `profile_run`, so it reads as a startup failure)
   dies with `RuntimeError: Promotion for Float8 Types is not supported, attempted to
   promote Float8_e4m3fn and Bool`, deepest frames `w4a8_mxfp4.py` →

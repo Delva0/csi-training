@@ -8,7 +8,9 @@ worker while loading int8 tensors — or their static-W8A8 `deq_scale` aux tenso
 into a dense model; **C** is a *foreign* format
 (GPTQ/AWQ/…) that **is** named in `config.json` and is silently renamed to `ascend`,
 so the refusal never happens and the format question surfaces as a construction-time
-`KeyError` instead; **D** is a method the release supports but never named on its own
+`KeyError` instead — with §C-ii for the same key when the directory is instead the
+**Ascend-native** conversion, where the owner is the description file this ref never
+reads; **D** is a method the release supports but never named on its own
 command line, so `argparse` rejects the flag before `ModelConfig` is built at all;
 **E** is a checkpoint whose *weights* are FP8/E4M3 — no method name, config edit or
 graph flag makes it run, and it surfaces as A's refusal or as C's `KeyError` depending
@@ -247,7 +249,10 @@ and the `args:`/`Initializing a V0 LLM engine` line already shows
 **#2960**: `Qwen2.5-32B-Instruct-GPTQ-Int8`, vllm-ascend v0.9.0rc2 `8dd686d` + vllm
 v0.9.0 `5873877`). Not section A — nothing was refused — and not the `weight_scale`
 page: the missing key is a plain `.weight`, and the frame is the **quant-method
-lookup**, not `params_dict[name]`. The key still carries a **module path** here; a key
+lookup**, not `params_dict[name]`. **Before walking this chain, settle the
+checkpoint's provenance**: a directory produced by the Ascend-native converter (or
+one the reporter already runs under MindIE service) is §C-ii below, not a foreign
+format. The key still carries a **module path** here; a key
 that is only `.weight` (`KeyError: '.weight'`, empty prefix) is
 `empty-prefix-quant-keyerror.md`, where the checkpoint's format is innocent.
 
@@ -284,6 +289,92 @@ snapshot may already declare more methods; that is the version scope. **One name
 format overrides that answer**: if the census in section E finds `F8_E4M3` weight
 tensors, the limit is the dtype the NPU executes, not the format the plugin skipped —
 same `KeyError`, different verdict, so run the census before quoting either.
+
+### C-ii. The same key from a *native* conversion whose description this ref never reads
+
+Recorded #569 (vllm-ascend `v0.7.3rc2` `00459ae` + vllm `v0.7.3` `ed6e907`,
+torch-npu `2.5.1.dev20250320`, CANN 8.0.0, 8×910B3, `Qwen2.5-32B-Instruct-w8a8`
+produced by the **Ascend-native** converter — `bash
+examples/models/qwen/convert_quant_weight.sh -src <bf16> -dst <w8a8> -type
+qwen_w8a8` — and the reporter had already validated that directory under
+`mindieservice_daemon` before trying `vllm serve … -tp 1`). Same frame and same
+key as §C:
+
+```text
+ERROR ... vllm_ascend/quantization/quant_config.py, line 124, in is_layer_skipped_ascend
+    is_shard_skipped = self.quant_description[shard_prefix + '.weight'] == "FLOAT"
+KeyError: 'model.layers.0.self_attn.q_proj.weight'
+```
+
+**The reporter's own working MindIE run is the control, and it refutes §C's
+verdict.** A directory that MindIE serves is not a foreign format, so the answer is
+not "this format is not implemented" — it is *which description this ref reads*.
+Ask which tool produced the directory (or whether MindIE/Xinference serves it)
+before choosing between C and C-ii; on the recorded run this branch was never
+taken: the session spent its whole 16 K output budget re-deriving the description
+chain and shipped no message text.
+
+The chain, source-verified at those pins:
+
+1. **At this ref the description is only the checkpoint's `config.json`.**
+   `AscendQuantConfig.get_config_filenames()` returns `[]`
+   (`vllm_ascend/quantization/quant_config.py:75-76`) and `from_config` stores
+   whatever dict it is handed (`:79-80` → `self.quant_description`, `:56`);
+   upstream hands it `hf_config.quantization_config` (else `text_config`'s, else
+   `compression_config`) from the served directory
+   (`vllm/model_executor/model_loader/weight_utils.py:141-153` at vllm v0.7.3).
+   A `quant_model_description.json` sitting in that directory is **never opened**
+   at this ref: there is no modelslim reader in the tree.
+2. **There is no in-tree W8A8 method to inspect.** `vllm_ascend/quantization/` is
+   three files (`__init__.py`, `quant_config.py`, `quantizer.py`) and the quantizer
+   only delegates to `mindie_turbo` — §D-i carries that code, the FAQ quote and the
+   `pip install vllm-ascend[mindie-turbo]` remedy. So the only thing that can make
+   this lookup succeed is a `quant_description` dict carrying per-shard
+   `<prefix>.weight` keys, and `python -c "import mindie_turbo"` is a second rung
+   the first `KeyError` hides.
+3. **The failing name is a fused-layer shard, not the layer.** qwen2 declares
+   `packed_modules_mapping = {"qkv_proj": ["q_proj","k_proj","v_proj"], …}`
+   (`vllm/model_executor/models/qwen2.py:421-426` at vllm v0.7.3), and
+   `is_layer_skipped_ascend` swaps the projection name for each shard and
+   hard-indexes `quant_description[shard + ".weight"]` (`quant_config.py:114-125`,
+   the index at `:124` — the reporter's traceback prints the same line number, so
+   the installed file matches the pin). The engine is asking for
+   `…self_attn.q_proj.weight` while the layer object is `qkv_proj`; nothing in the
+   model file is wrong.
+4. **What it means, and the one command that decides the verdict.** The dict in
+   effect has no per-shard `.weight` entry for the first fused projection, and
+   that dict came from `config.json`. Three layouts, three answers:
+   `uv run --no-project python -c "import json,sys;d=json.load(open(sys.argv[1]));q=d.get('quantization_config') or d.get('compression_config') or {};print(type(q).__name__, len(q));print([k for k in q if 'self_attn' in k][:8])" <ckpt>/config.json`,
+   then `ls <ckpt>/quant_model_description.json` and
+   `python -c "import mindie_turbo"`:
+   - a **marker/minimal** dict (no per-weight entries, e.g. `{"quant_method": …}`):
+     the per-weight description lives in `quant_model_description.json`, which
+     this ref does not read → the version rung, not the checkpoint and not the
+     reporter's conversion;
+   - **fused** names (`…qkv_proj.weight`) where the engine asks per shard: a
+     naming-direction mismatch with this ref's shard expansion;
+   - **another vendor's** keys (`bits`, `group_size`, …): that is §C — the foreign
+     format renamed onto `ascend`.
+5. **State the version rung with its bound.** Later refs read the directory
+   instead of `config.json`: the modelslim signature is
+   `quant_model_description.json` (`vllm_ascend/quantization/modelslim_config.py:49`,
+   detection at `vllm_ascend/quantization/utils.py:95-115` at v0.20.2rc1, whose
+   `modelslim_config.py:436-442` also explains why `get_config_filenames()` still
+   returns `[]`). So the same directory a 0.7.3-era engine cannot describe is the
+   documented format later — name the ref you verified and do not claim the
+   boundary commit.
+
+**The capability half is answered from the pin, not from the code path.** At
+v0.7.3rc2 `docs/source/user_guide/suppoted_features.md` (21 lines) has **no**
+quantization row at all and the release note still says of the Ascend quantization
+config option "the implementation will comming soon"
+(`docs/source/user_guide/release_notes.md:71`, PRs #7/#73). So
+「vllm-ascend 支持推理量化模型吗?」 at that ref is *not yet as a supported
+feature* — the path exists only as a delegation to `mindie_turbo` (§D-i) — and
+that verdict plus the one `config.json` census is the entire first message; the
+same question asked of a ref that documents quantization gets that ref's table row,
+not this verdict.
+
 ## D. Named, but never an argparse choice (`invalid choice: 'ascend'`)
 
 ```
@@ -452,10 +543,17 @@ It prints the dtype histogram, the module families carrying FP8 *weight* tensors
 
 - **FP8 weight tensors** → the upstream FP8 release; no method name, config edit or
   graph flag makes it run. Routes: dequantize to bf16, or convert with msmodelslim to
-  W8A8/W8A8_DYNAMIC and serve that (`--quantization ascend`, §B). Scope the verdict to
-  the recorded refs — it is the *pinned release's* quant doc/support matrix that
-  decides, so re-check it before applying the rule to a later release that adds an fp8
-  row, and label the mechanism "reporter-confirmed on #3534", not "NPU-wide".
+  W8A8/W8A8_DYNAMIC and serve that (`--quantization ascend`, §B). The conversion route is
+  field-confirmed on **#4835** (reporter's own follow-up, 2025-12-10, DeepSeek-V3.2 at
+  v0.11.0rc3 + vllm v0.11.0): after an msmodelslim W8A8 export the identical
+  `KeyError: 'model.embed_tokens.weight'` disappears and the model loads. Say what comes
+  next in the same answer, so the following error is not read as the conversion failing —
+  that deployment then dies in `profile_run` on the MC2 MoE dispatch (`507014`,
+  `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`), a communication fault, not a
+  quantization one. Scope the verdict to the recorded refs — it is the *pinned release's*
+  quant doc/support matrix that decides, so re-check it before applying the rule to a
+  later release that adds an fp8 row, and label the mechanism "reporter-confirmed on
+  #3534", not "NPU-wide".
 - **int8 weights + a declaration** → a converted export: §A/§B, and §C when the load
   dies on a lookup key.
 - **bf16 weights + a stale `quantization_config`** → one config edit; that is exactly
@@ -514,4 +612,6 @@ checkpoint cannot run) after 12 reads, but its cheapest check went to `config.js
 first; the reporter's own rule — the weight dtype — is now the `--dtypes` call above.
 #119 had the answer two calls in (release note + `quantizer.py`) and then spent its
 entire 16 384-token budget on the `QUANTIZATION_METHODS` question, shipping no text at
-all.
+all. #569 is the third repetition of that shape, one lane over: 20 tool blocks / 1.08 M
+prompt tokens on a native w8a8 `KeyError`, zero message text, output-truncated — while
+the prose it needed is §C-ii's five sentences plus one `config.json` read.

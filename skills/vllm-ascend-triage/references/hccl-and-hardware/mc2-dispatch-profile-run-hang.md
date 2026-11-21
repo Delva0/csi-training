@@ -47,6 +47,18 @@ only then `super().profile_run()`. So the process issues an MC2 dispatch at
 exactly `capacity` tokens during profiling, while the full profile batch
 (`--max-num-batched-tokens`) would have stayed on `ALLGATHER`.
 
+Confirmed one ref lower at v0.11.0rc3 `b6d63bb`: the same gate is inline in
+`profile_run` itself (`model_runner_v1.py:2565-2577`, condition
+`self.max_num_tokens > self.mc2_tokens_capacity and self._select_moe_comm_method(
+self.mc2_tokens_capacity, with_prefill=True) == MoECommType.MC2`), and the capacity is
+built by `_init_mc2_tokens_capacity` (`:539-552`) as
+`ceil((cudagraph_capture_sizes[0] if set else min(max_num_reqs * uniform_decode_query_len,
+512)) / tp) * tp`. At that ref the *sync point* that raises can be a host index copy
+rather than `aclnnInplaceCopy`: the statement after the two dummy runs is
+`hidden_states = hidden_states[logit_indices]` (`:2595`) and its index transfer reports
+`(function copy_between_host_and_device_opapi)`. So classify from the
+`[AIC_INFO] fault kernel_name=` line, not from the frame that happens to raise.
+
 Three facts follow, and they are what makes the answer cheap:
 
 - a startup traceback naming an MC2 dispatch kernel **dates the configuration**:
@@ -264,6 +276,20 @@ the failure minute on both nodes.
 
 ## Precedents and scope
 
+#4835's second round is this family reached from the quantization lane (reporter's own
+follow-up, 2025-12-10): DeepSeek-V3.2 served as an **msmodelslim W8A8** export, vllm-ascend
+v0.11.0rc3 `b6d63bb` + vllm v0.11.0 `b8b302c`, 910B3 x8 per node, CANN 8.3.RC2,
+`--tensor-parallel-size 8 --data-parallel-size 2 --data-parallel-size-local 1
+--enable-expert-parallel --max-num-batched-tokens 17450`, torchair `--additional-config`
+removed first (per #4792). All eight ranks die in the same second at
+`worker_v1.py:227 determine_available_memory` → `model_runner_v1.py:2595 profile_run` →
+`hidden_states[logit_indices]` with `RuntimeError: ACL stream synchronize failed, error code:
+507014` and `fault kernel_name=MoeDistributeDispatchV2_ND_ND_BF16_INT8_high_performance_
+2000001002`. Family support, not a resolution: no plog, no `npu-smi`, and the two pasted
+launchers differ only in `--headless` / `--data-parallel-start-rank 1` /
+`--gpu-memory-utilization` (0.9 vs 0.92), so Step 1b's asymmetry track is untested here,
+not cleared.
+
 Same op, same 2×A2 shape, title/body only (no comments in the snapshot): #4256
 (DeepSeek-v3.2-EXP-W8A8, `MoeDistributeDispatchV2`, `507011` at a copy-stream sync
 on device 0) and #2858 (0.10.1rc1 two-node Qwen3-235B-A22B,
@@ -286,7 +312,8 @@ question and not worth a plog.
 
 Pins: vllm-ascend v0.13.0rc1 `1b5d5ab`, vllm v0.13.0 `72506c9`; re-pinned for
 the symmetry step and the A2 selector rows at vllm-ascend v0.18.0rc1 `99e1ea0`,
-vllm v0.18.0 `bcf2be9`. The
+vllm v0.18.0 `bcf2be9`; the in-`profile_run` gate and the capacity derivation verified again
+at vllm-ascend v0.11.0rc3 `b6d63bb` + vllm v0.11.0 `b8b302c` for the #4835 row. The
 `profile_run` dummy run, the selector location, the capacity formula and the
 hierarchical predicate are the parts to re-grep at another ref (`profile_run`,
 `select_moe_comm_method`, `set_mc2_tokens_capacity`,

@@ -80,6 +80,35 @@ The gap in the recorded case was packaging, not code:
   three jobs only — `Dockerfile.buildwheel.a2` (`-l 910b`, ~`:122`), `.a3`
   (`-l a3`, ~`:206`), `.310p` (`-l 310p`, ~`:284`) — then uploads one variant
   index. **There is no A5 job.**
+- **PyPI receives exactly one wheel per release, and it is the A2 base build.** At
+  v0.21.0rc1 the only wheel job with a `twine upload` is the A2 one
+  (`…schedule_release_code_and_wheel.yml:175`, `SOC_VERSION: ascend910b1` at `:78`,
+  `Dockerfile.buildwheel.a2:20`); the sole other `twine upload` (`:92`) ships the
+  sdist. The A3 (`:245` `-l a3`) and 310P jobs stop at `upload-artifact`. So a
+  generic-named `…-manylinux_2_24_aarch64.whl` from pypi.org is A2 **by
+  construction**, which is why reported 0.13.0/0.18.0 wheels both carried
+  `__device_type__ = 'A2'` (#11160).
+- **The non-A2 wheels do exist, as wheel *variants* on the Ascend mirror.** The three
+  jobs' `dist/variants/*.whl` are collected, indexed with `variantlib
+  generate-index-json` (`:362`) and uploaded to OBS `pypi/packages/ascend/repos/pypi/
+  variant/vllm-ascend` (`:376-385`), which is what
+  `https://mirrors.huaweicloud.com/ascend/repos/pypi/variant` serves; the variant
+  labels are `ascend :: npu_type :: {910b,a3,310p}`
+  (`.github/workflows/scripts/wheel/config.json`) and the filenames carry the label as
+  a suffix (same dir, `make_variant.py:65` `<base>-<label>.whl`).
+  The pin's own install command already passes it — `installation.md:159` (pip tab) and
+  `:185` (uv-wheelnext tab) both use `--extra-index-url …/pypi/variant` — so
+  **following the docs selects the SoC variant while a bare `pip install vllm-ascend`
+  against pypi.org always lands A2**. That asymmetry, not a missing artefact, is the
+  recorded #11160 report; answer it with the docs command before proposing a rebuild.
+- Variant *selection* needs variant-capable tooling (that is why the second docs tab
+  installs `uv-wheelnext`): plain pip sees only the base wheel even with the index
+  listed. Check the artefact before promising it, per version:
+  `pip download --no-deps -d /tmp/v --extra-index-url
+  https://mirrors.huaweicloud.com/ascend/repos/pypi/variant vllm-ascend==<their
+  version>` then `ls /tmp/v | grep -i a3`; an empty result means the variant
+  machinery postdates that release (only one commit per repo is pinned, so 0.13.0-era
+  trees cannot be checked locally) and the source build *was* the right route there.
 - `.github/workflows/dockerfiles/` contains `Dockerfile.buildwheel.{a2,a3,310p}`
   and `Dockerfile.nightly.{a2,a3}` only.
 - `docs/source/installation.md` prebuilt-image table lists plain (A2), `-a3`,
@@ -98,12 +127,15 @@ pins one commit per repo.
 
 1. The two one-liners in step 2. If the stamp is the wrong family, nothing about
    the model, dtype, TP size or prompt matters.
-2. Install an A5-capable build, in this order of preference: a newer official
+2. For A2/A3/310P, re-install with the docs command (variant index on the index
+   list) before any rebuild; assert the result with the step-2 one-liner instead of
+   trusting the download name. Rung 1.5 is the source build below, which self-selects.
+3. Install an A5-capable build, in this order of preference: a newer official
    `-a5` image/wheel if one exists → source build **on the node**
    (`pip install --no-build-isolation -e .`, autodetect via `npu-smi`) → source
    build with `export SOC_VERSION=<ascend950…>` → `docker build -f Dockerfile.a5`.
    Re-run `print(_build_info.__device_type__)`; it must read `A5`.
-3. **Do not patch the assertion.** See step 6: the guard is the cheapest place to
+4. **Do not patch the assertion.** See step 6: the guard is the cheapest place to
    fail, and every downstream op is worse.
 
 ## Step 6 — the `RuntimeError: Can not support soc_version: N` branch

@@ -66,6 +66,15 @@ release claim that a user must weigh).
    the row, then test it by removing the one feature it names — a row whose trigger you
    removed while the symptom stayed is a control, not a diagnosis
    (`../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md` §*chance-level*).
+   **A row that quotes a *log line* instead of a symptom is the weakest citation of all.**
+   v0.7.1rc1 `release_notes.md:33` says logs "like `No platform deteced, vLLM is running on
+   UnspecifiedPlatform` or `Failed to import from vllm._C …`" do not affect functionality, and
+   the very same `No platform detected` line is step three of that release pairing's own
+   `Failed to infer device type` chain — so quote such a row for the follow-up it actually names
+   (the `vllm._C` warning after a serve that works) and establish that the run reaches
+   `/v1/models` before calling the line cosmetic
+   (`../image-dependency-faults/platform-plugin-register-raised.md`, recorded #130, where the
+   maintainer's answer to the follow-up was this page and the reporter still expected v0.7.3).
 7. **Budget one message per tracked issue.** A two-issue bulletin at the 16 K
    completion cap was cut mid-ladder (#15985: verdict + both ranked lists
    survived, the action ladder did not), so lead with the verdict and the

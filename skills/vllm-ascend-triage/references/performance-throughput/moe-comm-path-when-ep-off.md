@@ -15,6 +15,12 @@ moved every MoE layer onto the TP all-gather path. Answer both in one ranking �
 "your garbled EP run is the thing to fix; the perf number you are asking about is
 the price of having avoided it".
 
+**Leave this page the moment the pasted command carries `--enable-expert-parallel` on
+both nodes**: the model/card/version match is not the symptom match (recorded #2446 was
+routed here by exactly that match — 2×8×910B, GLM-4.5, v0.10.1rc1 — and its follow-up
+command showed `ep_size = 16` plus `--enforce-eager`, i.e. the MC2 decode path with the
+graph disabled). That report is `graph-mode-from-the-serve-line.md`.
+
 Not this topic: EP+DP that fails to *start* or a selector/tiling crash
 (`../feature-enable-recipes/moe-expert-parallel-with-dp.md` owns the selector, the
 MC2 capacity arithmetic and those fault lanes), a capacity/OOM plan

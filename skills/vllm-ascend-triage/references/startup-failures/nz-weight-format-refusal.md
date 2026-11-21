@@ -100,5 +100,15 @@ modes are not interchangeable: `2` is the aggressive one and makes this certain,
   a runtime/driver contribution (`aclnnMatmulWeightNz` behaviour between npu-smi
   25.3.rc1 and 25.5.0) is still possible. State that as the open question; do not
   grade it as the cause.
+- **The mode and the gate are newer than the 0.11 line.** At v0.11.0rc0 there is
+  no `weight_nz_mode`, no `VLLM_ASCEND_ENABLE_NZ` and no gate function in
+  `utils.py` at all — the casts are inline in the quant methods and in
+  `worker/model_runner_v1.py:2633-2643`, which is why `weight_nz_mode: 0` is not
+  an escape there. The capability-side answer (which weights are already NZ on
+  which SoC, and the `is_310p()` polarity) is
+  `../feature-enable-recipes/weight-nz-layout-by-soc.md`.
 - One call classifies the paste and reads the gate at their ref:
-  `bash ../../scripts/nz-format-gate-check.sh <paste|-> <vllm-ascend-root>`.
+  `bash ../../scripts/nz-format-gate-check.sh <paste|-> <vllm-ascend-root>` — it
+  now says "no NZ gate function at this ref" when the gate is absent, instead of
+  reporting a missing shape guard inside a function that does not exist, and it
+  suppresses the mode advice when the switch is not in the tree.

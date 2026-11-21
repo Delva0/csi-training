@@ -171,6 +171,14 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   2.9.0`, plus torchaudio/torchvision/opencv lines) → `pip-resolver-warning-block.md`
   (which requirement file supplied each pin, and why raising torch is the one thing
   that breaks the install).
+- The complaint is a **dependency conflict that asks for a pin change** — "A 依赖 B，
+  B 依赖 C …", "能否把 vllm-ascend 依赖的 torch-npu 升级为 2.8.0？", no pip error quoted →
+  `dependency-pin-bump-request.md`. Verdict first (no, not for this release), then the
+  rc's own row of `docs/source/community/versioning_policy.md` (v0.10.2rc1 `:25`:
+  `v0.10.2rc1 | v0.10.2 | … | 2.7.1 / 2.7.1.dev20250724`). Do not grep
+  `installation.md` for the version — it prints `|pip_vllm_version|` substitutions and
+  returns nothing — and treat the reporter's premise about the *paired* package's pin as
+  the open half: one `importlib.metadata.requires('vllm')` line decides it (#3266).
 - The complaint is that an artefact **does not exist for the reporter's machine**:
   "找不到支持 linux on arm64 的 310p 镜像", the quay tag page shows an arm64 tag
   while the pull lands on amd64 (`WARNING: The requested image's platform
@@ -195,6 +203,17 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   ld returned 1 exit status`, `ccec_compiler`/`ascendc_pack_kernel` frames, then
   `CalledProcessError` from CANN's `recompile_binary.py` and from `setup.py`
   `cmake --build` — with `COMPILE_CUSTOM_KERNELS=1` exported → `custom-op-build-stage.md`.
+  Its sibling is a **missing pta header**, not a linker fault:
+  `csrc/torch_binding.cpp:20: fatal error: torch_npu/csrc/core/npu/NPUStream.h: No such
+  file or directory` under `CMakeFiles/vllm_ascend_C.dir/`, no `COMPILE_CUSTOM_KERNELS`
+  needed, usually `pip install -e .` inside build isolation with the body saying
+  「comment the torch-npu in requirements.txt and pyproject」 → same page, §Step 1b:
+  `setup.py:203-212` derives `-DTORCH_NPU_PATH` from `python3 -m pip show torch-npu`
+  with no error path (empty → `/torch_npu`), `CMakeLists.txt:63` is the only torch_npu
+  include root, and `CMakeLists.txt:54` already prints `TORCH_NPU_PATH is …` — that line
+  is the check, `--no-build-isolation` is the rung (#3403). Keep the
+  "wheel ships no `include/`" lane open until `ls <torch_npu>/include/torch_npu/csrc/core/npu/`
+  says which it is.
   The paste's last frames name the **stage**, and the stage names the owner
   (vllm-ascend `CMakeLists.txt`/`setup.py` vs CANN's AscendC toolchain, which is what
   a snapshot does not export); check the reporter's CANN/torch/torch-npu trio against
@@ -341,6 +360,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `Dockerfile:52-56` `VLLM_TAG`/`empty` build the project ships, `conf.py:75-76`'s
   documented pip pair with the CI doctest that hand-patches torchvision/torchaudio,
   the three unrelated leftover lines, and the "never raise torch" rule (#8286).
+- `dependency-pin-bump-request.md` — the install report asks for a **pin bump** instead
+  of reporting a missing artefact: the matrix row that fixes the pair, why a version grep
+  of `installation.md` comes back empty (substitutions), which line is the real constraint
+  (`torch-npu==<dev>` plus the torch it hard-pins, not the tree's `torch>=`), and the one
+  `importlib.metadata` call that tests the reporter's premise about the paired package
+  (#3266).
 - `pip-index-visibility.md` — the requirement exists but no index pip can see serves
   it: a wheel pin on a mirror-only dev build with the `--extra-index-url`/`--pre` option
   lines dropped from the metadata (`setup.py` skips `--` lines), the torch /
@@ -388,6 +413,24 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
    export vs `MOONCAKE_TAG=v0.3.7.post2` in the Dockerfile), so any ABI,
    `glog`-duplication, RPATH or static-destructor story is unverifiable there and
    delivers nothing the reporter can act on.
+1b. **`AssertionError: PlaceholderModule should not be used when the original module
+   can be imported` is a soft-import failure, and the caller frame names the module.**
+   vllm wraps an optional dependency's failed import in `PlaceholderModule`
+   (`vllm/utils/__init__.py`), so the assertion fires later, on first *use*, and names
+   no package — read the frame that touches the placeholder, not the assertion. The
+   audio path is the recurring one: `vllm/multimodal/audio.py:15-22` soft-imports
+   `librosa` and `soundfile` (`PlaceholderModule("librosa")`) and `:88` calls
+   `librosa.load` from `AudioMediaIO.load_bytes`, so any serve whose request carries an
+   audio input raises it — while the image installs vllm **without** the `[audio]`
+   extra (`vllm-ascend/Dockerfile:43` at v0.8.5rc1; the same line with `[audio]` at
+   v0.11.0rc2, `pip-index-visibility.md` §B). Reporter-confirmed on #1087: after moving
+   from v0.8.5rc1 to `v0.9.0rc2-openeuler` the Ultravox model declares and answers
+   text, and the audio request fails exactly here. The fix is inside the image —
+   `python -c "import librosa, soundfile"` shows the real `ImportError`
+   (numba/llvmlite/numpy pin, missing `libsndfile`) — plus a wheelhouse when the pod is
+   air-gapped; the `--media-io-kwargs '{"audio": {"num_frames": …}}'`/processor flags do
+   nothing, because the module object is a placeholder.
+
 2. Find out which file the reporter's `import` actually loads before theorising.
    Ascend images routinely carry a second copy of a Python package under
    `<toolkit>/python/site-packages/`, and the reporter's own `import` line may

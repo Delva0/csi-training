@@ -37,8 +37,11 @@ Inherit the rules in SKILL.md. Rules that decide success here:
 4. **A dtype or format value in the reporter's own serve line is checked against the
    pinned doc for their SoC before any source walk.** On 310P the doc's own note —
    `docs/source/tutorials/hardwares/310p.md:5`, "only supports eager mode and the
-   float16 data type" — plus a `--kv-cache-dtype fp8` or a bf16 checkpoint *is* the
-   verdict. Neither value is refused up front: the KV dtype is not read in
+   float16 data type" (the path moves by release — flat
+   `docs/source/tutorials/310p.md:5` at v0.14.0rc1, `single_node_300i.md` at v0.9.x, so
+   `rg --files docs/source/tutorials | rg 310` once instead of trusting a quoted path)
+   — plus a `--kv-cache-dtype fp8` or a bf16 checkpoint *is* the verdict. Neither value
+   is refused up front: the KV dtype is not read in
    `vllm_ascend/platform.py` at all (`rg -c kv_cache_dtype` → 0 at v0.18.0rc1), and no
    310P dtype gate rejects a bf16 checkpoint (`atlas-300i-310p.md`, verified there at
    v0.9.1rc1 — re-grep per pin). So the engine starts and an op refuses later, as an
@@ -144,6 +147,19 @@ Conditional routes:
   `_310p/fused_moe/experts_selector.py:61`) whose in-tree test discards its own
   `torch.allclose`, so probe it before any config ladder →
   `../accuracy-benchmarks/moe-gating-topk-precision.md` (#10892, reporter-confirmed).
+- A 310P **MoE** checkpoint dies at **launch** instead — `aclnn<Op>` gating op,
+  `EZ1001` wrapped round `NnopbaseRunWithWorkspace … Assert ((executor) != nullptr)`,
+  first request of a serve the reporter says fails on two different `-310p` tags — is a
+  capability verdict before it is a code answer. The release that re-opened 310P scoped
+  it: `docs/source/user_guide/release_notes.md:9` "only basic dense and vl models are
+  supported with eager mode", and that build ships **no** custom aclnn op at all
+  (`csrc/build_aclnn.sh:5-11` exits 0 for `^ascend310`). So the op in the paste is a
+  CANN/`torch_npu` built-in, its name dates the run to a pre-0.14 selector generation,
+  and the answer is the verdict plus the standalone op probe — **not** a hunt for the
+  Python caller, which is in no pinned export (recorded #6488: 21 turns, 39 tool calls,
+  81 characters of text, no answer) → `atlas-300i-310p.md` (its v0.14.0rc1 bullets) and
+  `kernel-package-vs-card.md`; for the assert's inner `Check` lines,
+  `../custom-ops-runtime-faults/index.md` (sixth pre-launch wording).
 - The question is a **capability/status one at an older rc** with no log — "does
   `vllm-ascend:v0.9.1rc1-310p` support 300I Duo + MRoPE, e.g. qwen2.5-vl-7b and
   qwen2.5-vl-32b?" (#1684): the pin's docs are laid out differently (flat

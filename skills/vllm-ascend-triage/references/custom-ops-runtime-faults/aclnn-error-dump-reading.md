@@ -32,6 +32,16 @@ fragments are from the GLM/A2 report behind issue #8944; treat the report text a
   byte arithmetic shown explicitly, and it is a hypothesis until the plog corroborates it.
 - `dataPerBlock`/alignment constants decide `numColAlign`; a col count that is not a multiple
   of 16 (fp16/bf16) or 8 (fp32) changes which kernels even apply.
+- **A `tiling入口` block is a debug print, not an error site.**
+  `============ tiling入口 ============[FUNC:GetAttrParaInfo][FILE:<op>_tiling.cpp][LINE:N]`
+  comes from a leftover `OP_LOGE("ccccc", …)` left at the end of an op's
+  `GetAttrParaInfo` (verbatim at `kv_quant_sparse_flash_attention_tiling.cpp:1672`,
+  v0.26.0rc1 `f2f74a1`, the only occurrence in `csrc/`): the dump re-prints the op's own
+  log tail, so the line names **which op ran** and never what faulted. Replace `OP_LOGE`
+  with `OP_LOGI` in your head, then read `errorStr`/`retCode` for the diagnosis, and check
+  the `LINE:` in the pinned tree before crediting the tiling function. A `head -N` on a
+  `rg -l` file list is not an existence test for that `.cpp` either
+  (`../dsa-sparse-attention/dcp-c8-kv-address-fault.md` Rule 3).
 - Different `__CCE_AICORE__` / `__NPU_ARCH__` builds take different branches
   (`DataCopyPad` vs plain `DataCopy`). Establish the SoC from the environment dump before
   assuming a branch.

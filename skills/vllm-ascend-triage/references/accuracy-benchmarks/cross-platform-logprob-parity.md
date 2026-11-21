@@ -15,7 +15,10 @@ Neighbours this page does not own: NPU-vs-NPU repeat differences
 (`repeated-run-nondeterminism.md`), the same body differing only with concurrency
 under `VLLM_BATCH_INVARIANT=1` (`batch-invariant-coverage.md`), two *images* of the
 same command (`harness-vs-engine-attribution.md`, "Two images"), and a score table
-from an eval harness (`harness-vs-engine-attribution.md`).
+from an eval harness (`harness-vs-engine-attribution.md`). And an entry printed as
+`-inf` is **not** this page: a finite logit cannot become `-inf` through rounding, so that
+is a mask/extreme-value question whose lane the ids decide —
+`topk-logprob-negative-inf.md`.
 
 Recorded: #18755 (vllm-ascend `v0.20.2rc1` `367b8e62` + vllm `v0.20.2` `bc150f5`,
 910B2C DP4×TP4, 31B multimodal checkpoint served with images, H100×2 golden,

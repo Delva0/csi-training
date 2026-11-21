@@ -9,6 +9,21 @@ mixed decode+prefill batch faults. Routes: `../custom-ops-runtime-faults/index.m
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#15906** vllm-ascend v0.26.0rc1 (`f2f74a1`) + vllm v0.26.0 (`568afb3`), GLM-5.3-w8a8c8,
+TP8 × DP4 over 2×910B2C (32 dies), `--decode-context-parallel-size 8
+--cp-kv-cache-interleave-size 128`, `--max-model-len 1048576`, both C8 flags,
+`FULL_DECODE_ONLY` + MTP 3: the serve comes up, `evalscope perf` at `--parallel 1`
+reports `Total / Success / Failed 5 / 1 / 4` and then `ConnectionResetError: [Errno 104]`,
+and the master log has the incident at 14:21:22 on `Worker_DP0_TP5_DCP5_EP5` — `507035`
+through `acl_graph.py:262`, `[Error]: The vector core execution is abnormal.`, aivec dump
+`core id 47, error code = 0x800000`, `errorStr: MTE accesses an invalid GM address`,
+`retCode=0x31, [vector core exception]`, with the `tiling入口` marker at
+`kv_quant_sparse_flash_attention_tiling.cpp:1672` (a leftover `OP_LOGE("ccccc", …)`, the
+op's name rather than the fault site). The peer node's `507034` `[vector core timeout]`
+arrives 6 min later. Same class as #14320 (LIQ variant, reporter-confirmed); the recorded
+answer ranked the DCP replicated-block-table reading first and put the A3-only 1M
+statement below it, then was cut at the cap — `../dsa-sparse-attention/dcp-c8-kv-address-fault.md`.
+
 **#10522** vllm-ascend v0.20.2rc1 (`367b8e62`) + vllm 0.20.2 (`bc150f5`), GLM-5.1,
 PD with two A3 nodes as the P instance at `PP4 TP8 EP32`, CANN 9.0.0, 16 dies `OK`:
 the bad-case harness floods over-length prompts, the API server rejects a

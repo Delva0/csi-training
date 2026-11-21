@@ -15,7 +15,7 @@ Every branch guarded by one of those names is this topic's candidate owner, and
 and `vllm_ascend/attention/attention_v1.py` (attention routing, masks) are where
 they live.
 
-Six symptom classes, different owners — decide which one the report is before
+Eight symptom classes, different owners — decide which one the report is before
 reading any code:
 
 1. **The service never becomes ready**: `EngineCore failed to start` at the first
@@ -65,7 +65,29 @@ reading any code:
    the **pooling release gate** (v0.9.1 = `Pooling 🟡 Planned`, "v0.9.1 doesn't
    support pooling. Use higher version instead"; V1 pooling from v0.9.2rc1,
    #1359) — `task-values-and-pooling-release-gate.md`. No worker ever started, so
-   nothing in classes 1-5 applies.
+   nothing in the other classes applies.
+7. **The same string embedded twice in one serve session gives two different
+   vectors** — call 1 matches the reference service to `cos ≈ 0.999`, call 2 drops
+   to `cos ≈ 0.5-0.6`, and calls 3, 4, 5 are bit-identical to call 2 — and
+   `--no-enable-prefix-caching` (not `--no-enable-chunked-prefill`) removes it, on
+   a prompt short enough for one schedule → the `embed` task reads the KV prefix
+   cache and the pooling attention branch attends only the scheduled tail →
+   `prefix-cache-hit-embedding-drift.md`, which carries the reporter-confirmed
+   workaround (#5725), the two pins' `path:line`, and the nonce-suffix check that
+   confirms it without a restart. Not a numeric defect: the first call would be
+   wrong too, and noise cannot freeze.
+
+8. **It never gets past engine start, and the message is the capture guard**
+   `Cannot run aclop operators during NPU graph capture. Current working aclop is
+   Fill` (+ `ERR00007 PTA feature not supported`), with an FX trace above it
+   showing `torch.ones_like(… dtype=torch.int32) << 30` → upstream BERT
+   `_decode_token_type_ids` runs **unconditionally** in every BERT-family forward
+   (`BertEmbedding.forward`) and its int32 `ones_like` is an aclop `Fill` at these
+   wheels, so bge / bge-reranker and every `BertModel` checkpoint die at capture
+   while a Qwen3-Embedding serve does not → `../startup-failures/aclop-op-during-graph-capture.md`.
+   The `ACLgraph has insufficient available streams` block and the
+   `allow_internal_format = False` advice in the same paste are both red herrings
+   (the plugin assigns the option `True` at import).
 
 Not this topic: a score/MMLU gap between harnesses (`../accuracy-benchmarks/index.md`),
 garbled *text* from a generation model (`../accuracy-benchmarks/`), a device dump
@@ -82,11 +104,16 @@ weight-layout fault whose owner is the Python that chose the layout.
 
 ## Rules
 
-1. **Classify with the two-question split, then answer at G1.** (a) single request
-   or only under concurrency? (b) short prompts correct or wrong at any length?
-   Those two answers place the report in class 2 or 3, and each class already has
-   a ranked answer — emit it before opening the attention backend. A service that
-   never becomes ready is a startup class (1, 4 or 5), where the launch line and
+1. **Classify with the three-question split, then answer at G1.** (a) single
+   request or only under concurrency? (b) short prompts correct or wrong at any
+   length? (c) does the report compare **repetitions of the same string** inside
+   one serve session, with the first one right? — yes to (c) is class 7 and its
+   workaround (`--no-enable-prefix-caching`) belongs in the first message, whereas
+   class 3's is `--no-enable-chunked-prefill`; both flags are cheap, so an answer
+   that lists both as one two-arm ablation wastes the reporter's restart (say which
+   one the evidence favours instead). Each class already has a ranked answer — emit
+   it before opening the attention backend. A service that
+   never becomes ready is a startup class (1, 4, 5 or 8), where the launch line and
    the error text decide, not a batch or attention sweep. Either way a pooling
    report is answered with an ablation ladder, not with a kernel investigation
    (`SKILL.md` rule 1 and the "a new hypothesis that needs a new code area is not
@@ -121,7 +148,12 @@ weight-layout fault whose owner is the Python that chose the layout.
    serve session, different after a restart" is a *state/reuse* signature
    (buffer or cursor carried across steps or requests) — not a fixed numeric
    defect, which reproduces identically after a restart. Say which one the report
-   shows; it removes half the candidate list for free.
+   shows; it removes half the candidate list for free. The *sharper* form is a
+   **repeat inside one session**: first call right, second and later ones wrong and
+   equal to each other (`cos 1.0`) is a cache/reuse signature with a known ablation
+   (class 7), and it is worth one line in the first message even when the reporter
+   has not asked about caching — #5725 filed it as a numerical 误差 and the cache
+   was the answer.
 6. **A start-up failure is a launch-input question, and the traceback already
    names the input.** `AutoWeightsLoader` is prefix-strict: it groups the
    checkpoint's names by their first dotted component and raises
@@ -170,6 +202,18 @@ Three scripts serve this topic's startup classes directly:
   pooling branches (encoder-attention branch, fixed-size pooling masks, 310P
   chunked-prefill dispatch), the ranked leads each with its deciding check, and
   the ablation ladder an answer can be shipped from.
+- `prefix-cache-hit-embedding-drift.md` — class 7. Worked case vllm-ascend #5725
+  (vllm 0.13.0 + vllm-ascend v0.13.0rc1, 910B4, Qwen3-Embedding-0.6B): first call
+  `cos 0.9997` vs the reference, second `0.5855`, third+ bit-identical to the
+  second, `--no-enable-prefix-caching` removes it (reporter-confirmed, and still
+  reproducing on v0.14.0rc1 / v0.15.0rc1). Why `embed` reads the prefix cache
+  (`pooling_params.py:128-135`), why the hit is block-aligned
+  (`kv_cache_manager.py:180`/`:189`), the unconditional pooling branch and its two
+  `actual_seq_kvlen = actual_seq_lengths_q` sites
+  (`attention_v1.py:708`/`:580`/`:598`,`:610` at v0.13.0rc1, `:937`/`:819`/`:841`
+  at v0.14.0rc1) against the correct `context_lens=seq_lens` path, the three-hypothesis
+  matrix, the nonce-suffix ladder, the CI gap that let it through, and why
+  `usage.prompt_tokens_details.cached_tokens` is a dead check on this path.
 - `task-values-and-pooling-release-gate.md` — class 6. Recorded case vllm-ascend
   #4796 (v0.9.1, `bge-reranker-v2-m3`, `--task rerank`): `rerank` is not in
   `TaskOption` (`vllm/config.py:82-83`), the endpoints already exist, and on

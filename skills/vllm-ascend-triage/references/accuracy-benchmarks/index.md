@@ -55,7 +55,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   before the early-EOS page: an image in the request plus an absurdly short answer is
   graded by `usage.prompt_tokens` against the model tutorial's own sample response
   (that page's grading bullets), and that comparison — not the `stop_reason` lane — is
-  what names the subject.
+  what names the subject. The same page owns the **mis-structured** variant — 结构化
+  内容错乱, the returned HTML/JSON layout garbled, while the *older* image tag of the same
+  serve structured it correctly (#4730) — where the tag rung is inverted and the delta
+  must be enumerated inside each image before any code claim (§*Fifth pin*).
 - A **VL or OCR** checkpoint on **310P / Atlas 300I** answers garbage while a text
   model on the same box is fine: the support verdict and the layout → recognise
   *pipeline* come first, because the VLM alone is one stage of a document-parsing
@@ -67,7 +70,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   no text is generated, so `finish_reason` and extraction play no part and the
   engine can be wrong per span rather than per token. Go to
   `../pooling-embedding/index.md`; a crash under concurrency on the same serve is
-  `../pooling-embedding/batch-index-desync.md`.
+  `../pooling-embedding/batch-index-desync.md`, and a report whose control is **the
+  same string against itself** (call 1 right, call 2 wrong, call 3+ identical to call 2)
+  is the prefix-cache form — `../pooling-embedding/prefix-cache-hit-embedding-drift.md`,
+  reporter-confirmed `--no-enable-prefix-caching` (#5725).
 
 ## Rules
 
@@ -261,6 +267,15 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   by design, no loop brake exists, `thinking_token_budget` is accepted and **ignored** on NPU
   (`npu_input_batch.py:56-59`), and DeepSeek-V4's `reasoning_effort` is a prompt prefix that
   amplifies deliberation rather than capping it; the ordered ladder is the #16116 section.
+  (g) **"think 混乱" plus "关闭思考就返回空 list" on a Qwen3.5 serve with no
+  `--reasoning-parser`** (#8350): the answer is two serve flags, reporter-confirmed —
+  `--reasoning-parser qwen3` to split, `--default-chat-template-kwargs
+  '{"enable_thinking": false}'` to switch thinking off for every caller (served defaults
+  merge under request kwargs, vllm v0.18.0 `engine/serving.py:815-824`; the parser reads
+  `enable_thinking`, `qwen3_reasoning_parser.py:39-42`), plus the field the pin emits
+  (`message.reasoning` at v0.18.0 — a client reading `reasoning_content` shows nothing).
+  One serve command and no works-vs-fails control means the hybrid `--block-size` /
+  prefix-caching page does **not** apply yet; the page's #8350 section lists what stays open.
 - `quantized-sibling-score-gap.md` — "w8a8c8 scores N points below w4a8c8" on a
   GLM-5.x/DSA-sparse family model in a multi-machine PD deploy: the variable count in
   the reporter's own table and the within-model control row, the two formats'
@@ -416,6 +431,17 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   fusion with `VLLM_BATCH_INVARIANT=1` as its only kill switch, VL preprocessing), and
   `scripts/logprob-bucket-fit.py` for the flat-`mean|Δ log p|/(1-p)` test that decides
   "one mechanism" against "this bucket needs a `top_logprobs` dump".
+- `topk-logprob-negative-inf.md` — the *entries themselves* come back `-inf` on ordinary
+  prompts while the same script on a GPU is finite (`logprobs=20`, Qwen3-8B, v0.9.1): why
+  `-inf` is a mask/extreme question rather than the parity page's numeric floor (fp32
+  `log_softmax` cannot turn a finite logit into `-inf`, and the bucket statistic is
+  undefined), the id-pattern reading that splits "ascending lowest ids ⇒ a masked row" from
+  "fixed high ids ⇒ the logits", the rank semantics that answer the reporter's "the `-inf`
+  ranks differ, so it is not masking" (top-k ranks are list positions,
+  `vllm/v1/engine/logprobs.py:182-192`), the v0.9.1 sampler facts (`raw_logprobs` before the
+  filters, `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE`-gated in-place `apply_top_k_top_p` vs
+  upstream's scatter), and the two-launch ladder (`VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE` echo,
+  then `top_p=1.0`).
 - `sampler-side-stream-corruption.md` — `temperature>0` output carrying `<pad>` /
   token id 0 / repeated or garbage tokens while greedy is byte-identical and the rate
   tracks concurrency: `random_sample()`'s `q` on `global_stream()`

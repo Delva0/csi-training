@@ -17,6 +17,13 @@
 #                                         startswith("--") branch)
 #   <vllm>/requirements/cuda.txt|common.txt|build.txt   torch / torchaudio / torchvision
 #   <vllm>/pyproject.toml                "torch == X" under [build-system]
+#   <ascend>/docs/source/community/versioning_policy.md   the release compatibility
+#                                         matrix row (vLLM Ascend | vLLM | python | CANN |
+#                                         torch/torch-npu) -- the pairing to QUOTE for a
+#                                         "can you bump torch-npu to X" report
+#   <ascend>/docs/source/conf.py          the pip pair substitutions; note that
+#                                         installation.md prints those as |tokens|, so a
+#                                         grep there for a version number finds nothing
 #
 # Exit: 0 always (a report tool). Every line is either a pin or a labelled finding.
 set -u
@@ -65,6 +72,28 @@ fi
 if [ -f "$py" ]; then
   build_torch="$(sed -n '/\[build-system\]/,/^\[/p' "$py" | grep -nE '"(torch|torch-npu|torchvision)' | head -4)"
   [ -n "$build_torch" ] && { echo "  pyproject [build-system] pins:"; echo "$build_torch" | sed 's/^/    /'; }
+fi
+
+# ---- the release's own contract ------------------------------------------
+vc="$asc/docs/source/community/versioning_policy.md"
+cf="$asc/docs/source/conf.py"
+inst="$asc/docs/source/installation.md"
+if [ -f "$vc" ]; then
+  echo "== release compatibility matrix: $vc"
+  echo "   (quote this row for a pairing/pin-bump question; installation.md cannot answer it)"
+  grep -nE '^\|[[:space:]]*vLLM Ascend' "$vc" 2>/dev/null | head -1 | sed 's/^/  /'
+  grep -nE '^\|[[:space:]]*v?[0-9]+\.[0-9]+\.[0-9]+' "$vc" 2>/dev/null | head -6 | sed 's/^/  /'
+else
+  echo "== release compatibility matrix: absent at this ref"
+  echo "   (v0.7.x-era trees have no docs/source/community/, which is itself an answer)"
+fi
+if [ -f "$cf" ]; then
+  echo "  conf.py substitutions (pip pair + what CI builds):"
+  grep -nE "'(vllm_version|vllm_ascend_version|pip_vllm_version|pip_vllm_ascend_version|ci_vllm_version)'" "$cf" 2>/dev/null | sed 's/^/    /'
+fi
+if [ -f "$inst" ] && grep -q '|pip_vllm_version|' "$inst" 2>/dev/null; then
+  echo "  installation.md prints |pip_vllm_version| substitutions: a grep there for a"
+  echo "  version number returns nothing by design -- do not read that as 'no contract'."
 fi
 
 if [ -n "$vl" ]; then

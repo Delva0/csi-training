@@ -12,7 +12,10 @@ M-RoPE positions for a new request (`get_mrope_input_positions`,
 `image_grid_thw[image_index]`), with `EngineDeadError` at the API server — **or** a
 serve launched with `--mm_processor_cache_type shm` that dies on a request with
 `ValueError: Data for address:id '<addr>:<id>' has been modified or is invalid.` from
-upstream's `shm_object_storage.py` in every worker (`shm-mm-cache-invalid-object.md`).
+upstream's `shm_object_storage.py` in every worker (`shm-mm-cache-invalid-object.md`), **or** a `KeyError: '<modality>'` (`audio`) raised in
+the model file's `get_input_embeddings` on
+`attn_metadata.multi_modal_placeholder_index_maps['audio']`, usually during memory
+profiling rather than on a request (`placeholder-index-map-keyerror.md`).
 Not this topic: an adapter said to cover the vision tower ("LoRA（with ViT）",
 `target_modules` naming `visual.*`) — upstream filters it before any kernel
 (`../lora-adapters/multimodal-vit-lora-ignored.md`); a VL answer that is merely
@@ -82,6 +85,13 @@ Inherit the rules in SKILL.md.
   patch is `_merge_multimodal_embeddings`), and the one-flag ladder
   (`--mm_processor_cache_type` back to `lru`, then `--mm-processor-cache-gb 0`, then one
   buffer name per host).
+- `placeholder-index-map-keyerror.md` — `KeyError: 'audio'` from the **V0** branch of
+  the model file (#1087, Ultravox on v0.8.5rc1): the `VLLM_USE_V1` lane is the
+  discriminator (the V1 branch merges by placeholder token id and never reads the map),
+  the empty dict comes from `MultiModalPlaceholderMap.from_seq_group` returning `{}` for
+  a seq group with no placeholder list (`vllm/multimodal/base.py:100-101`), the
+  `Need test` coverage row, and the two-stage ladder (V1/newer rc → text → audio, which
+  then hits the image's missing `librosa`).
 - `mrope-image-index-error.md` — `IndexError` in `get_mrope_input_positions`
   (#5772, PaddleOCR-VL on v0.13.0rc1): the token-side image count vs the gathered
   `image_grid_thw`, the arithmetic on the dumped `SchedulerOutput`, the

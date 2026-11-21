@@ -1,8 +1,10 @@
 # FlashComm1 / sequence parallelism: its gates, and the models it breaks
 
 Scope: `VLLM_ASCEND_ENABLE_FLASHCOMM=1` / `VLLM_ASCEND_ENABLE_FLASHCOMM1=1` appears in
-the report and the engine either refuses the combination up front or dies in the
-memory-profiling forward with a **shape** error. Verified at vllm-ascend v0.14.0rc1
+the report and the engine either refuses the combination up front, dies in the
+memory-profiling forward with a **shape** error, **or does nothing at all** — the serve
+is healthy and the reporter's profiler still shows allreduce (that lane is the §*other
+entry shape* below, and its answer is a per-forward token gate, not a bug). Verified at vllm-ascend v0.14.0rc1
 (`52d4acfa`) + vllm v0.14.1 (`d7de043`), the #6261 pins, and the VL guard re-verified at
 v0.15.0rc1 (`3d43ed99`) + vllm v0.15.0 (`f176443`) for #6950: the guard, the env name, the
 predicate and the assertion texts are all ref-specific — re-grep at the reporter's ref, and
@@ -15,6 +17,63 @@ TP2 + EP, crash at `profile_run`):
 > Unset the variable (or set it to 0) and keep the rest of the command; the crash is
 > `hidden_states` arriving sequence-sharded while the per-layer deepstack visual
 > embedding is full length.
+
+## The other entry shape: env set, nothing crashes, profiler still shows allreduce
+
+Recorded #6862 (Qwen3-32B-W8A8 *dense*, 910B3 x8 idle, CANN 8.5.0, torch_npu 2.9.0,
+vllm 0.14.1 + vllm-ascend v0.14.0rc1): "根据Qwen3-Dense文档，开发FLASHCOMM1后采集prof，
+显示的仍然是allreduce算子" — no traceback, no launch line, no profile table. This is a
+capability report about a **switch that appears to do nothing**, and the answer is not
+the VL guard above: SP is gated **per forward**, so a low-token forward is allreduce by
+construction.
+
+- The dense trunk needs `num_tokens > 1000` **in the forward being profiled**:
+  `ascend_forward_context.py:88-95` at v0.14.0rc1 has three branches — MoE context model
+  (`enable_sp(...) and num_tokens is not None`), drafter (`False`), else the dense trunk
+  (`... and num_tokens > 1000`) — and `platform.py:605-610` carries the same two-branch
+  copy without the drafter case. The pinned doc says it in words:
+  `docs/source/tutorials/Qwen3-Dense.md:335` "FlashComm_v1 is only enabled if the actual
+  token count for each inference schedule exceeds the threshold" (`:343` repeats it for
+  the matmul+reduce-scatter fusion).
+- SP off means literally allreduce: `ops/linear_op.py:572-576`
+  `if not sp_enabled: ... return tensor_model_parallel_all_reduce(output_parallel)`.
+- Decode `num_tokens` = the sequences in the batch (bounded by `--max-num-seqs`), so a
+  dense serve at `--max-num-seqs 20` never crosses the threshold and a decode-window
+  profile cannot show reduce-scatter. A non-SP dense forward at TP>1 issues **2 allreduce
+  per layer** (`o_proj`, `down_proj`), i.e. ~128 for a 64-layer model — a count in that
+  band confirms "gate closed", and a count far below it reopens the branch question below.
+- The decisive experiment, one launch: profile a **single schedule above 1000 tokens**
+  (two ~3.5 K-token prompts together, `--max-num-batched-tokens` ≥ 8192, `--enforce-eager`
+  so the rows are per-op). The allreduce pair must vanish and
+  `npu_mm_reduce_scatter_base` appear (`ops/linear_op.py:596`, and the W8A8 arm at
+  `:608-633`; with `mmrs_fusion` false the generic `tensor_model_parallel_reduce_scatter`
+  at `:640`) —
+  **and no all-gather**, which is the whole point of SP.
+- The env did reach the worker if the serve started at all with `tp>1`: `enable_sp()`
+  asserts `tensor_parallel_size > 1` (`utils.py:833-836`), so no need to re-ask for a
+  `collect_env` to prove the variable was read.
+
+### When the big-schedule profile still shows allreduce: an earlier branch claimed the layer
+
+`_get_row_parallel_op` (`ops/linear_op.py:728-757` at v0.14.0rc1) returns in order:
+`enable_dsa_cp_with_layer_shard()` (`o_proj`) → `mlp_tp_enable()` (`down_proj`) →
+`oproj_tp_enable()` (`o_proj`) → `matmul_allreduce_enable()` → `flashcomm2_enable()`
+(`o_proj`/`out_proj`) → `enable_sp()`. Whichever fires first owns the layer, and SP never
+builds `SequenceRowParallelOp` at all. `mlp_tp`/`oproj` come from
+`finegrained_tp_config.{mlp,oproj}_tensor_parallel_size > 0` (`utils.py:800-805`, i.e. in
+`--additional-config`), matmul-allreduce from `VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE`
+(`utils.py:808-809`; default `0`, `envs.py:74`), FlashComm2 from
+`VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE > 0` (`envs.py:82`). The matmul-allreduce branch is
+the deceptive one — it yields a **fused MatmulAllReduce**, which reads exactly like
+"allreduce is still there" in a kernel-name table while SP is engaged nowhere. So read the
+launch line for those three knobs *before* crediting the token gate, and say which of the
+two the evidence supports instead of offering both.
+- `TP > 8` cannot produce this symptom: `mmrs_fusion = tp_world_size <= 8`
+  (`ascend_forward_context.py:76`) only removes the fused kernel; the fallback is
+  reduce-scatter (`:640`), never allreduce.
+- Ask back for: the profiler rows (op name **and** call count), the full serve command,
+  and **which window** was captured (prefill or decode, concurrency) — a decode-window
+  profile is this section's answer with no further reading.
 
 ## SP is on through four doors, not one
 
@@ -118,6 +177,42 @@ slice of self. src size = [64, 5120], slice size = [32, 5120]`. Verified at v0.1
 MTP 3 + FLASHCOMM1, dies in `drafter.dummy_run` at the MoE combine add, `qwen3_next.py:358`, 4096 vs
 8192), with `#4011` ("flashcomm1 report shape error in DP>1") and `#6283` (PP with flashcomm1/sp)
 beside it — the family is older than the v0.19 regression reading.
+
+- **The MoE + shared-expert `add` is a row-count readout, and the operand order names
+  the side.** #7996's message is not a `copy_` check but upstream's
+  `final_hidden_states[0] + final_hidden_states[1]` (`qwen3_next.py:358` at vllm v0.18.0);
+  upstream's tuple is `(shared_out, fused_out)` (`fused_moe/shared_fused_moe.py:58`) and the
+  downstream override keeps that order (`vllm_ascend/ops/fused_moe/fused_moe.py:752` at
+  v0.18.0rc1 `99e1ea0f`). `shared_out` is computed from the MoE block's **input** rows
+  (`:743`; the `multistream_overlap_gate` branch does the same *before* `prepare` at `:491`),
+  and `shared_expert*` prefixes are excluded from both SP op selections (`linear_op.py:638`,
+  `:681`), so **`a` in the paste is the block's input row count and `b` is the routed
+  count after prepare/finalize**. #7996's `a = 4096`, `b = 8192` therefore says: the input
+  arrived TP-sharded, and the routed side gained rows in prepare without losing them in
+  finalize. Two prints, no gate walk: the row count entering the block, and which
+  `finalize()` branch ran (`prepare_finalize.py:436-437`).
+- **`use_sequence_parallel_moe` needs DP > 1, so the model's own chunk is not the
+  sharder in a single-DP command.** `is_sequence_parallel` is
+  `parallel_config.use_sequence_parallel_moe` (`qwen3_next.py:268`), which requires an
+  `all2all_backend` in its list **and** `enable_expert_parallel` **and** TP > 1 **and**
+  `data_parallel_size > 1` (`vllm/config/parallel.py:586-600`). In #7996 (DP1 x TP2 x EP)
+  the `sequence_parallel_chunk` at `qwen3_next.py:342-343` never ran, so the sharding came
+  from the plugin/eagle side (`eagle_proposer.maybe_pad_and_reduce`, `:1593-1607`) —
+  check that flag before attributing rows to the model.
+- **`_EXTRA_CTX` is not a second source of truth.** It is a proxy onto the current vLLM
+  forward context (`ascend_forward_context.py:285-310`), so the gather
+  (`register_custom_ops.py:46`) and the scatter (`:79`) read the same
+  `flash_comm_v1_enabled`. The asymmetries that can actually disagree are (i) the static
+  strategy dispatch `enable_sp() or enable_sp_by_pass()` (`prepare_finalize.py:327`,
+  `:436`) versus each tensor op's dynamic flag, and (ii) the scatter's extra exclusion
+  `forward_context.is_draft_model and is_vl_model()` (`:83`), which the gather does not
+  carry. #7996 spent most of its budget re-deriving the two gates from that false premise.
+- **This family's answer is six lines**: the direction sentence (`a` = input rows, `b` =
+  routed rows), the two `path:line`s that can disagree at the reporter's ref, the
+  `VLLM_ASCEND_ENABLE_FLASHCOMM1=0` ablation with the rest of the command unchanged, and
+  the ask for the full per-rank traceback. What sits *below* the flag is an open question
+  with one print — #7996 (11 turns, 1 540 characters of text against 48.9 K of reasoning)
+  shipped no answer while walking it.
 
 - **Read the direction out of the message before reading any source.** It is a `Tensor.copy_` /
   `__setitem__` size check: dst rows are the *buffer's* rows, src rows the *producer's*.

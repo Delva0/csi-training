@@ -70,12 +70,24 @@ or network fault, and asking for network evidence first costs the session.
    `TimeoutError: RPC call to sample_tokens timed out.` at `core.py:1197`. That is the
    RPC watchdog over a stuck worker — ask for the **worker/EngineCore** log.
 2. **First curl garbled, later ones clean, `enable_sparse_sfa_c8` on.** Precedent #12905
-   (v0.23.0rc1, A3 4-machine PD, GLM-5.2, DCP=8). First-request-only corruption is a
-   warm-up/init effect, not transport: `../accuracy-benchmarks/garbled-long-context-output.md`
-   (its ablation table is keyed on exactly this flag).
-3. **`MTE invalid GM address` / `LightningIndexerQuant` with a `block_table` longer than
-   the k_cache** under DCP — #14320, an index-space overflow:
-   `indexer-cache-scatter-fault.md`.
+   (v0.23.0rc1, A3 4-machine PD, GLM-5.2, DCP=8, `MultiConnector` = `MooncakeConnectorV1`
+   + `AscendStoreConnector`/memcache). **The reporter's own control is not one yet:** the
+   report does not say whether the second curl used a different prompt, neither the
+   tutorial block nor their launch sets `--no-enable-prefix-caching`, and a KV pool was
+   attached — so if it was the same prompt, the clean second answer is a prefix/pool hit
+   that never re-runs the prefill write path. Row 0 of the
+   ladder is therefore **re-send a fresh prompt (or add a nonce)**, before any warm-up
+   story; after that this row is `../accuracy-benchmarks/garbled-long-context-output.md`
+   (its grade table and ablation ladder are keyed on exactly this flag).
+3. **`MTE invalid GM address` / `0x800000` in a KV-reading kernel** under
+   `--decode-context-parallel-size` > 1, `retCode=0x26 [aicore exception]` + `507015`
+   with `fault kernel_name=LightningIndexerQuant_…` (#14320, reporter-confirmed: the
+   DCP replicated `block_table` ids exceed the k_cache capacity) **or**
+   `retCode=0x31 [vector core exception]` + `507035` with the
+   `============ tiling入口 ============[FILE:kv_quant_sparse_flash_attention_tiling.cpp]`
+   marker (#15906), on the first request or after hundreds — `dcp-c8-kv-address-fault.md`.
+   Its arrival by way of a benchmark client's `ConnectionResetError` is the same page's
+   Rule 1.
 4. **No hang, only accuracy or throughput regression** with `sfa_c8` + `li_c8` — #14329
    (GLM-5.1 PD, 64K-in/1K-out), and the project's own note that GLM-5.2-W4A8C8 PD with
    `enable_sparse_sfa_c8` moves GPQA by ~2-3 points run to run (`release_notes.md:270`,
@@ -91,7 +103,7 @@ its layouts, and they are not interchangeable:
 | 5.1.2 multi-node, "A3 series", **GLM-5.2-w4a8c8**, 2 nodes | `:211`, `:261` | `enable_sparse_sfa_c8: false`, `enable_sparse_li_c8: true`, `c8_enable_reshape_optim: false` |
 | 5.1.3.1 "Deployment on 4 Atlas 800 A3", **GLM-5.2-w8a8c8**, TP16 × PP2, `max-model-len 202752` | `:505`, `:579` | all three `true` |
 | at v0.23.0rc1 `f4a08bd`, the **8-node Atlas 800 A2 (910B)** PD block, "Deployment on 8 Atlas 800 A2" | `:982-1212`; flags `:1059-1060` (P), `:1142-1143` (D); prose `:984` | **both** `enable_sparse_sfa_c8: false`, `enable_sparse_li_c8: false`, and **no DCP**; connector `MooncakeConnector` + `kv_connector_module_path` (`:1040,1121`), decode `DP8 TP4`, P/D MTP `1`/`3`, mml `115168`/`135168` |
-| at the same pin, the **1M PD** block (A3-class context) | `:1365` (P), `:1436` (D) | both C8 flags `true`; `enable_flashcomm1`/`enable_dsa_cp` true on P and false on D, `recompute_scheduler_enable` false on P and true on D |
+| at the same pin, the **1M PD** block (A3-class context) | `:1365` (P), `:1436` (D) | both C8 flags `true`; `enable_flashcomm1`/`enable_dsa_cp` true on P and false on D; `recompute_scheduler_enable: true` on **both** (re-verified at `f4a08bd` — the P block is `--enforce-eager` with no `--compilation-config`, D carries `cudagraph_mode: FULL_DECODE_ONLY`); connector `MooncakeConnectorV1` **alone** (`:1371`, `:1442`) — `AscendStoreConnector`/memcache appears nowhere in the file, so adding it is the deviation to rank, not a recipe row |
 
 **The C8 flags are a per-SoC, per-topology recipe row, not a project default.** The
 same model's tutorial carries `false/false` for the 910B 8-node layout and
@@ -102,6 +114,12 @@ block (the recorded #14085 deployment — 910B, `max-model-len 200000` — carri
 command was copied from, then rank the deviating rows. A hand-written
 `cudagraph_capture_sizes` entry that is not a multiple of `num_speculative_tokens + 1`
 is not one of them (round-up, `../pd-disaggregation/recipe-contract-diff.md`).
+
+Release notes at the same pin also scope the **1M-context** rows: `:259`
+"GLM-5.2 1M-context deployments were validated only on Atlas 800 A3; the A2 series was
+not validated for 1M context" — so a 1M `--max-model-len` command on 910B/A2 copied from
+the A3 1M block is off-recipe before any mechanism (recorded #15906, whose 1M + DCP8 + C8
+command faulted on the first request: `dcp-c8-kv-address-fault.md`).
 
 Support matrix at the **v0.26.0rc1** pin (`:1817-1818`): `enable_sparse_sfa_c8` is
 *experimental in v0.23.0*, combinable with DCP on **w8a8c8** weights, while on

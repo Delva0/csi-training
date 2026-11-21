@@ -14,8 +14,11 @@ async_llm.py:707 in output_handler … logger.exception("AsyncLLM output_handler
 
 The request streams die with it (`output_processor.propagate_error`), so the reporter files it
 as "the service crashes". Do **not** treat that as a device, transport or store fault: the
-deepest frame is the metric writer, and nothing was launched. The report usually arrives with
-long prompts, a large `max_tokens`/`--max-model-len`, repeated prefixes and a guess that
+deepest frame is the metric writer, and nothing was launched. **The line number in the paste
+dates the formula** — `metrics/loggers.py:1120` beside a `counter_prompt_tokens_recomputed`
+write (v0.18.0) is this page's arithmetic; `:1156` with no `recomputed` counter at all is the
+rewritten v0.21.0 accounting, where the negative above cannot be produced (*Version scope*).
+The report usually arrives with long prompts, a large `max_tokens`/`--max-model-len`, repeated prefixes and a guess that
 `num_cached_tokens + num_external_computed_tokens > prompt_len` (recorded #8664, QWQ-32B
 W8A8, TP2, `--kv-transfer-config` `{"kv_role": "kv_both", "backend": "mooncake"}`, 36 requests of
 20-60 K tokens at 64 K output).
@@ -57,7 +60,7 @@ candidate list:
 `num_cached_tokens` is a **latch**, not a running value:
 
 - `vllm/v1/request.py:150` initialises it to `-1`;
-- `vllm/v1/core/sched/scheduler.py:805-807` (new request) and `:2045-2046` (async remote-KV)
+- `vllm/v1/core/sched/scheduler.py:806-807` (new request) and `:2045-2046` (async remote-KV)
   write it **only while it is still `< 0`** — the first schedule pass latches it, and it is
   never re-armed;
 - `:941 _preempt_request` sets `request.num_computed_tokens = 0` and leaves
@@ -76,7 +79,12 @@ Two other ways the latch goes stale, in rank order after preemption: `:2208-2210
 `num_computed_tokens` **to** `num_cached_tokens` and decrements `num_external_computed_tokens`
 when a connector reports invalid blocks (a *failed* load), and `:2161` reads the latch as the
 "already computed" bound in that same path. Both need an async load or a load failure, so they
-are only live when the launcher sets the connector's async option.
+are only live when the launcher sets the connector's async option. Recorded precedent for that
+lane: `#7871` — KV offloading with `kv_load_failure_policy=fail`, TP ranks disagreeing about the
+load result, same `Counters can only be incremented` ValueError with an `External prefix cache
+hit rate` line in the log; `#8086` is a GLM-5 report on the identical frame. So grep the
+reporter's log for `kv_load_failure_policy` / `load_async` before choosing between the two
+lanes — both end in this one counter.
 
 ## What the pool connector is not
 
@@ -120,8 +128,37 @@ this page).
 
 ## Version scope
 
-Verified at vllm **v0.18.0** `bcf2be96` + vllm-ascend **v0.18.0rc1** `99e1ea0f`. Before
-repeating any line number, re-read the four sites — the latch and the identity are what to
-grep (`num_cached_tokens < 0`, `local_cache_hit +=`), not the numbers. The record of the run
-that derived this is `../evidence-workspace/recorded-cases-pd-kv-and-features.md` (#8664):
-correct mechanism, no answer shipped.
+Verified at vllm **v0.18.0** `bcf2be96` + vllm-ascend **v0.18.0rc1** `99e1ea0f` (line numbers
+re-read in that case view: `request.py:150`, `scheduler.py:806-807/941/2045-2046/2161/2208-2210`,
+`stats.py:280-286`, `loggers.py:1120`). The record of the run that derived the mechanism is
+`../evidence-workspace/recorded-cases-pd-kv-and-features.md` (#8664): correct mechanism, no
+answer shipped.
+
+**At vllm v0.21.0 `ad7125a4` the accounting was rewritten and this subtraction no longer
+exists** — say that before ranking anything when the paste's line numbers are newer:
+
+- `stats.py:243-273` `PrefillStats` + `set()`: `num_cached_tokens = num_local_cached_tokens +
+  num_external_cached_tokens`, `assert num_cached_tokens <= num_prompt_tokens` (`:267`), and
+  `num_computed_tokens = num_prompt_tokens - num_cached_tokens` (`:270`);
+- `PromptTokenStats.update_from_output(prefill_stats)` (`:304-311`) only `+=`s the two
+  non-negative fields from the scheduler: no `recomputed` term, no subtraction, and
+  `recomputed_tokens` is gone from the dataclass;
+- **the latch is gone**: `num_cached_tokens` occurs nowhere in `vllm/v1/request.py` or
+  `vllm/v1/core/sched/scheduler.py`; the source counts are the scheduler's own per-iteration
+  values (`scheduler.py:612-613`) and the counter write moved to `loggers.py:1156-1157`. The
+  `max(…, 0)` clamp at v0.21.0 sits on a different metric (`loggers.py:1199`, the prefill-KV
+  histogram over `FinishedRequestStats`).
+
+Consequences, in order: (a) a traceback naming `loggers.py:1156`-era lines is **not** this
+page's arithmetic — the candidates are a scheduler/connector count that is negative by itself
+or another consumer, so do not hand over the latch fix; (b) `:1120` + `async_llm.py:707` is
+v0.18.0-era and the mechanism above stands; (c) "is it fixed upstream" for a v0.18.0 reporter
+is "the rewrite exists at vllm v0.21.0", not a PR number. Recheck with the behaviour greps,
+never the numbers: `local_cache_hit +=` (what it adds decides the formula) and
+`num_cached_tokens < 0` (absent ⇒ post-rewrite).
+
+A DSA/MLA model's **index cache** (GLM-5/5.1, the reporter's "indexcache patch": at
+vllm-ascend v0.21.0rc1 only `vllm_ascend/attention/sfa_v1.py`, `dsa_v1.py`,
+`context_parallel/dsa_cp.py`, `models/deepseek_v4.py`) changes which blocks are available and
+when they are freed, so it can *trigger* an external-vs-latched mismatch — it does not own the
+metric arithmetic. Ask for the patch diff instead of reading that code.

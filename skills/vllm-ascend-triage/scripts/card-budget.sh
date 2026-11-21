@@ -19,7 +19,7 @@ usage() {
   cat <<'EOF'
 
 usage: card-budget.sh --params P [--dtype bf16] [--hbm 64] [--gmu 0.9] [--tp 1]
-                      [--cards N] [--stage-gmu 0.9,0.6,0.3] [--stage-devices '0,1;2;2']
+                      [--cards N] [--stage-gmu <s0>,<s1>,<s2>] [--stage-devices '0,1;2;2']
 
   --params P         total parameters IN BILLIONS, not a raw count: 30.5 for
                      Qwen3-Omni-30B-A3B, 671 for DeepSeek-R1 (671e9 params).
@@ -31,16 +31,18 @@ usage: card-budget.sh --params P [--dtype bf16] [--hbm 64] [--gmu 0.9] [--tp 1]
   --gmu F            gpu_memory_utilization of the engine   (default 0.9)
   --tp N             tensor-parallel size sharding it       (default 1)
   --cards N          cards on the host, used to validate device indices
-  --stage-gmu L      comma-separated per-stage gpu_memory_utilization
+  --stage-gmu L      comma-separated per-stage gpu_memory_utilization, read
+                     from the reporter's stage yaml — there is no default
   --stage-devices L  per-stage device lists, ';'-separated ('0,1;2;2')
 
 examples:
   bash card-budget.sh --params 30.5 --tp 2 --gmu 0.9 --cards 2
   bash card-budget.sh --params 671 --dtype w8a8 --tp 16 --gmu 0.8   # DeepSeek-R1
-  bash card-budget.sh --params 30.5 --cards 2 --stage-gmu 0.9,0.6,0.3 \
-       --stage-devices '0,1;2;2'          # the bundled 3-NPU layout
-  bash card-budget.sh --params 30.5 --cards 2 --stage-gmu 0.9,0.6,0.3 \
-       --stage-devices '0,1;0;0'          # the same pipeline squeezed onto 2
+  bash card-budget.sh --params 30.5 --cards 2 --stage-gmu <s0>,<s1>,<s2> \
+       --stage-devices '0,1;2;2'          # what the omni log's Stage-N lines say
+  bash card-budget.sh --params 30.5 --cards 2 --stage-gmu <s0>,<s1>,<s2> \
+       --stage-devices '0,1;0;1'          # the same pipeline on 2 cards: passes only if
+                                        every device's summed gmu stays <= 1.0
 EOF
 }
 
@@ -132,6 +134,7 @@ BEGIN {
   }
   if (worst > 1.0)
     printf("VERDICT: the layout is memory-infeasible as written; it is not a " \
-           "scheduler/connector bug. Give each stage its own card, cut the " \
-           "stage set, or quantise.\n")
+           "scheduler/connector bug. Take the gmu values from the stage yaml and " \
+           "re-pin `devices` so a small stage shares a card with room " \
+           "(reporter-confirmed on 2 cards, #8068), or cut the stage set, or quantise.\n")
 }' 

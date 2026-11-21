@@ -97,6 +97,13 @@ log gave no hint".
 - A Python-shaped exception (`AttributeError`, `TypeError`, allocation failure)
   that merely surfaced here → classify on the exception, not on the phase.
 
+- `Cannot run aclop operators during NPU graph capture. Current working aclop is
+  <Op>` (+ `ERR00007 PTA feature not supported`) → one op has no capturable
+  (aclnn) implementation and ran on the aclop path: torch_npu's own guard
+  (`NPUGraphsUtils.h:93-105` from `OpCommand::Run`), with the owning statement in
+  the FX trace above it → `aclop-op-during-graph-capture.md`. Not this page's
+  stream-budget family.
+
 - A **stream synchronize refusal** — `c10_npu::acl::AclrtSynchronizeStreamWithTimeout(copy_stream),
   error code is 107027` + `EE9999 … Not allow to synchronize captured-stream,
   stream_id=N [FUNC:StreamSynchronize][FILE:api_error.cc]`, under the generic

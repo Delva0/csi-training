@@ -201,9 +201,12 @@ after that keeps the header, not this text.
   check against the pinned exports. Owner: `../image-dependency-faults/host-cxx-compile-header-conflict.md`.
 - `scripts/card-budget.sh --params P [--dtype] [--tp] [--gmu] [--hbm] [--cards]
   [--stage-gmu] [--stage-devices]` — weights-per-card vs budget and the gmu sum
-  over processes sharing a device (#9335). `P` is **billions** of parameters
-  (`671`, not `671e9`); the script exits 2 on a raw count rather than printing
-  arithmetic that inverts the verdict.
+  over processes sharing a device (#9335; the `--stage-*` half is the 3-stage omni
+  layout of #8068). `P` is **billions** of parameters (`671`, not `671e9`); the
+  script exits 2 on a raw count rather than printing arithmetic that inverts the
+  verdict, and it has no default per-stage gmu — those values come from the
+  reporter's stage yaml, because a 2-card deploy can pass once `devices` are
+  re-pinned (`../deploy-sizing/card-budget-and-device-visibility.md`).
 - `scripts/kv-page-size-arithmetic.py --layout {legacy,v023} --mode {li_c8,sfa_c8}
   [--soc A3|A5] [--dcp D] --k-head-dim L --v-head-dim R --index-head-dim I
   [--block-size 128] [--num-kv-heads 1] [--pages N]` — the DSA/sparse-C8 KV page
@@ -347,7 +350,12 @@ after that keeps the header, not this text.
   version": reads both trees' `torch` / `torch-npu` / `torchvision` pins, flags the
   metadata-vs-tree split for `--pre` / `--extra-index-url`, and names each
   contradiction (a torch-npu line off the torch line, a torchvision cap that excludes
-  the vllm pin) (#1796, #4737).
+  the vllm pin) (#1796, #4737). It also prints the **release's own contract** in the
+  same call — the `docs/source/community/versioning_policy.md` matrix row(s) and the
+  `conf.py` pip-pair substitutions — plus a reminder that `installation.md` prints
+  `|pip_vllm_version|` tokens, so a version grep there comes back empty by design;
+  that block is what answers a pin-bump report (`dependency-pin-bump-request.md`,
+  #3266), where there is no pip error to read.
 - `scripts/pep440-local-check.py '<spec>' '<spec>' [--candidates v1,v2]` — PEP 440 local-label
   matching for a `Cannot install X and Y … conflicting dependencies` paste: prints which concrete
   versions satisfy every spec, so `==2.9.0` vs `==2.9.0+cpu` is read as compatible (a missing
@@ -411,7 +419,12 @@ after that keeps the header, not this text.
   `weight_nz_mode` resolves there (`0` off / `1` quantised-only default / `2`
   bf16+fp16) — i.e. whether an fp32 pooling head (#4679) or a bf16 MoE
   shared-expert gate (#10014) is being cast to `FRACTAL_NZ`, and which mode is the
-  escape.
+  escape. Two version boundaries it now reports instead of guessing: when **no** gate
+  function exists at the root (v0.11-line trees decide the layout inline) it prints the
+  cast-site and `is_310p()` greps and routes to
+  `../feature-enable-recipes/weight-nz-layout-by-soc.md`, and when neither
+  `weight_nz_mode` nor `VLLM_ASCEND_ENABLE_NZ` is in the tree it says the layout is not
+  a flag there instead of printing the mode escape.
 - `scripts/toolcall-raw-output-audit.py <dir-or-file> [...] [--markers '<a>,<b>']`
   — read a case's request / rendered-prompt / tokenized-request / completion
   dumps and print the lane: no tool-call marker in the engine's own completion

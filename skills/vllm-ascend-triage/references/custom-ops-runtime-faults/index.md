@@ -79,7 +79,7 @@ downstream code and the owner is the launch site's arguments —
   same answer, on 310P most often for a torch_npu *built-in* (`aclnnIsNegInf` on a
   VL/vision path, recorded #6082) — where the Python caller is in no pinned tree, so
   one `rg` is the whole budget before the standalone op probe on that page.
-  **Five pre-launch wordings, five owners — and the one with an `integral key`
+  **Six pre-launch wordings, six owners — and the one with an `integral key`
   is the dtype axis.** `EZ1001 … does not support opType` = no registry entry for
   the SoC (`op-not-registered-for-soc.md`); `EZ9999 … does not has any binary` /
   `Parse dynamic kernel config fail` = no kernel for the op at all on this SoC
@@ -95,8 +95,22 @@ downstream code and the owner is the launch site's arguments —
   aclnn<Op>GetWorkspaceSize not in libopapi.so`** is the *dlsym* root: the symbol was
   not in the vendored `libcust_opapi.so` nor in the toolkit's `libopapi.so`, so the
   container's custom-op package is the first suspect and the CANN release the last —
-  `opapi-symbol-absent.md`. None of the five ran a kernel, so `561000` / `ERR00100` / `EZ9999` is a wrapper and a grep on it alone
-  lands in the MC2/HCCL rows.
+  `opapi-symbol-absent.md`; and **`EZ1001` wrapped round `Check
+  NnopbaseRunWithWorkspace(executor, stream, workspace, workspaceSize) failed` /
+  `Assert ((executor) != nullptr) failed`** is the *opbase launch* path, not a registry
+  statement, so the registry page's remedy does not apply. Read the `Check …` lines
+  **between** the `EZ1001` and the assert: `NnopbaseExecutorPrepareParamsExt` →
+  `NnopbaseExecutorGetMc2Num` → `NnopbaseGetHcomResource` →
+  `HcclAllocComResourceByTiling … ret = 4` is the MC2/HCCL-resource lane, recorded twice
+  in the corpus (#5680 single-node and #5993 two-machine, both A2 DeepSeek
+  `MoeDistributeDispatch*`) and owned by
+  the link/comm pages (`../hccl-and-hardware/link-establish-timeout.md`), never by the
+  op's SoC support. A paste that elides it as `EZ1001: … Assert` has dropped exactly that
+  discriminator, so ask for the block before classifying — recorded #6488 (310P MoE, 21
+  turns, no answer) read the `EZ1001` registry page first and then hunted the op's Python
+  caller across vllm-ascend, torch_npu and op-plugin for the rest of the session. None of
+  the six got a kernel to run in the recorded cases, so `561000` / `ERR00100` / `EZ9999` /
+  a bare `EZ1001` is a wrapper and a grep on it alone lands in the MC2/HCCL rows.
 - **A garbled MoE output or an AI-Core invalid-GM-address under
   `enable_fused_mc2=1` is a workspace/stride question inside one of three op variants,
   and the variant is the lever.** `csrc/mc2/dispatch_ffn_combine{,_bf16,_w4_a8}/` share a

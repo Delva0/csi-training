@@ -408,6 +408,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   insufficient available streams` sentence there is canned wrapper text printed
   for every capture exception, and the capture-size set may already be the
   computed maximum.
+- The appended inner error is `Cannot run aclop operators during NPU graph
+  capture. Current working aclop is <Op>` (+ `ERR00007 PTA feature not
+  supported`) → `aclop-op-during-graph-capture.md` first: torch_npu's own guard
+  (`NPUGraphsUtils.h:93-105`, called from `OpCommand::Run` only on the aclop
+  path), so the subject is one uncapturable op, not the stream budget; the owning
+  Python statement is in the FX trace printed beside it, and the message's
+  `allow_internal_format = False` advice is overridden by vllm-ascend's
+  import-time `True` (`worker/model_runner_v1.py:138` at v0.11.0rc0, `:154` at
+  v0.18.0rc1). The escape is skipping capture — and a reporter's
+  `--no-enforce-eager` (vLLM parses boolean pairs) is the opposite direction.
 - The appended inner error is `capture_begin: … AclmdlRICaptureBegin(capture_stream_,
   capture_mode), error code is 207005` with `[SqCqManage]Alloc sq cq fail,
   stream_id=1984, retCode=0x7020023` under it, and above it CANN's

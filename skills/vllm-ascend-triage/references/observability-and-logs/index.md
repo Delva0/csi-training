@@ -44,7 +44,20 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    the reporter reading a different process's stdout (API server vs
    `EngineCore`) than the one they piped. Those five are the ranked answer.
 4. **A log line the report quotes can be fixed wrapper text** (SKILL.md rule 11):
-   before accepting a sentence as the cause, grep its emitting site.
+   before accepting a sentence as the cause, grep its emitting site. One recorded
+   instance to recognise by its wording: `skip this step for we receive the data from
+   remote disaggregate prefill node` sits under `if not
+   scheduler_output.total_num_scheduled_tokens:` **and** `if not
+   has_kv_transfer_group():` (`vllm_ascend/worker/model_runner_v1.py:1929-1936` at
+   vllm-ascend v0.11.0 `2f1aed98ccdb`), so it prints precisely when there is **no** KV
+   connector and means "this step scheduled no tokens, engine idle". A paste ending in
+   it is neither a PD/disaggregation report nor a lost response — recorded #5760
+   answered a "curl returns empty on a 4096-token completion though the same body
+   redirects to file with content" report with the client-side `-w
+   '%{http_code} %{size_download}'` check and had to correct this line in a second
+   message; grep the string at the claimed ref before letting a paste's own wording
+   choose the track. Recheck: the guard, not the sentence, is the evidence — read the
+   `if` above the log call.
 5. **A warning that names its own variable is a registry fact, not a mechanism
    hunt.** `Unknown vLLM environment variable detected: VLLM_ASCEND_…` is upstream
    `envs.validate_environ` (warn-only: `fail_on_environ_validation` defaults

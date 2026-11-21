@@ -93,6 +93,14 @@ exactly that).
    the reporter's ref plus what sets `causal`; if the pooling branch is taken for
    a decoder model, that is the owner, and the fix is to keep the causal splitfuse
    path for it. Confidence: hypothesis.
+   The same tail-only branch has a **second trigger that needs no chunked prefill**
+   — a prefix-cache **hit** on a repeated prompt — and on v0.13.0rc1/v0.14.0rc1 the
+   pooling branch is taken *unconditionally* (no `not causal`), with
+   `--no-enable-prefix-caching` as the reporter-confirmed workaround and
+   `--no-enable-chunked-prefill` doing nothing
+   (`prefix-cache-hit-embedding-drift.md`, #5725). Short prompt + repeated string ⇒
+   that page; long prompt + first call only ⇒ this one. Which flag moves the
+   corruption is the discriminator, so ask for it before ranking either.
 3. **Long-chunk numerics on 310P** (the splitfuse/`_npu_flash_attention` op or the
    fp16 path). **Check:** the chunk-budget sweep in the ladder below — if the
    corruption boundary does not move with `--max-num-batched-tokens`, this lead

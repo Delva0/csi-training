@@ -40,6 +40,35 @@ non-fp16 KV cache (`--kv-cache-dtype fp8`) refused at the first store is
   v0.11.0rc3) — state both effects
   (`../runtime-memory/hbm-growth-and-oom.md`, step 3).
 
+- **At a v0.14.0rc1 pin the tutorial is a flat `docs/source/tutorials/310p.md`**
+  (`hardwares/310p.md` does not exist there), and the release that re-opened the lane
+  also *scoped* it: `docs/source/user_guide/release_notes.md:9` — "310P support is back
+  now. In this release, **only basic dense and vl models** are supported with eager
+  mode" (#5776). A 310P **MoE** (A3B) report at that pin is outside the declared surface,
+  and the same build carries **no custom aclnn op**: `csrc/build_aclnn.sh:5-11` reaches
+  `exit 0` for `^ascend310` before `CUSTOM_OPS` is ever assigned, so
+  `enable_custom_op()` (`vllm_ascend/utils.py:243-266`) is False and the routed-expert
+  selector's `torch.ops._C_ascend.moe_gating_top_k`
+  (`vllm_ascend/ops/fused_moe/experts_selector.py:221`) has no aclnn backend. Any
+  `aclnn<Op>` in such a paste is therefore a CANN/`torch_npu` **built-in**.
+- **That tutorial contradicts the release note**, and it is why a 310P report quotes two
+  tags two releases apart: `310p.md:3-8` is still "experimental … only supports eager
+  mode and the float16 data type … You can use v0.10.0rc1 version first", with
+  `IMAGE=quay.io/ascend/vllm-ascend:v0.10.0rc1-310p` at `:17`. Quote both and name the
+  inconsistency as a doc defect (recorded #6488: the reporter tried
+  `v0.10.0rc1-310p` **and** `v0.14.0rc1-310p` because the page told them to).
+- **An op name is a generation marker.** `aclnnMoeGatingTopKSoftmax` is
+  `torch_npu.npu_moe_gating_top_k_softmax`: at v0.14.0rc1 vllm-ascend calls it nowhere
+  (`rg -n npu_moe_gating_top_k_softmax vllm_ascend/` is empty; only
+  `tests/e2e/nightly/single_node/ops/singlecard_ops/test_gating_top_k_softmax.py:29`)
+  while its own `release_notes.md:681` records when the selector was wired to it
+  (`#1902`) — i.e. the name dates the failing run to the ≤v0.10 selector generation. Grep
+  the trees **once**, then stop: the caller is in no pinned export, and the deliverable is
+  the standalone probe plus the container's op store (`rg -l MoeGatingTopKSoftmax
+  /usr/local/Ascend/ascend-toolkit/latest/opp`, under `ASCEND_LAUNCH_BLOCKING=1`) —
+  `kernel-package-vs-card.md`. #6488 spent 21 turns and 39 tool calls on that caller hunt
+  and shipped **81 characters** of message text.
+
 A VL or OCR checkpoint that **serves and answers garbage** on this SoC is the
 other shape of the same platform question — support is a per-model doc statement
 and document parsing is a pipeline: `310p-vl-ocr-garbage-output.md`.

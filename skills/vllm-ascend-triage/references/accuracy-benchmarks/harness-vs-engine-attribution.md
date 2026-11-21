@@ -89,3 +89,47 @@ retires, so a later session need not re-derive them:
   factory forwards the key only when the model config carries it
   (`rotary_embedding/__init__.py:236-278`). That moves the floor/ceil rounding of the
   ramp band — label it a divergence, not the cause of a 3.4-point gap.
+
+## When the older image is the good one
+
+The two-image section above assumes the **newer** image is the suspect and one flag can
+bring it back onto the old numeric path. #4730 runs the other way — image request
+(Qwen2.5-VL-3B, one card), same weights and the same serve command, the **older** tag
+structuring the document correctly and the newer one returning "返回的html结构都错乱" — and
+the reporter's public follow-up (2025-12-05) adds that rc1, **rc2 and rc3** all fail and
+that they now suspect 精度. Two consequences:
+
+- **No upgrade rung exists.** The reporter is already on the newer side, so "re-run on
+  the current image" is answered by construction, and a delta that survives three rcs is
+  not a one-release regression that the next rc repairs — do not put either in the first
+  message. Say instead that a single-commit pin cannot diff the two tags and give the dump
+  below.
+- **Enumerate the stack rather than guessing which component moved.** A tag moves `vllm`,
+  `vllm-ascend`, `torch_npu`, CANN and `transformers` together, so "the code changed
+  between the tags" is not yet a claim about vllm-ascend. One command per image, then
+  diff the outputs:
+
+```bash
+pip show vllm vllm-ascend torch-npu transformers | grep -E 'Name|Version'
+python -c "import torch, torch_npu; print(torch.__version__, torch_npu.__version__)"
+python -c "import vllm_ascend.envs as e; print('USE_OPTIMIZED_MODEL', e.USE_OPTIMIZED_MODEL)"
+cat /usr/local/Ascend/driver/version.info
+docker inspect --format '{{index .RepoDigests 0}}' quay.io/ascend/vllm-ascend:<tag>
+```
+
+  The env line is the one a request cannot show: a **default flipped in the newer image**
+  is part of its behaviour without appearing on the command line. At v0.11.0rc3
+  `USE_OPTIMIZED_MODEL` defaults to `'1'` (`vllm_ascend/envs.py:96-97`) and selects the
+  head-dim-padded Qwen2.5-VL tower (`models/__init__.py:21-34`,
+  `models/qwen2_5_vl.py:48-49,221-227`), while the rc0 default is not in any snapshot —
+  so the same line run inside the *old* image is what says whether that flip **is** the
+  delta.
+
+Then the within-image rows, one restart each on the same body: that env default,
+`--enforce-eager`, a text-only request (clean ⇒ the vision path owns it), and — for a
+quality rather than a score symptom — the request's own token envelope before any numeric
+theory (`finish_reason` plus `usage.prompt_tokens` against the tutorial's `max_pixels`;
+#4730 ran 2 038 400 px/image × up to 3 images against `--max-model-len 8192`). A
+*structure* regression is also invisible to both instruments CI has at that pin — an
+aggregate MMMU row and a "non-empty output" assert — so CI green is not a refutation:
+`vl-vision-tower-degeneracy.md` §*Fifth pin*.

@@ -8,6 +8,19 @@ full entries live in the other five case pages.
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#3859** v0.11.0 line (pin `v0.11.0rc0` `00ba071`), 910B3, no log: "910B3 是否支持权重
+nd 到 nz 的转换，提高 matmul 的性能？0.11.0 的代码好像只支持 310P" — a capability question
+whose premise is a guard read; at that ref quantized Linear (`w8a8.py:139`,
+`w8a8_dynamic.py:104`) and all MoE weights (`not is_310p()` / unconditional) are already
+NZ on 910, and only the unquantized **dense** cast is 310P-gated
+(`model_runner_v1.py:2633-2643` with `ACL_FORMAT` NZ only on 310P); no `weight_nz_mode`
+exists at that ref. Answered completely in 14 assistant turns, but three of them chased a
+gate function (`_should_trans_nz`) that is **absent** from that tree because
+`nz-format-gate-check.sh` reported "SHAPE GUARD: absent in _should_trans_nz" for a
+function that does not exist there — the script now detects the absent gate
+(`../feature-enable-recipes/weight-nz-layout-by-soc.md`). The reporter's follow-up was an
+image with no text, so nothing was confirmed.
+
 **#8944** v0.19.1rc1
 `aclnnAddRmsNormBias` device fault; #10068 evalscope vs ais-bench MMLU-Pro gap;
 

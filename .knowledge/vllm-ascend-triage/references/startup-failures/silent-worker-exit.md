@@ -24,6 +24,13 @@ raising. That distinction decides the next question.
   (line 597). Newer versions log `WorkerProc hit an exception.` (seen at
   `multiproc_executor.py:880` in the v0.17 log). A raised worker therefore leaves
   a rank-prefixed traceback; a killed worker leaves nothing.
+- **A kill after the engine is ready looks different from a kill during init:**
+  there is no `wait_for_ready` message at all. The EngineCore instead dumps the
+  in-flight `SchedulerOutput` and dies with `RuntimeError: cancelled` raised from
+  the response queue's `acquire_read`, because `monitor_workers` already saw the
+  dead process and shut the queue down. Read that text as the same lane (a
+  killed worker, no cause in the paste) and continue in
+  `../hccl-and-hardware/cancelled-executor-teardown.md`.
 - `Parent process exited, terminating worker` (line 558) is emitted by each
   worker's `WorkerDeathMonitor` thread when the *parent* channel closes. It is a
   consequence of the engine core going away, never the cause — even when it

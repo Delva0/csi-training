@@ -23,6 +23,12 @@ Inherit the rules in SKILL.md. Four that decide this topic:
    nothing to compare with — and the known-issue line names the same axis the
    reported failure lands on. Quote it with its release, do not present the
    🟢 row as the project's validated position for graph mode.
+   Its symptom is worth carrying: in #1754's own paste the graph+PP run does not
+   crash — **all four** prompts come back as `Output: '!!!!!!!!!!!!!!!!'`, so a
+   constant-token answer after adding `--pipeline-parallel-size` is this known
+   issue wearing an accuracy costume, not a numerics bug
+   (`../accuracy-benchmarks/constant-token-degeneracy.md`).
+
 2. **CI coverage is one grep and it is part of the answer.** The e2e test exists
    (`tests/e2e/multicard/test_pipeline_parallel.py`: `Qwen/Qwen3-0.6B`, tp 1,
    pp 2, `mp`+`ray`, `VllmRunner` whose `enforce_eager` default is `False` —

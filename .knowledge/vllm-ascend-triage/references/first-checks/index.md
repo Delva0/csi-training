@@ -7,8 +7,8 @@ checks to take **before** any source archaeology, each ending at the topical pag
 that owns the rule. `scripts-catalogue.md` is the same material one level down:
 the flag synopsis and expected reading of every re-runnable script the two pages
 name. It is consulted per report — place the report with the signature index
-(`signature-routes/index.md`) or `SKILL.md`'s topic-entry table, then read only the entry
-for that track.
+(`signature-routes/index.md`) or the dispatch table
+(`../dispatch/classified-shapes.md`), then read only the entry for that track.
 `SKILL.md` keeps the Lane A/B/C ordering, the attribution rule and the delivery
 gates; this topic keeps the per-track detail that used to sit beside them.
 

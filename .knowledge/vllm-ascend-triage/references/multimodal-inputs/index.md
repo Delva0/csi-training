@@ -6,7 +6,10 @@ placeholders`, `RuntimeError: shape mismatch: value tensor of shape [N, D] canno
 be broadcast to indexing result of shape [M, D]` out of
 `_merge_multimodal_embeddings`, an image in the request with no `<image_pad>`
 placeholder (or the reverse), a `tgt_sizes` / `image_bound` disagreement, or a
-request that dies inside `embed_input_ids` / `_preprocess` before any kernel runs.
+request that dies inside `embed_input_ids` / `_preprocess` before any kernel runs —
+**or** an `IndexError: list index out of range` raised while the runner builds
+M-RoPE positions for a new request (`get_mrope_input_positions`,
+`image_grid_thw[image_index]`), with `EngineDeadError` at the API server.
 Not this topic: a VL answer that is merely degenerate or wrong with sane counts
 (`../accuracy-benchmarks/vl-vision-tower-degeneracy.md`), a **device fault mid-request**
 inside the vision tower or in the LM prefill of a long/chunked image prompt
@@ -27,19 +30,31 @@ Inherit the rules in SKILL.md.
   vision tower plus the model's merge/merger, driven by `tgt_sizes`. Neither side
   is Ascend code, so no `--enforce-eager`, plog or device-health check can move
   this class — route by **which side is short**, then compute, don't read source.
-- **The error is a host-side `ValueError`** raised in
-  `vllm/model_executor/models/utils.py::_merge_multimodal_embeddings` (the
-  `len(mm_embeds_flat) != is_multimodal.sum()` branch). Its deepest frame is
-  upstream `vllm/model_executor/models/<model>.py::embed_input_ids`; a
-  `vllm_ascend/worker/model_runner_v1.py:_preprocess` frame above it is a call
-  site, and a `_310p/model_runner_310p.py` override carries no mm-merge logic of
-  its own (checked at v0.23.0rc1: no `merge_multimodal_embeddings` under
+- **The m-rope shape counts images, not tokens, and counts them a third way.** The
+  item count there is taken from `vision_start_token_id` occurrences in the final
+  token ids while the feature list is gathered from `mm_features`; the run length
+  comes from yet another derivation (`get_num_image_tokens`). So the owning
+  variable is the **model directory** (special-token ids in `config.json`, the chat
+  template, the preprocessor config), not the engine version, and the cheapest
+  evidence is the API server's `Detected the chat template content format to be
+  '…'` line plus the ids in `config.json` — `mrope-image-index-error.md`.
+- **The error is a host-side `ValueError`/`IndexError`, not a device fault.** The
+  merge shape raises in `vllm/model_executor/models/utils.py::_merge_multimodal_embeddings`
+  (the `len(mm_embeds_flat) != is_multimodal.sum()` branch); the m-rope shape
+  raises in the model file's `get_mrope_input_positions`, called from
+  `v1/worker/gpu_model_runner.py::_init_mrope_positions` /
+  `_update_states`. A `vllm_ascend/worker/model_runner_v1.py` frame above either is
+  a call site, and a `_310p/model_runner_310p.py` override carries no mm-merge
+  logic of its own (checked at v0.23.0rc1: no `merge_multimodal_embeddings` under
   `vllm_ascend/`).
 - **Deliver the ownership verdict and the arithmetic in the first message**
-  (SKILL.md rule 1). Every number needed is in the paste: N, M, D, and the
-  request's own image/grid sizes. Reading the model file to "see why" is what
-  consumes a session — the recorded #14014 run spent its whole budget there and
-  emitted no answer text.
+  (SKILL.md rule 1). Every number needed is in the paste — for the merge shape
+  N, M, D and the request's own image/grid sizes, for the m-rope shape
+  `prompt_token_ids_len`, the `mm_features` count and each `mm_position`
+  offset/length from the dumped `SchedulerOutput`. Reading the model file to "see
+  why" is what consumes a session — the recorded #14014 run spent its whole budget
+  there and emitted no answer text; #5772 did the same on the m-rope shape (20
+  turns, 50 K characters of reasoning, 53 characters of text).
 - The same error string is recurring in the prior-month corpus — one
   `bash <skill_root>/scripts/history-titles.sh -i 'multimodal tokens'` gives the
   precedent family in one call before any code read.
@@ -50,3 +65,9 @@ Inherit the rules in SKILL.md.
   vs per-stage merge floor), the three levers that make them disagree, the
   direction rule, and the recorded family (#14014, #3286, #5349, #6934, #7023,
   #3092). One call: `uv run --no-project python <skill_root>/scripts/mm-placeholder-count.py`.
+- `mrope-image-index-error.md` — `IndexError` in `get_mrope_input_positions`
+  (#5772, PaddleOCR-VL on v0.13.0rc1): the token-side image count vs the gathered
+  `image_grid_thw`, the arithmetic on the dumped `SchedulerOutput`, the
+  `'string'` vs `'openai'` chat-template content-format discriminator, the
+  one-command special-token-id print, and the reporter-confirmed fix (refresh the
+  model files).

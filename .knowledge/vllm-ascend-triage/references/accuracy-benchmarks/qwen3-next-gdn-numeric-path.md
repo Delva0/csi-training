@@ -152,5 +152,44 @@ torch reference is gone:
   "in_proj_ba"]`), so a bad fused packing surfaces as fluent semantic drift
   (#5065: `who are you?` answered as a paraphrase task, a Chinese prompt answered
   with an English essay) rather than as digit soup. Grade it with the same
-  ablation matrix above plus one extra row first: same prompt on the bf16
-  checkpoint, which separates the quantized path from the triton GDN path.
+  ablation matrix above plus one extra row — the same prompt on the bf16
+  checkpoint, which separates the quantized path from the triton GDN path — but on a
+  **quantized** serve the installed triton-ascend build is checked before that row
+  (next section).
+
+### The triton-ascend build owns the quantized `!` run (recorded #5606)
+
+#5606 is the same model, checkpoint and pin (`vllm-ascend/Qwen3-Next-80B-A3B-Instruct-W8A8`,
+`--tensor-parallel-size 2`, `--quantization ascend`, `--max-model-len 128`), and its
+symptom is a run of `!` to `finish_reason: length` on a 16-token prompt. Here the owner
+is stated in the thread, not derived from the tree:
+
+- Maintainer statement (InSec, 2026-01-05, same issue): "the currently known
+  quantization accuracy issue is caused by the **triton-ascend** version. We have found
+  that the **triton-ascend 1107** version will led to the occurrence of **NAN** problems
+  for some operators in the quantization scenario, just like all the answers here are
+  full of exclamation marks." Ask for the installed build and move it, per the model's
+  own tutorial.
+- Reporter-confirmed next comment (2026-01-07): after changing that wheel the model
+  **deployed and served**, and the next failure was a different, unrelated error on the
+  API call. The paste garbles the two version strings, so record it as "the build was
+  changed", never as a specific from→to pair.
+- `1107` is the pinned tutorial's own wheel: `docs/source/tutorials/Qwen3-Next.md:58-59`
+  installs `triton_ascend-3.2.0.dev2025110717-cp311-cp311-manylinux_2_27_aarch64.whl`.
+  So the release's documented build **is** the one the maintainer calls known-bad for
+  quantization, and "update per the official tutorial" means a build newer than that
+  pin — not "reinstall the pinned wheel".
+- The check is one command, and it is not in the env dump: `pip show triton-ascend`
+  (or `pip list 2>/dev/null | grep -i triton`). `collect_env` filters `pip list` by the
+  substring `triton` (`vllm/collect_env.py:81-92`, applied at `:540-543`), yet #5606's
+  "Versions of relevant libraries" block lists only numpy/pyzmq/torch/torch_npu/
+  torchvision/transformers — so ask for the build instead of reading the paste, and keep
+  its absence an open question (not installed vs filtered), not a finding.
+- Why the symptom looks like a sampler collapse: a NaN from a quantized operator does
+  not raise, it collapses the logits to one token, so the text is one punctuation mark
+  repeated to the token cap. Grade it as NaN, not as sampling, and put this row before
+  the sampling/temperature rows.
+- Ordering for a **quantized** serve: triton-ascend build → `VLLM_ASCEND_ENABLE_NZ=0` →
+  bf16 checkpoint. A bf16 run on the same bad wheel can be clean (the maintainer scopes
+  the NaN to the quantization scenario), so taking the bf16 row first can mis-rank the
+  rest.

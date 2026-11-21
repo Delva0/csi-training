@@ -337,6 +337,20 @@ Two things this page settles once, for the report body:
   threshold 5 %, perf baseline 664.6449 at threshold 0.97. Quote those as the
   project's own gate; note TP4 appears only in
   `tests/e2e/multicard/4-cards/test_qwen3_5.py:24-36` (`max_model_len` 4096).
+- **the 2048/2048 command shape** (the row demands it and the page prints only
+  200-in at `--request-rate 1`): `vllm bench serve --dataset-name random
+  --random-input-len 2048 --random-output-len 2048 --ignore-eos --num-prompts N
+  --max-concurrency M --save-result --result-dir ./`. The flag names are
+  `--random-input-len` / `--random-output-len` (defined for the random dataset in
+  `vllm/benchmarks/datasets.py:1565,1571` at vllm v0.18.0; `serve.py` only re-mentions
+  them in the `--input-len`/`--output-len` help at `:1294-1308`), and `--ignore-eos`
+  (`serve.py:1419`) is what makes the output
+  length fixed: `--random-output-len` is the request's `max_tokens`, so a model
+  that emits EOS early returns a shorter sequence and the "2048/2048" number
+  measures something else. Same for the perf run of AISBench
+  (`--mode perf --summarizer default_perf`, `using_ais_bench.md:269-270`);
+  accuracy uses `--mode all --dump-eval-details --merge-ds` with
+  `aime2024_gen_0_shot_chat_prompt.py` (`:219-220`).
 
 ### The same page on a **4-card** row (recorded #11760 and #11770)
 

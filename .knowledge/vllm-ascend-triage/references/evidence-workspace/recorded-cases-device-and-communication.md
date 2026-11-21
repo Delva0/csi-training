@@ -920,3 +920,25 @@ and the A3 command differs from the reporter's in `--additional-config
 `../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md`,
 `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`.
 
+**#16023** vllm-ascend v0.26.0rc1 (`f2f74a16`) + vllm v0.26.0 (`568afb3a`), A3,
+Kimi-K3 + DSpark drafter (7 spec tokens), TP16 × DP4, `max_seq_len=133120`,
+chunked prefill + prefix caching, `enforce_eager=True` / `cudagraph_mode: NONE`,
+1P1D: short curl requests are served, a ~100 k-token prompt kills the prefill
+node. The paste is the EngineCore's `Dumping input data / scheduler output /
+scheduler stats` block (`num_scheduled_tokens=8064`, `step_counter=0`) followed by
+`EngineCore encountered a fatal error` and a pure-Python traceback ending
+`patch_shm_broadcast.py:70 raise RuntimeError("cancelled")` under
+`core.py:693 future.result()` → `multiproc_executor.py:390 mq.dequeue`. Track:
+a **worker process death**, not a queue bug — `monitor_workers` saw it die,
+logged `died unexpectedly (exit code: N)` and shut the response queue down, and a
+worker *Python* exception cannot produce this text (it is caught and returned as a
+`FAILURE` response). The recorded run derived exactly that, source-verified, and
+then kept reading the queue and the tutorial — it emitted **no message text**, so
+the reporter got nothing. The reporter's own follow-up (same issue, later) closes
+it as an environment answer the ranking never reached: 排查后 "定位到底层算子兼容性
+适配，CANN 与 HDK 存在冲突，环境的 firmware 与 driver 不匹配。升级到 26.1.1 后解决"
+— one `npu-smi info` + `version.cfg` ask and an upgrade, no patch. What the run
+should have sent on its first turn: the `cancelled` attribution, the
+`died unexpectedly` grep with its exit-code decode, the artefact list, and the
+driver/firmware × CANN lane first. Page:
+`../hccl-and-hardware/cancelled-executor-teardown.md`.

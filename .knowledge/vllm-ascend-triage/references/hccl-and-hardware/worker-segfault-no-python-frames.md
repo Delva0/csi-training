@@ -28,6 +28,13 @@ Distinguish both first from the two neighbours: an **OOM** leaves
 neither — only the dump and the executor's own wording (`exit code: None`, or a
 negative core-proc value).
 
+The same family also arrives **without** this marker: when the paste's deepest
+frame is `RuntimeError: cancelled` out of `patch_shm_broadcast.py` /
+`shm_broadcast.py` under the `dump_input.py` dump block, the engine has already
+noticed a dead worker and cancelled its response queue — same conclusion, same
+missing cause, but the text looks like an ordinary Python error, so read
+`cancelled-executor-teardown.md` first instead of the queue code.
+
 ## Read the paste in this order
 
 1. **The client traceback is secondary.** `ConnectionRefused` at

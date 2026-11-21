@@ -9,6 +9,58 @@ traceback that ends in `torch_npu/npu/graphs.py capture_end()`. The model is
 loaded and memory profiling is done; this is not a load, profile or request-path
 failure.
 
+## Step 0 — a guard that names its own rule (`TASK_QUEUE_ENABLE = 2`)
+
+```
+RuntimeError: Do not support TASK_QUEUE_ENABLE = 2 during NPU graph capture, please export TASK_QUEUE_ENABLE=1/0.
+   → RuntimeError: NPUModelRunner failed, error is …
+   → RuntimeError: NPUModelRunner init failed, error is …
+```
+
+The message is complete: it names the variable, the accepted values and the phase. So the
+work is *where the process got 2 from*, and it is an environment question, not a source
+walk:
+
+- Emitter (verified at `Ascend/pytorch` `v7.2.0.1-pytorch2.8.0` in the case view):
+  `torch_npu/csrc/core/npu/NPUGraph.cpp:113-118` —
+  `static const auto _task_queue_enable = c10_npu::option::OptionsManager::GetTaskQueueEnable();`
+  then `TORCH_CHECK(_task_queue_enable != 2, …)`. The `static` means the value is read
+  **once per process at the first `capture_begin`** (the same caching pattern as
+  `torch_npu/csrc/npu/Module.cpp:1687`), so it is the worker's own environment then —
+  provable from the worker's `/proc/<pid>/environ`, not from the launching script.
+- `2` is a *different mode*, not a mis-read of `1`: the same header labels it
+  (`register/OptionsManager.h:80-81`: `{0 "close"}`, `{1 "level 1"}`, `{2 "level 2"}`) and
+  the sibling guard at `torch_npu/csrc/npu/Module.cpp:1687-1693` branches on `== 2` to call
+  `c10_npu::opapi::ReselectStaticKernel()` — a kernel-selection mode capture cannot coexist
+  with. The parse itself lives in `OptionsManager`, and **`OptionsManager.cpp` is not in the
+  `Ascend/pytorch` content_export** (`register/` holds three headers, no `.cpp`) — so
+  "which path sets it programmatically" is a snapshot gap. Say so and stop; the answer does
+  not need it.
+- The in-tree conflict that decides the recommendation: every Dockerfile in the plugin
+  exports `TASK_QUEUE_ENABLE=1` (`Dockerfile:63`, `Dockerfile.a3:65`,
+  `Dockerfile.openEuler:63`, `Dockerfile.310p*`), while its own tuning page tells users to
+  `export TASK_QUEUE_ENABLE=2`
+  (`docs/source/developer_guide/performance_and_debug/optimization_and_tuning.md:165`,
+  "Optimize operator delivery queue"). A launch that copied the tuning page onto a shipped
+  image therefore dies at capture, and the "fix" is the value the image already uses.
+- **An attached launcher script is not the effective environment.** Recorded #10209: the
+  script exports `TASK_QUEUE_ENABLE=1`, and the same log's own non-default-args dump
+  disagrees with that script on other flags (`'enable_prefix_caching': True` against the
+  script's `--no-enable-prefix-caching`, plus `VLLM_ASCEND_ENABLE_FUSED_MC2`/`VLLM_USE_V1`
+  warnings for variables the script never exports), i.e. the process was started from
+  something else (orchestrator/container `-e`, an older script). One check inside the
+  failing worker settles the whole question:
+
+  ```bash
+  tr '\0' '\n' < /proc/<worker-pid>/environ | grep -E 'TASK_QUEUE_ENABLE|VLLM_USE_V1'
+  ```
+
+  and when the worker is already gone, the launcher that actually ran
+  (`docker inspect <ctr> --format '{{.Config.Env}}'`, the orchestrator's env list).
+- Ladder: `TASK_QUEUE_ENABLE=1` (or `0`) — both are accepted, and the recorded workaround
+  `--enforce-eager` only works because it skips capture and so never reaches the guard.
+  Keep the tuning page's `=2` for eager deployments and say which deployments that is.
+
 ## Step 1 — separate the printed advice from the raised exception
 
 v0.11.0rc0 (`00ba071`): `vllm_ascend/worker/model_runner_v1.py:3530-3565` wraps

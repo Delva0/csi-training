@@ -98,7 +98,12 @@ or a Qwen3 one.
 ## Limits
 
 - The history corpus carries issue bodies only: "match the host driver/firmware to
-  the image's CANN" is the mechanism plus four precedents, **not** a reported fix.
+  the image's CANN" is the mechanism plus four precedents, **not** a reported fix
+  for this startup phase. The *runtime* variant of the same pairing does have one —
+  a worker killed during a long-context step, upgraded to a matched set
+  (`../hccl-and-hardware/cancelled-executor-teardown.md`, #16023) — but do not
+  carry that upgrade into a `500001` at device open: different phase, and no
+  report ties the two.
 - `Ascend/pytorch` here is a content export (`1190/1240` files) whose ref is the
   **pytorch 2.7.1** line, while this image pins `torch-npu==2.5.1.post1.dev20250619`;
   and #2315's frame spells the call as the free function `aclrtSetCompileOpt` in

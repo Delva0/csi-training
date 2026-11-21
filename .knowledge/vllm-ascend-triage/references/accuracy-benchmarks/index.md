@@ -89,6 +89,18 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   changed two) and go to `hybrid-block-size-corruption.md`. A short *digit-heavy*
   prompt on the same model family (Qwen3-Next) with **no** knob difference is the
   other hybrid shape: `qwen3-next-gdn-numeric-path.md`.
+- **The whole answer is one repeated character or token** (`!!!!!!!!`, `，，，`, a
+  single word) on a text serve: grade it at the id level before any theory, because
+  a constant character is a constant token id and a constant-tie logits vector
+  retires weights, quantization, tokenizer, sampling and prompt content at once.
+  The onset then splits the lane — *always* is a config × capability gap (recorded
+  #1754: `--pipeline-parallel-size` on an ACLGraph serve made all four prompts return
+  `Output: '!!!!!!!!!!!!!!!!'`), *after hours of healthy serving, every new
+  conversation too, restart restores* is persistent process/device state (recorded
+  #3547). One `"temperature": 0, "logprobs": true, "top_logprobs": 5` body on a
+  trivial prompt, captured **while still broken**, decides it →
+  `constant-token-degeneracy.md` first, then the VL/sampler/first-call pages the
+  scope list there excludes.
 - A **first-call-only** degenerate answer — a constant token id repeated to
   `finish_reason: "length"`, an immediate `<|im_end|>` after `<think>`, or an
   `AttributeError: 'NoneType' object has no attribute 'size'` raised through
@@ -100,6 +112,28 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   owners are the text-only-multimodal `is_multimodal_model` drift and the
   first-request state that `enable_sleep_mode=True` exposes.
   Go to `first-generate-degenerate.md` before any kernel read.
+- **A kernel the whole path shares is refuted by the pin's own wired accuracy row.** Before
+  ranking rope/mrope, attention, an embedding or the sampler as the corrupting site, read
+  `tests/e2e/models/configs/<model>.yaml` (the value *and* its `hardware:` line) and confirm
+  a `.github/workflows/*.yaml` (or `misc/model_list.json`) row actually runs it. At
+  `52d4acfa` the `Qwen3-VL-8B-Instruct.yaml` row is `hardware: "Atlas A2 Series"`,
+  `mmmu_val acc 0.55`, wired at `nightly_test_a2.yaml:120`, so a text-only Qwen3-VL
+  degeneration cannot be a shared-kernel corruption (#6533): the hypothesis must name the
+  regime difference — text-only positions vs image, TP, dtype, batch, card SKU — or be
+  dropped. `short-prompt-corruption.md` Step 0b.
+- A **quantized** serve (`--quantization ascend`, a `…-W8A8`/W4A8 checkpoint) on a
+  **triton-ascend-backed** family — Qwen3-Next and its GDN siblings, whose
+  linear-attention kernels are triton-ascend
+  (`../image-dependency-faults/triton-ascend-pair.md`) — answering as one punctuation
+  token repeated to the cap (`!!!!!!!!`, `，，，`), `finish_reason: length`, nothing
+  crashing: resolve the installed **triton-ascend build** before any numerics, NZ or
+  sampler row. The maintainer attributed exactly this shape to the wheel (the `1107`
+  nightly yielding NaN in quantized operators) and the reporter cleared it by changing
+  builds (#5606) — and the wheel the pinned Qwen3-Next tutorial installs *is* that
+  `1107` build. First ask: `pip show triton-ascend`, which the `collect_env` block does
+  not reliably carry. A bf16 run of the same prompt does **not** control for it (the
+  NaN is scoped to the quantization scenario); take it after the build row,
+  `qwen3-next-gdn-numeric-path.md` §*triton-ascend build*.
 - A **tiny** prompt (a handful of tokens) answered as *one token repeated* to
   `finish_reason: length` at `temperature: 0` on a DeepSeek-V2-Lite serve (MLA,
   `q_lora_rank: null`) is the model-scoped shape: the recorded #894 pairing bump
@@ -117,6 +151,22 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   one lane whose state copy/postprocess is a torch/numpy fallback with an fp16 SSM state.
   The deliverable is the coverage verdict — two 310P CI tests, each feature alone, never
   the combination — plus the launches and the hit/miss split, `mtp-prefix-cache-310p.md`.
+- A **chance-level** aggregate — MMLU 4-way `0.2584 ± 0.0037` with every one of the 57
+  subsets between 0.17 and 0.34 — on a serve whose only distinguishing flags are an
+  `additional_config` feature stack (torchair graph + `ascend_scheduler_config` + prefix
+  caching) is decided by *which flag you can remove and keep the score*, and it needs one
+  response body before any source read: a real engine defect and a deliberately size-reduced
+  checkpoint export (`…-Pruning` weights) look identical in the table. Recorded #1553
+  (vllm-ascend v0.9.1rc1, DeepSeek-V3-Pruning TP4, lm_eval `--apply_chat_template
+  --fewshot_as_multiturn`) matches the pinned release-notes Known-Issue row for exactly that
+  flag cell (#1350, "prefix cache … does not work with the Ascend Scheduler but without
+  chunked prefill", `release_notes.md:37`) — and the reporter's later APC-off re-run scored
+  `0.2585 ± 0.0037` against `0.2584`, so the row (a *functionality* statement about the
+  cache) was not the cause. When the pinned known issue and the symptom do not match
+  classes, say so and use the ablation order in
+  `../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md` §*chance-level*:
+  graph mode off first, then scheduler fork off (chunked prefill on, APC on), then a
+  checkpoint/harness baseline with all three off.
 - First question: **did both numbers come from the same server, weights and serve flags?**
   If yes, sampling, decoding budget, output routing, extraction and aggregation are the
   attributable knobs — but **"same server" does not mean identical logits on Ascend**: on a
@@ -248,6 +298,16 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `Recommended Configurations`) and make that diff the opening answer — the worked
   Kimi-K2.6 v0.23.0rc1 table is there, with #13002 as the cost of skipping it —
   its five deviations are ranked rows, not proven causes.
+- `constant-token-degeneracy.md` — the text-only sibling of the VL `!!!!` page:
+  one repeated character/token as the entire answer, always or after hours of
+  healthy traffic until restart. The id-level reading (`completion_tokens` vs the
+  character count; `logprobs` ties or `-inf`), the persistence control the reporter
+  already supplied ("新会话也坏 + 重启即好" retires prompt, sampling, parsers and
+  gateway in one sentence), the always-on precedents with their owning statement
+  (#1754's PP × graph known-issue line, #374's 100%-reproducible upstream-clean run),
+  and the #3547 ladder — including why that serve's `ascend_scheduler_config`
+  `enable_chunked_prefill: true` means `schedule()` delegates to upstream, so "the
+  fork's chunked scheduling is buggy" is not available there.
 - `first-generate-degenerate.md` — the first offline `LLM.generate()` is garbage
   (constant token id / immediate stop) or dies while call 2 is correct, on a
   hybrid GDN checkpoint of a VL-capable architecture at TP≥2: the response-field
@@ -292,7 +352,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   physical→logical block split), the five-row matrix whose prefix-caching row decides
   align-mode state block vs attention-side split, and the stop rule that cost #13853
   its session. Recorded case #13853 (Qwen3.5-0.8B, 2048 vs 512 + eager).
-- `short-prompt-corruption.md` — the same symptom on a few-thousand-token prompt: read the
+- `short-prompt-corruption.md` — the same symptom on a few-thousand-token prompt, **or the
+  tens-of-tokens form on a dense model — including a text-only request to a VL-capable
+  checkpoint where `prompt_tokens` already excludes the vision tower (Step 0b, #6533)**:
+  read the
   pasted body's `max_tokens`/`completion_tokens` and whether its text answers the *sent*
   prompt before ranking anything (a sample cut at a 128-token `max_tokens` measures
   nothing, and a `reasoning` that works a different question is a request↔response
@@ -374,7 +437,9 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `max_tokens: 65536`). Precedents #9373, #5725, #221.
 - `qwen3-next-gdn-numeric-path.md` — the hybrid linear-attention (Gated-DeltaNet) shape:
   a 19-token to few-hundred-token prompt on Qwen3-Next-80B-A3B answered as a digit run or a
-  phrase loop while ordinary chat is fine. What vllm-ascend replaces on that path at
+  phrase loop while ordinary chat is fine, **and** the quantized `!` run whose owner is
+  the installed triton-ascend wheel build (§*triton-ascend build*, #5606). What
+  vllm-ascend replaces on that path at
   v0.11.0rc0 (the prefill `chunk_gated_delta_rule` swapped for an fp32 pure-torch
   re-implementation with a hard-coded x2 head expansion, while decode keeps the patched
   Triton kernel), the reporter-confirmed serve command that already rules out graph mode,

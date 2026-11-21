@@ -4,6 +4,11 @@ Purpose: decide whether a surprising startup failure is a genuine defect, a
 missing/extra feature registration, or a configuration that differs from a
 known-good path — before writing a theory about model code.
 
+The same reasoning applies one level up on a multi-node deployment: when the pin's own
+class **has** the attribute the paste says is missing, the question is which node's
+build lacked it, not which reader is wrong —
+`../pd-disaggregation/node-build-skew-attribute-error.md` (#10398, reporter-confirmed).
+
 ## Build the table first
 
 1. From the evidence capsule: `/workspace/repos/SOURCES.json` lists

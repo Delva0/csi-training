@@ -298,3 +298,39 @@ predicts. Cause left open; the deliverable is the D-side plog plus the `hccn_too
 block. Delivery: the ranked answer shipped at the last turn (51 messages, ~100 K prompt tokens)
 and was **output-truncated** inside action rung 5. Page:
 `../pd-disaggregation/mooncake-adxl-connect-103900.md` (new).
+
+**#10290** vllm-ascend reported 0.18.0 (snapshot v0.20.2rc1 `367b8e62`) + vllm
+v0.20.2 (`bc150f50`), GLM-5.1 大EP: `/v1/chat/completions` answers through
+`examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py` while
+`/v1/messages` and the management/metrics endpoints cannot be called ("需要对所有
+vllm 的接口都做兼容"). Track: an **example-script endpoint-coverage gap**, inherited
+from upstream's `toy_proxy_server.py`, not an engine defect. Verified at the pin:
+five routes only (`:892-920`), the header self-describes two (`:14`), and the
+Anthropic request model carries `kv_transfer_params`
+(`vllm/entrypoints/anthropic/protocol.py:116`, forwarded at `serving.py:338/450`),
+so `/v1/messages` is a tier-1 route — but with two silent traps the run found by
+reading the retry path: the proxy keys its recompute retry on
+`choices[0].stop_reason == "recomputed"` (`:793`, emitted by
+`vllm_ascend/core/recompute_scheduler.py:837`) which the Anthropic
+`stop_reason_map` (`serving.py:93-97`, `:617`) turns into `None`, and the retry
+rewrite (`:731-737`, `:795-800`) assumes string `content` where Anthropic allows a
+block list. The run also located the in-repo passthrough/fan-out template
+(`examples/disaggregated_encoder/disagg_epd_proxy.py:561/570/676/686`) and shipped
+a complete ranked answer with the nginx workaround. Page:
+`../pd-disaggregation/proxy-example-endpoint-coverage.md`.
+**#8664** vllm-ascend v0.18.0rc1 (`99e1ea0f`) + vllm v0.18.0 (`bcf2be96`), QWQ-32B W8A8 on
+2×910B (`--tensor-parallel-size 2`, `--block-size 128`, `--max-model-len 131072`,
+`--gpu-memory-utilization 0.9`, `FULL_DECODE_ONLY`, `AscendStoreConnector` `kv_role: kv_both`
+over Mooncake, 36 requests of 20-60 K tokens with repeated prefixes, 64 K outputs): after 24
+good requests the APIServer raises `ValueError: Counters can only be incremented by
+non-negative amounts` at `metrics/loggers.py:1120`; the body already guesses
+`num_cached_tokens + num_external_computed_tokens > prompt_len`, and the reporter's own
+control is "does not occur when KV Pool is disabled". The recorded run got the arithmetic
+right — the identity at `stats.py:280-286`, the `num_cached_tokens` latch
+(`request.py:150`, `scheduler.py:805-807`) that `_preempt_request` (`:941`) never re-arms,
+the connector's `load_async=False`/`discard_partial_chunks=True` defaults pruning the async
+branches, and a numeric simulation of the preempt-resume case — then was cut at the
+16 384-token completion cap after ~1.38 M prompt tokens with **no** final message. Nothing
+it derived had to be re-derived: the identity, the latch, the two checks
+(`vllm:num_preemptions`, `--disable-log-stats`) and the ownership split are now the page.
+Page: `../kv-pool-store/prompt-token-counter-negative.md` (new).

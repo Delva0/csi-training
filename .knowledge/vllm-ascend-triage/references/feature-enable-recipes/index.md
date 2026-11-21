@@ -198,7 +198,10 @@ Pages:
   answer is a coverage statement (every CP accuracy test in the tree is EP-on) plus
   one flag, not a MoE source walk.
 - `torchair-mla-graph-and-chunked-prefill.md` — torchair graph mode on DeepSeek/MLA
-  (v0.9.1rc1 `c30ddb8`), worked for #1369: the `decode_hs_or_q_c` UnboundLocalError at
+  (v0.9.1rc1 `c30ddb8`), worked for #1369, **plus §*chance-level accuracy variant* for #1553
+  (the same three-flag cell with no traceback and an MMLU at 4-way chance, where the pinned
+  #1350 prefix-cache row is retired by the reporter's own APC-off re-run: rank graph capture,
+  then the scheduler fork, then the `-Pruning` checkpoint/harness)**: the `decode_hs_or_q_c` UnboundLocalError at
   `mla_v1.py:1099` explained by the `running_in_graph` binder structure (`:1040,1065-1075`),
   the doc/CI comment "only work without chunked-prefill" plus the `ascend_scheduler_config`
   pair (`graph_mode.md:50-51`, `test_torchair_graph_mode.py:46-60`,

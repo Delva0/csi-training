@@ -12,7 +12,11 @@ owner is that model's numeric path, not this page —
 **DeepSeek-V2-Lite** serve and the answer is *one token repeated* to
 `finish_reason: length` (`"....."`), that is the MLA/`q_lora_rank: null` model shape
 and #894 already refuted the stack-pairing answer — go to
-`deepseek-v2-lite-mla-degeneracy.md` before this page's matrix.
+`deepseek-v2-lite-mla-degeneracy.md` before this page's matrix. And it owns the
+**tens-of-tokens** form on a dense model, including a text-only request to a VL-capable
+checkpoint (recorded #6533: 12-token chat prompt, `Qwen3-VL-8B-Instruct`, degenerate every
+request on one 910B4) — `usage.prompt_tokens` alone then excludes the vision tower, so the
+VL page does not apply (Step 0b).
 
 ## Grade the symptom first
 
@@ -84,6 +88,48 @@ prompt, "same from 0.14.0rc1 to 0.18.0rc1", "works on CPU/GPU", Qwen3-0.6B fine.
   (`tests/e2e/singlecard/pooling/test_classification.py:10`), so this dense
   generation config has no e2e/nightly row. State it as a gap: it raises the prior
   for a model-specific defect and proves none.
+
+## Step 0b — a text-only request on a VL-capable checkpoint (#6533)
+
+Recorded #6533 (vllm-ascend `v0.14.0rc1` `52d4acfa` ↔ vllm `v0.14.1` `d7de043d`): one
+**910B4**, `Qwen3-VL-8B-Instruct`, `POST /v1/chat/completions` with
+`{"messages": [{"role": "user", "content": "你好，请介绍一下你自己"}], "max_tokens": 100}` —
+no image, no `temperature`, no serve command in the report. Response: `prompt_tokens: 12`,
+`completion_tokens: 100`, `finish_reason: "length"`, content degenerate from about the fifth
+token (`你好，，，我是一个AI，我叫Qwen，我是Qwen，，我叫，我，我是，我，我…`). The reporter's
+later answer to triage's first question ("请问你的卡是B4还是B4-1?") was **910B4**, i.e. the
+32 GB A2 card, not the 64 GB `910B4-1`.
+
+Four readings come from that body alone, before any source read:
+
+- `prompt_tokens: 12` is the chat template's own length — no image tokens — so the vision
+  tower, `--mm-encoder-tp-mode` and `USE_OPTIMIZED_MODEL` are out of the path by
+  arithmetic, and the VL page's first ablation is not available here.
+- The collapse starts *inside* a fluent answer and never recovers: logits degeneration, not
+  truncation, not a stop-string mismatch, not a parser.
+- The body carries no `temperature`, so the sampler is the OpenAI default and the two
+  cheapest discriminators are one request each: the same prompt at
+  `temperature: 0, top_p: 1, top_k: 1`, and a trivially different prompt on the same engine.
+- The card name is a triage datum, not decoration. `910B4` = 32 GB, `910B4-1` = 64 GB (both
+  are real device ids, `cann/hcomm/src/platform/inc/adapter/adapter_hal.h:47-48`; per-card
+  HBM is a `npu-smi info` read — `../deploy-sizing/index.md`), and the recorded #7689 pair
+  (dots.ocr, **identical** serve command: garbled on 2×910B4 32 G, correct on 910B3 64 G)
+  makes the SKU a variable to state explicitly with the sibling card as the control. Ask for
+  the chip name in the first answer; the mechanism stays open until a second card or a
+  second model on the same box answers cleanly.
+
+**Before ranking a kernel that the whole path shares** (rope/mrope, attention, embedding,
+the sampler), read the pin's own accuracy row for that model *and* its CI wiring:
+`tests/e2e/models/configs/Qwen3-VL-8B-Instruct.yaml` at `52d4acfa` declares
+`hardware: "Atlas A2 Series"`, `mmmu_val acc,none 0.55`, and
+`.github/workflows/nightly_test_a2.yaml:120` runs it. An image benchmark at that accuracy
+exercises the same rope/attention path on the same hardware, so
+"`AscendMRotaryEmbedding`/`triton_mrope` corrupts every Qwen3-VL forward" is refuted — a
+surviving kernel hypothesis must name the regime difference (text-only positions vs image,
+TP, dtype, batch). Recorded #6533 instead walked `AscendMRotaryEmbedding.forward_oot` →
+upstream `triton_mrope` → argument-parity checks for its last four turns, after its own
+answer was already available, and shipped **no message text** at all (45 turns, 1.26 M
+prompt tokens, output-capped) — `../evidence-workspace/delivery-discipline.md`.
 
 ## Step 1 — test the prompt before the engine
 

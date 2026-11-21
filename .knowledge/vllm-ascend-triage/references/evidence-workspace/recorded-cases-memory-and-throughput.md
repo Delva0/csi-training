@@ -229,6 +229,29 @@ catalogue is now a topic table. Later reporter follow-ups (same issue, not repli
 to these investigators): full graph is not the differentiator (they run it on many
 models), and the model was not retested on a newer release.
 
+**#6611** vllm-ascend `v0.13.0` (`6281c12`) + vllm `v0.13.0` (`72506c9`), as reported
+(`collect_env`: transformers 4.57.6, torch 2.8.0, torch_npu 2.8.0.post2,
+triton-ascend 3.2.0, CANN 8.5.0, 8×910B3-64G), Qwen3-Next-80B: startup OOM,
+`NPU out of memory. Tried to allocate 2.57 GiB (NPU 0; 60.96 GiB total capacity;
+57.49 GiB already allocated; 57.49 GiB current active; 1.96 GiB free; 57.62 GiB
+reserved in total by PyTorch)`, frames `worker.py:455` → `model_runner_v1.py:2426` →
+`:2450` → `:2499` `torch.zeros(kv_cache_tensor.size)` — the **KV-pool** frame
+(sub-shape B of `../deploy-sizing/tp-scaling-oom-at-startup.md`), where `:2499` is the
+`linear_attn` branch's full-size tensor, i.e. inside the divergent per-layer
+allocation loop. The body carried **no serve command at all**. What the pin settled and
+the run found: all four frame line numbers match the tag exactly (so the environment
+question is closed and `torch_npu` is `.post2`, not the #6299 leak); the validated line
+at this ref is TP4 / `--max-model-len 32768` / gmu 0.8 / `--max-num-batched-tokens
+4096` / `FULL_DECODE_ONLY` (`docs/source/tutorials/Qwen3-Next.md:64`), with the v0.11
+card-count note gone and CI still 4-cards TP4; `# TODO: REFACTOR ME to sharing hybrid
+cache` survives at `:2492` against upstream's one-tensor-per-`kv_cache_tensor`
+allocator (`vllm/v1/worker/gpu_model_runner.py:5056-5075`); and `max(1, kv_heads//TP)`
+makes the attention KV TP-invariant. Delivery: answered in 5 assistant turns / ~7.7 K
+completion tokens — envelope row, frame, identity, `--num-gpu-blocks-override` ladder,
+residual left open, missing serve command as the ask — which is the shape the page's
+stop rule asks for. Blemish: the answer's opening line was Chinese for an
+English-language report (`SKILL.md` rule 1 asks for the report's language).
+
 **#4357** vllm-ascend v0.11.0rc2 (`a2e4c3fe`) / vllm v0.11.0, Qwen3-Next-80B-A3B on
 8 visible cards with TP=4, `--max-model-len 32768 --gpu-memory-utilization 0.7
 --enforce-eager`, hand-built image adding `Ascend-BiSheng-toolkit` +

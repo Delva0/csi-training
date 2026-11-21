@@ -51,6 +51,20 @@ transport topology to inspect.
   `mmc-local.conf` sets an **A3** protocol (`device_sdma`) while the table recommends
   `device_rdma` for A2. Split one-time init from steady state by timing the same
   prompt twice before reading the connector.
+- The serve answers, then the **APIServer** raises `ValueError: Counters can only be
+  incremented by non-negative amounts` from `metrics/loggers.py` `.inc(…)` while the pool
+  is attached and the prompts are long → not the store and not the request path: upstream's
+  `PromptTokenStats` subtracts the external KV count from a `num_cached_tokens` latched at
+  the request's **first** schedule pass, so a request preempted mid-prefill and resumed with
+  a bigger pool hit goes negative in `local_cache_hit`. One metric read
+  (`vllm:num_preemptions`) and one `--disable-log-stats` launch confirm it →
+  `prompt-token-counter-negative.md`. Do not re-check Mooncake's put/get.
+- The complaint is a **throughput / TTFT regression** while the log shows pool hits
+  and `need to load: 0` (or `external_prefix_cache_hits_total` pinned at 0 while
+  queries grow): the zero load is the upstream contract and the cost is the
+  per-request blocking lookup RPC → `pool-lookup-overlap-zero-load.md`. Read it
+  **before** explaining the subtraction as a bug; the genuinely-zero-hit case is
+  `cross-engine-lookup-zero-hits.md`.
 - PD on a hybrid linear-attention model and the decode node emits corrupt output →
   `../pd-disaggregation/hybrid-state-transfer.md`.
 - The connector module itself will not import (`ascend_transport.so`, `No module
@@ -107,9 +121,22 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   event per layer), the A2 `all_gather` + `register_buffer` branch, the
   `device_sdma`-in-the-sample vs `device_rdma`-for-A2 doc trap with
   `HCCL_INTRA_ROCE_ENABLE=1`, and the five checks in order (same-prompt-twice first).
+- `pool-lookup-overlap-zero-load.md` — hits ⊆ local prefix cache and every request
+  loads 0 tokens: the docstring + upstream `scheduler.py:617-636` contract, the
+  metric pair that follows from it, the blocking `LookupKeyClient` REQ/REP over all
+  `block_hashes` (and the `query_start_block` skip only the store-scheduler path
+  has), and the downstream-only `force_layerwise_load` branch to A/B.
 - `hccl-onesided-store-put.md` — the request succeeds but the pool stays empty:
   `HcclBatchPut` `hccl_result = 4` (generic `HCCL_E_INTERNAL`) with
   `error_codes=[-1]` (the store's generic code, not `-200` out-of-space), the
   master `PutStart`/`PutRevoke`/`PutEnd` reading that proves the control plane
   worked, which build flags pick the `ascend` transport, why the emitter is not in
   any pinned export, and the two artefacts that decide the rest.
+- `prompt-token-counter-negative.md` — the APIServer `Counters can only be incremented …`
+  `ValueError` on a pool-attached serve: the `cached + recomputed - external` identity at
+  vllm v0.18.0 (`stats.py:280-286`), why the reporter's `cached + external > prompt_len`
+  cannot be it, the `num_cached_tokens` latch (`request.py:150`, `scheduler.py:805-807`) that
+  `_preempt_request` (`:941`) never re-arms while the connector is re-queried at
+  `num_computed_tokens == 0`, the connector's own `load_async=False` /
+  `discard_partial_chunks=True` defaults that prune the async branches, and the two checks
+  (`vllm:num_preemptions`, `--disable-log-stats`).

@@ -10,6 +10,14 @@
 # actual_seq_lengths, actual_seq_qlen) passed without rebasing to 0, reads
 # outside its own storage once spec decode makes num_decode_tokens >> num_decodes.
 #
+# The same confusion also appears on the HOST side, without any device frame: the
+# per-request schedule array num_scheduled_tokens (one entry per request, holding
+# that request's scheduled TOKEN count) sliced by num_decode_tokens. numpy then
+# reports it directly, e.g. at v0.21.0rc1 worker/pcp_utils.py:660 ->
+# "ValueError: could not broadcast input array from shape (29,) into shape (31,)"
+# (#11231, fixed by v0.23.0). That is why num_scheduled_tokens /
+# num_padded_scheduled_tokens / cu_num_scheduled_tokens are in the pattern below.
+#
 # Usage: bash batch-split-audit.sh <vllm-ascend-root> [more roots]
 set -uo pipefail
 roots=("$@"); [ ${#roots[@]} -eq 0 ] && roots=(.)
@@ -17,7 +25,9 @@ mapfile -t files < <(grep -rl --include='*.py' -E 'num_decode_tokens' "${roots[@
 if [ ${#files[@]} -eq 0 ]; then
   echo "no python file mentions num_decode_tokens under: ${roots[*]}"; exit 0
 fi
-req_tok='(block_tables|block_table_tensor|seq_lens|seq_lens_list|actual_seq_lengths_kv|state_indices|paged_state_indices)[[:space:]]*\[[[:space:]]*num_decode_tokens'
+# the offset may be a bare name or self./attn_metadata.-qualified: pcp_utils writes
+# num_scheduled_tokens[self.num_decode_tokens :], fa3_v1 writes block_tables[num_decode_tokens:, :]
+req_tok='(block_tables|block_table_tensor|seq_lens|seq_lens_list|actual_seq_lengths_kv|state_indices|paged_state_indices|num_scheduled_tokens|num_padded_scheduled_tokens|cu_num_scheduled_tokens|query_lens)[[:space:]]*\[[[:space:]]*[A-Za-z_.]*num_decode_tokens'
 cu_abs='(query_start_loc|actual_seq_lengths|actual_seq_lengths_q|actual_seq_qlen|chunk_seq_lens)[[:space:]]*\[[[:space:]]*num_decodes[[:space:]]*:'
 hits=0; rebases=0
 for f in "${files[@]}"; do

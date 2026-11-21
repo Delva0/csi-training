@@ -15,10 +15,20 @@ The same ownership test covers the **Triton-Ascend compiler pair**: a kernel tha
 fails to *compile* (`MLIRCompilationError`, `bishengir-compile … returned non-zero
 exit status 1`) belongs to the wheel/compiler that was installed into the image,
 not to vllm-ascend Python or the kernel's shapes.
+It also covers the **host C++ compile of a generated translation unit** that fails
+inside a *torch_npu* or *CANN* header (`use of undeclared identifier
+'aclOpExecutor'` at `AclOpCompileInterface.h`, `fatal error: 'cstdint' file not
+found` in `kernel_macros.h`): the failing line is in the wheel's headers, the
+owner is the wheel × CANN header pair, and the compiler is the messenger.
 It also covers **published-artefact availability**: when the tag or wheel the
 reporter needs was never built for their CPU architecture or SoC variant, the
 owner is the image/wheel pipeline, and the answer is the tag suffix plus one
 registry manifest read — not a vllm-ascend code path.
+It also owns the **interpreter's own resolution residue**: what `import vllm`
+actually binds on the reporter's box when a checkout, a stray directory or an
+editable `.pth` wins over the install (the `(unknown location)` form is
+`wrong-vllm-module-shadowed.md`; the missing-module form is
+`plugin-load-module-missing.md`).
 Inherit the rules in SKILL.md; this topic is the counterpart of
 `../startup-failures/index.md` for failures that never reach a worker.
 
@@ -29,6 +39,15 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `free(): invalid pointer`, `double free or corruption`,
   `munmap_chunk(): invalid pointer`, `Aborted (core dumped)` — with no Python
   frame and no NPU/collective text → `native-import-abort.md`.
+- The startup dies in a vllm-ascend **inductor fusion pass** with
+  `'_OpNamespace' 'vllm' object has no attribute '<op>'` (`qknorm_rope_fusion_pass.py`,
+  `torch/_inductor/pattern_matcher.py` frames), and `pip list` does show a triton wheel →
+  not a missing package: the official images **remove triton on purpose** (every
+  `Dockerfile*` at this ref has the same `python3 -m pip uninstall -y triton` under
+  the comment "in Ascend, triton doesn't work correctly"), so `HAS_TRITON` is false and every `if HAS_TRITON:`-registered custom op
+  is absent by design while its ungated consumer still runs. Grep the log for
+  `Triton not installed or not compatible`, then turn the pass off →
+  `../startup-failures/missing-triton-op-in-compile-pass.md`.
 - The **platform plugin fails to import**: `vllm serve` prints
   `ERROR Failed to load plugin ascend` + `ModuleNotFoundError: No module named
   'vllm_ascend'`, then `No platform detected, vLLM is running on
@@ -51,6 +70,14 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   fix once step 3 shows torch_npu's own `libop_plugin_atb.so` is on the same
   side — reporter-confirmed on #1144. One call:
   `scripts/abi-symbol-check.sh <paste>`.
+- An `ImportError` whose module is **`vllm` itself** and whose tail reads
+  `(unknown location)` — `cannot import name 'PoolingParams' from 'vllm'`,
+  `from vllm import <X>` raised from an upstream frame such as
+  `vllm/engine/multiprocessing/__init__.py`, beside an env dump listing a
+  `vllm …+empty` install → `wrong-vllm-module-shadowed.md`. That tail means a bare
+  `vllm` directory (no `__init__.py`) was bound and no regular `vllm` package was
+  reachable on that `sys.path`; the fix is deleting/renaming the stray directory,
+  and `+empty` is the docs' own source-build marker, not a cause.
 - A documented command or import fails because something is **missing** —
   `cannot open shared object file`, `No module named`, `command not found` — and
   `docs/source/tutorials/*.md` installs it in its own startup block → same page,
@@ -132,6 +159,19 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   BiSheng/AscendNPU-IR `.run` over the image → `triton-ascend-pair.md`. The phrase
   "Failed to compile custom operators with Triton Ascend" is usually the reporter's
   paraphrase; it is not the AscendC custom-op lane.
+- A **host C++ compile of a generated TU** fails inside torch_npu's or CANN's own
+  headers: `RuntimeError: Worker failed with error 'Failed to compile
+  /tmp/tmpXXXX/launcher_cxx11abi1.cxx …'`, an include chain
+  `…/.triton/cache/<hash>/precompiled.h → torch_npu/…/OpCommand.h →
+  OpParamMaker.h → interface/AclOpCompileInterface.h:146: error: use of undeclared
+  identifier 'aclOpExecutor'; did you mean 'aclopExecute'?`, a note quoting
+  `/usr/local/Ascend/cann-<ver>/include/acl/acl_op.h`; or `kernel_macros.h:… fatal
+  error: 'cstdint' file not found` (#3135) → `host-cxx-compile-header-conflict.md`.
+  `launcher_cxx11abi1.cxx` is the Triton backend's ABI probe, **not** a
+  multi-process launcher, and the engine is still in `determine_available_memory`;
+  one call: `scripts/acl-header-guard-check.sh --torch-npu-root … --cann-root …`
+  decides the two colliding `acl_base.h` copies. Do not triage the checkpoint's
+  quantisation or the model here.
 - The engine dies inside the **compiled model forward**, naming a symbol from an
   optional accelerator wheel — `torch._dynamo.exc.Unsupported: Graph break due to
   unsupported builtin mindie_turbo._ops.PyCapsule.rms_norm`, frames going up
@@ -173,6 +213,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `.pth`/`egg-link` residue check, the two-interpreter signature that the paste's own
   `site-packages` paths already expose, and the `+empty` marker that says vllm was
   source-built. Worked for #540 (v0.7.3rc2), cause left open.
+- `wrong-vllm-module-shadowed.md` — `cannot import name '<X>' from 'vllm'
+  (unknown location)`: the two message tails and what each proves (bare directory
+  vs a regular package at a named path), the minimal local reproduction of each,
+  the one-line `python -c` that prints the resolved `vllm`, why `+empty` and
+  vllm-ascend are innocent, and #527's reporter-confirmed *"delete the `vllm`
+  folder in the current path"*.
 - `launch-env-and-library-path.md` — `ImportError: <name>.so: cannot open shared
   object file` while a connector module is imported in a launcher-managed
   deployment, when the ENV dump says the path is fine: the launch command's
@@ -183,6 +229,16 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   at vllm-ascend v0.11.0), and the maintainer-confirmed answer on #5750 — do not add
   triton-ascend to these images, and move the release (v0.14.0rc1 needs none)
   rather than the compiler.
+- `host-cxx-compile-header-conflict.md` — a *host* clang/gcc compile of a generated
+  TU (the triton-ascend `launcher_cxx11abi{0,1}.cxx` ABI probe, or a generated
+  kernel source stopping on a missing standard header, #3135) failing inside a
+  torch_npu/CANN header: the two `acl_base.h` copies
+  share the guard `INC_EXTERNAL_ACL_ACL_BASE_H_` while only torch_npu's typedefs
+  `aclOpExecutor` (and newer CANN trees drop `acl_op_compiler.h` entirely), so the
+  first copy in the TU wins — verified two-sided at #6429 (v0.13.0rc2, torch_npu
+  2.8.0.post1, CANN 8.5.0), with the `--sources` check, the wheel/CANN pairing
+  question (`torch-npu==2.8.0` pin vs `2.8.0.post1` reported), the stale install-doc
+  body, and the "no precedent in the corpus" note.
 - `image-arch-and-tag-availability.md` — the artefact for this CPU architecture or
   SoC variant does not appear to exist: what the tag suffixes mean (`-310p`,
   `-310p-openeuler`, `-openeuler`, and the unsuffixed generic A2 tags including
@@ -237,7 +293,9 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
 2. Find out which file the reporter's `import` actually loads before theorising.
    Ascend images routinely carry a second copy of a Python package under
    `<toolkit>/python/site-packages/`, and the reporter's own `import` line may
-   resolve to that one rather than to the package vllm-ascend built.
+   resolve to that one rather than to the package vllm-ascend built. An
+   `ImportError` naming an attribute of `vllm` itself usually states it in the
+   message's location text — `wrong-vllm-module-shadowed.md`.
 3. Separate "this published artefact is bad" from "the build recipe is wrong" by
    asking whether a locally rebuilt image fails the same way; #5609 did, which
    moved the cause into the Dockerfile stage.

@@ -7,6 +7,11 @@ refused, and `npu-smi info` shows the `VLLMWorker_TP*` / `EngineCore` processes
 alive. The stall is **inside** the weight load, before
 `Loading model weights took X.XXXX GB`.
 
+A paste whose last line is `Using OOT custom backend for compilation` is the same
+phase one call earlier — that banner is printed while the model object is built,
+before the first shard — and `compile-backend-banner-then-silence.md` bounds it
+(only rank 0 ever shows the progress below).
+
 Not this topic: a paste that ends *after* `Loading model weights took X GB`
 (→ `silent-stall-after-weight-load.md`), a traceback (`→ index.md`), or a shard
 that fails loudly (`HeaderTooLarge` / a `ValueError` on the first weight group

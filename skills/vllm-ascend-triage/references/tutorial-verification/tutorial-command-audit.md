@@ -1,4 +1,4 @@
-# Auditing a tutorial page: ten checks, in this order
+# Auditing a tutorial page: eleven checks, in this order
 
 Every item is one or two shell calls against the pinned tree; the examples are
 what the checks returned for the Qwen3-Omni tutorial
@@ -51,6 +51,14 @@ resolves only from `/vllm-workspace`; from the container's default cwd it fails
 `No such file or directory`. Tier **breaks the command** (usability), give the
 absolute path, and note that the bench dependency install step itself has bitten
 before (#4737: v0.11.0rc2/rc3 images shipped without the bench dependencies).
+The same check covers every **helper script the doc tells you to run** — one
+`rg --files -g '<name>.sh'` settles it. Recorded #15389: the Qwen3.5-397B-A17B
+page's §5.6 A3 tab ends with `cd vllm-ascend/examples/disaggregated_prefill_v1/`
++ `bash proxy.sh` (`:836-838` at v0.23.0), and that directory holds only
+`load_balance_proxy_server_example.py`,
+`load_balance_proxy_layerwise_server_example.py` and
+`mooncake_connector_deployment_guide.md` — no `proxy.sh` anywhere in the tree.
+Tier **breaks the command**, and quote the three files that do exist.
 
 ## 4. Which defaults is the doc silently relying on?
 
@@ -172,6 +180,41 @@ model class and startup dies in the APIServer with
 '…Qwen3VLConfig'>, but found type: <class '…Qwen3Config'>` (recorded #14817).
 Mechanism: `../pooling-embedding/seq-cls-arch-routing.md`.
 
+## 11. In a tab-set, does each tab's block match its own prose and its own connector?
+
+The model pages duplicate a section per SoC (`::::{tab-item} A3` /
+`Ascend 950DT` / `A2`, paired by `:sync:`), and the blocks inside a tab are
+copy-paste siblings of the other tabs. Two one-line greps compare a tab against
+itself:
+
+```bash
+rg -n 'tab-set|tab-item|:sync:' docs/source/tutorials/models/<page>.md
+rg -n 'kv_connector"|proxy_server_example|proxy_layerwise' docs/source/tutorials/models/<page>.md
+```
+
+The connector configured in the tab's **own** `--kv-transfer-config` decides
+which proxy/script that tab may name: `MooncakeLayerwiseConnector` pairs with
+`load_balance_proxy_layerwise_server_example.py` (the layerwise proxy drives
+decode-first and exposes `/v1/metaserver`), the p2p `MooncakeConnector` pairs
+with `load_balance_proxy_server_example.py`. Recorded #15389 at vllm-ascend
+v0.23.0 (`5cb98caa`), `Qwen3.5-397B-A17B.md`: the A3 tab says "Use the layerwise
+proxy script" (`:817`) and then runs the **non-layerwise**
+`load_balance_proxy_server_example.py` (`:823`), while A3's own P/D commands use
+`MooncakeLayerwiseConnector` (`:521`, `:597`); the 950DT tab (`:844-850`) runs
+the layerwise script although 5.5 configures the p2p `MooncakeConnector`
+(`:703`, `:786`). The two tabs' blocks are **swapped**. Tier **breaks the
+command**, and the mechanism is checkable in the tree: the p2p proxy's
+`build_prefill_request` sends `kv_transfer_params` =
+`{do_remote_decode, do_remote_prefill, remote_engine_id, remote_block_ids,
+remote_host, remote_port}` (`load_balance_proxy_server_example.py:790-800`)
+while `MooncakeLayerwiseConnector`'s prefill branch reads
+`params["remote_cached_tokens"]` (`mooncake_layerwise_connector.py:990`) — a
+`KeyError` in `update_state_after_alloc` on P. A wrong-proxy report therefore
+shows up as "P dies / P shutdown, D fine", not as a proxy-side error; the
+layerwise proxy's own wildcard-`--host` guard (`:278-282`,
+"Wildcard Address … is not allowed for proxy") is the other pre-run trap, since
+D must be able to reach `host:port/v1/metaserver`.
+
 ## Second worked page: Qwen3-32B-W4A4 at v0.18.0 (recorded #11759)
 
 The same tree (`e18643f8`, vllm `bcf2be9612`), page
@@ -186,6 +229,27 @@ ready to reuse, each one `path:line`:
 | completeness | no card count, no accuracy section, no performance section, no CANN/HDK requirement, while the sibling `Qwen3-Dense.md:265-311` carries Accuracy and Performance/`vLLM Benchmark` sections for the same model family | page headings (Introduction … Offline Inference) |
 | cosmetic | the image line carries the `m.daocloud.io/` mirror prefix while the task book's 蓝区 image is `quay.io/...`; users behind other networks must strip it | page `:17` |
 | pass | one card is arithmetically right: 32B at 0.5 B/param = 16.4 GB of weights against a 57.6 GB per-card budget at `gpu_memory_utilization 0.9`; bf16 would be 65.6 GB and would **not** fit | `bash <skill_root>/scripts/card-budget.sh --params 32.8 --dtype w4a4 --tp 1 --gmu 0.9 --hbm 64 --cards 1` |
+
+## Third worked page: Qwen3.5-397B-A17B §5.6 at v0.23.0 (recorded #15389)
+
+Page `docs/source/tutorials/models/Qwen3.5-397B-A17B.md`, pinned vllm-ascend
+v0.23.0 `5cb98caaadef` (+ vllm v0.23.0 `0fc695fc`). Reporter: "5.6 请求转发-仓库示例
+脚本 load_balance_proxy_server_example.py 错误", proxy starts but the P instance
+goes down; swapping in `load_balance_proxy_layerwise_server_example.py` works.
+Verified findings, each `path:line`:
+
+| Tier | Finding | Evidence |
+|---|---|---|
+| breaks the command | §5.6 A3 tab prose names the layerwise proxy, the block runs the p2p one | page `:817` vs `:823`; connector `:521,597` is `MooncakeLayerwiseConnector` |
+| breaks the command | §5.6 950DT tab runs the layerwise proxy while §5.5 configures p2p `MooncakeConnector` — the two blocks are swapped | page `:850` vs `:703,786` |
+| breaks the command | `bash proxy.sh` names a file that does not exist in the tree | page `:836-838`; `ls examples/disaggregated_prefill_v1/` = two `.py` + one `.md` |
+| cosmetic / FAQ | the section's "Common Issues Tip" (`:862`) never states the binding "layerwise connector ⇄ layerwise proxy", which is the whole failure | page `:862`; payload/key pair above |
+| pass | both proxy scripts parse the doc's flags (`--prefiller-hosts/--prefiller-ports/--decoder-hosts/--decoder-ports/--host/--port`); the reporter's own successful swap confirms it | `load_balance_proxy_layerwise_server_example.py:271-282` (argparse + host guard) |
+
+Open item, state it as such: whether the reporter's P crash is that `KeyError`
+is source-inferred; the one command that closes it is
+`rg -n "remote_cached_tokens|EngineCore failed|EngineDeadError" <P node log>`
+over the last lines before the exit.
 
 ## What a finding must carry
 

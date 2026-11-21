@@ -10,6 +10,23 @@ and embedding outputs. Routes: `../accuracy-benchmarks/index.md`,
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#14884** vllm-ascend `v0.18.0rc1` image, Qwen3-VL-30B-A3B, TP4 +
+`--enable-expert-parallel`, `--enforce-eager`, `--no-enable-prefix-caching`,
+`temperature: 0`, `max-num-seqs 32` / `max-num-batched-tokens 16384`, and the
+determinism env block exported: "enabling `VLLM_BATCH_INVARIANT=1` results in
+inconsistent output for the same request in multi-concurrency scenarios". Track: the
+engine compared with itself across **batch composition** — the sibling of #7180, not a
+repeat-run report. The recorded run got the verdict right (the feature's per-op
+envelope, not reporter misconfiguration: attention is only replaced in the AscendC
+branch, EP/MoE and FIA `_v2` are never replaced, and the tree's own tested models and
+e2e files exclude VL and EP) and it corrected one instruction in this library — the
+start-up INFO line cannot prove attention was patched, because it is keyed on
+`HAS_TRITON or HAS_ASCENDC_BATCH_INVARIANT`. Delivery held (answer at assistant turn
+8, verdict-first), but ~35 K characters of reasoning re-derived the whole coverage map
+from source because no page carried it, and the first turn's two calls
+(`cat -n vllm_ascend/batch_invariant.py`, the 645-line e2e test) are now summarised.
+Page: `../accuracy-benchmarks/batch-invariant-coverage.md`.
+
 **#11936** vllm-ascend `v0.21.0rc1-310p` image (`80610e4`) + vllm v0.21.0 (`ad7125a4`), one
 310P3 box, CANN 9.1.0-beta.1: GLM-OCR and MinerU2.5-2509-1.2B both "可以正常拉起，但是精度有问题 /
 随便跑个图片识别就能复现", while PaddleOCR-VL was "好像没问题" (MinerU2.5 appears in **both** lists of the

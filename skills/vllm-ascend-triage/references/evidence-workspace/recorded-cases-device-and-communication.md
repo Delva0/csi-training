@@ -9,6 +9,20 @@ mixed decode+prefill batch faults. Routes: `../custom-ops-runtime-faults/index.m
 Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
 per case in this file.
 
+**#8730** vllm-ascend `0.14.0.RC1` (newer than the pinned `v0.13.0rc3` `bbe9bc0` +
+vllm `v0.13.0` `72506c9`): "强化学习场景用户设置top后报错，调用了 `ApplyTopPTopCustom`
+算子，算子侧反馈非cann算子，需要框架侧定位为什么会下发这个" — no framework traceback, only
+an op name. Track: **ownership**, not a device fault. The recorded run split it the right
+way: `…Custom` ops are built from `csrc/build_aclnn.sh` and installed under
+`vllm_ascend/_cann_ops_custom`, so "not a CANN op" is by design; it named the three
+top-k/top-p dispatch sites (`sample/sampler.py:64-78`,
+`sample/rejection_sampler.py` via `patch/worker/patch_rejection_sampler.py`,
+`worker/v2/sample/sampler.py:19,48`), showed the name exists at no pinned ref, and kept
+the registry lane separate. Two costs worth not repeating: its second call dumped
+`SOURCES.json` plus a ~900-name history listing (~25 KB, against `SKILL.md` rule 7), and
+it typed `rg -rn` (the documented `--replace` trap) and had to kill the job and redo it.
+Page: `../custom-ops-runtime-faults/custom-op-ownership-and-dispatch.md`.
+
 **#6243** vllm-ascend v0.12.0rc1 (reported ref, no commit named; pinned views at
 v0.13.0rc2 `a17059a2`), DeepSeek-V3.2 on two 800I A2 nodes: hundreds of requests served,
 then `call aclnnKvRmsNormRopeCache failed, error code is 561002`, `ERR00100 PTA call acl
@@ -135,6 +149,21 @@ of reasoning against 255 characters of message text — the complete source-veri
 diagnosis was already written in the reasoning at the turn whose message text was
 "Confirmed the fault mechanism. Let me pin two last facts", and the truncation kept
 the plan and dropped the answer.
+
+**#11231** pinned vllm-ascend `v0.21.0rc1` (`80610e4438`); the issue *title* says
+0.21.0rc1 while the body's service ran v0.22.1rc1 (not in the snapshot). Qwen3.5-27B,
+one host, TP2 / PCP2 / DCP1, `--max-num-seqs 32`, `FULL_DECODE_ONLY` +
+`--async-scheduling` + MTP `num_speculative_tokens: 2`: serves, `aisbench` runs ~348
+iterations, then every worker dies with `ValueError: could not broadcast input array
+from shape (29,) into shape (31,)` at `pcp_utils.py:667` from `:660` inside
+`_prepare_inputs` — a **host-side** member of the mixed-batch unit family, no device
+frame. The recorded run decoded the two lengths (`num_decode_reqs=1`,
+`num_reqs=32` = `--max-num-seqs`), pinned :660/:759 against the correct sibling :685,
+named the fix and asked for the four source lines instead of another launch, and
+shipped that with its version limits stated; the later v0.23.0 pin (`5cb98caa`) shows
+the repair in-tree at `:821/:845/:938`. The reporter's later comment on the same
+issue ("同时开启之前，已测过单独开启MTP，无报错") is the ablation the mechanism predicts —
+page `../mixed-batch-splits/pcp-schedule-index-units.md`.
 
 **#18315** vllm-ascend `v0.26.0rc1` (`f2f74a1`) pinned, title says v0.27.1RC1, env
 block v0.26.0rc1; GLM-5.3-w8a8c8 on 4×A2 混部, `HCCL_OP_EXPANSION_MODE=AIV` +
@@ -391,3 +420,44 @@ verdict and both ranked lists shipped, the action ladder cut mid-item. Lane:
 runtime device fault (lane C) / PD decode MC2, plus a second int64-index write
 family — `../release-known-issues/index.md` (new topic), and rule 6 there on
 splitting a two-issue bulletin across messages.
+
+**#2349** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm `v0.9.2` (`a5dd03c`), reporter's
+later comment confirms torch 2.5.1 / torch-npu 2.5.1.post.dev20250619 / CANN
+8.2.RC1; Qwen3-32B at `-tp 2 --max-model-len 80000` with
+`VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`, `--enable-prefix-caching`,
+`--enable-chunked-prefill`, `VLLM_CONFIGURE_LOGGING=0`: after serving for a while,
+`rtKernelLaunchWithHandleV2 failed: 507035` / `reason=[vector core exception]`,
+`OpExecCache run fail`, `ERR01005 OPS internal error`, `[ASSERT] … ascendc/gather_v3/gather_v3_base.h:137: Assertion (0 <= val && val
+< this->gxSize_) Index 41513 out of range[0 40960)!`, and on rank1 `call aclnnAddRmsNorm failed,
+detail:EZ9903`. Track: host-side index-space overflow — the bound is the row count
+of the RoPE `cos_sin_cache`, which upstream builds from the **checkpoint's**
+`max_position_embeddings` (`qwen3.py:178` → `rotary_embedding.py:132`) and Ascend
+indexes by `positions` (`ops/rotary_embedding.py:78-85`, installed at `:286`), so
+`--max-model-len 80000` past a 40960-row cache is the overrun; `507035` and the
+other rank's `AddRmsNorm` line are wrappers/victims, not owners. The recorded run
+had this in hand from its fifth turn and shipped **386 characters** of text across
+16 turns, the whole ranked answer inside a 6.3 K-character reasoning block cut at
+the 16 384-token cap. Page:
+`../custom-ops-runtime-faults/gather-index-out-of-range.md`.
+
+**#6018** vllm-ascend `0.12.0rc1` in the title / `0.12.0rc2` in the environment
+block (`SOURCES.json`: `reported_ref_status: conflicting_versions`; snapshot pins
+v0.13.0rc1 `1b5d5ab`), 910B4 ×8 single node, "Qwen2.5 30B" (dense 32B vs MoE
+Qwen3-30B-A3B — never resolved), CANN 8.3.RC2 + torch_npu 2.8.0 (the documented
+pair for the 0.13 line, `docs/source/installation.md:15`): `FULL_DECODE_ONLY`
+serve crashes under concurrency with `507011` and plog `fftsplus aivector error`
+core 8 error code 0x10, `errorStr: Illegal instruction, which is usually caused by
+unaligned UUB addresses`, `mte error devId=5 streamId=1243`, plus
+`sqe_type=7(notify wait) … sq sw status error` on stream 1206. The reporter's
+later comment supplies the config: TP8 / DP1 / ray, `max_model_len 32768`,
+`async_scheduling false`, `cudagraph_capture_sizes [1, 8, 16]`, `max_num_seqs 16`,
+`max_num_batched_tokens 4096`, crash at concurrency 8. Track: FULL-mode replay
+argument patch (`acl_graph.py:189-196` sync-before-replay, `:198` paged-attention
+path, `:256` FIA path, `:299-304` dispatch); `pa_shape_list` defaults to `[]`
+(`ascend_config.py:119`) so the legacy paged-attention workspace note is *not*
+this run's path, and `507011` is `ACL_ERROR_RT_MODEL_EXECUTE`
+(`rt_error_codes.h:93`) naming no op — the ask is `origin_op_name` /
+`fault kernel_name`. The recorded run reached this family and the coverage verdict
+but emitted **zero message text on its first 13 turns**, writing the whole ranked
+answer on the 14th and last. Page:
+`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`.

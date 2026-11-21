@@ -112,7 +112,30 @@ Verified at `vllm-project/vllm-ascend` **v0.9.2rc1** (`b5b7e0e`) with vllm
 **v0.9.2** (`a5dd03c`). The state table, `use_eagle` gate and
 `_make_attention_mask` are version-specific: re-run the one grep above at any later
 ref before reusing the verdict — a later release may implement the branch, and the
-snapshot cannot see one. Unverified: whether `deepseek_mtp` on a dense model fails
+snapshot cannot see one.
+
+### Recheck at v0.19.1rc1 (`da421af`): the table was rewritten, the assert is gone
+
+Do **not** carry the #2071 verdict to a later ref. At v0.19.1rc1:
+
+- `_make_attention_mask` no longer exists (zero hits in the tree), and the dense
+  `attention_v1.py build_for_graph_capture` now accepts `DecodeOnly`,
+  `ChunkedPrefill` **and** `SpecDecoding` (`:335-352`), so the "state with no dense
+  branch" is closed.
+- State selection moved into `_build_attn_state` (`model_runner_v1.py:1171-1200`):
+  `PrefillNoCache` / `DecodeOnly` (+ `SpecDecoding` only when
+  `method == "mtp"`) / `SpecDecoding` when `np.all(num_valid_tokens == 1) and
+  speculative_config` / `ChunkedPrefill` / `PrefillCacheHit`. `use_eagle` is now the
+  upstream `speculative_config.use_eagle()` (`:354-355`), not a local flag.
+- A **new** split appears at `:1195-1198`: for any `method != "mtp"` the returned
+  local stays `SpecDecoding` (and `with_prefill` at `:644` reads that) while
+  `self.attn_state` is stored as `ChunkedPrefill`, and `:2495` puts the *stored* value
+  into the live attention metadata; `_dummy_run` pins `DecodeOnly` at `:2744-2750`.
+  That is a suffix/ngram/eagle-only live-vs-capture disagreement, not the #2071 assert.
+  At this ref it is **not** a fault mechanism to rank: the consumers treat both states
+  alike (`mla_v1.py:1387-1392`, `sfa_v1.py:1106`). A device dump on such a launch is the
+  capture/sampler family instead — `draft-graph-capture-device-fault.md`, section
+  "The non-MTP variant". Unverified: whether `deepseek_mtp` on a dense model fails
 identically (same branch, no run), and whether any ngram request without draft
 tokens ever completed multi-turn on that release.
 

@@ -45,7 +45,16 @@ walk:
   flag names, not the feature name: `rg -l
   "prefill_context_parallel_size|prefill-context-parallel-size" tests/`. A feature
   with unit tests only, or whose e2e case uses a different model family and a 1K
-  context, is not validated for the reporter's model.
+  context, is not validated for the reporter's model. **Search the paths as well as
+  the contents** — a lane can carry its SoC only in a directory name
+  (`rg --files tests/ | rg -i 310`), so a content grep for `310p|_310P` reports "no
+  e2e case" while `tests/e2e/310p/test_offline_inference_310p.py` exists (recorded
+  #5075 concluded exactly that, then had to be corrected). Then read the workflow
+  that runs the file: at v0.12.0rc1 `.github/workflows/vllm_ascend_test_310p.yaml`
+  is label-gated rather than per-PR, every case in its one existing test file is
+  `enforce_eager=True` + fp16, and its 4-card leg invokes a
+  `test_offline_inference_parallel_310p.py` that is absent from the commit — so the
+  real coverage is single-card eager and graph mode has none.
 - **Precedent issues, each with its version and its exact failure point.** A
   precedent showing a partial run ("works to N tokens, then dies") proves the
   feature comes up on that hardware at that version — it does not make it
@@ -98,6 +107,21 @@ Rules for this topic:
    tuning ladder: quote the same-SoC e2e config instead of the other SoC's tutorial, and
    prune the `--additional-config` keys no code reads before ranking a lever →
    `per-soc-recipe-and-quantized-weights.md` (recorded #16600).
+
+9. A **schedule / roadmap** question — "310系列什么时候支持图模式和量化", "when will
+   F land for M on H", often with a performance complaint attached — has no answer in
+   the code, and the project publishes no dates. Give the *staging evidence* instead,
+   in this order: (a) the RFC or roadmap issue that owns the area, found by token in
+   the history corpus (`scripts/history-titles.sh -i '300I|310P'`; #1309
+   `[RFC]: Support Altlas 300I series` holds an empty `Stage2: Performance
+   improvement` heading, which is the citable "no committed scope"), (b) the earliest
+   release whose docs or code actually carry the capability — anchor it with
+   `path:line`, and if that is a later release than the reporter's, say the interval
+   between two pinned releases is unanswerable on a `one_commit_git` snapshot, (c) what
+   is available *today* at their ref, which is the only actionable half. Worked for
+   #5075 (300I Pro, v0.10.0rc1): quantization answered "already, with a 310-targeted
+   checkpoint", graph mode "not supported at the pinned ref and no committed date" —
+   `../soc-platform-paths/atlas-300i-310p.md`.
 
 Pages:
 

@@ -19,6 +19,51 @@ In `serving.py`: with a reasoning parser, `content` is whatever the parser retur
 `reasoning` is only populated when the request asks for it (`include_reasoning`); without a
 parser, `content` is the full text (thinking tags included).
 
+## First gate: did the end marker survive detokenization? (#9361)
+
+Before any template or model theory, `content: null` + the whole CoT *and* the answer
+inside `message.reasoning` on a Kimi-K2.x serve (`--reasoning-parser kimi_k2`) has a
+container-level explanation that costs one request to test. Verified at vllm
+`v0.19.1` (`b1388b1f`):
+
+| claim | anchor |
+|---|---|
+| the parser is fed `output.text`, the detokenized **generated** text only | `vllm/entrypoints/openai/chat_completion/serving.py:1374-1382` |
+| a chat request decodes with `skip_special_tokens` **default `True`**, forwarded into `SamplingParams` and honoured by the decode stream | `chat_completion/protocol.py:200,510`; `vllm/v1/engine/detokenizer.py:175,182` |
+| an id registered as *special* in the checkpoint tokenizer therefore never appears in `output.text` | consequence of the two rows above |
+| the Kimi parser splits only on `</think>` or `<\|tool_calls_section_begin\|>`, and returns `(model_output, None)` when neither is present | `vllm/reasoning/kimi_k2_reasoning_parser.py:51-53,62-66,176-180` |
+| with no `--reasoning-parser`, `content = output.text` (tags included) | `serving.py:1380-1382` |
+| `reasoning_tokens: 0` alongside a populated `reasoning` is the same branch, not a second bug | `extract_content_ids` returns `[]` with no end token (`:146-147`) |
+
+`skip_special_tokens` is a **chat body field** at this ref, so the reporter can test it
+without a restart. One request decides:
+
+```bash
+curl …/v1/chat/completions -d '{"model":"kimi","messages":[…],"max_tokens":1000,
+  "skip_special_tokens":false,"return_token_ids":true}'
+```
+
+`content` non-empty ⇒ the marker was emitted and stripped by detokenization (workaround:
+keep the flag on the request, or drop the parser and split client-side). Still `null`
+**and** no id equal to `tokenizer.convert_tokens_to_ids("</think>")` ⇒ the model never
+emitted it (template/checkpoint, next section).
+
+Two traps around that check. (a) A raw `/v1/completions` control is *not* a substitute:
+it bypasses the chat template, so it tests a different prompt — #9361's control typed
+`<|im_middle|><think>` by hand and opened with a garbage token, and its lack of
+`</think>` said nothing about the chat path. Flip the flag on the same body instead.
+(b) Ask for `completion_tokens` arithmetic first: when the completion is far longer
+than the returned `content` can account for, nothing was lost — the bulk is in
+`reasoning`, which is a routing decision (the #13002 rule below).
+
+Coverage at vllm-ascend `v0.19.1rc1` for this model family is a gap worth naming and
+not a cause: the support matrix lists only Kimi-K2-Thinking
+(`docs/source/user_guide/support_matrix/supported_models.md:29`), the single Kimi e2e
+test is disabled (`tests/e2e/multicard/4-cards/test_kimi_k2.py:28`,
+`skip("CANN8.5 failed, capture stream failed")`), and the Kimi-K2.5 tutorial never
+passes `--reasoning-parser`. So there is no validated launch to diff a K2.6 command
+against — say that instead of implying the family is broken.
+
 ## Why this changes benchmark scores
 
 Served with `--reasoning-parser qwen3` and thinking enabled, any request that hits
@@ -199,7 +244,9 @@ sibling pages' flag choices move between releases).
 - Server flags: `--reasoning-parser`, `--default-chat-template-kwargs`, `--max-model-len`.
 - Endpoint and body: `/v1/chat/completions` (a raw `/v1/completions` or a
   text-in/text-out bench bypasses both the chat template and the parser, so all
-  text must land in `content`), plus whether `chat_template_kwargs.enable_thinking`
+  text must land in `content` — and because it is then a *different* prompt, it can
+  neither confirm nor refute what the chat path emitted; flip `skip_special_tokens`
+  on the same chat body instead), plus whether `chat_template_kwargs.enable_thinking`
   is passed (the parser reads `enable_thinking`, default `True`,
   `qwen3_reasoning_parser.py:46`). With it `False` the template prefills
   `<think>\n\n</think>` and plain content is expected.

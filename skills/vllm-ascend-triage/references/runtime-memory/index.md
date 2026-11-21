@@ -81,6 +81,15 @@ lines beside `Available KV cache memory` (#10700, 2× A2, DP2 × TP8, `gmu=0.92`
 | `ACL graph pool memory: 0.44 GiB (actual), 0.59 GiB (estimated), difference: 0.15 GiB (33.8%).` | estimate error of the pool (30-40 % of a sub-GiB number is normal here); it is the delta any KV arithmetic has to absorb, not a defect. |
 | `Free memory on device (60.6/60.96 GiB) … Desired GPU memory utilization is (0.92, 56.08 GiB). Actual usage: 30.16 GiB for weights, 2.0 GiB for peak activation, 2.07 GiB for non-torch memory, 0.44 GiB for NPU graph memory. Replace gpu_memory_utilization with --kv-cache-memory=22829425254 (21.26 GiB) to fit into requested memory, or … (25.78 GiB) to fully utilize NPU free memory.` | a complete budget split plus a byte-exact alternative to gmu. Quote it instead of re-deriving weights/activation/KV with `scripts/oom-budget-split.sh`, and prefer `--kv-cache-memory` when the reporter needs a deterministic KV size. |
 
+These lines are also the **presence test** for whether the graph pool was reserved
+in *that* log: at v0.23.0rc1 neither pinned tree carries them (upstream still says
+`CUDA graph …` and gates `profile_cudagraph_memory()` on `current_platform.is_cuda()`,
+which is false on NPU), and vllm-ascend's `determine_available_memory`
+(`worker/worker.py:527-597`) has no graph term, so a v0.23-era paste without them has no
+reservation at all — capture then competes with the KV cache for the same budget
+(`../startup-failures/acl-graph-capture.md`, the v0.21–v0.23 section). Absence of the
+line is money; do not read it as "the profile just did not print".
+
 Caveat for cross-version work: the same `--gpu-memory-utilization` yields a ~1 %
 smaller KV on v0.21+ than on an older release, and the per-rank `21.26` / `25.78`
 GiB numbers differ by ~0.02 GiB between ranks. Neither is growth.

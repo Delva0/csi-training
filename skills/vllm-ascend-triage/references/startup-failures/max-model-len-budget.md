@@ -47,6 +47,25 @@ card can hold together with weights for a given `--gpu-memory-utilization`.
 3. Keep the same explicitness in any suggested command you publish, and say why
    (the tutorials already do it).
 
+## Raising the budget past the checkpoint has a runtime signature (recorded #2349)
+
+`--max-model-len` larger than the derived maximum needs
+`VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`, and that env var turns the guard into a
+warning ("This may lead to incorrect model outputs or CUDA errors",
+`vllm/config.py:3507-3523` at v0.9.2). One of those errors is concrete: the
+RoPE cache is built from the **checkpoint's** `max_position_embeddings`
+(`vllm/model_executor/models/qwen3.py:178` →
+`vllm/model_executor/layers/rotary_embedding.py:132`), is not re-sized by the flag, and on
+Ascend is indexed by `positions`
+(`torch_npu._npu_rotary_embedding(positions, …, cos_sin_cache, …)`,
+`vllm_ascend/ops/rotary_embedding.py:78-85`, installed at `:286`). A request
+whose position passes that value trips a device-side gather assert —
+`gather_v3_base.h:137 … Index N out of range[0 M)` — which reads like a card
+fault and is not one. Two commands separate it from every other out-of-range
+report: `jq .max_position_embeddings <model>/config.json` against the serve
+line's `--max-model-len`. Page:
+`../custom-ops-runtime-faults/gather-index-out-of-range.md`.
+
 ## The same default can kill the **host**, not the card (recorded #3314)
 
 On a long-context checkpoint the omitted flag has a second failure signature that

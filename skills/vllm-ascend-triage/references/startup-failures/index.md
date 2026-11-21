@@ -31,6 +31,24 @@ Inherit the rules in SKILL.md. Conditional routes:
   (bind-mounted host dir, mount, disk, a copy in flight) beside the post-copy
   code paths, and take the `/proc/<pid>/io` sample
   (`../../scripts/shard-source-probe.sh <model dir> <pid>`).
+- Nothing raised, and the silence starts **earlier**: the log stops right after the
+  worker's own device line with no traceback and no `Starting to load model`, while
+  the report says "TP=1 works, TP>1 deadlocks during driver initialization" and the
+  launch used `distributed_executor_backend="external_launcher"` or any torchrun
+  SPMD script → `multiprocess-launch-hang.md` first. `init_process_group` is handed
+  `world_size=parallel_config.world_size` explicitly, so fewer processes than TP wait
+  at the rendezvous forever instead of raising; count processes and compare
+  `MASTER_ADDR`/`PORT` before any HCCL theory, and do not read one process's `npu:0`
+  as the other ranks' device.
+- Every rank's last line is `Using OOT custom backend for compilation` (nothing
+  raised, port refused, HBM resident) → `compile-backend-banner-then-silence.md`
+  first: at v0.22.1rc1 that banner is printed **while the model object is built**
+  (`vllm/compilation/decorators.py:406` → `wrapper.py:90` → `compilation.py:1066`,
+  before `base_loader.py:64` reads a shard), so the phase is the target model's
+  weight load and only rank 0 shows read progress (the shard bar is rank-gated).
+  `--enforce-eager` cannot separate it — the load runs in both lanes — so rank the
+  load-side causes of `weight-load-stall-in-shard-loop.md` before any
+  compile/capture theory.
 - Startup passes the model load and dies with `KeyError: '<...>.self_attn.attn'`.
   **Split it by the frame, not by the key.** Inside upstream
   `offloading_connector.py register_kv_caches`, right after
@@ -92,6 +110,23 @@ Inherit the rules in SKILL.md. Conditional routes:
   `Starting to load model` line: the installed package was **built** for another
   SoC family than the card reports. Two one-liners settle it and the guard must not
   be patched → `../soc-platform-paths/device-type-build-vs-runtime.md`.
+- `EngineCore failed to start` / `WorkerProc failed to start` whose deepest frame is
+  `torch_npu` device open (`set_device` → `npu_setDevice`) and whose text is
+  `RuntimeError: SetPrecisionMode: … aclrtSetCompileOpt(aclCompileOpt::ACL_PRECISION_MODE,
+  precision_mode), error code is 500001` + `The internal ACL of the system is incorrect.`
+  + `EH9999 … [PLATFORM]PlatformInfoInit runtime platform info failed. SocVersion <name>`
+  + `GEInitialize failed`, often ending `ERR99999 UNKNOWN application exception`: ACL/GE
+  bring-up inside torch_npu, before any `vllm_ascend` frame. Read the printed `<name>`
+  against `npu-smi` before anything else, then the driver/firmware-vs-image-CANN pairing
+  → `acl-init-500001-and-soc-version.md` (no precision flag is the cause; cap the C++ walk).
+- The startup dies inside `torch.compile` with `AttributeError: '_OpNamespace' '<ns>'
+  object has no attribute '<op>'`, deepest frames `vllm_ascend/compilation/passes/**`
+  plus `torch/_inductor/pattern_matcher.py` (`check_fn` → `fwd_only` → `make_fx`), e.g.
+  `'vllm' object has no attribute 'qkv_rmsnorm_rope'` from
+  `qknorm_rope_fusion_pass.py:214`: a triton-backed custom op whose registration is
+  `if HAS_TRITON:`-gated, called by an ungated pass that is on by default →
+  `missing-triton-op-in-compile-pass.md` (one log grep, then
+  `fuse_qknorm_rope: false`).
 - `ValueError: Non-MoE models do not support external data parallel mode`, or any
   `ValueError`/`AssertionError` from `vllm/engine/arg_utils.py` whose text names a
   parallel mode or flag combination (no `WorkerProc` line, no rank prefix) →
@@ -136,6 +171,15 @@ Inherit the rules in SKILL.md. Conditional routes:
   the TP size in the title is innocent (one call:
   `../../scripts/checkpoint-header-scan.py <model dir>`). Unlike the row above, the
   message is not about tensor names — do not open the loader.
+- `ValueError: Following weights were not initialized from checkpoint: {...}` whose
+  missing set is a whole **MTP module** (`model.pre_fc_norm_hidden`,
+  `model.pre_fc_norm_embedding`, `model.fc`, `model.layers.0.*`, `model.norm`), on a
+  `--speculative-config` `*_mtp` launch and a **fine-tuned export** while the base
+  checkpoint starts → `mtp-head-missing-from-checkpoint.md`: the drafter is built from
+  `config.json` alone and the raise is the loader's completeness check, not a tensor
+  read. One call decides it (`../../scripts/mtp-head-check.py <model dir>`), and the
+  quantized checkpoint takes the silent form (`Accepted: 0`, acceptance 1.00) because
+  the check is off when `quantization` is set.
 - A pydantic `ValidationError` whose text is `Unexpected keyword argument
   [type=unexpected_keyword_argument, input_value=..., input_type=bool]` naming a key
   the reporter put in `--additional-config`, often followed by

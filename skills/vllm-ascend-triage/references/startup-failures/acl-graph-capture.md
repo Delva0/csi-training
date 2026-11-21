@@ -30,7 +30,9 @@ the appended inner error first.
 
 Version scope: this block exists at v0.11.0rc0. `rg -n "insufficient available
 streams" vllm_ascend/` finds nothing at v0.20.2rc1 (`367b8e6`) — re-run that grep
-before quoting the string on a newer image.
+before quoting the string on a newer image. It was replaced by a *signature gate*
+that names one error code; read the v0.21–v0.23 section below before answering "the
+log gave no hint".
 
 ## Step 2 — classify the appended inner error
 
@@ -156,6 +158,83 @@ downsized ones even when the reporter asked for full decode graphs.
 4. Check the visibility map before calling a card faulty: #3389 reported
    `ASCEND_VISIBLE_DEVICES=10,7,6,14,4,9,1,2,13,12,0,3,15,5,11,8`, so the device
    ids in the log are not card indices. Ask for the card↔rank mapping.
+
+## At v0.21–v0.23: a bare device code, a one-signature hint gate, no reserved pool
+
+Verified at vllm-ascend **v0.23.0rc1** (`f4a08bd`) with vllm **v0.23.0** (`0fc695f`)
+while triaging #16581 (ModelSlim W8A8 Qwen3-32B, one 910, default config):
+`RuntimeError: npuSynchronizeDevice … AclrtSynchronizeDeviceWithTimeout, error code
+is 507015` raised inside `torch.npu.graph.__enter__`
+(`torch_npu/npu/graphs.py` → `torch.npu.synchronize()`, downstream frame
+`compilation/acl_graph.py:192`), then wrapped as `NPUModelRunner failed, error is …`,
+with a device dump `fftsplus aivector error … error code = 0x800000` / `The DDR
+address of the MTE instruction is out of range` / `retCode=0x26, [aicore exception]`.
+The reporter's frame numbers match that commit, so the pin is citable even though the
+image is not byte-verified.
+
+- **The advice gate now matches exactly one signature.** `_STREAM_RESOURCE_ERROR_CODE
+  = "207008"` plus the markers `insufficient_stream_resources` /
+  `stream resources are insufficient` (`acl_graph.py:28-39`); only a match gets
+  `_STREAM_RESOURCE_GUIDANCE` prepended (`:50-51`, called from `:209-211`). Every
+  other code — `507015`, `507033`, an aicore dump — is re-raised raw. So "the log
+  gave no hint" is this predicate, not a gap in the code's knowledge, and the
+  guidance text it would have printed (fewer `cudagraph_capture_sizes`, lower
+  `max_cudagraph_capture_size`, prefer FULL/FULL_DECODE_ONLY, disable graph mode)
+  must never be read as a diagnosis of a code that did not match.
+- **The outer wrapper erases the code.** `worker/model_runner_v1.py:5177`
+  `raise RuntimeError(f"NPUModelRunner failed, error is {e}")`. Quote the inner block;
+  the wrapper sentence is the same for every capture failure.
+- **At this pin nothing reserves the graph pool before capture — but make the log
+  say it.** Upstream `vllm/v1/worker/gpu_worker.py:421-464` calls
+  `profile_cudagraph_memory()` and subtracts `cudagraph_memory_estimate_applied` from
+  the KV budget under `current_platform.is_cuda()` **and**
+  `VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS` (default `1`, `vllm/envs.py:1978`), so an
+  NPU does not enter it; vllm-ascend overrides `determine_available_memory`
+  (`worker/worker.py:527-597`) and `rg -c profile_cudagraph_memory vllm_ascend/`
+  returns 0, with `available_kv_cache_memory_bytes = requested_memory -
+  non_kv_cache_memory` (`:590`). The pool is measured only *after* capture (`:719`)
+  and feeds a `--kv-cache-memory=…` suggestion for the next launch (`:728-757`) —
+  never a re-size. So at `--gpu-memory-utilization 0.9` the KV cache fills the
+  requested budget and capture must fit in the slack above it.
+  **The recorded logs disagree, and the ref decides it:** startup logs at
+  v0.21.0rc1 / v0.22.1rc1 do carry
+  `ACL graph memory profiling is enabled (default since v0.21.0) …` /
+  `ACL graph pool memory: … (actual), … (estimated)` and `… GiB for NPU graph memory`
+  (#10700, quoted in `../runtime-memory/index.md`, *Reading a v0.21+ startup memory
+  block*), while neither pinned v0.23.0rc1 tree contains those strings (upstream still
+  prints `CUDA graph …`). Therefore the presence of that line in the reporter's log is
+  the check: present ⇒ the pool was accounted for and the reserving gap is *not* the
+  cause; absent on a v0.21+-era image ⇒ the gap is live. #16581 never opened its two
+  linked repro logs, so this stayed open there.
+- **The default capture set is large at this ref.** `platform.py:207-261` injects
+  `max_cudagraph_capture_size = min(max_num_seqs * decode_query_len, 512)` (upstream's
+  trailing `* 2` deliberately removed) and upstream's expansion
+  (`vllm/config/vllm.py:1662-1730` at this pin) turns that into **51 sizes**
+  `[1,2,4,8,…,512]`. Only A5 prunes (`prune_capture_sizes_for_950`,
+  `MAX_CAPTURE_SIZES_FOR_950 = 4`, `platform.py:76,109-124`, called `:621`), so a
+  910/310P paste with a long capture list is the default, not a misconfiguration —
+  and Step 3's rewrite is gone: `rg -n "update_aclgraph_sizes|MAX_CAPTURE_SIZE\b"
+  vllm_ascend/` returns nothing at this ref, so do not compute a v0.11-style
+  `67 → N sizes` budget for a v0.23 paste.
+
+**The attribution run is one variable at a time.** (a) default util +
+`--compilation-config '{"cudagraph_capture_sizes":[1,2,4,8]}'`; (b)
+`--gpu-memory-utilization` lowered ~0.05 + default sizes. (a) alone passes ⇒ the
+captured size set is the trigger; (b) alone passes ⇒ the capture-phase slack is. A
+"working config" that moved util, capture sizes *and* `--max-model-len` together
+(#16581: 0.9 / default sizes / 16 K failing vs 0.85 / `[1,2,4,8]` / 40 K working) has
+identified none of them — say so instead of crediting one, and note that its 16 K→40 K
+change *raises* KV demand, which argues against the reporter's own memory story.
+
+**`0x800000` MTE DDR out-of-range is not the allocator's `NPU out of memory`.** It is
+an execution-time addressing fault, so the artefact that separates a memory-pressure
+cause from a shape/op cause is the plog/rank line carrying `fault kernel_name=`
+(precedent #3263: same block, `fault kernel_name = paged_attention_mask_1_mix_aic`;
+#2424: Qwen3-32B startup, `vector core exception`). `torch.npu.graph.__enter__`
+synchronizes the device before capturing, so the faulting kernel was launched earlier
+— the warmup `_dummy_run` or the previous captured subgraph — and the innermost
+Python frame is a sync point, not the owner
+(`../hccl-and-hardware/error-report-timestamps.md`).
 
 ## What the pasted log usually lacks
 

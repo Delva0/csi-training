@@ -41,7 +41,7 @@ per stage from the line below, never from the launcher source.
 | `xlite_graph_config.enabled` full mode | `platform.py:227-232` | `ACLGraph is disabled under xlite full mode` |
 | `cudagraph_mode` incompatible with `mode` | upstream `vllm/config/vllm.py:712-723` | `Cudagraph mode %s is not compatible with compilation mode %s. Overriding to NONE.` |
 | attention backend cannot do this graph (`AttentionCGSupport`) | upstream `vllm/model_executor/…/gpu_model_runner.py:5036-5140` via `vllm_ascend/worker/model_runner_v1.py:2803-2815`; a `NEVER` backend raises `ValueError` instead | `CUDAGraphMode.X is not supported with <Backend> backend (support: …); setting cudagraph_mode=…` |
-| any graph mode + the debugging env | `platform.py:339-348` | `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING=1` |
+| any graph mode + the debugging env | `platform.py:339-348`; re-grepped at v0.26.0rc1 (`f2f74a16`) as `platform.py:601-613`, TODO comment intact | `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING=1` — refuse to start, so the report is "set the env, service will not come up" with no other symptom |
 | **success** | `platform.py:289` / `platform.py:313-330` | `PIECEWISE compilation enabled on NPU …` / `FULL_DECODE_ONLY compilation enabled on NPU …` plus the red "You have enabled the *full graph* feature" block |
 
 Also gated by mode: `PIECEWISE` asserts `mode == VLLM_COMPILE`
@@ -72,6 +72,15 @@ otherwise runs the piecewise path — so a worker whose log lacks the success li
    `platform.py:250-267` asserts.
 6. State the version scope: the `level→mode` mapping, the platform's
    `{NONE, VLLM_COMPILE}` gate and the success message are all ref-specific.
+
+**Report shape without a traceback.** `加入环境变量 export ASCEND_LAUNCH_BLOCKING=1，
+无法拉起服务` / `acl 流同步失败` on a recipe that ships a graph mode (the Kimi-K3 A3
+recipe carries `--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'`) is this
+gate, not a broken ACL stream: the env var is refused while `cudagraph_mode != NONE`,
+so answer "unset it (or `0`), or debug with `--enforce-eager` **and** the env together"
+and classify it as a config-normalisation raise before weight load — one grep of
+`platform.py` settles it (verified at v0.26.0rc1 `f2f74a16`, recorded #16268, answered
+in 19 turns from the gate alone).
 
 The complement of this page: when the success line **is** there and capture
 finished on every rank, the mode took effect and the request path is the question —

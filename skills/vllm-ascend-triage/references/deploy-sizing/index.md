@@ -58,14 +58,38 @@ Inherit the rules in SKILL.md, plus these:
    page suits the W8A8 weights, not BF16. "Your layout is at the documented minimum and the
    recipe you followed is for other weights" is a complete sizing answer.
 
+6. **A 1T-class MoE under `--enable-expert-parallel` is priced in *experts per
+   card*, not in TP.** Under EP the intra-layer TP collapses to 1 and the expert
+   *count* is split over the flattened `dp × pcp × tp` (`ep_size`), with each expert
+   keeping its full `moe_intermediate_size` width — so doubling the EP width halves
+   the per-card bytes while a TP-only expert shard doubles them against your
+   expectation. `ep_size` is `dp × tp` only when the DP ranks share one DP group:
+   `--data-parallel-size N` alone, without `--data-parallel-size-local
+   --data-parallel-address --data-parallel-rpc-port --data-parallel-start-rank`,
+   leaves each node's engine with `dp_size = 1`. Two log lines give the width —
+   `[EP Rank r/N] … Local/global number of experts` and `rank … in world size … is
+   assigned as … EP rank …` — and they are one grep, while decoding the OOM's
+   byte count needs a `config.json` the report never carries:
+   `moe-load-oom-expert-shard.md`.
+
 Conditional routes:
 
+- The OOM line is inside model construction (`get_model` → `create_weights` →
+  `quantization/methods/w4a16.py:get_weight` → `torch.empty`) on a 384-512-expert
+  MoE with `--enable-expert-parallel` and a `--data-parallel-size` in the launch
+  dict → `moe-load-oom-expert-shard.md` first: experts-per-card arithmetic, the
+  `[EP Rank r/N]` greps, the DP-group flags, and the reporter-confirmed 2-node A2
+  serve line (#7123). The TP-scaling page above is the one-node, TP-only sibling.
 - Two serve commands that differ by one resource knob (`--tensor-parallel-size`,
   `--max-model-len`, `--gpu-memory-utilization`) where the smaller one comes up and
   the larger OOMs at engine start → `tp-scaling-oom-at-startup.md` first: the
-  tutorial's validated serve line, the OOM line split against `gmu × total`
-  (`../../scripts/oom-budget-split.sh`), the per-rank terms that do not shrink with TP,
-  and the stop rule against an allocator-mechanism hunt (#6572).
+  tutorial's validated serve line, **the traceback frame that separates a
+  post-sizing phase from the KV pool's own allocation loop**, the OOM line split
+  against `gmu × total` (`../../scripts/oom-budget-split.sh`), the per-rank terms
+  that do not shrink with TP, and the stop rule against an allocator-mechanism hunt
+  (#6572 for the post-sizing shape, #4474 for the pool-loop shape, where
+  `already allocated > gmu × total` is expected and the number to check is
+  `#tensors × page_size × num_blocks` against the `Available memory:` line).
 - The worked #9335 case: the 30B-A3B Omni model on 2×64 GB 910B, the three-stage
   NPU yaml, why the 2-NPU squeeze is infeasible, the evidence table and the
   answer shape → `card-budget-and-device-visibility.md`.

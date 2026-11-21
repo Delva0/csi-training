@@ -295,3 +295,31 @@ finding kept on the page: `VLLM_ASCEND_ENABLE_DENSE_OPTIMIZE` was removed by
 v0.13.0rc1 (`release_notes.md:35`, PR #5272) and
 `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE` has no `vllm_ascend/` reader, so two exports in
 that launch command were silent no-ops.
+
+**#7123** vllm-ascend v0.15.0rc1 (`3d43ed99`) + vllm v0.15.0 (`f1764434`), A2
+multi-node (2×8 cards, 60.96 GiB reported per card), Kimi-K2.5 W4A16 served from a
+launcher dict (`tensor_parallel_size: 8`, `enable_expert_parallel: true`,
+`data_parallel_size: 2`, `gpu_memory_utilization: 0.86`, `max_model_len: 4096`, and
+no `data_parallel_size_local` / `address` / `rpc_port` / `start_rank` keys): the
+engine dies **during model construction** — `get_model` → `kimi_k25.py:349` →
+`deepseek_v2.py:1069 make_layers` → `fused_moe.py:320` →
+`method_adapters.py:202 create_weights` → `w4a16.py:132 get_weight` →
+`torch.empty` → `NPU out of memory. Tried to allocate 674.00 MiB (60.96 GiB total;
+60.30 GiB already allocated)`. Track: load-phase capacity under EP →
+`../deploy-sizing/moe-load-oom-expert-shard.md`. The recorded run spent 30 tool
+results and four message-text-free assistant turns on upstream DP/EP group algebra
+(`parallel_state.py:1330-1421`) and on decoding the 674 MiB into an expert count,
+and was cut at the 16 384-token cap with **no deliverable** — the two lines that
+settle the shard width (`[EP Rank r/N] … Local/global number of experts`,
+`rank … in world size … assigned as … DP rank … EP rank …`) were never requested.
+Reporter-confirmed afterwards (2026-03-25, same host): the deployment serves with
+tp8 / `--enable-expert-parallel` / `--data-parallel-size 2
+--data-parallel-size-local 1 --data-parallel-address XXX --data-parallel-rpc-port
+2357 --data-parallel-start-rank 0`, `--gpu-memory-utilization 0.95`,
+`--max-model-len 72000`, `ascend_scheduler_config`/`torchair_graph_config` off and
+`FULL_DECODE_ONLY` with `cudagraph_capture_sizes
+[1,2,4,8,16,32,64,96,128]` — i.e. the same 16 cards, with the cross-node DP group
+that makes the expert shard 16 wide instead of 8. Also note the pinned tutorial's
+"For an Atlas 800 A3 (64G*16) node, tensor-parallel-size should be at least 16"
+(`docs/source/tutorials/models/Kimi-K2-Thinking.md:113`) is a per-node A3 statement;
+answering "you need TP16" would have been wrong for this A2 host.

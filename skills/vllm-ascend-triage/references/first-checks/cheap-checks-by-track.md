@@ -19,6 +19,22 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
 
 ## The checks
 
+- **The paste is a claim; the engine's own dump is the record.** Whenever the
+  traceback comes with the `dump_input.py` block (`Dumping input data for V1 LLM
+  engine (v…) with config: …`, then the scheduler output and stats), diff it against
+  the launcher the reporter pasted before ranking any mechanism: #9359's command said
+  `num_speculative_tokens: 1` while the dump said `num_spec_tokens=3`, and its decode
+  node claimed `--max-model-len 172032` while the effective cap was 133120 — every
+  ladder row written from the script would have tested a launch that never ran. Quote
+  the dump's numbers, name the disagreement, and ask for `args: Namespace(...)` /
+  `/proc/<pid>/cmdline`. Two further uses: the dump's *field spellings* fingerprint the
+  installed wheel against the pin (vllm v0.19.1 `ModelConfig` has `max_model_len`,
+  `vllm/config/model.py:182`, not `max_seq_len`, so a `max_seq_len=` line needs
+  confirming), and the scheduler-output fields classify the failing step
+  (`num_computed_tokens`, `num_scheduled_tokens`, `scheduled_spec_decode_tokens`)
+  without a source read — worked rows in
+  `../spec-decode-mtp/max-model-len-boundary-fia-crash.md` and
+  `../hccl-and-hardware/aclgraph-full-decode-runtime-hang.md`.
 - Image / bundled-native-module abort (no vllm-ascend frame, glibc allocator
   text): which copy is imported, then allocator interposition, then the
   installer-vs-upstream dependency diff — steps 1-3 of
@@ -39,6 +55,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   container before any image theory. The ENV dump describes a shell, not the
   launched process; the export goes in the launch command (steps 1-2 of
   `../image-dependency-faults/launch-env-and-library-path.md`).
+- An `ImportError` naming an attribute of **`vllm` itself** — `cannot import name
+  '<X>' from 'vllm'`, `(unknown location)` included, from `from vllm import …` in
+  an upstream frame — is answered by reading the message's location text and the
+  **paths** of the traceback's own frames, before any version survey: a frame
+  resolving `vllm` from a checkout (`$HOME/…/vllm/vllm/…`) plus `(unknown location)`
+  says a bare `vllm` directory was imported and no regular package was reachable,
+  so the fix is deleting/renaming that directory; the `…+empty` version in the env
+  dump is the docs' own `VLLM_TARGET_DEVICE=empty` marker, not a cause. One
+  `python -c "import vllm, sys; print(sys.executable, vllm.__file__, list(vllm.__path__))"`
+  in the reporter's shell and launch directory decides it
+  (`../image-dependency-faults/wrong-vllm-module-shadowed.md`).
 - Log stops after `Loading model weights took X GB` with the port still refused
   and nothing raised: bound the phase before theorising — at v0.8.4rc1 the next
   code is `worker.py:240-256` `determine_num_available_blocks` → `profile_run()`
@@ -48,6 +75,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   lines and `npu-smi` **during** the stall (`../startup-failures/silent-stall-after-weight-load.md`).
   The log's `model_runner.py:<line>` vs `model_runner_v1.py:<line>` fingerprints
   V0 vs V1; use it as evidence, not proof.
+- `NPU out of memory` raised **while building the model** (`get_model` →
+  `quantization/methods/w4a16.py:get_weight` → `torch.empty`), a 384-512-expert MoE,
+  `--enable-expert-parallel` and a `--data-parallel-size` in the launch dict: the
+  cheapest check is two greps of the worker log (`[EP Rank r/N] … Local/global number
+  of experts`, `rank … in world size … assigned as … EP rank …`), because the expert
+  shard width is `dp × pcp × tp` only when the DP ranks share a DP group and a TP-only
+  shard is 2× the per-card bytes. Do not decode the refusal's byte count into an
+  expert count — `../deploy-sizing/moe-load-oom-expert-shard.md`.
 - A DP>1 MoE deployment whose dummy/`profile_run` batch passes but a **real
   request** hangs a layer or two in, or whose layer output is garbage of the right
   shape right after a `(dp_size × max_tokens_across_dp, hidden)` tensor: the pad
@@ -430,6 +465,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   with 910B/custom-op/coverage gates
   (`../accuracy-benchmarks/repeated-run-nondeterminism.md`). Recorded #7180 ranked
   "sampling not pinned" first; the reporter's next comment pasted a greedy body.
+  When the body is **stable** and only the **concurrency** changes the answer, it is the
+  batch-composition sibling: probe `python -c "import batch_invariant_ops"` before
+  anything else, because the batch-invariance INFO log line prints with attention
+  still unpatched (`../accuracy-benchmarks/batch-invariant-coverage.md`).
 - A crash under concurrency with **no** error text pasted: do not hunt the mechanism.
   The answer is the gap, the config diff against the tree's own validated command
   (`tests/e2e/**`, `docs/source/tutorials/<model>.md`) and ranked candidates with one
@@ -518,13 +557,15 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   env sets + release note), the default-flip note and the reachability check
   (`../code-change-requests/env-flag-retirement.md`, #1262). Do not open
   the op's code path.
-- Community-test / doc-verification task: run the ten checks of
+- Community-test / doc-verification task: run the eleven checks of
   `../tutorial-verification/tutorial-command-audit.md` in order
   (flag existence at the pinned vllm, bench argument names, image WORKDIR vs
-  the doc's relative paths, relied-on defaults, card-count arithmetic vs
-  sibling docs and the CI config, baseline release, one precedent pass,
-  package version the doc installs vs the image's own pins, support matrix and
-  release notes, `--hf_overrides` architecture string vs the checkpoint family)
+  the doc's relative paths including any `bash <script>.sh` helper, relied-on
+  defaults, card-count arithmetic vs sibling docs and the CI config, baseline
+  release, one precedent pass, package version the doc installs vs the image's
+  own pins, support matrix and release notes, `--hf_overrides` architecture
+  string vs the checkpoint family, tab-set block vs its own prose and its own
+  `kv_connector`)
   and write the report file as sections become
   true (`../tutorial-verification/community-test-report.md`). Stop
   auditing after 3-5 tiered defects; never present a doc baseline as a
@@ -587,7 +628,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   prefills: run `bash <skill_root>/scripts/batch-split-audit.sh <vllm-ascend-root>`
   before the kernel; its hits are the request tensors sliced by a token count and
   the unrebased `cu_seqlens`, and spec decode is the multiplier that turns a
-  silent overshoot into `507015` (`../mixed-batch-splits/index.md`).
+  silent overshoot into `507015` (`../mixed-batch-splits/index.md`). The same
+  script covers the **host-side** twin — `could not broadcast input array` /
+  `np.repeat` length error in `worker/pcp_utils.py` with MTP + PCP > 1 — where
+  the printed lengths alone name the batch
+  (`../mixed-batch-splits/pcp-schedule-index-units.md`).
 - A **LoRA** serve, either shape: run
   `bash <skill_root>/scripts/lora-graph-descriptor-audit.sh <vllm-ascend-root>
   [<vllm-root>]` first. It names the punica backend the ref binds (that decides

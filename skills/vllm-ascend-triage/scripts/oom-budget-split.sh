@@ -5,13 +5,17 @@
 # A already allocated; ...; F free; ...)`, this prints
 #   1. the parsed total / already-allocated / free / requested values;
 #   2. the budget the engine granted itself, gmu x T, and whether the failing
-#      request sits INSIDE it (the accounting is wrong) or OUTSIDE it (the
-#      reserve above the budget, i.e. the phase, is what ran out);
+#      request sits INSIDE it (the accounting is wrong) or OUTSIDE it (either the
+#      reserve above the budget ran out, or the KV pool being allocated is larger
+#      than the budget it was sized from — the traceback frame decides which:
+#      `initialize_kv_cache_tensors` means the pool loop, see
+#      references/deploy-sizing/tp-scaling-oom-at-startup.md step 2);
 #   3. with --params/--tp, the weights-per-card estimate and what the remaining
 #      "already allocated" bytes then belong to.
 #
 # It does not decide the cause: it splits capacity vs post-budget phase, which is
-# the first branch of the memory pages. Worked example: vllm-ascend #6572.
+# the first branch of the memory pages. Worked examples: vllm-ascend #6572 (phase)
+# and #4474 (pool loop, where "outside the budget" is the expected shape).
 #
 #   scripts/oom-budget-split.sh --line 'NPU out of memory. Tried to allocate 2.36 GiB (NPU 0; 60.94 GiB total capacity; 58.82 GiB already allocated; 58.82 GiB current active; 823.69 MiB free; 58.93 GiB reserved in total by PyTorch)' --gmu 0.8 --params 80 --tp 8
 #   scripts/oom-budget-split.sh --line '<line>' --gmu 0.8 --params 80 --tp 4 --dtype w8a8 --hbm 32
@@ -19,7 +23,7 @@
 set -u
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 line=""; file=""; gmu=""; params=""; tp=""; dtype="bf16"; hbm=""
@@ -90,10 +94,12 @@ print(f"gmu budget  : {gmu:g} x {total:.2f} GiB = {budget:.2f} GiB")
 print(f"delta       : already_allocated - budget = {delta:+.2f} GiB")
 if delta > 0.5:
     verdict = "OUTSIDE the profiled budget"
-    print(f"VERDICT     : {verdict} — the failing request ran past the memory the engine "
-          f"grants itself, i.e. after the KV pool was sized (graph capture / workspace / "
-          f"collective buffers) or with a wrong total-memory figure. The reserve "
-          f"(1-gmu) x total = {(1-gmu)*total:.2f} GiB is the quantity that is too small.")
+    print(f"VERDICT     : {verdict} — the failing allocation ran past the memory the engine "
+          f"grants itself. Two readings, decided by the traceback frame: with a frame in "
+          f"initialize_kv_cache_tensors the engine is still FILLING the pool it sized, so "
+          f"the pool allocation is larger than the budget (pool-size/accounting); with a "
+          f"capture/workspace/collective frame the phase ran past the budget and the "
+          f"reserve (1-gmu) x total = {(1-gmu)*total:.2f} GiB is what is too small.")
 elif delta < -0.5:
     verdict = "INSIDE the profiled budget"
     print(f"VERDICT     : {verdict} — the allocation that failed is smaller than the "
@@ -139,6 +145,9 @@ print("  1. the startup log's own numbers: 'Available KV cache memory', "
       "arithmetic or the checkpoint differs from its defaults")
 print("  2. diff the command against the pinned tutorial/CI serve line "
       "(docs/source/tutorials/<model>.md, tests/e2e/**/test_<model>*.py)")
-print("  3. one capture ablation (--enforce-eager, or cudagraph_capture_sizes=[1]) "
-      "only if the verdict above is OUTSIDE the budget")
+print("  3. the traceback frame of the failing torch.zeros: inside "
+      "initialize_kv_cache_tensors = pool accounting (#4474), otherwise read the "
+      "verdict as a phase")
+print("  4. one capture ablation (--enforce-eager, or cudagraph_capture_sizes=[1]) "
+      "only when the frame is capture")
 PY

@@ -102,6 +102,62 @@ even though the AscendC `vllm_ascend/lora/lora_ops.py` exists in the same tree
 structural on this SoC, and the lever is merging the adapter or moving the
 release, not a flag — `../lora-adapters/decode-overhead-vs-base-model.md`.
 
+## At v0.12.0rc1: the gate is renamed, the tutorial path moved, and "when will 310 get graph mode" has no answer
+
+Verified at vllm-ascend **v0.12.0rc1** (`42ceaf0`) with vllm **v0.12.0**
+(`4fd9d6a8`) while triaging #5075 (300I Pro, reporter on vllm-ascend 0.10.0rc1,
+Qwen2.5-VL-3B, `--enforce-eager`, "310系列什么时候支持图模式和量化", 8 s vs T4 3 s
+end-to-end on an ID-card OCR pipeline):
+
+- **`is_310p()` does not exist at this ref.** `rg -n "is_310p" vllm_ascend/` returns
+  nothing — a version fact, not a missing gate. The predicate is spelled
+  `get_ascend_device_type() == AscendDeviceType._310P` (`utils.py:677` `_310P = 2`,
+  `get_ascend_device_type()` at `:710`; call sites `platform.py:297`,
+  `worker/model_runner_v1.py:138,2342`, `quantization/w8a8.py:51,163,320,349,366,386`,
+  `lora/punica_npu.py:9`). Grep `_310P` before concluding "this tree has no 310P path".
+- **The tutorial path moved, and the reporter's command is copied from whichever one
+  their tag ships.** `docs/source/tutorials/single_node_300i.md` (≤v0.11, quoted
+  above) → `docs/source/tutorials/310p.md` (v0.12.0rc1: eager-only note at `:5`,
+  Qwen2.5-VL-3B-Instruct tab at `:120-131` whose serve line is
+  `--tensor-parallel-size 1 --enforce-eager --dtype float16 --compilation-config
+  '{"custom_ops":["none","+rms_norm","+rotary_embedding"]}'` verbatim) →
+  `docs/source/tutorials/hardwares/310p.md` (v0.22+). A paste that matches a tab
+  byte-for-byte is the doc's own recipe, so "user error" leaves the ranking; the old
+  path still exists only as `docs/source/locale/zh_CN/LC_MESSAGES/tutorials/single_node_300i.po`,
+  which dates a paste that cites it.
+- **Quantization already has a 310P path at this ref.** `--quantization ascend` plus
+  the 310P branch of `npu_quant_matmul` (`quantization/w8a8.py:163`, transpose
+  decision at `:51`, `fused_experts_310p` at `:320`), so "310 量化什么时候支持" is
+  answered "already — with a 310-targeted checkpoint", not "wait"
+  (`310p-quant-checkpoint-soc-match.md`). Graph mode is **not** supported: `310p.md:5`
+  says the 310I series "only supports eager mode and the float16 data type".
+- **Establish the coverage verdict from test *paths*, then from the workflow.** At
+  this pin the 310P suite is one file, `tests/e2e/310p/test_offline_inference_310p.py`,
+  and every case in it is `enforce_eager=True` + fp16 (Qwen3-0.6B,
+  Qwen2.5-7B-Instruct, and a Qwen2.5-VL-3B case — the reporter's own model):
+  content-grepping `310p|_310P` inside `tests/` misses it because the SoC is only in
+  the **directory name**, so use `rg --files tests/ | rg -i 310`. The wiring is
+  `.github/workflows/vllm_ascend_test_310p.yaml` (label-gated, not per-PR):
+  `:112-115` runs that file on `linux-aarch64-310p-1` and
+  `tests/e2e/310p/test_offline_inference_parallel_310p.py` on `-4` — **a file that
+  does not exist at this commit** (`git ls-tree -r --name-only HEAD | rg 310p` lists
+  only the one test), so the 4-card leg cannot run and the only real 310P coverage at
+  this ref is single-card eager.
+- **"什么时候支持" is answered from the project's own staging, not from a guess.** The
+  RFC that owns this platform is #1309 `[RFC]: Support Altlas 300I series`:
+  `Stage1: E2E workflow work` (310P CI runner, e2e, wheels — several unchecked) and
+  **`Stage2: Performance improvement` with an empty body**. That empty heading is the
+  citable statement that graph mode/quantization work on 300I has no committed scope
+  or date; the first *documented* 310P `FULL_DECODE_ONLY` is the v0.22+
+  `hardwares/310p.md` block below, and which release between v0.12 and v0.22 landed it
+  is unanswerable here (`one_commit_git` per repo — say so, do not guess). Roadmap
+  issues #448 (Q2 2025) and #1168 (Q3 2025) carry a "Graph mode" line with no 310P
+  date; find them with `scripts/history-titles.sh -i '300I|310P'`.
+- **Do not import the v0.22 mask trap backwards.** `attention/attention_v1.py` has
+  **no** `_310P` branch at v0.12.0rc1 (`rg -c _310P` = 0), so the
+  `O(max_model_len²)` fp16 mask allocation quoted for v0.22.1rc1 below cannot be
+  attributed to a v0.12 paste.
+
 ## At v0.22.1rc1: the `_310p/` subpackage, the doc's validated table, two traps
 
 Verified at vllm-ascend **v0.22.1rc1** (`5f6faa0`) + vllm **v0.22.1**
@@ -173,6 +229,50 @@ gate table: 310P needs its own `-310`/`-310P` artifact, and the `_310p/`
 the static/SC schemes pass the checkpoint's int32 `quant_bias` —
 `310p-quant-checkpoint-soc-match.md` (v0.23.0 line set, plus the doc trap that
 the 27B tutorial's 300I tab points at the generic `-w8a8` repo).
+
+## The `TransData` / `EZ3002` rejection at `profile_run` (the bf16 form)
+
+Verified at vllm-ascend **v0.9.1rc1** (`c30ddb8`) with vllm **v0.9.1** (`b6553be`),
+recorded for #1383 (310P3, `Qwen/Qwen2.5-0.5B-Instruct`, no `--dtype` so the
+checkpoint's bf16 is used, V0 engine, `profile_run` at
+`determine_num_available_blocks`). The block is long; only four lines decide it:
+
+```
+EZ3002: Optype [TransData] of Ops kernel [AIcoreEngine] is unsupported. Reason:
+  [tbe-custom]:op type TransData is not found in this op store.
+  [Dynamic shape check]: The format and dtype is not precisely equivalent to
+  format and dtype in op information library
+Optype [TransData] of Ops kernel [aicpu_ascend_kernel] is unsupported. Reason:
+  Transdata op, groups should be greater than 1, but now is 1.
+build op model failed, result = 500002
+```
+
+Read it as a **dtype/format rejection**, not as a missing kernel: the op and the
+engine were found and the *input combination* was refused. The missing-kernel shape
+is different text — `EZ9999 … Parse dynamic kernel config fail` /
+`AclOpKernelInit failed opType` / `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed` →
+`kernel-package-vs-card.md`. The `aicpu … groups should be greater than 1` line is the
+CPU fallback's own complaint about the same node: a red herring, not a second cause.
+
+Why bf16 is cause 1 at this pin (all citable):
+
+| Fact | Where |
+|---|---|
+| The checkpoint's dtype reaches the device: the engine line prints `dtype=torch.bfloat16` and the tree has no 310P dtype gate | the report's own `Initializing a V0 LLM engine …` line |
+| On 310P the rope **always** takes the ATB fallback: the custom-op branch is `custom_rotary_embedding_enabled(...) and not is_310p()`, else `torch_npu._npu_rotary_embedding` — where the TransData is inserted | `vllm_ascend/ops/rotary_embedding.py:52`, fallback `:69-76` |
+| So the tutorial's `custom_ops: ["+rms_norm","+rotary_embedding"]` **cannot** move rope off ATB here — "add the flag" is not an action, and the doc/code disagreement is a finding | same file, plus `docs/source/tutorials/single_node_300i.md:175` |
+| The same tag's tutorial states the constraint outright | `single_node_300i.md:175`: `dtype="float16", # IMPORTANT cause some ATB ops cannot support bf16 on 300I series` (repeated `:224`, `:274`) |
+| Precedent on the same SoC | #752 (310P3, CANN 8.0.0, Qwen3): `RopeOperation_0 Atlas inference products can not support bf16` / `setup check fail` |
+
+Ladder: `--dtype float16` first (with `--enforce-eager`, the tutorial's other
+mandatory flag); then the image/kernel line — `Dockerfile.310p:18` bases on
+`cann:8.1.rc1-310p-…` while the generic `Dockerfile:18` bases on `…-910b-…`, so a
+generic image plus a missing `Ascend-cann-kernels-310p` is cause 2; then
+`ASCEND_LAUNCH_BLOCKING=1` + `ASCEND_GLOBAL_LOG_LEVEL=1` for the node's real
+dtype/format. State the doc contradiction as it stands at the pin:
+`docs/source/faqs.md:18` still says 300I/310P "might be supported on 2025.Q2" while
+`single_node_300i.md` ships a working fp16 recipe — experimental channel, not a
+status answer.
 
 ## Ranked actions for a 310P startup report
 

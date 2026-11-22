@@ -225,7 +225,19 @@ Conditional routes:
   print streams) while the upstream parent-death pipe only fires at a child's read point.
 - The crash instead happens during `profile_run`/`determine_available_memory`
   before the server is ready → `../startup-failures/index.md`
-  (`max-model-len-budget.md`) — that is a configuration budget, not a leak.
+  (`max-model-len-budget.md`) — that is a configuration budget, not a leak. If the
+  model is a **VL/omni** checkpoint and the innermost frame is in the vision tower,
+  the number is the dummy profiling batch's (`max_num_batched_tokens` × the
+  per-modality defaults) and TP does not divide it:
+  `../deploy-sizing/vl-profile-run-multimodal-budget.md` (recorded #1617).
+- The report is **「推理卡死」 + a plog OOM** on a MoE model whose launch carries
+  `--data-parallel-size` > 1 and `additional_config={'expert_tensor_parallel_size': N}`
+  with **no** `--enable-expert-parallel`, and there is no traceback → leave this
+  topic: `ep_size` is 1, the MoE's DP-wide output reduction is the owner, and the
+  per-card bytes will keep coming out "it should fit"
+  (`../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`, *The DP output
+  reduction*, recorded #2069 reporter-confirmed — a `reduce_scatter_tensor` call form
+  that `get_dp_group().reduce_scatter` replaces).
 - The traceback is a **loader/mapping** failure on a worker that ran for days —
   `OSError: /tmp/tmpXXXX/libkernel.so: failed to map segment from shared object` from
   `ctypes.CDLL(callback_path)` in triton-ascend's

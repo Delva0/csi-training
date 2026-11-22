@@ -6,10 +6,12 @@ start**: config lines and `Platform plugin ascend is activated` above it, then
 `get platform info failed, drvRet=87` and `507899`, and no `Starting to load model`.
 Route by the **chain** (`drvRet=87` + `507899` + `g_deviceLogicId[-1]`), not by which
 command failed first — a serve-time paste is not lane B either, because nothing ever
-reaches a `vllm_ascend` frame and no weight byte is loaded. Two recorded cases: **#632**
-(below) and **#1905** (image `quay.io/ascend/vllm-ascend:v0.9.2rc1-310p`, 300I Duo /
+reaches a `vllm_ascend` frame and no weight byte is loaded. Three recorded cases:
+**#632** (below), **#1905** (image `quay.io/ascend/vllm-ascend:v0.9.2rc1-310p`, 300I Duo /
 310P, pasted as two OCR screenshots of one log — `…/attachments/<issue>/*.ocr.txt` is
-the log). Recorded for **#632** (image `quay.io/ascend/vllm-ascend:v0.8.4rc1` → vllm-ascend
+the log) and **#8809** (the vendor-image variant: `ret is -8005` from a `mis-tei`
+container beside a working vllm-ascend TP8 engine, closed by an **image tag rollback** —
+last section). Recorded for **#632** (image `quay.io/ascend/vllm-ascend:v0.8.4rc1` → vllm-ascend
 `086423dc352e`, vllm 0.8.4; CANN `8.0.0` `V100R001C20SPC001B251` aarch64, torch
 2.5.1, torch-npu `2.5.1.dev20250320`, 910 host). The issue carries no resolution in
 the snapshot: every claim below is about what the pasted text means, not about the
@@ -41,7 +43,7 @@ prints the unbound ids, DVPP re-uses the same count call. Both belong to this pa
 
 | Line | Reading |
 |---|---|
-| `dcmi … the device is used. ret is -8020` | the driver's own userspace (DCMI, i.e. the `libdcmi` mounted from the host) refused to initialise the device model **before any Python**. Quote it as text; the numeric meaning is in `cann/driver`, which is **not** in this snapshot's `SOURCES.json` (`unavailable`), so do not publish a decoded enum |
+| `dcmi … the device is used. ret is -8020` | the driver's own userspace (DCMI, i.e. the `libdcmi` mounted from the host) refused to initialise the device model **before any Python**. The numeric meaning is in `cann/driver` — **decode it, don't hedge**, whenever that repo is in the snapshot's `SOURCES.json` (`bash scripts/cann-error-lookup.sh -8005 -8020`; the table is `src/custom/include/dcmi_interface_api.h`, `DCMI_ERROR_CODE_BASE (-8000)` at `:1677` with `DCMI_ERR_CODE_<NAME> (BASE - n)`, plus the vendor rows in `docs/**/DCMI_API/*/return_codes.md`). When it is *not* exported (the v0.8.4/v0.9-era snapshots) quote the text and say so |
 | `halGetDeviceInfo` / `drvGetDevNum` / `rtGetDeviceCount` all `87` → `507899` | one refusal walking up the stack: device probe → device count → ACL. `507899` is the generic `[driver error:internal error]`; the **verb** names the operation, and a device-count failure before any model op means the device stack is already unusable (`../hccl-and-hardware/transport-destlink-ipc-import.md` carries the same reading for the HCCL context) |
 | `get device count of NPU failed` from `device_count` | torch_npu's own wrapper around the same call — the consequence, not a second fault |
 | `TBE … AscendCheckSoCVersion: cur soc version unknown` | downstream of the failed probe (SoC detection goes through the same driver). Inference, not proof — but it is *not* the `PlatformInfoInit … SocVersion <name>` line that `acl-init-500001-and-soc-version.md` asks you to read; in that lane the name **is** resolved and matches the card |
@@ -52,6 +54,27 @@ prints the unbound ids, DVPP re-uses the same count call. Both belong to this pa
 
 The whole failure therefore sits **below** vllm-ascend: DCMI + the container's
 device nodes, or the host driver state. Say that first; then rank.
+
+## The `-8xxx` code is the cheapest classifier — read it before ranking (v0.2x snapshots)
+
+At `cann/driver` `src/custom/include/dcmi_interface_api.h:1677-1690`
+(verified at the #8809 snapshot, pin `a7ceccf700e0`) the DCMI return codes are
+`DCMI_ERROR_CODE_BASE (-8000)` minus an offset. The rows that change a ranking:
+
+| Code | Enum | What it rules in / out |
+|---|---|---|
+| -8002 | `DCMI_ERR_CODE_OPER_NOT_PERMITTED` | a **permission** refusal — so a non-root `-u <user>` run would print this, not -8005 |
+| -8005 | `DCMI_ERR_CODE_INNER_ERR` (vendor row: 内部错误，请提供日志) | the generic internal error: it excludes nothing, so it cannot carry a mechanism on its own |
+| -8008 | `DCMI_ERR_CODE_DEVICE_NOT_EXIST` | the node the container maps is not there (`--device` / mount list) |
+| -8009 | `DCMI_ERR_CODE_IOCTL_FAIL` | the ioctl into the driver failed |
+| -8013 | `DCMI_ERR_CODE_NOT_SUPPORT_IN_CONTAINER` (vendor: 在容器中不支持该接口) | container detection is an **explicit** DCMI contract, so "in a container" is a first-class lane, not a modifier |
+
+Two traps this table settles in one call: `src/custom/lqdrv/kernel/ioctl_comm_def.h`
+carries a **separate** `LQ_DCMI_ERR_CODE_*` numbering where `-8005` *is* `IOCTL_FAIL`
+and `-8008` *is* `VERSION_IMCOMPATIBLE` — never cross-apply the two (the recorded
+#8809 run quoted the lqdrv row, shipped it, then had to correct itself mid-answer);
+and no row of the DCMI table is an HBM or capacity code, so "显存被 vllm 吃满" is
+refuted by the number itself.
 
 ## The one command that halves the search
 
@@ -109,18 +132,33 @@ not a causal chain.
    any `/dev` node is opened, so a `/dev` list shorter than the tutorial's cannot be the
    owner of a *count* failure — when the host's own `npu-smi` is healthy, go to rung 3
    (host vs container user-space driver) before re-mapping devices.
-2. **Another holder of the same device.** `docker ps` for a second container on those
-   devices and the host's process table (`npu-smi info`, `fuser -v /dev/davinci0
-   /dev/davinci_manager`). A card that is busy is a container/host-state finding, and
-   the cheapest falsification is a different, idle `--device /dev/davinciN` — one
-   variable.
-3. **Host vs container user-space driver.** The image mounts the host's `dcmi`,
-   `npu-smi`, `driver/lib64/` and `version.info`, so read
+2. **Another holder of the same device — but co-tenancy is only a lane for a *second
+   vllm-ascend container*.** `docker ps` for a second container on those devices and
+   the host's process table (`npu-smi info`, `fuser -v /dev/davinci0
+   /dev/davinci_manager`); the cheapest falsification is a different, idle
+   `--device /dev/davinciN` — one variable. Do **not** rank it first when the failing
+   container is a *vendor serving image* (mis-tei / MindIE TEI, an inference-engine
+   image that bundles its own CANN userspace): in recorded #8809 the confirmed working
+   bge-m3 `mis-tei` command runs on `--device /dev/davinci4` **while the vllm container
+   holds `davinci0-7` with TP8**, so a chip shared by two containers is not by itself a
+   DCMI blocker at this stack; the reporter attributes the cure to the image tag (ladder rung 3).
+3. **Host vs container user-space driver — for a vendor serving image this is rung 1,
+   and the lever is the image tag.** The image mounts the host's `dcmi`, `npu-smi`,
+   `driver/lib64/` and `version.info`, so read
    `cat /usr/local/Ascend/driver/version.info` and the `npu-smi info` header **on both
-   sides**: only a same-origin set is self-consistent. This is the pairing rung, and
-   the image's own CANN half is fixed by its base (`Dockerfile:18` →
+   sides**: only a same-origin set is self-consistent. For a **vllm-ascend** image the
+   CANN half is fixed by its base (`Dockerfile:18` →
    `quay.io/ascend/cann:8.0.0-910b-ubuntu22.04-py3.10` at this ref, matching the
-   reporter's `install.info`).
+   reporter's `install.info`). For a **third-party image** (mis-tei / MindIE TEI,
+   `swr…/ascendhub/mis-tei:<tag>`) nothing in this snapshot defines its userspace
+   contract, so the tag *is* the variable: its version is the Ascend release line it was
+   built against (`mis-tei:7.2.RC1-800I-A2-aarch64` ↔ a host at the 7.2.RC1 line, which
+   `SOURCES.json`'s `Ascend/mind-cluster v7.2.RC1.SPC2` row reflects for that snapshot;
+   a `26.0.0-800I-A2` tag is the MindStudio-26 line). Run the **identical** `docker run`
+   with the older tag before attributing anything to cards, users or mounts —
+   reporter-confirmed on #8809 (same host, same coexisting TP8 vllm engine; keep the
+   failing command's own `--device /dev/davinci0` so the tag is the only variable
+   changed, which is what the reporter's own pair does *not* do — see the recorded run).
 4. **Host driver / card state.** `dmesg | grep -iE 'davinci|devdrv'`, then the
    vendor-side levers (`npu-smi set -t reset -i N`, host reboot) only when no user
    process holds the card — and hand a shared machine to its administrator rather
@@ -138,9 +176,10 @@ in the paste reaches an engine. Then the evidence table above, the host-vs-conta
 split as the next single action, the ladder, and the ask (host `npu-smi info` with its
 header and process table, `driver/version.info` from both sides, `ls -l /dev/davinci*`
 inside the container). State the unverified part explicitly: the numeric meanings of
-`-8020` and `87` are not in any pinned tree here, and whether *this* reporter's card
-was occupied, mis-mounted or driven by a mismatched userspace is not derivable from
-the paste.
+`87` is the driver's own refusal walking up the stack and `-8020`/`-8005` are only a
+name from the enum (§above) — the enum excludes lanes, it does not name a mechanism — so
+whether *this* reporter's card was occupied, mis-mounted or driven by a mismatched
+userspace is not derivable from the paste.
 
 ## Recorded run (#632)
 
@@ -168,3 +207,44 @@ and `ls -l /dev/davinci*`. The reporter's public follow-up (2025-07-22) is just
 the ladder stands on the driver/user-space reading alone. It also confirmed Qwen3-8B
 single-die is not in the pin's 300I validated set (`single_node_300i.md:50`) while the
 lane itself is labelled experimental (`:3-5`) — a separate, model-side gap.
+
+## Recorded run (#8809, and the correction its follow-up forces)
+
+Paste: a 910B4×8 Atlas 800I A2 host whose **vllm-ascend `v0.18.0rc1` (`99e1ea0fe685`)
+container running Qwen3.6-35B-A3B TP8 works and lists all 8 cards**, while a
+`swr…/ascendhub/mis-tei:26.0.0-800I-A2-aarch64` container serving bge-m3 (that command:
+`-u HwHiAiUser`, `--privileged`, `-v /dev:/dev`, `--device /dev/davinci0`) prints
+`DrvMngGetConsoleLogLevel failed. (ret=4)` + `dcmi module initialize failed. ret is
+-8005` and enumerates nothing. The reporter's framing ("只能用
+完全空一张 910B4") reads as memory pressure.
+
+The run answered it in-lane and rank-ordered **same-card co-tenancy first**, non-root
+`-u <user>` and a `-v /dev:/dev` + `--device` mix next, and **image/driver pairing
+third**, citing `#248` (one card's `/dev` node mapped into two containers → the
+`-8020`/`87`/`507899` chain), `#632` (same chain) and the DCMI enum (in that snapshot
+`cann/driver` *was* exported, so `-8005 = DCMI_ERR_CODE_INNER_ERR` was decoded
+correctly — but only after quoting the **lqdrv** `-8005 = IOCTL_FAIL` row first and
+posting a mid-answer correction, which is what the two-table warning above exists to
+prevent).
+
+**The reporter's 2026-04-29 follow-up closes it on the image side**: `问题在mis-tei侧，
+镜像回退到 mis-tei:7.2.RC1-800I-A2-aarch64 后解决`, and the working command keeps
+`--device /dev/davinci4` for the TEI container **while the vllm container still maps
+`davinci0-7` with `--tensor-parallel-size 8`**. So:
+
+- one chip mapped into two containers was **not** the blocker → ladder rung 2 does not lead for
+  a vendor serving image (§2), and "一张卡只能进一个容器" must not be published as the
+  shape;
+- the image tag was, per the reporter. What also differs between the two commands is why
+  this is an *attribution*, not a single-variable result: `-u root` instead of
+  `HwHiAiUser`, no `-v /dev:/dev`, `--privileged=true`, `ENABLE_BOOST=True`,
+  `ASCEND_VISIBLE_DEVICES=4` / `TEI_NPU_DEVICE=4`, and the mapped card
+  (`/dev/davinci0` → `/dev/davinci4`, i.e. the "different idle `--device`" rung was also
+  moved). Say "reporter-confirmed on the image tag", never "the driver's userspace was
+  mismatched";
+- what the run got right and should keep: the lane (below every vllm-ascend frame, no
+  engine or serve flag implicated), the `-8005` reading (a generic internal error, not a
+  memory code), and the ask (`npu-smi info` on the host with its process table,
+  `driver/version.info` from both sides, `/dev/davinci*` inside the TEI container, and
+  the vendor image's **original** `docker run` — the pasted one had a duplicated
+  `-v /data/models/` and an unreplaced `/[HOME_DIRECTORY_1]/` placeholder, i.e. hand-edited).

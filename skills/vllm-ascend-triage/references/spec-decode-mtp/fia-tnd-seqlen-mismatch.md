@@ -28,6 +28,13 @@ Its **FA sibling is a different op, page and owner**: `npu_fusion_attention` →
 attention path, not spec decode, and the mask-shape member above it is the same CANN file
 reached from a model-side mask.
 
+The same op's **capability** sibling is a different owner again: `When layout is TND, not
+support Page Attention[FUNC:RunBigKernelTilingWithParams][FILE:prompt_flash_attention_tiling.cpp]`
+under `call aclnnFusedInferAttentionScoreV3 failed, error code is 561002` contains no
+`queryT`/`actualSequenceLengthQ` pair, so no padding bookkeeping is being compared — the installed
+toolkit's tiling has no paged-TND path and the CANN release is rung 1
+(`../custom-ops-runtime-faults/tiling-capability-refusal-cann-release.md`, #4373).
+
 A **second launch reaches the same refusal through a different lane**:
 `cudagraph_mode: "FULL"` with `--speculative-config '{"method": "ngram",
 "prompt_lookup_max": 2, "prompt_lookup_min": 2, "num_speculative_tokens": 3}'`

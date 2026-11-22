@@ -524,7 +524,7 @@ after that keeps the header, not this text.
   Page: `../startup-failures/profile-run-logits-gather-eof.md`.
 
 - `scripts/cann-error-lookup.sh <CODE|NUMBER> [<CODE> …] [--root DIR]` — the vendor's
-  own meaning for a CANN/HCCL code, in one call. An `E`-code (`EJ0001`, `EI0006`,
+  own meaning for a CANN/HCCL/DCMI code, in one call. An `E`-code (`EJ0001`, `EI0006`,
   `EL0004`, `EI0017` …) prints whichever table the snapshot exports —
   `cann/metadef/error_manager/error_code.json` and
   `cann/hcomm/src/common/error_code/error_code.cc` — with `errClass`, `errTitle`,
@@ -548,7 +548,16 @@ after that keeps the header, not this text.
   that produced it: `EJ0001` ("wait for 10s after killing the last training process") is
   the sleep-mode/second-engine lane (`../runtime-memory/sleep-mode-multi-instance.md`),
   and `EI0006`'s solution names `HCCL_CONNECT_TIMEOUT` before any link theory
-  (`../hccl-and-hardware/link-establish-timeout.md`).
+  (`../hccl-and-hardware/link-establish-timeout.md`). A **`-8xxx`** argument is the DCMI
+  return code a container's `npu-smi` prints: `-8005` → `DCMI_ERR_CODE_INNER_ERR
+  (BASE - 5)` from `cann/driver/src/custom/include/dcmi_interface_api.h:1682` (base at
+  `:1677`) plus the vendor row 「内部错误。请提供日志…」, with the neighbouring rows
+  (`-8002` not-permitted, `-8008` device-not-exist, `-8013` not-supported-in-container)
+  expanding the discriminating window; when `src/custom/lqdrv/kernel/ioctl_comm_def.h`
+  is exported its `LQ_DCMI_*` collision is printed under a `SEPARATE TABLE, do not
+  cross-apply` heading, because that numbering says `-8005 = IOCTL_FAIL` and mis-quoting
+  it cost the #8809 run a posted correction
+  (`../startup-failures/no-npu-in-container.md` §*cheapest classifier*).
 
 - `scripts/dep-range-check.sh <package> <reported-version> <tree-root>...` — one
   dependency line from an env dump against the ranges the pinned trees declare:

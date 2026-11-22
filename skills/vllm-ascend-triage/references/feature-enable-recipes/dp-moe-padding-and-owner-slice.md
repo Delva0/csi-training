@@ -10,6 +10,13 @@ which object it reads the number from (`attn_metadata.max_tokens_across_dp` →
 numbers is wrong — the **pad target** (must be identical on every DP rank) or the
 **owner slice** (which rows of the gathered tensor belong to this rank).
 
+**Also this page:** the same `ep_size == 1, dp_size > 1` lane reported with *no*
+traceback — 「推理卡死，plog 报错 out of memory」, a hang plus a device-side OOM text
+on a MoE model whose launch carries `--data-parallel-size` > 1 and
+`additional_config={'expert_tensor_parallel_size': N}` but **no**
+`--enable-expert-parallel`. That shape is the **call form** of the DP output
+reduction below, not a memory budget: see *The DP output reduction*.
+
 Not this topic: which MoE communication method the tree picks
 (`moe-expert-parallel-with-dp.md` — read it first for the `MC2`/`All2All`/
 `AllGather` table), a device dump or `ERR00100`
@@ -79,13 +86,70 @@ takes this rank's rows with
 scatter_dim=0, group=get_dp_group().device_group)` and only then `[:num_tokens]`.
 **The head rows of a DP all-gather are rank 0's**, so `.[:num_tokens]` on the
 gathered tensor is correct only on rank 0 — on any other rank it is another
-rank's data, and on rank 0 it is correct only if the pad happened.
+rank's data, and on rank 0 it is correct only if the pad happened. **The *form* of
+that call is version-dependent and one form is a confirmed defect**: re-grep it
+before quoting (next section).
 
 Note `vllm_ascend/models/deepseek_dbo.py:511-513` still reads the **old** source,
 `attn_metadata[i].max_tokens_across_dp`, while `AscendMetadata`
 (`attention/attention_v1.py:112-142`) has **no such field** at this pin: that path
 is dead unless something sets the attribute out of tree. Say so with the pin and
 re-grep at the reported ref rather than "the tree does X".
+
+## The DP output reduction: which call form, and the confirmed hang it caused
+
+The lane is chosen by `get_fused_moe_state` (`vllm_ascend/utils.py:473-489`,
+`FusedMoEState` enum at `:434-439`; called from `ops/fused_moe.py:1299` with
+`self.moe_parallel_config.ep_size` and from `:1077` with `self.ep_group.world_size`).
+With `ep_size == 1` and `dp_size > 1` — `--data-parallel-size` > 1 and **no**
+`--enable-expert-parallel` — prefill takes `NaiveMulticast` and decode takes
+`AllGather`; both are cross-DP collectives, and their *exit* brings the expert
+outputs back to this rank's rows (`ops/fused_moe.py:1397-1410` at v0.9.2rc1
+`b5b7e0e`):
+
+| state | exit, in order |
+|---|---|
+| `NaiveMulticast` | `get_dp_group().all_reduce(e_hidden_states)` → `[start:end, :]` from `cu_tokens_across_dp_cpu` → `dispose_tensor(e_hidden_states)` |
+| `AllGather` | `data_parallel_reduce_scatter(e_hidden_states, dim=0)` → `[:num_tokens]` → `dispose_tensor(e_hidden_states)` |
+
+`data_parallel_reduce_scatter` is a one-liner over the group coordinator
+(`vllm_ascend/distributed/communication_op.py:22-25`):
+`return get_dp_group().reduce_scatter(input_, dim)`. **That line is the fix for a
+reporter-confirmed hang.**
+
+**#2069** (offline generate, Qwen3-235B-A22B W8A8, one 8-card 800T A2 node, 4 K
+inputs, total batch 8): `--dp-size=8 --tp-size=1 --etp-size=8` — i.e.
+`enable_expert_parallel=False`, `additional_config={'expert_tensor_parallel_size': 8,
+'ascend_scheduler_config': {'enabled': True, 'enable_chunked_prefill': False}}`,
+`max_model_len=4200`, `block_size=128`, prefix caching off — reaches `llm.generate`
+and then 推理卡死 while the plog reports out of memory, with **no Python traceback**.
+The reporter's own root cause (public comment, 2025-07-29): the MoE output reduction
+in `fused_moe` called `dist._functional_collectives.reduce_scatter_tensor`, whose
+`dispose_tensor(e_hidden_state)` mitigation stopped working, and replacing it with
+`get_dp_group().reduce_scatter(e_hidden_states, dim=0)` fixed it.
+
+Why the two forms are not interchangeable on this lane: `dispose_tensor`
+(`vllm_ascend/utils.py:352-354`) is `x.set_(torch.empty((0,), …))` — it swaps the
+tensor's storage for an empty one while the Python object stays alive. A
+`_functional_collectives` call hands back a lazy `AsyncCollectiveTensor` that
+materialises on first use, so freeing its input is exactly what it cannot survive,
+while the `GroupCoordinator` method is synchronous and returns a real tensor. The
+plog's OOM text on this shape is then the consequence of that window (the exact path
+— freed buffer read as a size, or a peer timeout surfaced through the allocator — is
+not established); what *is* established is that the reduction was broken and the
+repair is local. Two consequences for triage:
+
+1. **One grep picks the version lane**:
+   `rg -n 'reduce_scatter_tensor|data_parallel_reduce_scatter' <vllm-ascend-root>/vllm_ascend/ops/fused_moe.py`.
+   `data_parallel_reduce_scatter` / `get_dp_group().reduce_scatter` ⇒ the fixed form
+   (present at v0.9.2rc1); the functional-collective form over a disposed buffer ⇒
+   the #2069 defect, and the repair is that one line or the build that carries it.
+2. **A 「卡死 + plog out of memory」 report is this lane, not a budget**, when the
+   launch has `--data-parallel-size` > 1 on a MoE model plus `etp` in
+   `additional_config` and there is no traceback. The per-card byte arithmetic on
+   such a report keeps coming out "it should fit" (on #2069: ~37 GiB of 64 GiB at
+   W8A8) — that agreement, reached twice, is the signal to change lanes; the
+   recorded session reached it three times and shipped nothing.
 
 ## Step 3 — the two directions of the arithmetic, computed not eyeballed
 
@@ -108,9 +172,12 @@ re-grep at the reported ref rather than "the tree does X".
 
 ## Step 4 — `--enable-expert-parallel` changes the branch, so read the selector
 
-`get_fused_moe_state(ep_size, with_prefill)` at `ascend_forward_context.py:25-39`
-takes `ep_size = get_ep_group().world_size if enable_expert_parallel else 1`
-(`:66-67`):
+`get_fused_moe_state(ep_size, with_prefill, is_deepseek_v3_r1)` takes
+`ep_size = get_ep_group().world_size if enable_expert_parallel else 1`. **The module
+moves between refs** — `ascend_forward_context.py:25-39` with the caller's `:66-67` at
+v0.9.1rc2 (this page's #3107 pin), `vllm_ascend/utils.py:473-489` with callers in
+`ops/fused_moe.py:1077,1299` at v0.9.2rc1 (the #2069 pin) — so `rg -n 'def
+get_fused_moe_state' <vllm-ascend-root>` before reading it:
 
 | Launch | `ep_size` | State |
 |---|---|---|
@@ -143,6 +210,11 @@ collectives at all).
    (`../startup-failures/environment-correspondence.md`, vendored-file section).
 
 ## Recorded case
+
+**#2069** — vllm-ascend 0.9.1dev (0728 build), Qwen3-235B-A22B W8A8, 8×A2: the hang
+and the confirmed fix are in *The DP output reduction* above; the recorded session
+never opened that lane (it classified the report as a sizing question, recomputed
+per-card bytes three times, and was cut at the 16 384-token cap with no answer).
 
 **#3107** vllm-ascend v0.9.1rc2, Pangu Pro MoE, single node
 `--data-parallel-size 8 --enable-expert-parallel --max-num-seqs 8

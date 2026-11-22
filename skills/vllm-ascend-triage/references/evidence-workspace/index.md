@@ -154,12 +154,11 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
 
 ## Pages
 
-- `delivery-discipline.md` — the G1/G2/G3 delivery gates (rule 1 of SKILL.md), the four
-  reasoning patterns that consume a session (the archaeology loop, the late plan, the
-  ownership hunt and the "one more angle" source walk), and the recorded rows
-  classified by what the run already had in hand when it kept going. Read it when
-  a report has more than two plausible mechanisms or when the report is "a flag did
-  nothing".
+- `delivery-discipline.md` — the G1/G2/G3 delivery gates (rule 1 of SKILL.md) and the
+  four reasoning patterns that consume a session (the archaeology loop, the late plan,
+  the ownership hunt and the "one more angle" source walk). Read it when a report has
+  more than two plausible mechanisms or when the report is "a flag did nothing"; its
+  per-session evidence table is `delivery-recorded-sessions.md`.
 - `case-layout.md` — concrete commands for orientation, source reading at a pinned commit,
   and history search; what to quote in the final answer.
 - `recorded-cases/index.md` — the per-issue index behind rule 1: version, symptom,

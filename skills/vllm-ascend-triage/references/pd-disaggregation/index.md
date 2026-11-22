@@ -318,7 +318,12 @@ output, or did no request ever reach a decode engine?**
   `../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md` (plog, heartbeat
   `STUCK`, `count of currently executed operators`) before `py-spy` or a `/metrics`
   read, and return to this list only if the decode node's own log shows no request
-  arriving at all.
+  arriving at all. **One flag moves this to a lane with a reporter-confirmed fix:**
+  if the launch carries `--speculative-config` (an MTP method) and usually
+  `--async-scheduling`, take `../spec-decode-mtp/mtp-sampler-silent-stall.md` beside
+  the MC2 page instead of after it — on the 0.18.0 line three sampling/MTP cherry-picks
+  ended exactly this stall (#8916), and the tutorial recipe a reporter is likely
+  following turns MTP `n=3` and async scheduling on by default.
 - The **decoder** dies with `OverflowError: out of range integral type conversion
   attempted` (host Python, inside the tokenizer) on a request carrying
   `prompt_logprobs`, or `echo: true`: the decode node never runs the prompt forward,

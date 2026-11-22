@@ -18,9 +18,10 @@ is one that breaks the command (the first two rows of the contributor table
 below are that case).
 
 Verified drivers: **#14423** (vllm-ascend v0.22.1rc1 `5f6faa0cb883`, vllm
-v0.22.1), **#17718** (v0.23.0 `5cb98caaadef`, vllm v0.23.0 `0fc695fc6d1d`) and
+v0.22.1), **#17718** (v0.23.0 `5cb98caaadef`, vllm v0.23.0 `0fc695fc6d1d`),
 **#5158** (promised install step that exists nowhere, v0.12.0rc1 `42ceaf08a1ef`,
-vllm v0.12.0 `4fd9d6a85c00`).
+vllm v0.12.0 `4fd9d6a85c00`) and **#8151** (v0.18.0rc1 `99e1ea0`: the same
+mirror-discoverability shape as #14423, reporter-confirmed).
 
 ## Checks, in order
 
@@ -30,7 +31,29 @@ vllm v0.12.0 `4fd9d6a85c00`).
    `### 2. How to get our docker containers?`): `m.daocloud.io/quay.io/ascend/
    vllm-ascend:$TAG` (`:40`), `quay.nju.edu.cn/ascend/vllm-ascend:$TAG` (`:42`),
    plus the offline `docker save`/`load` subsection (`:45-72`). So #14423 is a
-   discoverability defect, and the answer says so before any patch.
+   discoverability defect, and the answer says so before any patch. At v0.18.0rc1
+   (`99e1ea0`, #8151) the same section is `faqs.md:28-40` — heading `:28`, prose `:32`,
+   `TAG=v0.9.1` hardcoded `:36`, `m.daocloud.io` `:37`, `quay.nju.edu.cn` `:39` — with
+   the offline `docker save`/`load` block at `:42-68`; the line numbers move with the
+   pin, the section does not.
+
+   **The registry half of a mirror report is answered from the workflows, not from
+   the docs.** "镜像地址只有 quay 的吗？昇腾镜像仓库/华为云镜像仓库也没有" is two
+   questions, and both are settled in the pinned tree: the release build logs in to
+   `registry: quay.io` only and pushes `name=quay.io/ascend/vllm-ascend`
+   (`_schedule_image_build.yaml:69,90,149,169,178`), so **no release tag is published
+   anywhere else**; Huawei Cloud SWR receives only the **moving nightly** images
+   `…/base_image/ascend-ci/vllm-ascend:nightly-a2|a3|cpu`, pushed with
+   `HW_USERNAME`/`HW_TOKEN` secrets (`_nightly_image_build.yaml:42-49,56,68-71`,
+   consumed at `schedule_nightly_test_a3.yaml:126,226`), so a `v0.18.0rc1`-style tag is
+   not there and anonymous pull is unverified; and the project's own CI pulls quay
+   through `m.daocloud.io/quay.io/ascend/cann:…` (`_e2e_test.yaml:481`), which is what
+   makes the FAQ's proxy line citable rather than folklore. Verdict order: "the release
+   is quay-only, the China path is the FAQ's proxy plus `docker save`, and the defect is
+   that the entry page never links it" — grade it **usability**, and quote the
+   reporter's own follow-up as the confirmation: #8151 found the snippet only after
+   being pointed at §2 and answered 实在难找 ("why is it not in the registry the project
+   maintains"), which is the cross-link finding in the reporter's words.
 2. **Does anything reach it?** `rg -n 'faqs|troubleshooting|FAQ' installation.md
    quick_start.md` returned **0 hits** at that pin, in both entry pages. Quote
    the zero as the finding — it is a measurement, not an inference from

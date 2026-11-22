@@ -88,7 +88,11 @@ in use), and the same reporter's next round hit
 `ImportError: ascend_transport.so` that turned out to be the launcher's effective
 `LD_LIBRARY_PATH` rather than the image; both lanes are now in
 `../startup-failures/connector-config-attributes.md` and
-`../image-dependency-faults/launch-env-and-library-path.md`;
+`../image-dependency-faults/launch-env-and-library-path.md`. The first message named
+the owning line correctly; the **follow-up segment** then re-derived the Mooncake
+plugin's `DT_NEEDED` chain from the `kvcache-ai/Mooncake` sources over 18 tool calls
+and was cut with no message text, although both pages above already held that
+segment's answer — a new-turn rule now sits in `SKILL.md` rule 1;
 
 **#1496** vllm-ascend v0.8.5rc1 (`ec27af3`) + vllm v0.8.5.post1 (`3015d563`),
 Qwen2.5-Math-1.5B, `tensor_parallel_size=4` with

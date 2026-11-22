@@ -160,3 +160,84 @@ log lines they belong to.
 
 Checklist for the final answer: repo+ref+commit cited once; every code claim has
 `path:line`; precedent ids quoted; missing artefacts listed; OCR/snapshot limits stated.
+
+## Search-command traps (SKILL.md rule 7 detail)
+
+These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
+`sed -n 'A,Bp' file` are the default reads; reserve whole-file reads for files under
+~150 lines.
+
+- **`skill_view` with `file_path` returns the page *and the whole link
+  inventory*** (every reference, script and template path): 34.7 KB and 43.6 KB
+  for two page reads in one recorded run, re-sent on every later turn. Read pages
+  from the skill root instead —
+  `sed -n 'A,Bp' <skill_root>/references/<topic>/<page>.md`.
+- `rg -r` is `--replace`, not "recursive": in any short cluster whose first
+  letter is `r`, the rest of the cluster is the replacement string, so `-rn`,
+  `-rl` **and `-rln`** rewrite every match to `n` / `l` / `ln`. Output then
+  looks like corrupted source (`self.n`, `decoder_layer.l`) or, worse, like a
+  real upstream defect: #14423's `rg -rn "daocloud|nju.edu.cn"` turned
+  `m.daocloud.io` into `m.n.io`, and #17718's `rg -rln 'set_env.sh'` turned
+  `source …/ascend-toolkit/set_env.sh` into `source …/ascend-toolkit/ln` in
+  `faqs.md` — which it nearly published as a doc typo and dropped only by
+  luck, blaming a "stale .po". **The tell is one short token spliced
+  uniformly into every match across unrelated files**; re-run as
+  `rg -n '<pat>' <dir>` before quoting any matched text, and use `grep -rn`
+  as the tie-breaker when output looks mangled. Recursion is implicit on a
+  directory: `rg -n "pat" .` or `grep -rn`. **An empty replacement is
+  the same flag with a worse tell:** a replace flag prints whole matching *lines*,
+  so `rg -n "30566" -r '' .` returned **63 KB** — one minified
+  `tests/models/fixtures/*.json` line, matched by accident inside a number — and
+  that run (#8036) ended output-truncated with no answer typed. A "hit" whose
+  result is a single gigantic line is this trap, not a finding.
+  An **empty pattern matches every line of every file**: a probe typed while unsure
+  how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped 65 KB in one
+  result (#6240; #549 while looking for an upstream selector). To list files use
+  `rg -ln '<pat>' <dir>`; with no pattern in mind use `rg --files -g '<glob>' <dir>`
+  (or `find <dir> -maxdepth 1 -name '<glob>'`), and quote only the `path:line`,
+  with `-l` or `--no-messages -c` when existence is all you need. Detail:
+  `references/evidence-workspace/case-layout.md`.
+- **A pasted message is usually split across source lines.** C++ `OP_LOGE` and
+  Python messages are emitted as adjacent literals (`"… default chat template is no
+  longer "` / `"allowed …"`), so `grep -rn "<whole sentence>"` returns nothing and reads
+  as "not in this tree" — grep the shortest distinctive clause, or add `-A1`. #6345
+  spent three calls that way, on the exact sentence it was looking for.
+- **A `--glob '!<dir>/**'` exclusion is matched against the path you passed,
+  not against the search root.** `rg -l 'x' docs/source --glob '!locale/**'`
+  still searches `docs/source/locale/**` (verified at v0.22.1rc1: one .po hit
+  survives), while `--glob '!**/locale/**'` or `cd docs/source` first excludes
+  it. A failed exclusion floods the result with gettext `msgid`/`msgstr`
+  lines that read exactly like doc prose — and `.po` files are machine
+  translations whose `#: ../../source/x.md:N` references lag the source, so
+  neither their text nor their line numbers are citable.
+- **A piped `sed -n 'A,Bp' file | rg -n '<pat>'` numbers the stream, not the file.**
+  `rg` counts its stdin from 1, so every match line is `A + n - 1` — an off-by-one
+  that lands as a wrong `path:line`. Cross-check one match against an absolute
+  `rg -n '<pat>' file`, or keep the file's own numbers:
+  `rg -n '<pat>' file | awk -F: '$1>=A && $1<=B'`. Recorded #12905 re-derived a
+  tutorial block's anchors twice before one absolute grep confirmed them. The same
+  off-by-one arrives with no pipe at all: a line number counted by eye inside a
+  window. A doc-verification anchor is the first thing a maintainer re-checks —
+  recorded #11738 shipped `:113` for the page's `--served-model-name`, which is `:114`.
+- **Scope a grep to one repo.** A case view holds 20-40 exported trees under
+  `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
+  seconds and returns hits from unrelated products (torchair, metadef,
+  ascend-transformer-boost). #11454 ran three of them looking for one log
+  string, and the finding was that the string is in **no** export — state that
+  as the gap (rule 10) instead of widening the pattern: `rg -n '<pat>'
+  /workspace/repos/<issue>/<owner>/<repo>` per candidate, then stop.
+- **Never list, never dump** — the recipe at the top of this file is the rule; this is
+  what breaking it costs. A listing of `/workspace` was 24-28 KB once (#13699) and
+  13-104 KB per later session (#9335, #9183, #11739, #8984, #11454), `cat
+  SOURCES.json` or `cat /workspace/history/*.md` likewise (#3107), and one recorded
+  orientation block (`ls /workspace`, `ls scratch`, `cat SOURCES.json`, `ls history`)
+  returned **62 K characters** (#15985) and ended output-truncated at 1.1 M cumulative
+  prompt tokens — #5687's same block cost 3 KB only because `SOURCES.json` was piped
+  through `head -50`. A missing `/workspace/attachments` also makes a bundled listing
+  exit 2, which reads like a failed orientation.
+- **Attachments are the exception: a manifest grep is not an existence test.**
+  `ATTACHMENTS.txt` lists names and SHA256s only, so a grep for the issue's
+  tokens proves nothing (#12658 read that as "no attachments", skipped
+  `raw_completion.json`, and burned the session in the parser). Search the
+  attachments view by the file names the issue links (`search_files pattern
+  '*.json'`) and open them — they are often machine-readable dumps.

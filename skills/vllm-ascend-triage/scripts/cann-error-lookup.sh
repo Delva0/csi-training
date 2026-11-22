@@ -20,6 +20,14 @@
 #               These are runtime/device codes, not HcclResult enums: 5070xx is the TS,
 #               aicore or device lane (507010 lost heartbeat, 507014-507016 aicore
 #               timeout/exception/trap), so the name decides the lane, not a source read.
+#   dcmi -8xxx  e.g. -8005, -8020                 -> the DCMI return code the host's
+#               `npu-smi` prints (`dcmi module initialize failed. ret is -8005`): the
+#               enum name from <root>/*/cann/driver/src/custom/include/dcmi_interface_api.h
+#               (`DCMI_ERROR_CODE_BASE (-8000)` + `DCMI_ERR_CODE_<NAME> (BASE - N)`), the
+#               vendor row from <root>/*/cann/driver/docs/**/return_codes.md, and — under
+#               a separate heading — any `LQ_DCMI_ERR_CODE_*` collision from
+#               `src/custom/lqdrv/kernel/ioctl_comm_def.h`, whose numbering is a
+#               DIFFERENT table (-8005 is IOCTL_FAIL there, INNER_ERR in DCMI).
 #
 # --root defaults to /workspace/repos; pass /workspace/repos/<issue> to scope it.
 # Read the printed Solution as the vendor's statement (citable), not as a diagnosis:
@@ -31,7 +39,8 @@
 # process is running.` (references/runtime-memory/sleep-mode-multi-instance.md); the
 # runtime branch from #11171, where `runtime result = 507010` answered as
 # "no HCCL_E_* = 507010" and the reporter's own case ended as a hardware fault
-# (references/hccl-and-hardware/device-health-checks.md).
+# (references/hccl-and-hardware/device-health-checks.md); the dcmi branch from #8809
+# (references/startup-failures/no-npu-in-container.md).
 set -uo pipefail
 
 root="${CANN_ERROR_LOOKUP_ROOT:-/workspace/repos}"
@@ -39,7 +48,7 @@ args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) root="${2:?--root needs a directory}"; shift 2 ;;
-    -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -66,9 +75,18 @@ while IFS= read -r f; do rt_headers+=("$f"); done < <(
 rt_docs=()
 while IFS= read -r f; do rt_docs+=("$f"); done < <(
   find "$root" -maxdepth 10 -type f -name 'aclError.md' 2>/dev/null | sort)
+dcmi_headers=()
+while IFS= read -r f; do dcmi_headers+=("$f"); done < <(
+  find "$root" -maxdepth 12 -type f -name 'dcmi_interface_api.h' 2>/dev/null | sort)
+dcmi_docs=()
+while IFS= read -r f; do dcmi_docs+=("$f"); done < <(
+  find "$root" -maxdepth 12 -type f -name 'return_codes.md' 2>/dev/null | sort)
+lq_headers=()
+while IFS= read -r f; do lq_headers+=("$f"); done < <(
+  find "$root" -maxdepth 14 -type f -name 'ioctl_comm_def.h' 2>/dev/null | sort)
 
 echo "root: $root"
-echo "tables: ${#err_tables[@]}   enum headers: ${#enum_headers[@]}   rt headers: ${#rt_headers[@]}   rt doc tables: ${#rt_docs[@]}"
+echo "tables: ${#err_tables[@]}   enum headers: ${#enum_headers[@]}   rt headers: ${#rt_headers[@]}   rt doc tables: ${#rt_docs[@]}   dcmi headers: ${#dcmi_headers[@]}"
 if [ ${#err_tables[@]} -eq 0 ]; then
   echo "  (no CANN error table exported in this snapshot — quote the code from the paste"
   echo "   and look the enum up separately; e.g. the v0.9.1-era cann/ export holds only catlass)"
@@ -79,7 +97,42 @@ status=0
 for code in "${args[@]}"; do
   echo "=== $code ==="
   found=0
-  if [[ "$code" =~ ^[0-9]+$ ]]; then
+  if [[ "$code" =~ ^-[0-9]+$ && "$code" -le -8000 && "$code" -ge -8099 ]]; then
+    for h in "${dcmi_headers[@]}"; do
+      base=$(rg -o --no-heading 'define[[:space:]]+DCMI_ERROR_CODE_BASE[[:space:]]+\((-?[0-9]+)\)' \
+               -r '$1' "$h" 2>/dev/null | head -1)
+      [ -z "$base" ] && continue
+      n=$(( base - code ))
+      hit=$(rg -n --no-heading "DCMI_ERR_CODE_[A-Z0-9_]+[[:space:]]+\((DCMI_ERROR_CODE_BASE|BASE)[[:space:]]*-[[:space:]]*${n}\)" \
+              "$h" 2>/dev/null | head -3)
+      [ -z "$hit" ] && continue
+      found=1
+      echo "  $h  (base $base, offset -$n)"
+      while IFS= read -r line; do echo "    $line"; done <<< "$hit"
+    done
+    for d in "${dcmi_docs[@]}"; do
+      line=$(rg -n --no-heading "(^|[^0-9.])${code}([^0-9.]|$)" "$d" 2>/dev/null | head -1)
+      [ -z "$line" ] && continue
+      found=1
+      start=${line%%:*}
+      echo "  $d:$start (vendor row, tags stripped)"
+      sed -n "$(( start )),$(( start + 24 ))p" "$d" | sed 's/<[^>]*>//g' | tr -s ' \n' ' \n' \
+        | grep -v '^ *$' | head -8 | sed 's/^/    /'
+    done
+    if [ ${#lq_headers[@]} -gt 0 ]; then
+      for f in "${lq_headers[@]}"; do
+        lq=$(rg -n --no-heading "#define LQ_DCMI_ERR_CODE_[A-Z0-9_]+[[:space:]]+\(${code}\)" "$f" 2>/dev/null | head -2)
+        [ -z "$lq" ] && continue
+        echo "  SEPARATE TABLE, do not cross-apply — $f"
+        while IFS= read -r line; do echo "    $line"; done <<< "$lq"
+      done
+    fi
+    if [ "$found" -eq 0 ]; then
+      echo "  not in any exported dcmi_interface_api.h or DCMI return_codes.md"
+      echo "  (quote the code as text; the driver tree may not be in this snapshot)"
+      status=1
+    fi
+  elif [[ "$code" =~ ^[0-9]+$ ]]; then
     for h in "${enum_headers[@]}"; do
       hit=$(rg -n "HCCL_E_[A-Z_]+\s*=\s*${code}\s*," "$h" 2>/dev/null | head -3)
       if [ -n "$hit" ]; then

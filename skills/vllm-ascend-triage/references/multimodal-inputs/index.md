@@ -33,9 +33,11 @@ counts, especially on a pre-v0.8 pin whose baseline is transformers
 gap is priced there, not here, and the placeholder rules below do not apply);
 an engine start that stalls **after** `Encoder cache will be initialized
 with a budget of N tokens` with no traceback (→ `../startup-failures/mm-encoder-profile-stall.md`);
-a start that **dies** while building `MultiModalBudget` / the dummy mm inputs with an
-`AttributeError` from a `transformers` processor (→
-`../startup-failures/hf-processor-attribute-at-mm-budget.md`);
+a start that **dies** while building `MultiModalBudget` / the dummy mm inputs inside a
+`transformers` processor — an `AttributeError`, or the constructor
+`TypeError: <Model>Processor.__init__() got multiple values for argument 'tokenizer'`
+(→ `../startup-failures/hf-processor-contract-at-mm-budget.md`, whose §0 decides whether
+the transformers lever points back at the pin or forward past it);
 an adapter said to cover the vision tower ("LoRA（with ViT）",
 `target_modules` naming `visual.*`) — upstream filters it before any kernel
 (`../lora-adapters/multimodal-vit-lora-ignored.md`); a VL answer that is merely

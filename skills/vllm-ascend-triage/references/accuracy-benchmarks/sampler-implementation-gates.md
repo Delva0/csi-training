@@ -17,6 +17,10 @@ differing only with concurrency while `VLLM_BATCH_INVARIANT=1` is exported
 family (`sampler-side-stream-corruption.md`); the mask-vs-logits reading of a `-inf`
 paste (`topk-logprob-negative-inf.md`, whose v0.9.1 gate is the *first row* below).
 
+It also owns one **crash** shape, which is not a numerics question: a `RuntimeError … the
+current working operator name is aclnn<Op>` raised at that same `int(...)`/`int(k.max())`
+condition, where the printed op name belongs to a *different* statement (Rule 1a).
+
 ## Rule 0 — the gate's name and default are per-release, and an `echo` of the wrong name answers nothing
 
 | Release | Flag | Default there | What it replaces |
@@ -56,6 +60,43 @@ consequences that change the investigation:
   `AclrtSynchronizeStreamWithTimeout(copy_stream)` at v0.11.0rc2 (#4771; the condition
   sits at `:32` in the v0.11.0 file). It is also evaluated on the **whole batch's** `k`
   tensor, which is Rule 2.
+
+## Rule 1a — the op name printed at that sync line is another statement's, so map it before ranking a mechanism
+
+Recorded #4286 (vllm-ascend 0.11.0; 0.9.1 fine on the same script): the paste ends at
+`vllm_ascend/sample/sampler.py:32  if not is_310p() and p is not None and k is not None and 1 <= int(`
+with
+
+```text
+RuntimeError: The Inner error is reported as above. The process exits for this inner error,
+and the current working operator name is aclnnCat.
+Since the operator is called asynchronously, the stacktrace may be inaccurate. …
+[ERROR] … ERR00100 PTA call acl api failed.
+```
+
+`aclnnCat` is **not** launched by `_apply_top_k_top_p` — that statement launches
+`npu_top_k_top_p`/`aclnnApplyTopKTopP` — so the `int(...)` readback is reporting whatever the
+stream already did. The question is *which statement on this path launches `aclnnCat`*, and at
+the vllm v0.9.1 pin (`b6553be1bc75`) only two v1 sites a decode step on Ascend can reach (the
+other `torch.cat` hits under `vllm/v1/attention/backends/mla/` are the Triton/ROCm reference
+backends, not the Ascend path):
+
+| site | gate that must hold for it to run |
+|---|---|
+| `vllm/v1/sample/sampler.py:177-178`, both `torch.cat(...)` in `Sampler.gather_logprobs` | `num_logprobs is not None` (`:61-62`) — the request asked for `logprobs` / `top_logprobs` / `prompt_logprobs` |
+| `vllm/v1/worker/gpu_model_runner.py:1449`/`:1477`, `target_hidden_states = torch.cat([h[token_indices] for h in aux_hidden_states], dim=-1)` | `use_aux_hidden_state_outputs`, set only for `--speculative-config '{"method": "eagle3"}'` (`:158-163` at that pin) — not eagle/eagle2, not a plain MTP head |
+
+Both are decided by the reporter's own request body and `--speculative-config`, not by a
+kernel theory, and the grep is one call at *their* vllm ref:
+`rg -n 'torch\.cat|gather_logprobs|num_logprobs' vllm/v1/sample/sampler.py` and
+`rg -n 'torch\.cat' vllm/v1/worker/gpu_model_runner.py` — v0.11.0 renumbers them (the #4286
+paste has `forward` at `:100`, `sample` at `:180`). Keep both readings open: a gate that holds
+names the owner, and neither gate holding means a stale thread-latched code from an earlier
+phase (`../hccl-and-hardware/latched-runtime-error-masking.md`), settled by
+`ASCEND_LAUNCH_BLOCKING=1` plus the plog's `fault kernel_name=`/`retCode`. Also read the
+missing line: `ERR00100 … PTA call acl api failed` with **no** `error code is N` means the
+inner block above `The Inner error is reported as above` was cut out of the paste, and that
+block is what separates an aicore exception from a parameter refusal — request it first.
 
 ## Rule 2 — the lane is chosen per *batch*, so the same request can run two different samplers
 

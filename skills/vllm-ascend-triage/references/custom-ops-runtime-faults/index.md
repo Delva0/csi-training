@@ -10,6 +10,12 @@ error`, MTE/DDR "out of range", retCode `0x7150050` / runtime result `507011`, o
 from a `csrc/<op>/*_torch_adpt.h` frame. The silent counterpart belongs here too: an
 attention op that runs, returns the right shape and the wrong numbers, with no dump and
 often a framework-free `torch_npu` repro (`attention-op-numeric-errors.md`).
+**Host-side tiling refusals are in scope even though nothing launched**: an
+`OP_LOGE` + `GRAPH_FAILED` from `csrc/<op>/op_host/*_tiling_validation.h` or a
+`TORCH_CHECK` in an op adapter is a *contract* refusal, and the numbers it prints are
+the caller's per-request counts (`host-tiling-table-bound.md`,
+`gdn-conv1d-accepted-tokens-varlen.md`). The rule for both: reconcile the printed pair
+with the caller's own bookkeeping before reading any kernel.
 A Triton-Ascend kernel that fails to *compile* — `MLIRCompilationError`,
 `[ConvertLinalgRToBinary] encounters error`, `bishengir-compile … returned non-zero
 exit status 1` with `vllm_ascend/ops/triton/**` frames — is **not** this lane even when
@@ -80,6 +86,12 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   quantize them — check both before any kernel/driver theory; rule 5 of
   `quant-scale-dtype-gate.md` (v0.10.1rc1 anchors, `ep_size < 16` forcing the
   non-quantizing permute, the `--enforce-eager` control and the e2e coverage gap).
+  **A tiling line whose verb is `not support <mode>`, not `… is invalid` and not `must be
+  equal`, is a toolkit-release question.** `When layout is TND, not support Page Attention`
+  (`RunBigKernelTilingWithParams`, `prompt_flash_attention_tiling.cpp`) says the installed
+  CANN's prompt tiling has no path for that layout × paged-KV pair, so the pin's documented
+  CANN floor versus the reporter's `version.cfg` is the first check and the caller's arguments
+  are not — `tiling-capability-refusal-cann-release.md`.
   A **built-in** op dying the same way before launch (`call aclnnArange failed …
   EZ9999 … Parse dynamic kernel config fail`, `AclOpKernelInit failed opType`,
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed`) is not a custom op at all: the
@@ -465,6 +477,14 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   `Analyze3DimLayout` → `The end of actualSeqQLen & actualSeqKvLen should be 0 in EOD scenario`
   for the TND tail invariant, where the pooling/encoder FA call is the one site that never trims
   `query` to `actual_seq_lengths_q[-1]` while its FIA sibling does (#10757).
+- `tiling-capability-refusal-cann-release.md` — the **capability** sibling, where the verb is
+  `not support`: `call aclnnFusedInferAttentionScoreV3 failed, error code is 561002` +
+  `When layout is TND, not support Page Attention[FUNC:RunBigKernelTilingWithParams][FILE:prompt_flash_attention_tiling.cpp]`.
+  The refused object is a mode × cache-kind combination, so the owner is the installed toolkit's
+  prompt-FA tiling: compare the reporter's `version.cfg` with the pin's own floor
+  (`installation.md:15`, `CANN >= 8.3.RC1` at v0.11.0rc1) before any caller walk; #4373 is
+  reporter-confirmed solved by CANN 8.3, and the launch pair (`attention_v1.py:540-554`, TND +
+  `block_table` + `sparse_mode=3`) is what the plugin intends, so chunking avoidance is only a sidestep.
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
   each line does/does not pin down, plus the **built-in CANN kernel** lane where there is no
   `csrc/<op>/` to open (`fault kernel_name=unpad_flashattention_…`, `FlashAttentionScore…`):
@@ -576,3 +596,18 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   e2e covers tp4 / `max_model_len 4096`), and the two stop rules — no MTE address
   arithmetic inside an unexported CANN kernel, no `ASCEND_LAUNCH_BLOCKING` when the
   kernel is already named.
+- `gdn-conv1d-accepted-tokens-varlen.md` — `numAcceptedTokens[0]=4 exceeds varlen
+  segment length=3` from `csrc/moe/causal_conv1d/op_host/causal_conv1d_tiling_validation.h:358-364`
+  on a hybrid GDN + MTP launch (v0.20.2rc1 `367b8e62`): the `inputMode == 0` varlen
+  contract (`batch = qslSize-1`, `nat.size == batch`, `nat[i] <= seg_i`,
+  `qsl[last] == x.shape[0]`), the two feeders that disagree — segments from the
+  **scheduler's** `query_start_loc_cpu` (`patch_gdn_attn.py:454-480`) vs the accepted
+  count from the runner's **CPU/optimistic** buffer (`model_runner_v1.py:926-952`,
+  whose device-side correction touches `num_computed_tokens` only) — the scheduler
+  caps that shorten a segment (`vllm/v1/core/sched/scheduler.py:413-421`, the
+  `--max-model-len` one being the usual suspect; the `num_output_placeholders` term at
+  `:408-412`/`:526-530` **cancels**, so `--async-scheduling` alone does not shrink a
+  segment), the capture-padding half
+  (`gdn.py:89-130`, `q_per_seq`), the ablations (`--async-scheduling` off, then
+  `--enforce-eager`), why a clamp is not the fix, and the recorded #10372 row whose
+  follow-up reports the fed tuple as `(3,6,9)` — ask for the plog and both host tuples.

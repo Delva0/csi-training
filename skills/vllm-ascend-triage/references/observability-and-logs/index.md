@@ -2,7 +2,9 @@
 
 Scope: the report is about what the server prints rather than about a crash — a
 logging/verbosity flag that appears to do nothing (`--enable-log-requests`,
-`--enable-log-outputs`, `VLLM_LOGGING_LEVEL=DEBUG`, `--max-log-len`), a stage of
+`--enable-log-outputs`, `VLLM_LOGGING_LEVEL=DEBUG`, `--max-log-len`), a `Received
+request … prompt:` block the reporter *does* see on their NVIDIA/GPU box and cannot
+find on the Ascend one, a stage of
 the startup log the reporter expected and cannot find, a proxy/frontend in
 front of the engine that swallows output, or a startup `WARNING … [envs.py:1717]
 Unknown vLLM environment variable detected: VLLM_ASCEND_<NAME>` for a variable the
@@ -16,9 +18,13 @@ startup lines plus `/metrics` gauges, and nothing has to be grepped
 (`kv-cache-capacity-and-usage-metrics.md`).
 
 Leave this topic when the server printed an error and died
-(`../startup-failures/index.md`, `../hccl-and-hardware/index.md`), or when the
-complaint is about the *correctness* of numbers rather than about where they are
-reported (`../accuracy-benchmarks/index.md`).
+(`../startup-failures/index.md`, `../hccl-and-hardware/index.md`) — **except the two
+profiler endpoints' own crash variant**: `POST /start_profile` / `/stop_profile`
+taking the process down with `!!!!!!! Segfault encountered !!!!!!!` while engine
+startup, load and the request path were all healthy. That is
+`online-profiler-stop-segfault.md`, a `torch_npu` patch-release lane. Leave it also
+when the complaint is about the *correctness* of numbers rather than about where they
+are reported (`../accuracy-benchmarks/index.md`).
 
 Inherit the rules in SKILL.md. Rules that decide success here:
 
@@ -38,7 +44,9 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    `/start_profile` with 20 turns / 30 tool calls, emitted one line, and ran out
    on a plan block. The four facts that decide the flags case are
    `logger.py:21-30` (the two warnings), `logger.py:44` (prompt text is
-   DEBUG-only), `generate/api_router.py:144-152` (completions never gets
+   DEBUG-only — **at the v0.18.0 pin only**; at v0.11.0 and earlier the INFO line
+   carries the prompt and `--enable-log-requests` is enough),
+   `generate/api_router.py:144-152` (completions never gets
    `enable_log_outputs`) and `cli_args.py:368` (the flag pairing gate); the
    endpoint case is one `attach_router` gate plus one `openapi.json` request
    (`online-profiling-endpoints.md`). Cap this class at ~4 tool calls, then
@@ -105,6 +113,13 @@ Conditional routes:
   given endpoint logs outputs at all, and how to prove which
   `chat_completion_*_generator` is live in the installed tree →
   `request-output-logging-flags.md`.
+- The line prints on the reporter's NVIDIA/GPU box and not on Ascend, or the
+  report asks why the default output "lost" a block it used to have: settle the
+  **vllm version on both hosts** first — the switch is opt-out
+  (`--disable-log-requests`) at ≤ v0.9.x and opt-in (`--enable-log-requests`,
+  default False) from v0.10.x, so one line of `pip show vllm` and one
+  `vllm serve --help | grep -n 'log-request'` replace the whole device theory
+  (`request-output-logging-flags.md`, the polarity table).
 - `Unknown vLLM environment variable detected: VLLM_ASCEND_*` — why it fires, which
   process printed it, why `collect_env.py` never shows the variable, where the
   downstream registry fix belongs, and whether the name is instead a deprecated
@@ -124,6 +139,13 @@ Conditional routes:
   naming `Profiling is not enabled` — a route-registration question in the
   serving process (upstream `serve/profile/api_router.py` `attach_router`), not a
   model or device question: `online-profiling-endpoints.md`.
+- The endpoint answers and then the process **dies**: `/start_profile` or
+  `/stop_profile` → `!!!!!!! Segfault encountered !!!!!!!` /
+  `Worker proc … died unexpectedly (exit code: None)` /
+  `Invocation of profile method failed`, and the body says another `torch_npu`
+  patch level works — one cross-patch control plus the release's own
+  `torch-npu==` pin decide it; do not walk the profiler source:
+  `online-profiler-stop-segfault.md`.
 - The missing text is a *stage* of startup rather than a flag (silence between
   "Starting to load model" and the first error) → `../startup-failures/index.md`
   and, for the graph-capture stage, `../startup-failures/acl-graph-capture.md`.

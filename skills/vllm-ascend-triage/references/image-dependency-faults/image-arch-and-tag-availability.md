@@ -27,6 +27,15 @@ Three items in a paste are **not** evidence: a third-party mirror's tag page
 `…?tab=tags&tag=latest` URL (the bare `latest` belongs to the generic A2
 pipeline — see the suffix table), and the client warning above.
 
+**"镜像只有 quay 吗 / 华为云镜像仓库也没有" is not this page** — nothing is missing in
+the artefact, the guidance is just not where the reporter looked. Release tags are
+quay-only and the tree's own China path (`m.daocloud.io/quay.io/ascend/…`,
+`quay.nju.edu.cn/ascend/…`, `docker save`/`load`) sits in `docs/source/faqs.md` §2
+while `quick_start.md`/`installation.md` never link it; Huawei Cloud SWR carries only
+`nightly-a2|a3|cpu`. Route it to
+`../tutorial-verification/missing-guidance-and-contributor-docs.md` check 1 (recorded
+#14423, #8151) instead of hunting arch manifests.
+
 ## Step 1 — the artefact itself (one command, needs network)
 
 ```bash

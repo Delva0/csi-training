@@ -88,7 +88,12 @@ is pinned at 128. Every validated tutorial row sets the interleave explicitly to
 `block_size` (128). **Check the reporter's command for it** and treat a missing or
 non-`block_size` value as the cheapest hypothesis — but state it as a check, not a
 cause: which convention is correct for a given DCP layout is not decidable from this
-snapshot alone.
+snapshot alone. An explicit `128` **closes** this rung: say so and drop it from the ladder,
+because two of this topic's config-level hypotheses can already be dead in one report.
+Recorded #16976 (v0.26.0 rc1 *and* rc2, GLM-5.3-w8a8c8, A2 8-node P/D, `DCP=8 == TP=8`,
+interleave `128 == --block-size 128`, `sfa_c8`+`li_c8` on, `c8_enable_reshape_optim` absent
+so the fallback scatter write ran — `c8-flags-and-kv-store-path.md` Rule 1): its first rung
+was `enable_sparse_li_c8: false`, not either of the two flags above.
 
 ## Rule 4 — coverage: state what the pin actually exercises
 

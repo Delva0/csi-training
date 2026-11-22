@@ -80,6 +80,14 @@ missing cause, but the text looks like an ordinary Python error, so read
    precedent by *mechanism and phase*, not by the string: #10136 is the only
    self-contained startup case and it is unresolved (an install/version-matrix
    question with no maintainer answer in the corpus).
+   **The profiler pair is the one sub-family this page does not treat as a
+   mechanism hunt**: when the marker lands on `POST /start_profile` /
+   `/stop_profile` (or on `Invocation of profile method failed` out of
+   `vllm/v1/engine/core.py`), the dump is CPython's own free path in both #14860 and
+   #15983 — it names no op and no thread — and the decisive fact is the reporter's
+   cross-`torch_npu`-patch control plus the release's own `torch-npu==` pin. Read
+   `../observability-and-logs/online-profiler-stop-segfault.md` and answer the patch
+   lane; do not rank `all_gather`/event-resource candidates from the table below.
 
 ## The startup variant
 

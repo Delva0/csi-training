@@ -28,6 +28,23 @@ pin's `:484-489` ADXL comment describes a *hang*, not an early return. Reporter 
 confirmed publicly that both sides ran the current `0.23.0+empty` / `0.23.0rc1` pair, so
 the version lane is closed → `../pd-disaggregation/layerwise-send-sync-race.md` (new).
 
+**#8916** vllm-ascend `0.18.0rc1` as shipped (`99e1ea0`) + vllm `0.18.0` (`bcf2be96`),
+Qwen3.5-MoE P/D on the docs recipe, **body = four lines, `collect_env.py` still the
+template** (`Your output of above commands here`): "Server Run 1x hour, it will be Stuck.
+the log will stuck, and many hours later, it shows the server shot down". Delivered as the
+device-side MC2 all-to-all lane (#8975, same pin pair, same silence) with the plog
+timeline and the one-node / EP-off ablations, which was defensible on the paste alone —
+and the reporter then closed it from the other side: **environment torch 2.9.0+cpu /
+torch_npu 2.9.0.post1 / transformers 4.57.6 / vllm 0.18.0, and `0.18.0rc1` base + three
+cherry-picks (#8531 sampler `mask`-not-static / invalid `draft_token_id`, #7904 decoder
+MTP padding token id, #8764 non-blocking `num_accepted_tokens` race) fixed the stall**,
+leaving an accuracy bug in a separate issue (#8932). Two correctives: an rc plus a
+cherry-pick list means the pinned tree does not describe the running build, and the
+launch flags decide the lane before any plog is bought — the pin's own Qwen3.5-397B
+tutorial (`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:121-124`) ships
+`qwen3_5_mtp` n=3 **and** `--async-scheduling`, so "I used the docs config" is an MTP
+launch → `../spec-decode-mtp/mtp-sampler-silent-stall.md` (new).
+
 **#7182** vllm-ascend v0.13.0 (`6281c12`) + vllm v0.13.0 (`72506c9`), A2 and A3: "[Bug]:
 DSv3.1, the TTFT of Prefill-Decode Disaggregation is 2 times longer than TTFT of
 Multi-node Deployment … the typical model of qwen no this issue", no log, no metric block,

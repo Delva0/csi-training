@@ -117,7 +117,10 @@ Rules for this topic:
    `moe-expert-parallel-with-dp.md`. When the symptom is a **hang or garbage on a
    real request under DP>1** (dummy/profile run fine) rather than engine init,
    the two numbers to separate are the DP-wide pad target and the per-rank owner
-   slice — `dp-moe-padding-and-owner-slice.md`.
+   slice — `dp-moe-padding-and-owner-slice.md`. When the same DP>1 MoE report has
+   **no traceback at all** (a hang plus a plog OOM) and the launch carries `etp` with
+   EP off, that page's *DP output reduction* section is the lane: `ep_size` is 1 and
+   the reduction's call form is the owner, not the memory budget.
 
 7. A **sequence-parallel / FlashComm** question ("能不能开 `VLLM_ASCEND_ENABLE_FLASHCOMM1`",
    or the export is already in the failing command) is answered from the predicate
@@ -248,7 +251,13 @@ Pages:
   (`ops/fused_moe.py:1382-1395,1446-1452`), the `get_fused_moe_state` table that
   decides whether the DP `all_gather` runs at all (EP at `ep_size < 16` is
   `All2All`, not `AllGather`), and the rank-parity checks. Worked for #3107
-  (v0.9.1rc2, Pangu Pro MoE, DP8×TP1 with EP).
+  (v0.9.1rc2, Pangu Pro MoE, DP8×TP1 with EP). **§*The DP output reduction* is the
+  no-traceback form of the same lane**: `ep_size == 1` with DP > 1 (`etp` in
+  `additional_config`, `--enable-expert-parallel` absent) reported as
+  「推理卡死 + plog out of memory」 — the exit call's *form* is the defect
+  (`dist._functional_collectives.reduce_scatter_tensor` over a `dispose_tensor`-freed
+  input versus `get_dp_group().reduce_scatter`, reporter-confirmed #2069), so read it
+  before any per-card memory arithmetic.
 - `moe-expert-parallel-with-dp.md` — EP **with** DP: `_select_moe_comm_method`'s
   per-batch table for A2 (`MC2` only when `num_tokens <= capacity` **and**
   `world_size_across_dp/pp >= 16`) and A3, `set_mc2_tokens_capacity`'s arithmetic

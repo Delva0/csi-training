@@ -13,7 +13,9 @@
 #      gate converts is the owner);
 #   2. what the NZ gate does with a float32 weight at the checked-out ref, which
 #      is the difference between the fp32 pooling head crashing and surviving;
-#   3. at a three-valued ref, how `weight_nz_mode` resolves and whether anything
+#   3. which spelling the reported ref has (`enable_weight_nz_layout` in
+#      additional_config before v0.10, `VLLM_ASCEND_ENABLE_NZ`, `weight_nz_mode`
+#      after) and, at a three-valued ref, how `weight_nz_mode` resolves and whether anything
 #      tests the weight's shape: `_should_trans_nz` never does (so a bf16 MoE
 #      shared-expert gate `[1, hidden]` crashes at mode 2 from v0.20.2rc1 on),
 #      while from v0.23.0 the *caller* in `ops/linear.py` keeps `n == 1` / `k == 1`
@@ -90,8 +92,14 @@ if [ -n "$MODELINE" ]; then
     echo "  mode 0: NZ is off, so this gate is not the owner at all."
   fi
 else
-  echo "  no resolution line: mode is the envs.py default 1 unless additional_config"
-  echo "  carries weight_nz_mode (the line is logged only when one of the two is set)."
+  if [ -n "$ROOT" ] && [ -d "$ROOT" ] && ! grep -qs 'weight_nz_mode' "$ROOT/vllm_ascend/ascend_config.py" \
+     && ! grep -qs 'VLLM_ASCEND_ENABLE_NZ' "$ROOT/vllm_ascend/envs.py"; then
+    echo "  no mode at this ref at all (no weight_nz_mode, no VLLM_ASCEND_ENABLE_NZ):"
+    echo "  its own switch is printed in the ref section below — do not name a mode."
+  else
+    echo "  no resolution line: mode is the envs.py default 1 unless additional_config"
+    echo "  carries weight_nz_mode (the line is logged only when one of the two is set)."
+  fi
 fi
 if printf '%s\n' "$BODY" | grep -q 'Unknown vLLM environment variable detected: VLLM_ASCEND_ENABLE_NZ'; then
   echo "  ('Unknown vLLM environment variable detected: VLLM_ASCEND_ENABLE_NZ' is upstream"
@@ -103,6 +111,9 @@ echo "== NZ gate at the checked-out ref"
 if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
   cat <<'TXT'
   (no root given) the gate moved across releases:
+    v0.9 line:    NO gate function; the switch is additional_config
+      'enable_weight_nz_layout', default FALSE (ascend_config.py:60-62), consumed by
+      the quant methods — so int8 weights stay ND unless it is set true
     up to ~v0.11: vllm_ascend/utils.py is_enable_nz(dtype) — False ONLY for
       float16/bfloat16, so fp32 passes; cast in
       AscendUnquantizedLinearMethod.process_weights_after_loading (ops/linear.py)
@@ -181,11 +192,16 @@ if [ -f "$EN" ]; then
 fi
 AC="$ROOT/vllm_ascend/ascend_config.py"
 HAVE_MODE_KEY=0
+HAVE_OLD_KEY=0
 if [ -f "$AC" ]; then
   grep -nB2 -A6 'weight_nz_mode' "$AC" | head -18 | sed 's/^/  ascend_config.py:/'
   if grep -q 'weight_nz_mode' "$AC"; then
     MODE_AT_REF=1
     HAVE_MODE_KEY=1
+  fi
+  if grep -q 'enable_weight_nz_layout' "$AC"; then
+    HAVE_OLD_KEY=1
+    grep -n -A1 'enable_weight_nz_layout' "$AC" | head -6 | sed 's/^/  ascend_config.py:/'
   fi
 fi
 if [ "$MODE_AT_REF" = "1" ] && [ "$HAVE_MODE_KEY" = "1" ]; then
@@ -202,11 +218,20 @@ elif [ "$MODE_AT_REF" = "1" ]; then
     echo "  host this switch is inert — do not offer mode 0 there (the 310P path keeps"
     echo "  n == 1 / k == 1 weights ND instead; ../soc-platform-paths/atlas-300i-310p.md)."
   fi
+elif [ "$HAVE_OLD_KEY" = "1" ]; then
+  echo "  NO weight_nz_mode / VLLM_ASCEND_ENABLE_NZ at this ref, but the layout IS a flag:"
+  echo "  additional_config 'enable_weight_nz_layout'. Read its default before advising —"
+  echo "  at v0.9.1rc2 it is FALSE (ascend_config.py:60-62), so int8 weights run in ND and"
+  echo "  'true' is the speed-direction lever a no-gain report is missing; it is"
+  echo "  undocumented and untested at that pin (zero hits in docs/ and tests/)."
+  echo "  escape: --additional-config '{\"enable_weight_nz_layout\": true}'"
+  echo "  reference: references/feature-enable-recipes/weight-nz-layout-by-soc.md Rule 3"
 else
-  echo "  NO weight_nz_mode / VLLM_ASCEND_ENABLE_NZ at this ref — the layout is not a"
-  echo "  flag here, so 'set weight_nz_mode' is advice that does nothing. The answer is"
-  echo "  the per-path inventory (which weights are already NZ) plus a code change,"
-  echo "  not a switch: references/feature-enable-recipes/weight-nz-layout-by-soc.md"
+  echo "  NO weight_nz_mode / VLLM_ASCEND_ENABLE_NZ / enable_weight_nz_layout at this ref"
+  echo "  — the layout is not a flag here, so 'set weight_nz_mode' is advice that does"
+  echo "  nothing. The answer is the per-path inventory (which weights are already NZ)"
+  echo "  plus a code change, not a switch:"
+  echo "  references/feature-enable-recipes/weight-nz-layout-by-soc.md"
 fi
 LIN="$ROOT/vllm_ascend/ops/linear.py"
 [ -f "$LIN" ] && grep -nE 'npu_format_cast|FRACTAL_NZ|is_enable_nz|maybe_trans_nz|keep_nd_weight|_should_keep_nd_for_310p_weight' "$LIN" | head -8 | sed 's/^/  ops\/linear.py:/'

@@ -140,6 +140,29 @@ are the validated two-node recipe, including `HCCL_BUFFSIZE=200`,
 so and move the ranking to transport/driver; the answer is not a reshuffled
 launch command.
 
+**Pick the SoC tab before you diff, and name the recipe the tab is for.** These pages
+ship one deployment block per SoC and the tabs are structurally different, so a diff
+against the wrong tab invents differences. At v0.14.0rc1 `52d4acf`,
+`docs/source/tutorials/DeepSeek-V3.2.md` (a flat `tutorials/<model>.md` at that ref; the
+`tutorials/models/` move comes later) holds the **A2** two-node `DeepSeek-V3.2-w8a8`
+recipe at `:273-381` — `--tensor-parallel-size 8` (`:313`), `deepseek_mtp` n=2
+(`:325`), the `cudagraph_capture_sizes [3,…,48]` list (`:324`) — while the A3 tab
+(`:173-269`) is TP16 (`:208`), MTP n=3 (`:220`) and no capture-size list. Recorded
+#7015 (2×A2, DP2×TP8 EP16) diffed the **A3** tab, shipped "the A2 recipe does not
+exist" plus an A3-only diff (`--additional-config layer_sharding`, FLASHCOMM1) that the
+A2 tab does not contain, and never took the diff that pays. Against that reporter's
+launch the A2 tab differs on six keys — `HCCL_BUFFSIZE` 512 vs 200 (`:297`),
+`HCCL_CONNECT_TIMEOUT` 300 vs 120 (`:301`), `--max-num-seqs` 128 vs 16 (`:318`),
+`--max-model-len` 48000 vs 8192 (`:319`), a missing `--no-enable-prefix-caching`
+(`:322`) and a missing `--seed 1024` (`:315`) — plus node 1's unpasted `--headless
+--data-parallel-start-rank 1` (`:362-366`). The reporter's other extras
+(`--tokenizer-mode`, `--tool-call-parser`, `--reasoning-parser`,
+`--enable-auto-tool-choice`, `--enable-log-requests`) are frontend-only and change no
+launch-phase behaviour. Quote the six keys by name in the first answer.
+The nightly-CI fact (`tests/e2e/nightly/multi_node/config/` carries only
+`DeepSeek-V3_2-W8A8-A3-dual-nodes.yaml`; A2 dual-node appears for R1/Qwen3) is a
+coverage note, never "no A2 recipe exists".
+
 For a two-node start the tutorial check is also a *symmetry* check, and it is
 source-level at v0.18.0rc1 `99e1ea0`: both node blocks in
 `docs/source/tutorials/models/GLM4.x.md` use the SAME `cudagraph_capture_sizes
@@ -365,6 +388,15 @@ last, and only with a per-card code or the same `pc start` on several chips
 (`not has_prefill`, `:1497-1499`) but not in the **SFA/DSA** copy at v0.13.0rc2, where a
 ≤ 1024-token prefill chunk takes it — `../dsa-sparse-attention/concurrency-crash-with-no-log.md` —
 so "non-prefill" is a per-path claim, not a property of the flag).
+**And its value is the pin's own default**, so it cannot be ranked for being unusual:
+`VLLM_ASCEND_ENABLE_MLAPO` resolves to `1` at v0.14.0rc1 (`envs.py:95-99`) and
+v0.18.0rc1 (`:82-86`), the release notes state it (`release_notes.md:35` at the v0.14
+pin: "set to `True` by default … enabled automatically on decode node in PD"), and the
+tutorials `export …=1` in every node block (`DeepSeek-V3.2.md:141,198,245,298,351` at
+the same pin) — so a launch line carrying `-e VLLM_ASCEND_ENABLE_MLAPO=1` is restating the
+default. Recorded #7015 told the reporter it was "你自己加的非默认开关"; one
+`rg -n '<ENV>' vllm_ascend/envs.py` refutes that framing, and `=0` stays worth one
+launch as the ablation on an SFA/DSA pin under the ≤ 1024-token gate.
 
 Ladder, one axis per launch: (0) make the two nodes' commands identical (the
 symmetry check above) — cheapest, and when asymmetric it also restores the

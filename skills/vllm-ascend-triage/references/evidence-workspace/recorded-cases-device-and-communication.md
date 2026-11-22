@@ -190,7 +190,18 @@ Lesson now in `../custom-ops-runtime-faults/index.md`: for a built-in `aclnn<Op>
 *execution* error with no code, the host driver/CANN pairing is the first ranked cause and
 the version triple is the cheapest ask. Delivery: the ranked answer landed on the 11th
 assistant turn (G2 was the miss), and the driver pairing sat only inside the rank-2
-environment row as a version check — no driver-update rung appeared in it.
+environment row as a version check — no driver-update rung appeared in it. **Replay, same
+pin and paste (complete: 6 309 output tokens, 13 tool calls over 6 assistant turns):** the
+recorded shape held — the per-token library grep named the case on the 3rd assistant turn
+and the full ranked verdict shipped on the 6th, driver first (">= 25.25.0", with the
+`npu-smi` header and `driver/version.info` as the ask). It added one rung the original
+ranking lacked, worth reusing on any Qwen3 / DeepSeek-3 crash at **this** known-issue
+spot: the same release's `docs/source/user_guide/release_notes.md:41-42` (under
+`## v0.12.0rc1`) says *"DeepSeek 3/3.1 and Qwen3 doesn't work with FULL_DECODE_ONLY graph
+mode"* while that release's own Highlights recommend enabling it — so
+`--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'` in the reporter's command
+(or its absence) is the second rung, one grep of the pin's release notes plus one of the
+launch script, before any device theory.
 
 **#8826** vllm-ascend v0.13.0rc3 (`bbe9bc0d`) + vllm v0.13.0, A2 single node,
 DeepSeek-V4-Flash-w8a8-mtp at `--data-parallel-size 2 --tensor-parallel-size 4`:
@@ -350,21 +361,31 @@ plog/HCCL hunt.
 tracking #15892 (decode node dies with `AclrtSynchronizeStreamWithTimeout` `507034`,
 fault kernel `MoeDistributeDispatchV2`) and #15930 (1M-context PD + DSpark,
 `IndexCheck_int64_high_performance_0` OOB `507035` then the same dispatch timeout).
-Both tracked ids are outside the history corpus (earlier-month issues only), so the
+Both tracked ids are outside the history corpus (earlier-month issues only): a
+direct `/repos/.../issues/<id>` read answers 404 `snapshot_unavailable`, so the
 `MISSING` files are coverage, not a failed search. The delivered answer treated it
-as a claim-check: the release's own `tests/vllm_ascend_v0.26.0rc1_test_conclusion.md:7`
-validates both models (Flash A3 4 nodes large DP 1P1D, Pro A3 2 nodes large EP
-1P1D) and its §3 table attaches `507034` to an unrelated #15268 Ascend-950
-`dsa_cp` start hang, so the code alone localizes nothing; the Pro run's 1M context
-is ~7.4× the tutorial's `--max-model-len 135000`
+as a claim-check: the release's own `tests/vllm_ascend_v0.26.0rc1_test_conclusion.md:5`
+names the four validated models (rows `:11` Flash, `:12` Pro — Flash A3 4 nodes large
+DP 1P1D, Pro A3 2 nodes large EP 1P1D) and its §3 table attaches `507034` to an
+unrelated #15268 Ascend-950 `dsa_cp` start hang, so the code alone localizes nothing;
+the Pro run's 1M context is ~7.4× the tutorial's `--max-model-len 135000`
 (`docs/source/tutorials/models/DeepSeek-V4-Pro.md:408`, DSpark
-`{"num_speculative_tokens":5,"method":"dspark"}`). Output-truncated at the 16 K cap
-after 50 turns (1.1 M cumulative prompt tokens — its first block `cat`-ed a 25 KB
-`SOURCES.json` plus the history listing inside one 62 K-character tool result),
-verdict and both ranked lists shipped, the action ladder cut mid-item. Lane:
-runtime device fault (lane C) / PD decode MC2, plus a second int64-index write
-family — `../release-known-issues/index.md` (new topic), and rule 7 there on
-splitting a two-issue bulletin across messages.
+`{"num_speculative_tokens":5,"method":"dspark"}`). That first pass was output-truncated
+at the 16 K cap after 50 turns (1.1 M cumulative prompt tokens — its first block
+`cat`-ed a 25 KB `SOURCES.json` plus the history listing inside one 62 K-character
+tool result): verdict and both ranked lists shipped, the action ladder cut mid-item.
+The replay with rule 7 in place reached the owning page in two calls and shipped the
+whole answer **including the ladder** in 24 messages / 11.4 K completion tokens, and
+added three anchors the page now carries: §3 row 16 (`:74`, #14911, D-node
+`AclrtSynchronizeStreamWithTimeout` 507001 — same signature, another model) beside
+row 15's `507034`; `release_notes.md:543` (#9958, `MoeDistributeDispatchV2` AICore
+timeout after long-running service, i.e. the same fault kernel as #15892);
+`release_notes.md:545` (DSv4 KV Pool, 1M tokens ≈ 300GB, needs
+`--no-disable-hybrid-kv-cache-manager`). Its one detour: an `rg` for the issue id
+read §3's *perf-regression* row for the same #15268 as a contradiction — grep the
+code, not the id. Lane: runtime device fault (lane C) / PD decode MC2, plus a second
+int64-index write family — `../release-known-issues/index.md` (new topic), rule 7
+there on splitting a two-issue bulletin across messages.
 
 **#2349** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm `v0.9.2` (`a5dd03c`), reporter's
 later comment confirms torch 2.5.1 / torch-npu 2.5.1.post.dev20250619 / CANN

@@ -45,7 +45,36 @@ bucket, and an out-of-space put would have said `-200`. With master at
 `"Check memory and store capacity"` for *any* negative result (rule 11 of
 SKILL.md); it never checked capacity.
 
-One call turns a paste into these three statements:
+**The master's `SSD Storage: X / Y` line is not a client SSD-offload switch.**
+`Y` is master-side file/DFS accounting, not the `enable_ssd_offload` /
+`ssd_offload_path` keys of the client's `mooncake.json`: master init runs
+`if (!root_fs_dir_.empty()) { use_disk_replica_ = true;
+inc_total_file_capacity(global_file_segment_size_); }`
+(`mooncake-store/src/master_service.cpp:300-304`) and the metric prints
+`file_allocated / file_capacity` as `SSD Storage`
+(`master_metric_manager.cpp:2016-2017`). At #11454 the master was launched with
+`--root_fs_dir /workspace/mooncake_file_root --global_file_segment_size 858993459200`,
+i.e. exactly the `800.00 GB` denominator the paste prints, while no client enabled
+offload; the docs say the same line reads `0 B / 0 B` without `--root_fs_dir`
+(`docs/source/design/mooncake-store.md:804-811`). So a non-zero SSD denominator is not
+evidence of offload and does not move this report into the offload or segment-size
+families.
+
+**That same master flag adds a replica the store client never writes.** With
+`use_disk_replica_` true, every `PutStart` appends a DFS replica
+(`master_service.cpp:1238-1242`), but a client writes it only when it has a local-disk
+backend — `if (storage_backend_)` around `PutToLocalFile`
+(`client_service.cpp:1249-1263`, `:1603-1613`; the backend is created only by
+`PrepareStorageBackend`, `:2695-2701`). So the DFS replica stays `PROCESSING`, and even a
+successful `PutEnd(ReplicaType::MEMORY)` leaves the key in the processing set because
+`AllReplicas(&Replica::fn_is_completed)` fails (`master_service.cpp:1353-1412`). This is
+**not** the owner of `hccl_result = 4`: the DFS copy is a host
+`CopyDeviceToHost`/`StoreObject` (`client_service.cpp:2711-2750`), never an HCCL
+transfer, and a failed disk copy revokes only `ReplicaType::DISK`. It is one launch
+difference the reporter's own isolation list never removed — and it is cleared by the
+control in §3.
+
+One call turns a paste into these statements:
 `bash <skill_root>/scripts/store-put-code-check.sh <paste|->`.
 
 ## 2. Who owns the failure, and who does not
@@ -62,7 +91,7 @@ So the owner of the failure is **the store's transfer path inside Mooncake's
 Ascend build**, between the client's `PutStart` and its `BatchPutEnd`. Name the
 Mooncake store client + transport, not `AscendStoreConnector`.
 
-## 3. Procedure (3 checks, then the answer)
+## 3. Procedure (3 checks, one control, then the answer)
 
 1. **Decode the paste** with `scripts/store-put-code-check.sh` (§1, one call).
 2. **Rule out the segment-size family** with the same numbers the reporter
@@ -72,7 +101,13 @@ Mooncake store client + transport, not `AscendStoreConnector`.
    reporter-confirmed `< 20 GB` band of
    `../pd-disaggregation/kv-pool-store-segments.md`, and no `-200` code. Say so
    explicitly — it is the one lead this symptom invites and it is wrong.
-3. **Name the two missing artefacts** and stop: the store client's
+3. **The control the report's own isolation list is missing** — relaunch `mooncake_master`
+   without `--root_fs_dir` and without `--global_file_segment_size`, nothing else changed,
+   and repeat the same request. That removes the extra DFS replica and the `SSD Storage`
+   denominator together (§1), so it is the cheapest way to show the put path on a master
+   with no file tier. Rank it **below** the transport causes: it cannot mint an HCCL code
+   on its own, and it is listed because it is one flag the reporter never varied.
+4. **Name the two missing artefacts** and stop: the store client's
    `Transfer failed for key …` line (or the full prefill worker log above the
    first error) and the transport marker lines in it (`install <X>Transport
    for: …`, `register mem addr: …`). With those two, the next step is a plog on
@@ -90,7 +125,9 @@ counts put failures.
 - **Capacity / store size**: contradicted by `-1` and by `Mem Storage 0 B / 32 GB`.
 - **Key count arithmetic**: `8 keys` in the worker against `16` on the master is
   TP=2 × 8, i.e. consistent, not a duplication bug.
-- **SSD offload**: the reporter already reproduced with it off.
+- **SSD offload**: the reporter already reproduced with it off — and the master's
+  `SSD Storage: X / Y` line is the master's own DFS layer (§1), not that flag, so its
+  presence is not a counter-example.
 - **Prompt length**: 1K fails, so the 8K+ long-context framing in the report is
   not the mechanism.
 - **`AscendStoreConnector` registration / `lookup_rpc_port` / `MultiConnector`
@@ -115,7 +152,11 @@ counts put failures.
   the segment descriptor (`hccl_transport.cpp:106-116`, `:364-371`, `:593-599`),
   so two processes on one host each mounting a segment can collide. That is a
   plausible mechanism for this deployment (P on phy 0,1; D on phy 2,3), not a
-  verified one.
+  verified one. One rerun discriminates it from a registration/descriptor fault: the
+  same 1K request with **TP=1 per role** (`ASCEND_RT_VISIBLE_DEVICES=0` / `=2`, ports
+  unchanged). Put succeeds ⇒ peer identity/rank mapping; still `hccl_result = 4` ⇒
+  registration/`EnableMemAccess` for that `{comm, remoteRank}`, and the wheel's
+  `Transfer failed for key` line is the next artefact.
 - **The store's version is the reporter's wheel, not the pin.** `SOURCES.json`
   carries the GitHub tree; the installed package is
   `mooncake-transfer-engine-npu==0.3.11.post1`, which is a different artifact
@@ -136,3 +177,10 @@ while the decisive facts (the `HcclResult` enum, `mooncake_backend.py:194` as
 canned text, the `-1` vs `-200` split) were one or two calls away. The lesson is
 `../evidence-workspace/delivery-discipline.md`: when the question is "what does
 this code mean", the enum line *is* the answer.
+
+A later session of the same issue loaded this page, confirmed the enum, the one-sided
+call declarations and the canned-text line in the pinned trees (three greps), and
+delivered the verdict, four ranked causes and the send-back list — the route in this
+page is what worked. What that pass did not resolve, and this section now does, is the master's
+`SSD Storage: 192.00 MB / 800.00 GB` line (§1) and the `--root_fs_dir` disk replica it
+implies (§3 step 3).

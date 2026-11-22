@@ -374,6 +374,14 @@ over the last lines before the exit.
 
 ## Fourth worked page: Qwen3.5-27B, community-test row 15, at v0.18.0 (recorded #11771)
 
+**Match a 众测 row by content, never by id.** This row is in the corpus twice: the
+recording below is #11771, while #11761's 任务书 body is identical (image `v0.18.0`,
+`Eco-Tech/Qwen3.5-27B-w8a8-mtp`, HDK 25.5.0.B078, 8×A2, dp2 tp4, AIME + 2048/2048) and
+nothing in the library is filed under that second id. Both #11761 runs still shipped —
+one a `serve.sh` + `REPORT.md` pair, the other the report file plus a closing message
+carrying the three scores — each by matching the row (model + image + 卡数 + 交付件)
+rather than the number.
+
 Same tree as the first two worked pages (vllm-ascend `e18643f8`, vllm `bcf2be9612`).
 The 任务书 names `docs/source/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.md`; that path
 does not exist at v0.18.0 (`rg --files -g '*Qwen3.6*'` → 0 hits; the page is

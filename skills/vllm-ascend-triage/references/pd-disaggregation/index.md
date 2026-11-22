@@ -185,7 +185,9 @@ output, or did no request ever reach a decode engine?**
   (`HETEROG_CCL_PORT`) and the endpoint differs only by the local device IP, so the two
   launches were handed the same cards — the external-DP launcher numbers them from 0 in
   every invocation. Intersect the two card sets (one `rg`, one line of arithmetic)
-  before any HCCL or plog read → `same-host-pd-device-partition.md`.
+  before any HCCL or plog read, and give the freed range as die ids
+  (`ASCEND_RT_VISIBLE_DEVICES=8,…,15`; `npu-smi` NPU rows 4-7 *are* dies 8-15, so ids
+  `4,5,6,7` re-create the overlap) → `same-host-pd-device-partition.md`.
 - A `LLMDataDistCMgrConnector` P/D that **never comes up at all** — "according to the
   P/D example … it failed to run" / 起不来, a **hand-written `ranktable.json`**, one host
   with 2+ cards or one Pod, and no log pasted: the table is read for two keys only, and
@@ -639,10 +641,12 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   placeholder path, and why deleting the assert misaligns the bitmask rows.
 - `layerwise-split-metadata-crash.md` — the **producer's** `start_load_kv` dies in the
   layerwise connector and the paste stops at the call line: how `:1627` (full
-  attention) differs from the MambaSpec sibling `:1623-1625`, the nine throw sites with
-  their exception texts, why a symmetric 16/16 deployment makes the bare head-group
-  asserts unlikely and the block-count `IndexError`/`KeyError` family the active one
-  (`remote_tp_size` read from the reporter's own `decode.tp_size`), the
+  attention) differs from the MambaSpec sibling `:1623-1625`, the thirteen throw sites
+  with their exception texts and the six of them that carry no `raise`/`assert` (so a
+  `rg 'assert|raise'` sweep cannot confirm the block-count family), why a symmetric 16/16
+  deployment makes the bare head-group asserts unlikely and the block-count
+  `IndexError`/`KeyError` family the active one (`remote_tp_size` arrives from the peer's
+  `kv_transfer_params`, so `--kv-transfer-config`'s `decode.tp_size` is inert here), the
   `chunk_finish = True` mutation at `:1479-1480`, the DEBUG lines that print every
   input (`build_connector_meta` `:1066-1079`, `:1485`, `:1508-1514`, `utils.py:253-262`,
   `:305`), and the attn+mamba truncation/trim contract (`need_truncate` `:819`,

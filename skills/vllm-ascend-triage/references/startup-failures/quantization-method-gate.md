@@ -195,14 +195,55 @@ allocates `weight_scale`/`weight_offset` and no `deq_scale`. So the key itself s
 served directory is a **static** modelslim export, and one grep decides the direction:
 had `--quantization ascend` been in effect with a description saying `W8A8` for that
 layer, that parameter would exist and the loader would never ask for it. The `KeyError`
-therefore means **the engine built the linear unquantized** — this page's direction, not
-`weight-scale-keyerror-quant-variant.md`'s ("checkpoint carries more scales than the
-engine expects"). Precedent with the identical key: #1329, on `0.7.3.post1`, where
-`--quantization ascend` was still an `invalid choice` and the same dense-model load
+therefore means **the method built for that linear is not the static one** — this page's
+direction, not `weight-scale-keyerror-quant-variant.md`'s ("checkpoint carries more
+scales than the engine expects") — and the two non-static states behind it (never
+quantised, or described as `W8A8_DYNAMIC`/`FLOAT`) are split below. Precedent with the
+identical key: #1329, on `0.7.3.post1`, where `--quantization ascend` was still an
+`invalid choice` and the same dense-model load
 followed. Exonerate the directory in one read: the pin's own
 `tests/e2e/models/configs/Qwen3-8B-W8A8.yaml` validates that exact model with
 `quantization: ascend` (gsm8k 0.80), so "this W8A8 model is unsupported" is refutable
 before any loader walk.
+
+**The same key has a second producer, and one log line splits the two.** The two
+perchannel parameter sets are not symmetric: static `W8A8` registers `quant_bias`,
+`deq_scale`, `weight_scale`, `weight_offset` (`w8a8.py:59-84`), while
+`W8A8_DYNAMIC` registers `weight_scale`/`weight_offset` **only** — no `deq_scale`, no
+`quant_bias` (`w8a8_dynamic.py:55-66`). So a static export loaded by a *dynamic*
+method fails on `deq_scale` exactly as a dense model does, while the reverse (dynamic
+export, static method) never fails at all: the quoted key says only "these weights are
+static, and the method built for this layer is not". Which non-static state it is comes
+from one grep of the reporter's **full** startup log — the paste usually begins at
+`Starting to load model`, so ask for it: the pin prints
+`Using the vLLM Ascend modelslim Quantization now!` (`quantization/utils.py:84-95`,
+`logger.info_once`, reached per linear from `AscendLinearBase.__init__`,
+`ops/linear.py:78-82`; unconditional at this ref — no MindIE-turbo branch, and a
+`quant_config is None` layer takes `AscendUnquantizedLinearMethod` two lines down).
+**Absent** ⇒ no `AscendQuantConfig` was built, i.e. the flag never took effect (§B-ii).
+**Present** ⇒ the description was read and named a non-static scheme for that layer, so
+the lever is the conversion, not a launch flag: the weights filename states the scheme
+the file was written as (`quant_model_weight_w8a8.safetensors` static vs
+`…_w8a8_dynamic…`, rule 3 of
+`../performance-throughput/quantized-dense-no-gain.md`) and
+`uv run --no-project python <skill_root>/scripts/quant-description-census.py <model dir>`
+prints the description's value histogram and `FLOAT` families. A static weights file
+whose description says `W8A8_DYNAMIC` — or whose description leaves this family
+`FLOAT` — is two halves of two conversions, and the answer is a re-export from one
+model, not a flag.
+
+**Ship the pair, because both readings share the ask.** The three artefacts that
+separate them — the effective command (`docker inspect … .Config.Cmd`,
+`/proc/1/cmdline`), that modelslim marker line, and the description's value for the
+failing layer — are the same three under either reading, so the ranked pair goes out in
+the turn the key is classified and they become its ask list; the ambiguity is not a
+reason to hold the message. Both replays of #5812 held this classification (the first
+by its 6th assistant turn; the second had these two pages by its 3rd) and then spent the
+rest of the session weighing the sibling reading, shipping 561 and 11 characters of
+message text against the 16 384-token cap (`../evidence-workspace/delivery-recorded-sessions.md`).
+Rank the third reading by which layers appear: a `FLOAT`-marked description fails on
+the module families it marks unquantized (usually one family, deep in the stack), while
+a never-selected flag fails at the first linear the loader reaches (`layers.0…`).
 
 ### B-ii. Ask for the effective command: a pasted launch block can be falsified in one grep
 

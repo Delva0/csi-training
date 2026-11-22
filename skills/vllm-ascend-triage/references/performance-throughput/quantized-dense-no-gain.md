@@ -17,6 +17,16 @@ The complaint is not new and its direction is recorded: #1015 (QwQ-32B-w8a8,
 So "even slower" is a measurement this stack has produced before, not by itself a bug
 tell, and nothing here is a mechanism until the reporter's own A/B exists.
 
+Second recorded shape: **#2514** (vllm-ascend **v0.9.1rc2** `b9f715d6` + vllm
+**v0.9.1** `b6553be1`, Qwen3-32B w8a8 against the same model in BF16, a TTFT/TPOT
+table at concurrency 1 and 8 and **no serve command, no card count, no scheme**).
+Every lever rule 5 names below is spelled differently at that pin: the weight-layout
+switch is an `--additional-config` key that ships **off**, neither
+`VLLM_ASCEND_ENABLE_NZ` nor `quantization/utils.py` exists, and the only graph lane is
+`PIECEWISE`. Re-grep the pin's own names (rule 5,
+`../feature-enable-recipes/weight-nz-layout-by-soc.md` Rule 3) before handing any of
+them to the reporter.
+
 Not this page: a **hybrid** model where one architectural layer class has no quant
 kernel (Qwen3.5/Qwen3-Next `self_attn` rows, #9443) — `quantized-artifact-layer-coverage.md`;
 a number printed by the **converter** (per-layer `MSE loss`, a bad artifact, "who
@@ -42,7 +52,13 @@ fault — `../soc-platform-paths/310p-int8-matmul-startup-fault-and-runner-v2.md
    `W8A8` → `AscendW8A8LinearMethod` (**static**, per-tensor activation scale),
    `W8A8_DYNAMIC` → `AscendW8A8DynamicLinearMethod` (**per-token**), `FLOAT` → the
    layer is skipped back to an unquantized linear (`quant_config.py:110-112`,
-   `is_layer_skipped_ascend` `:136-173`). Run
+   `is_layer_skipped_ascend` `:136-173`). **A pre-v0.10 pin has no
+   `ASCEND_QUANTIZATION_METHOD_MAP` and no `quantization/utils.py`**: at v0.9.1rc2 the
+   only constant is the string `ASCEND_QUATIZATION_METHOD` (`utils.py:61`, the typo is
+   upstream's) and the skip test sits inline in `quantization/quant_config.py:132,142`
+   (`quant_description[prefix + '.weight'] == "FLOAT"`, description file at `:77`), so
+   only the *scheme → class* lookup has to be re-derived there; the census still
+   applies because it reads the artifact, not the tree. Run
    `uv run --no-project python <skill_root>/scripts/quant-description-census.py <ckpt-dir>` —
    value histogram, the `FLOAT` module families, and the ceiling of rule 5.
    - **Static** quantizes the activation on every forward with the converter's
@@ -88,6 +104,11 @@ fault — `../soc-platform-paths/310p-int8-matmul-startup-fault-and-runner-v2.md
    say so and name the only real lever (a re-export with fewer FLOAT layers, or
    staying BF16). A prefill tok/s number helps: prefill is compute-bound, so int8
    should show there first; if prefill also does not move, the ceiling story is wrong.
+   The other end of the range is #2514: a 32B dense whose json quantizes every linear
+   and leaves only embedding + lm_head `FLOAT` (`u ≈ 0.05` on the Qwen3-32B geometry ⇒
+   `R ≈ 1.9×`) reported **both** TTFT and TPOT flat. A high `R` with a flat prefill is
+   not arithmetic — it says the int8 matmul is not on its fast path (the scheme never
+   applied, or the weights are in ND: the next bullet).
 
 5. **Three asymmetric levers explain "the quantized side is slower" — check them in
    this order, on both sides.**
@@ -99,13 +120,30 @@ fault — `../soc-platform-paths/310p-int8-matmul-startup-fault-and-runner-v2.md
      layers on a 7B) that only a graph amortises. Compare like with like and read the
      startup line. The pin's own feature matrix calls Graph Mode 🔵 Experimental
      (`support_matrix/supported_features.md:27`), so treat it as a check, not a promise.
-   - **Weight layout.** `VLLM_ASCEND_ENABLE_NZ` defaults to 1 (`envs.py:168-169`) and
-     both quant methods cast int8 weights to `ACL_FORMAT_FRACTAL_NZ` only when
-     `is_enable_nz()` is true (`w8a8.py:166-168`, `w8a8_dynamic.py:107-109`). That gate
-     is **dtype-asymmetric**: `is_enable_nz(dtype)` returns False for
-     float16/bfloat16/float32 outside eagle mode (`utils.py:75-90`), so a launcher that
-     exports `VLLM_ASCEND_ENABLE_NZ=0` for some other reason costs the int8 side only.
-     One `env | grep VLLM_ASCEND_ENABLE_NZ` on the reporter's host.
+   - **Weight layout — a switch at every ref, under three spellings; name the pin's
+     own** (`../feature-enable-recipes/weight-nz-layout-by-soc.md` Rule 3 carries the
+     timeline). *v0.9-line and earlier*: `--additional-config
+     '{"enable_weight_nz_layout": true}'`, **default `False`** — so a dense w8a8 run
+     that follows the pin's own tutorial (its serve line carries no such key,
+     `docs/source/tutorials/multi_npu_quantization.md:78`) has int8 weights in **ND**,
+     and the key is undocumented and untested at that pin (zero hits in `docs/` and
+     `tests/` at v0.9.1rc2; read at `ascend_config.py:60-62`, consumed at `w8a8.py:44,
+     124-127` and `w8a8_dynamic.py:746,812,832,1040`). *v0.11–v0.19*: the env
+     `VLLM_ASCEND_ENABLE_NZ` defaults to 1 and both quant methods cast int8 weights to
+     `ACL_FORMAT_FRACTAL_NZ` only when `is_enable_nz()` is true (`w8a8.py:166-168`,
+     `w8a8_dynamic.py:107-109`), a gate that is **dtype-asymmetric**:
+     `is_enable_nz(dtype)` returns False for float16/bfloat16/float32 outside eagle
+     mode (`utils.py:75-90`), so a launcher exporting `VLLM_ASCEND_ENABLE_NZ=0` for
+     some other reason costs the int8 side only. *v0.20.2rc1+*: `weight_nz_mode` `0` /
+     `1` (default, quantized-only) / `2` with the env as a deprecated fallback
+     (`ascend_config.py:216-223`, `_should_trans_nz` `utils.py:203-233`). One
+     `env | grep -i nz` plus one `rg -n -i nz vllm_ascend/envs.py
+     vllm_ascend/ascend_config.py` on the reporter's build settles which applies, and
+     the answer names theirs — "set `weight_nz_mode`" does nothing on a v0.11 tree and
+     the env does nothing on a v0.9 tree. Do **not** read the profiler's
+     `QuantBatchMatmulV3_ND` / `…_NZ_NZ_int8_int8_fp16…` suffix as the layout tell:
+     #7351 prints the `_ND` name on a v0.13.0rc1 pin whose quantized weights default to
+     NZ, so that suffix's scope is unsettled and the code gate at the pin decides.
    - **The comparison itself.** Same prompts, same `--max-num-seqs`, same
      `--max-model-len`, both warm, `temperature=0`, and report TTFT / TPOT /
      prefill tok/s rather than one tok/s number. A one-sided run is not evidence.
@@ -152,8 +190,9 @@ fault — `../soc-platform-paths/310p-int8-matmul-startup-fault-and-runner-v2.md
    is known.
 2. The census command and how to read it (`W8A8` vs `W8A8_DYNAMIC` vs `FLOAT`
    families), then the ceiling `R = 2/(1+u)` computed from their own config + census.
-3. The A/B protocol (rule 5) and the three checks: graph line, `VLLM_ASCEND_ENABLE_NZ`,
-   identical flags.
+3. The A/B protocol (rule 5) and the three checks: graph line, the **pin's own**
+   weight-layout switch (`enable_weight_nz_layout` on a v0.9-line tree,
+   `VLLM_ASCEND_ENABLE_NZ` / `weight_nz_mode` later), identical flags.
 4. If the artifact is static: the re-export route with the conversion owner
    (dynamic scheme, or a better calibration file / `--anti_method`), plus
    `pip show msmodelslim` and `git describe --tags --always` in the msit clone.
@@ -181,4 +220,6 @@ for the reporter**, never a finding; the model's own `config.json` is not in the
 snapshot either (a 7B's real `vocab_size`/`hidden_size` decide `u`); hardware bandwidth
 and the SoC are unknown, so `R` is a ceiling and not a prediction; and the recorded
 #1015 numbers are fp16-vs-w8a8 on 910B3 TP4 at v0.8.4rc2 — same direction, not the same
-release or model.
+release or model. #2514's `R ≈ 1.9×` is geometry arithmetic on the published Qwen3-32B
+shape (hidden 5120, vocab 151936), not on the artifact: neither its checkpoint nor its
+`config.json` is in that case snapshot, and nothing in the case was measured here.

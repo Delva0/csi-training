@@ -324,8 +324,12 @@ with the doc matrix would have been one call cheaper and true at the pinned comm
 assistant turns, 17 tool calls, 74 characters of message text before the final turn,
 and this page opened only on the sixth turn — after a full-corpus `search_files`
 listing, an `enable_sp` source sweep and a FLASHCOMM1 sweep that the step-2 table
-below already answers. Two recordings is enough to make the trigger mechanical: on
-this shape, **type the opening answer (lane + rung 1 + the two greps) in the same
-message that opens this page**, then spend later turns only on pin line numbers for
-the body. `findings.md` is what carried both runs to a non-empty final message, so
-write it at the same turn rather than one before the end.
+below already answers. A **third** run (#12278, 9 assistant turns) did open this page
+first and still typed the answer on turn 7: one turn re-verifying pin line numbers,
+then a whole turn whose output was the `findings.md` heredoc with no answer text in it.
+The file is a draft *carrier*, not a step — the heredoc and the answer text belong in
+the **same** message. Three recordings make the trigger mechanical: on this shape,
+**type the opening answer (lane + rung 1 + the two greps) in the same message that
+opens this page**, then spend later turns only on pin line numbers for the body. The
+follow-up then costs two: #12278's delta answer held the three corrections below
+verbatim, because this page already carried them.

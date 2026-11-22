@@ -59,7 +59,10 @@ same ratio reached a different way.
    `32` boundary, so TP=8+graph was never covered and any PP/ray change is untested.
 3. **TP=8 + graph: not available at that ref.** The kernel's `CheckMlaAttrs` is the
    authority (the assertion is only a pre-flight mirror of it), so bypassing the
-   assert moves the failure to capture/replay. Treat as a capability gap to track.
+   assert moves the failure to capture/replay. Treat as a capability gap to track,
+   and cite the tree's own `# TODO: support numHeads / numKvHeads < 16 in MLA kernel`
+   (`attention/mla_v1.py:573`) so the follow-up is an upstream request rather than a
+   local patch.
 4. **ACL graph is not the alternative:** `ascend_config.py:148-157` raises
    `NotImplementedError: ACL Graph does not support deepseek. Please try torchair
    graph mode … Or set enforce_eager=True`, i.e. torchair is the only graph route for
@@ -71,6 +74,7 @@ same ratio reached a different way.
 |---|---|
 | allowed set | `vllm_ascend/attention/attention.py:44` `_ALLOWED_NUM_QUERIES_PER_KV = [32, 64, 128]` |
 | the gate (two copies) | `mla_v1.py:573-580` and `attention.py:1037-1045`, both under `if self.torchair_graph_enabled` |
+| the project's own TODO, one line above the gate | `attention/mla_v1.py:573` `# TODO: support numHeads / numKvHeads < 16 in MLA kernel` — quote it when the question is "is the assert the bug / can I patch it": the sub-16 case is a known unimplemented kernel path, so the answer is a capability request with this line, not a patch |
 | heads per rank | `models/deepseek_v2.py:359-362`; `num_kv_heads=1` at `:430-434` |
 | eager vs graph decode op | `mla_v1.py:1007` vs `:988` |
 | the project's own statement of the rule | `docs/source/faqs.md:118` (and the kernel text at `:124`) |

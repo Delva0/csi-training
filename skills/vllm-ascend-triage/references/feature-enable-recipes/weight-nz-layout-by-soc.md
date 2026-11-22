@@ -9,8 +9,8 @@ generalised it. Also "`weight_nz_mode` 怎么设", "有没有开关把 bf16 权�
 per-path inventory, then the one probe. The crash variants are
 `../startup-failures/nz-weight-format-refusal.md` (shape: `Not support mat2 n = 1 or k = 1
 when format is FRACTAL_NZ`) and `../pooling-embedding/fp32-head-nz-format-crash.md`
-(dtype). Verified at **vllm-ascend v0.11.0rc0 `00ba071`** (#3859) and **v0.20.2rc1
-`367b8e6`** (the crash page).
+(dtype). Verified at **vllm-ascend v0.9.1rc2 `b9f715d6`**, **v0.11.0rc0 `00ba071`** (#3859) and
+**v0.20.2rc1 `367b8e6`** (the crash page).
 
 ## Rule 1 — `is_310p()` reads both ways; classify the polarity before answering
 
@@ -47,6 +47,20 @@ is true of exactly one path, the unquantized **dense** Linear cast, which is the
 
 ## Rule 3 — the switch is a version fact; grep it before naming it
 
+**Lower bound — the v0.9 line had the key and it shipped off.** At v0.9.1rc2
+(`b9f715d6`) `enable_weight_nz_layout` *is* read: `ascend_config.py:60-62` takes it from
+`additional_config` with default **`False`** (its own comment: "Whether to convert
+quantized weights to NZ format to accelerate matrix multiplication") and the quant
+methods consume it (`w8a8.py:44,124-127`, `w8a8_dynamic.py:746,812,832,1040`), while
+there is no `VLLM_ASCEND_ENABLE_NZ` (`envs.py` has no `nz` entry), no `weight_nz_mode`
+and no gate function — so at that ref this key is the **only** switch and its default
+leaves int8 weights in **ND**. It is undocumented and untested there too (zero hits in
+`docs/` and `tests/`), and the pin's own dense-w8a8 tutorial serve line carries no
+`--additional-config` (`docs/source/tutorials/multi_npu_quantization.md:78`), so a
+「w8a8 量化没有性能收益」 report from a v0.9-line tree has this key as **rung 1**
+(`../performance-throughput/quantized-dense-no-gain.md` rule 5) — while the same
+spelling is inert at v0.19.1rc1, below. The grep decides, never the spelling.
+
 At v0.11.0rc0 there is **no** `weight_nz_mode` and no `VLLM_ASCEND_ENABLE_NZ`:
 `vllm_ascend/envs.py` has no `nz` entry and `ascend_config.py:121` carries only
 `enable_kv_nz` (the torchair MLA **KV** layout, `:153-155` errors without graph mode) —
@@ -63,7 +77,8 @@ too (`ascend_config.py:216-223`, env `VLLM_ASCEND_ENABLE_NZ`), and mode 2 is wha
 narrow bf16 weight crash (`../startup-failures/nz-weight-format-refusal.md`).
 **A documented key can also be a key nothing reads.** `enable_weight_nz_layout` — the
 spelling the project's own page uses (`docs/source/user_guide/feature_guide/large_scale_ep.md:168,234,443`)
-and several nightly yamls pass — is read by **no** code at v0.19.1rc1
+and several nightly yamls pass, and the live switch on the v0.9 line above — is read by
+**no** code at v0.19.1rc1
 (`rg -n 'enable_weight_nz_layout' vllm_ascend/` empty; it survives only in docs, tests
 and the zh_CN `.po`), because `additional_config` is consumed key by key with
 `.get(...)` (`ascend_config.py:35-195`) and an unknown key is silently ignored rather
@@ -102,8 +117,9 @@ implying a missing shape guard.
 
 ## Recheck conditions
 
-Re-grep the anchors at the reporter's ref: this layout code was rewritten at least twice
-(inline casts at v0.11 → gate functions `maybe_trans_nz` / `_should_trans_nz` at v0.20 →
+Re-grep the anchors at the reporter's ref: this layout code was rewritten at least three
+times (an `additional_config` key defaulting **off** at v0.9.1rc2 → inline unconditional
+casts at v0.11 → gate functions `maybe_trans_nz` / `_should_trans_nz` at v0.20 →
 `_310p/quantization/methods/` copies at later refs), so `is_310p()` sites move and a
 `not is_310p()` MoE cast can become unconditional between refs — the same table at
 another ref is a new read, not a quote. `scripts/nz-format-gate-check.sh <paste|-> <root>`

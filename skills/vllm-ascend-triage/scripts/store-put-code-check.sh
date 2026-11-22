@@ -24,6 +24,10 @@
 #   * the canned text vllm_ascend/distributed/kv_transfer/kv_pool/ascend_store/
 #                     backend/mooncake_backend.py:188-200 ("Check memory and store
 #                     capacity" is printed for ANY negative code)
+#   * SSD Storage     master_service.cpp:300-304 + master_metric_manager.cpp:2016-2017
+#                     (the denominator is the MASTER's file/DFS layer, set from
+#                      --root_fs_dir + --global_file_segment_size, not the client's
+#                      enable_ssd_offload; docs/design/mooncake-store.md:804-811)
 #
 # Verdicts follow the worked case #11454. See
 # references/kv-pool-store/hccl-onesided-store-put.md.
@@ -116,6 +120,7 @@ def report(path, text):
     put_revoke = counter('PutRevoke')
 
     mem = re.search(r'Mem Storage:\s*([\d.]+)\s*(\w+)\s*/\s*([\d.]+)\s*(\w+)', text)
+    ssd = re.search(r'SSD Storage:\s*([\d.]+)\s*(\w+)\s*/\s*([\d.]+)\s*(\w+)', text)
     master_full = None
     if mem:
         used, total = float(mem.group(1)), float(mem.group(3))
@@ -139,6 +144,18 @@ def report(path, text):
         print('  authoritative client line(s) present (quote these, they carry the real code):')
         for line in transfer_lines[:3]:
             print('    ' + line[:180])
+
+    if ssd:
+        print('  master SSD Storage line: {} {} / {} {}  (a DFS/file-layer capacity, not a'
+              .format(ssd.group(1), ssd.group(2), ssd.group(3), ssd.group(4)))
+        print('     client enable_ssd_offload: master_service.cpp:300-304 sets it from')
+        print('     --root_fs_dir + --global_file_segment_size, and it reads 0 B / 0 B')
+        print('     without --root_fs_dir, so a non-zero denominator is not offload.')
+        if 'root_fs_dir' in text:
+            print('  -> the paste starts the master with --root_fs_dir: use_disk_replica_ is')
+            print('     on, so every PutStart returns an extra DFS replica a client without a')
+            print('     local-disk backend never writes (master_service.cpp:1238-1242,')
+            print('     client_service.cpp:1249-1263). Drop both flags for one relaunch.')
 
     # ---- verdicts -------------------------------------------------------
     if put_start is not None and put_end is not None and put_start > 0 and put_end == 0:

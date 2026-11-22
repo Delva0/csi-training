@@ -10,20 +10,36 @@ description: 'vLLM-Ascend issue triage; load alone, no shell beside'
 **Your first tool block holds exactly one call: `skill_view` on this skill, by name**
 (`skill_view(name='vllm-ascend-triage')`; a **filtered** `skills_list` returns `[]` even
 though the skill is installed, while the unfiltered call lists it — so an empty list is
-a tool quirk, not "no skill for this task"). Anything batched beside that call — `ls
+a tool quirk, not "no skill for this task", and this name is already in
+`<available_skills>`, so do not spend a `skills_list` call at all).
+Anything batched beside that call — `ls
 /workspace`, `cat SOURCES.json` — executes before this body is in context, so no rule
 here can stop it, and its output is re-sent on every later turn: six recorded runs paid
 14-54 KB that way, one ending output-truncated at 1.1 M cumulative prompt tokens, which
 is why the frontmatter description names the prohibition — "load alone, no shell
 beside" — instead of only the reading order. If something has to share it, let it be
-`bash <skill_root>/scripts/sources-summary.sh` (~10 lines). Then orient with
-`search_files (target='files')` on one level of `/workspace` plus that same summary and
-nothing else: never `cat /workspace/repos/SOURCES.json`, never enumerate a history
-directory, never `cat /workspace/history/*.md`. Search by token (`rg -l`,
-`scripts/history-titles.sh`), never by listing — a recursive `search_files` glob is a
-listing too: `pattern='*Qwen3*'` over `/workspace/repos` returned 51 paths, nearly all
-vllm `tests/evals/gsm8k` configs, while the wanted page was one `rg --files -g
-'*Qwen3.5*'` run inside `docs/source/tutorials/models`. **Attachments are the one
+`bash <skill_root>/scripts/sources-summary.sh` (~10 lines) — that summary plus the
+reporter's own paste **is** the orientation. Never `cat /workspace/repos/SOURCES.json`,
+never enumerate a history directory, never `cat /workspace/history/*.md`, and do not
+"list one level" with `search_files (pattern='*', target='files', path='/workspace')`:
+recorded in both runs of one minibatch, it returns ~100 recursive paths truncated at 50
+(~2.8-3 K characters re-sent on every later turn, `/workspace/history/*.md` among them)
+and neither run used a line of it (#12278, #11761); `ls -d /workspace/repos/*/` is the
+12-line substitute when the repo taxonomy is actually needed. Any `search_files` call
+keeps `target='files'`: `pattern='*'` **without** it is compiled as a regex and fails
+(`regex parse error … repetition operator missing expression`), one recorded call paid
+for that (#15389).
+
+Search by the **most specific** token first (`rg -l`, `scripts/history-titles.sh`),
+never by listing — a recursive `search_files` glob is a listing too: `pattern='*Qwen3*'`
+over `/workspace/repos` returned 51 paths, nearly all vllm `tests/evals/gsm8k` configs,
+while the wanted page was one `rg --files -g '*Qwen3.5*'` inside
+`docs/source/tutorials/models`. A model **family** name is a listing token, not an
+identifier: `rg -l 'Qwen3.5'` and `'Qwen3.6'` over `references/` return ~20 unrelated
+pages each and neither returned the owning page (the five-token loop cost 9.3 K
+characters of transcript, re-sent every later turn), while the task's own
+phrase token (`'dp2 tp4'`, 5 paths) and a numeric/error token (`'248044'` → the page
+that owns it) land on the first call. **Attachments are the one
 exception**: open the specific files the issue links (`ATTACHMENTS.txt` lists names and
 SHA256s only, so a grep of it is not an existence test) — rule 7. Costs and traps:
 rule 7.
@@ -511,7 +527,14 @@ the turn the shape is classified, not a second copy of it here.
     `Data for address:id …` string. Recorded #7744 ranked that flag first on a
     load-phase `KeyError: 'layers.37.mlp.experts.w2_weight_offset'` and its resolution
     was the newer tag (reporter-confirmed `v0.17.0rc1`) —
-    `references/startup-failures/silent-worker-exit.md`.
+    `references/startup-failures/silent-worker-exit.md`. **Check a suspect env var
+    against the pin's own default before calling it the reporter's knob** —
+    `rg -n '<ENV>' vllm_ascend/envs.py` — because a launch line that restates the
+    default carries no information about the fault (`VLLM_ASCEND_ENABLE_MLAPO=1` is the
+    default at v0.14.0rc1 `envs.py:95-99` and v0.18.0rc1 `:82-86`, and the tutorials
+    export the same), while `=0` on that key is still a legitimate one-launch ablation;
+    recorded #7015 shipped "你自己加的非默认开关" for exactly that line
+    (`references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md`, refuted rows).
     **A 200 from `/health` is the same kind of wrapper in the one place it decides a
     verdict**: every "it hangs while health stays 200" report rests on it, and at vllm
     v0.23.0 the route only reads two frontend flags — `AsyncLLM.check_health` raises
@@ -873,17 +896,23 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    `vllm._C` harmless is the pre-emption for the follow-up, not the verdict —
    `references/image-dependency-faults/platform-plugin-register-raised.md`.
 
-   **2b — one grep of your own library, before any repo read.** Take the paste's two
-   or three most distinctive strings (the error sentence, the op or kernel name, the
-   numeric code) and run `rg -n -l '<token>' <skill_root>/references/`: the library
-   is keyed on the reporter's own wording, so this is the call that finds the page —
-   or the case — already holding it. **Put the task's own issue id in that same
-   call**: a page that records a case carries the id in its heading (`# Device fault
+   **2b — one locate call on your own library, before any repo read.** Take the paste's
+   two or three most distinctive strings (the error sentence, the op or kernel name,
+   the numeric code) and grade them with `scripts/reference-locate.py`, next
+   paragraph: the library is keyed on the reporter's own wording, so this is the call
+   that finds the page — or the case — already holding it, and a plain `rg -l` loop is
+   its fallback rather than the first move. **Put the task's own issue id in the same
+   tool block**: a page that records a case carries the id in its heading (`# Device fault
    under MTP + a captured decode graph (#10700)`), so `rg -n '#<id>'
    <skill_root>/references/` answers "has this very issue been worked, and which page
    owns it" in one call — open the page whose **heading** carries the id and start
-   from its ranked candidates and its ablation order; the id on another page's body
-   line is a citation, not ownership, and no hit is the useful "this case is new"
+   from that section's ranked candidates and its ablation order. A section headed by
+   its *mechanism* rather than by the id still owns the case when its own opening
+   lines say `recorded #<id>` / `Derived … for #<id>` (`setup-failed-call-site.md`'s
+   `## SelfAttentionOperation with no spec decode` opens "Derived at vllm-ascend
+   `v0.9.2rc1` for #2239"), so read the hit line itself rather than the heading
+   level; the id in a table row or link list pointing at another page is a citation,
+   not ownership, and no hit is the useful "this case is new"
    (the id is never in `history/`, rule 8). Recorded #10700: the token grep had
    already listed `spec-decode-mtp/draft-graph-capture-device-fault.md` — heading
    `(#10700)` — fifth of thirty, but the session opened
@@ -892,22 +921,32 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    disowns, while that page's first ablation (spec-scoped `enforce_eager`) was the
    lever the reporter had already confirmed.
 
-   **Run the tokens as a per-token loop and keep the
-   intersection**: `for t in '<op>' '<env var>' '<numeric code>' '<symptom phrase>'; do
-   echo "== $t"; rg -l "$t" <skill_root>/references/; done` — one call, and the page on
-   **every** list is the owning page while a page on one list is its periphery. That
-   intersection is the grade a bare `-l` list cannot give itself (rule 8): membership in
-   one list means the page shares a word with the paste, membership in all of them means
-   it shares the case. Recorded #18315 — `MoeDistributeDispatch`,
+   **Grade the library in one call — `scripts/reference-locate.py` — and read the top
+   page**: `uv run --no-project python <skill_root>/scripts/reference-locate.py '<op>'
+   '<env var>' '<numeric code>' '<symptom phrase>'` prints each token's file count,
+   then every page carrying **all** tokens with that page's own `# heading` beside the
+   path, then the near-miss grades. The page on every list is the owning page while a
+   page on one list is its periphery: membership in one list means the page shares a
+   word with the paste, membership in all of them means it shares the case (rule 8),
+   and the heading is what lets you choose between four candidates without opening
+   any of them. Two recorded sessions ran this by hand and paid for the eyeball: #6509's
+   four-token loop returned 3.4 KB and left five pages on all four lists, #9003's
+   five-token loop returned 19.8 KB — the script prints the same grades in ~1-2 KB,
+   counts the file **name** as a hit (the owning page rarely repeats its own slug,
+   while every sibling links to it as a path) and ranks `[case]` pages first, `[index]`
+   route pages last. Recorded #18315 — `MoeDistributeDispatch`,
    `HCCL_OP_EXPANSION_MODE`, `PYTORCH_NPU_ALLOC_CONF`, `107020`, lists of 13-20 pages
    each — left `hccl-and-hardware/aiv-mc2-env-ablation.md` as the only page on all four:
    owning page read on turn 3, answer delivered on turn 7. Recorded #13699
    (`AscendMMEncoderAttention|_run_vit_fia|npu_fused_infer_attention_score` = 21 pages,
    `sparse_mode` = 8) had `custom-ops-runtime-faults/attention-op-numeric-errors.md` on
-   both. An **empty** intersection is not "no page": one token is spelled differently in
-   the library — an op-name suffix (a paste's `aclnnMoeDistributeDispatchV4` against the
-   pin's `npu_moe_distribute_dispatch_v2`) or a Chinese phrasing — so read the shortest
-   list by hand. **A hit in
+   both. Fall back to the bare loop (`for t in '<op>' '<code>'; do echo "== $t"; rg -l
+   "$t" <skill_root>/references/; done`) when no token is distinctive — all lists
+   longer than ~20 pages means the tokens are family words, so shorten them to the
+   attribute, flag or code the paste names. An **empty** grade is not "no page": one
+   token is spelled differently in the library — an op-name suffix (a paste's
+   `aclnnMoeDistributeDispatchV4` against the pin's `npu_moe_distribute_dispatch_v2`)
+   or a Chinese phrasing — so read the shortest list by hand. **A hit in
    `references/evidence-workspace/recorded-cases*` is opened first** — but that glob
    spans **two or more files per family**, `recorded-cases/<family>.md` (the condensed
    index line) and its `recorded-cases-<family>.md` detail page(s) — the startup

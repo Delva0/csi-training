@@ -76,8 +76,11 @@ or calling the state stale.
 `--data-parallel-size`, and each rank builds its own zeros — so the capacity-one wedge
 reproduces per rank at any DP size, not only in the DP=1 evidence the report carries.
 Nothing rejects `--max-num-seqs 1`: `vllm_ascend/platform.py` touches `max_num_seqs`
-only to match ACL-graph capture sizes (`:326-335`). Say both, because "capacity 1 is a
-legitimate latency setting" is the reason the consequence matters.
+only to match ACL-graph capture sizes — the default capture bound
+`min(max_num_seqs * decode_query_len, 512)` (`:182-191`) and the sequence-parallel size
+filter (`:326-334`); read both, since the first is the one that sets the bound. Say
+both, because "capacity 1 is a legitimate latency setting" is the reason the
+consequence matters.
 
 ## Step 5 — correspondence: downstream-owned, so no upstream fix will arrive
 

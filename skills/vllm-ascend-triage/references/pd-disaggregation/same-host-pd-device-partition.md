@@ -54,8 +54,8 @@ NIC IP (`HCCL_IF_BASE_PORT` / `HCCL_NPU_SOCKET_PORT_RANGE` / `ip_local_reserved_
 move the number but not the collision, and the recorded fix was a card offset, not a
 port change).
 
-Reporter-confirmed on #4725: giving the decode instance cards 8-15 instead of 0-7
-fixed it — "It has nothing to do with the `ASCEND_DEFAULT_DEVICE_PORT` macro in this
+Reporter-confirmed on #4725: giving the decode instance die ids 8-15 instead of 0-7
+(one id per die — see the numbering note below) fixed it — "It has nothing to do with the `ASCEND_DEFAULT_DEVICE_PORT` macro in this
 case."
 
 ## The owner: the launcher numbers cards from 0 in every invocation
@@ -86,9 +86,26 @@ python launch_online_dp.py --dp-size 8 --tp-size 1 --dp-size-local 8 --dp-rank-s
 ```
 
 separated the HTTP/vLLM ports (`7100`/`7200`, and `--port $2` in the template) and left
-the **device sets identical**. Fix (reporter-confirmed):
+the **device sets identical**. Fix (reporter-confirmed, the reporter's own edit):
 `range(8 + i * tp_size, 8 + (i + 1) * tp_size)` for the second instance, i.e. add a
-device-start argument to the launcher.
+device-start argument to the launcher. What that range becomes is the *device-id list*
+the template exports verbatim (`run_dp_template.sh:16`
+`export ASCEND_RT_VISIBLE_DEVICES=$1`), so the decode instance here ends up with
+`ASCEND_RT_VISIBLE_DEVICES=8,9,10,11,12,13,14,15` (`tp_size` is 1, so one id per DP
+rank; with `tp_size` 4 the same offset yields `8,9,10,11` then `12,…,15`).
+
+**Give that id list verbatim; do not translate it into `npu-smi` labels.** The ids are
+per-die logical device indices, and one `npu-smi` `NPU n` row spans **two** dies — the
+table prints `Chip 0 Phy-ID 2n` and `Chip 1 Phy-ID 2n+1` (the #4725 dump puts Phy-ID
+0-15 under NPU rows 0-7). So "NPU 4-7 are idle" in the paste means dies **8-15** are
+free, and the export that frees them is `8,…,15`, **not** `4,5,6,7`: ids 4-7 are dies
+4-7, inside the prefill's 0-7 set, so that value re-creates the collision it was meant
+to fix. The recorded #4725 delivery said both things in one message — "relaunch decode
+on dies 8-15 (`ASCEND_RT_VISIBLE_DEVICES=4,5,6,7` in `npu-smi` terms)" — and the
+parenthetical is the reproducible one, so a reporter following it lands back in the
+failure. Label the namespace as reporter-confirmed (that export fixed the case; the
+snapshot's docs do not state A3's id namespace) and, when in doubt, state the die ids
+**and** the `npu-smi` rows as two separate facts rather than equating them.
 
 The pin's own same-host recipe is
 `examples/disaggregated_prefill_v1/mooncake_connector_deployment_guide.md`: P
@@ -98,6 +115,19 @@ blocks use `--data-parallel-address localhost` and `--data-parallel-rpc-port 910
 they differ in card set, `--port` (8100 / 8200), `kv_port` (20001 / 20002) and
 `engine_id`/`kv_rank`. So the card set is the variable an external-DP launch must get
 right, and the shared DP rendezvous endpoint is not by itself a defect.
+
+**That guide is also the reporter's own resolution, and it needs no source edit.** #4725
+closed on "its recommended to run inner node disaggregate prefill follow in [this guide],
+which won't have this problem" — two hand-written `run_prefill.sh` / `run_decode.sh`
+blocks, each exporting its own `ASCEND_RT_VISIBLE_DEVICES` (plus `HCCL_IF_IP=localhost`
+and `--data-parallel-address localhost`) and scaled so each side's count equals
+`dp_size*tp_size`, with the proxy from
+`examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py` in front. So for
+a reporter not yet invested in `external_online_dp/`, offer that recipe as the cheapest
+fix and the launcher patch as the alternative; the `--device-start` argument stayed a
+feature request (the unused `num_cards`), not something the closing fix shipped. The
+guide's 0-3 / 4-7 numbers are a 4-die-per-side example — carry the pattern, not the
+digits, when the reporter's `dp_size*tp_size` is larger.
 
 ## Checks, cheapest first
 
@@ -114,10 +144,13 @@ right, and the shared DP rendezvous endpoint is not by itself a defect.
 
    A non-empty overlap is the finding; that one call replaces the whole port hunt.
 2. **The `npu-smi info` process table is usually already in the report.**
-   #4725's env dump prints two ~59 GB workers per chip on NPU 0-3 with NPU 4-7 empty on
-   a 16-die box — the overlap, visible before any log was read. Ask for
-   `npu-smi info` if the paste has none and count processes per chip against the
-   intended split.
+   #4725's env dump prints **one** worker per die on `npu-smi` NPU rows 0-3 (Phy-ID 0-7,
+   ~56 GB process memory each, HBM ~59/65 GB) and `No running processes found` on rows
+   4-7 (Phy-ID 8-15, HBM at a ~3 GB baseline) on a 16-die box: 8 workers there = the
+   prefiller's DP2×TP4, so the decoder's 8 got the same dies. The overlap is visible
+   before any log is read, and the same table supplies the free id range for the fix.
+   Ask for `npu-smi info` if the paste has none, and count processes per **die**, not per
+   NPU row.
 3. **Only if the card sets are provably disjoint** does this become a leftover-process
    question: `ss -lntp | grep ':16666'` and `ps -ef | grep -E 'vllm|python'` on that
    host, kill the survivor. That is the `EJ0001` / sleep-mode lane

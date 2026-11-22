@@ -543,7 +543,16 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   #393 branch derivation that proves the engine set `enable_prefix_caching=True` with
   chunked prefill off,
   the hard-coded `128` compress mask at `attention.py:612-617` against the
-  `query_lens`/`context_lens` the same branch can carry, and the two-flag ladder.
+  `query_lens`/`context_lens` the same branch can carry, and the two-flag ladder
+  (**#393-scoped**: that page's trailing `Ladder` is the V0 rollout engine's, and its
+  "not useful: `--max-num-batched-tokens`" does not hold for the `<Op>Operation setup
+  failed!` sections above it) — and
+  `SelfAttentionOperation setup failed!` with **no** spec decode, a dense model and
+  one full-prompt prefill (#2239, v0.9.2rc1): `num_computed_tokens=0` makes chunk 1
+  `PrefillNoCache` at **any** token budget (`model_runner_v1.py:971-972`), so the dense
+  `[prompt, prompt]` mask is the branch's own output while `prefix_cache_stats
+  hits=0` keeps it out of the `[128, 128]` `PrefillCacheHit` story, and the
+  batched-token knob only resizes that mask.
 - `atb-input-dim0-none.md` — `SelfAttentionOperation setup failed!` + the ATB log's
   `tensor dimNum 0 is invalid … inTensor [1] CheckTensorShape failed`: the slot was
   never filled (Python `None`), not a size or mask limit. Recorded #2779

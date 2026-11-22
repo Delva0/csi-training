@@ -231,6 +231,13 @@ These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
   off-by-one arrives with no pipe at all: a line number counted by eye inside a
   window. A doc-verification anchor is the first thing a maintainer re-checks —
   recorded #11738 shipped `:113` for the page's `--served-model-name`, which is `:114`.
+  **An owning or recorded page verified at the same pin is the anchor of record — quote
+  its numbers instead of renumbering them.** #17991's page carried the correct lines
+  (`:122` the reported `.npu()` sync, `:123` `causal=False`, `:136`
+  `max(seq_lens[num_decodes:])`); the answer, after counting a `sed -n '76,140p'`
+  window by eye, shipped `:124` and `:137`. A `sed -n` window confirms the *text*;
+  `rg -n '<exact expression>' <file>` is the only confirmation that also carries the
+  number, so run it when the anchors matter and leave the page's own numbers alone.
 - **Scope a grep to one repo.** A case view holds 20-40 exported trees under
   `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
   seconds and returns hits from unrelated products (torchair, metadef,

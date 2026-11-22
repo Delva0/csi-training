@@ -5,6 +5,16 @@ Scope: the transport-identity family — no KV pool in the deployment. When an
 `503900` block is usually the store segment size, not the rank table: take step 0
 below and `kv-pool-store-segments.md` first.
 
+The **error number is not the class.** `103900` and `503900` both leave through
+`hixl_channel._connect_to_peer` → `engine.connect(...)`
+(`hixl_channel.py:68-73`) and neither translates on its own: on this issue's
+thread the reporter answered another user's pasted `HIXL Error Code: 503900`
+from a **docker `--net=host`** 1P1D on one node as a *different* failure point
+from their 103900 — host networking makes both engines advertise one host IP, so
+`server_count` cannot be 2 and this page's root cause cannot apply there. Take
+step 1 and let the plog's `server_count` choose the branch; never carry the
+ladder across the number.
+
 Sibling for the **Mooncake** flavour: a `MooncakeConnectorV1` paste whose lines are
 `ascend_direct_transport.cpp:820 Failed to connect to target … 103900` +
 `Mooncake transfer failed, ret: -1` (not `HIXL Connect failed`) →
@@ -59,6 +69,18 @@ per-device port (`GenAdxlEngineName(host_ip, listen_port)`,
 `mooncake-transfer-engine/src/transport/ascend_transport/ascend_direct_transport/ascend_direct_transport.cpp:131-200`,
 `.../utils.cpp:26,68-81`).
 
+**That string's IP is a control-plane identity, not the data path.** HIXL uses it
+to handshake and to name the peer; the KV bytes move over HCCS or RoCE and never
+traverse that TCP connection. So a follow-up asking "the log prints the host IP,
+should it be the NPU `device_ip`?" is already at the expected behaviour — host
+networking makes both sides print the *same* host IP and the table converge, a
+CNI makes them differ, and `device_ip` is a rank-table field of the data plane
+with no relation to the engine id. The reporter later read HIXL's own code
+(gitcode `cann/hixl`) and confirmed the three roles are one inseparable string,
+derived in code in LMCache-Ascend *and* Mooncake TE with no configuration entry
+anywhere — which is why §3's request is identity/dial **separation**, not a new
+key.
+
 With `docker --net=host` (or k8s `hostNetwork: true`) both sides report the same
 host IP, `server_count` converges to 1, and HCCL picks HCCS: the reporter's
 plog showed `MemcpyAsync` between the two cards with
@@ -103,6 +125,24 @@ test while every NIC stayed DOWN. That is the observation that distinguishes
    (non-zero `HccsNum` = HCCS links exist for this process). Also ask for each
    side's `Connecting to remote HIXL engine: <ip:port>` line —
    `hixl_channel.py:69` already logs the string that became `server_id`.
+   Then say which branch the paste is in — the three lead to different owners.
+   The branches below are the ladder #14506's reporter gave to another user who
+   pasted a `503900` in that same thread:
+   - **`server_count: 2`** → the identity lane: two addresses on one machine.
+     Check the launch — `--network host` / `hostNetwork: true`, or two containers
+     left on docker's default bridge each holding a `172.17.x.x`, or two Pods
+     under a CNI. #14506 itself.
+   - **`server_count: 1` *and* `'device_ip' is not set correctly`** → the env lane:
+     `HCCL_INTRA_ROCE_ENABLE=1` forces intra-node RoCE even in the single-server
+     view, which always fails on DOWN links. Use step 3's non-RoCE form
+     (`HCCL_INTRA_PCIE_ENABLE=1 HCCL_INTRA_ROCE_ENABLE=0`, or leave both unset):
+     plain `HCCL_INTRA_ROCE_ENABLE=0` is `HCCL_E_PARA` at the pin, so the "just
+     export it 0" advice that circulates is a trap.
+   - **`server_count: 1` and no `device_ip` line** → **exonerate this lane.** The
+     table converged, so `hostNetwork`, the engine-id/`server_id` coupling and
+     `HCCL_INTRA_*` are not the cause: ask for the ±50 lines around the failing
+     `Connect` in **both** plogs (one file per PID under
+     `~/ascend/log/debug/plog/`) and move to step 4.
 3. **Intra-node link type.** `cann/hcomm` (exported in the snapshot,
    `@818068c8`, `src/platform/common/externalinput.cc:634-715`) parses
    `HCCL_INTRA_PCIE_ENABLE` / `HCCL_INTRA_ROCE_ENABLE`:
@@ -182,7 +222,18 @@ proof about the HIXL case: the string formatting and the API differ
 
 - `cann/hixl` is **not** in the snapshot (`SOURCES.json: unavailable:
   no_verified_public_reference_by_opening`), so "engine-id IP becomes
-  `server_id`" is proven by the reporter's rank table, not by HIXL source.
+  `server_id`" is proven *here* by the reporter's rank table, not by HIXL source.
+  The reporter later reported reading HIXL's own code and finding one
+  inseparable string with no config entry (LMCache-Ascend and Mooncake TE both
+  derive it) — that is their verification against a tree this snapshot does not
+  carry: usable, still labelled as theirs.
+- **A source checkout beside installed wheels.** A paste whose frames read
+  `/data_ssd/<user>/LMCache-Ascend/lmcache_ascend/...:NN` while `lmcache/...` and
+  `torch/...` resolve under `.../site-packages/...` is running the channel code
+  from a working tree against installed wheels for the rest. Ask for
+  `pip show lmcache lmcache-ascend vllm-ascend` plus the checkout's `git log -1`
+  before mapping a line number to a release
+  (`../image-dependency-faults/installed-version-vs-checkout.md`).
 - `cann/hcomm` **is** exported: `topoinfo_struct.h:145,156,35,62` gives the field
   constants (`device_ip`, `server_count`, `serverId` = 集群内服务器唯一标识) and
   `topoinfo_ranktableConcise.h:40-44` the `GetSingleServer` entry points, but the

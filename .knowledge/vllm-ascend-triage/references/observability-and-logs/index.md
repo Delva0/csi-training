@@ -80,14 +80,18 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    `envs.validate_environ` (warn-only: `fail_on_environ_validation` defaults
    `False`) firing because vllm-ascend keeps a private registry it never merges
    into `vllm.envs.environment_variables`. Three or four calls: name the emitter
-   and the process prefix, give `env | grep -i vllm_ascend` (or
-   `/proc/<pid>/environ`), and split the answer into "benign for you" plus "the
-   merge belongs in `AscendPlatform.pre_register_and_update`". Then branch on the
-   name before advising anything: if it appears in the pin's own *Migration Guide*
-   table (`docs/source/user_guide/configuration/additional_config.md:6-24` at
-   v0.22.1rc1) it is a knob being retired, so the deliverable is its
-   `--additional-config` key and the reporter keeps their value — `unset` is the
-   wrong answer (`VLLM_ASCEND_ENABLE_NZ` → `{"weight_nz_mode": 0}`, #11624
+   and the process prefix, give `env | grep -i <flag substring>` (or
+   `/proc/<pid>/environ` — substring, because the legacy spelling that is not in
+   the registry warns just the same), and split the answer into "benign for you" plus "the merge belongs in
+   `AscendPlatform.pre_register_and_update`". When the reporter says their export
+   is commented out, one grep of the model tutorial the block was copied from names
+   the likely source (tutorial blocks export the flag uncommented; #9986). Then
+   branch on the name before advising anything: if it appears in the pin's own
+   *Migration Guide* table (`docs/source/user_guide/configuration/additional_config.md:6-24`
+   at v0.22.1rc1 — the table is **absent** at v0.18.0rc1 and v0.19.1rc1, where
+   `unset` is the right answer) it is a knob being retired, so the deliverable is
+   its `--additional-config` key and the reporter keeps their value — `unset` is
+   the wrong answer (`VLLM_ASCEND_ENABLE_NZ` → `{"weight_nz_mode": 0}`, #11624
    reporter-confirmed). Do not accept "it is
    not in my `collect_env.py`" as proof it is unset: `collect_env.py:304-316`
    prints only upstream-registered names plus the `TORCH`/`PYTORCH`/`ASCEND_`/`ATB_`

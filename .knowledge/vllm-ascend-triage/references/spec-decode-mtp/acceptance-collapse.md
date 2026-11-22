@@ -8,6 +8,13 @@ usually "卡住 / stuck" or "MTP 有问题". This is a bookkeeping question abou
 draft and the target model each see, not a numerics or device question — there is
 no dump, no `EZ…` code, and both models keep executing.
 
+**One variant leaves this page before Step 2**: when the report also carries a
+`num_speculative_tokens` axis — a lower K works, the launched K is above the project's
+validated 3, or the same K served correctly on an older release — the K is the
+classification and the boundary sweep is rung 1, because the pin's only K bound is
+`assert decode_threshold <= 16` and a regression cannot be read off the failing tree:
+`acceptance-zero-at-high-k.md`.
+
 ## Step 1 — read two numbers, not the throughput line
 
 | Metric line | What it says |
@@ -30,7 +37,7 @@ and it does not keep drafting at a steady rate while emitting nothing.
 | 1 | delete `--speculative-config` entirely | owner = draft/verify path versus target path. **Recorded #10495: normal ⇒ MTP owned.** This is the row to run before any code walk |
 | 2 | keep MTP, drop `--async-scheduling` | the CPU/GPU token-count bookkeeping below, which only exists in async mode |
 | 3 | keep MTP, add `--no-enable-prefix-caching` | the hybrid `mamba_block_size` / aligned-state path (and it is what the project's own Qwen3.5-MTP perf config runs) |
-| 4 | `"num_speculative_tokens": 1` instead of 3-5 | whether the padding/lookahead budget, not the mode, is the trigger |
+| 4 | the K sweep: `1`, then `3`, and — when the reporter states a boundary — the two values bracketing it (7 and 8 for a "≥ 8 breaks" report) | whether the padding/lookahead budget, not the mode, is the trigger. A stated boundary with an older release working at the same K is a regression, not this page's drift: `acceptance-zero-at-high-k.md` |
 | 5 | `--max-num-seqs 8`, `--max-model-len` down to input+output, AISBench concurrency ≤ 8 | capacity only; run this *after* 1-3, it changes slowness, not the 0.000 signature |
 | 6 | `--enforce-eager` (target eager, or keep the draft eager as the weekly config does) | whether the graph-mode decode path participates |
 

@@ -60,7 +60,12 @@ non-fp16 KV cache (`--kv-cache-dtype fp8`) refused at the first store is
   `exit 0` for `^ascend310` before `CUSTOM_OPS` is ever assigned, so
   `enable_custom_op()` (`vllm_ascend/utils.py:243-266`) is False and the routed-expert
   selector's `torch.ops._C_ascend.moe_gating_top_k`
-  (`vllm_ascend/ops/fused_moe/experts_selector.py:221`) has no aclnn backend. Any
+  (`vllm_ascend/ops/fused_moe/experts_selector.py:221`) has no aclnn backend. That
+  same pin is also the recorded case where the 310P `.so` cannot even be imported
+  (a dropped `tiling_data.cpp` against the unconditional host
+  `batch_matmul_transpose` binding), which is the *first* half of that same report →
+  `../image-dependency-faults/custom-op-extension-missing-from-image.md` Lane B
+  (#6527). Any
   `aclnn<Op>` in such a paste is therefore a CANN/`torch_npu` **built-in**.
 - **That tutorial contradicts the release note**, and it is why a 310P report quotes two
   tags two releases apart: `310p.md:3-8` is still "experimental … only supports eager

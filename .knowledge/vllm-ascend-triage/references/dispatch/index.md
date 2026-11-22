@@ -31,6 +31,13 @@ used.
   states the rule that decides the track — the paste's last frames name the failing
   *stage*, the stage names the owner, and the cheapest working install is rung 1. Open
   it at the classification step when the paste is an install report.
+- `controls-and-ablation.md` — rule 15 of SKILL.md in full: the five forms of a
+  control (a working sibling path, your own ablation, a workaround named in the
+  report's prose, a tested-configuration matrix, an asserted control or a repro over
+  lower-level primitives), what each one proves, the pin splits that make an
+  `--enforce-eager`/spec rerun inert, and the recorded cost of getting each wrong.
+  Open it when the report carries its own control run, or when your next step is an
+  ablation.
 - `problem-classes.md` — the skill's coverage statement: the ten entry shapes
   (issue report, install/pip, deployment failure, support/version, feature-enable,
   PD/EPD, sizing, community-test/doc review, release bulletin, code-change) with the

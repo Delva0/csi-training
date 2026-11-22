@@ -55,7 +55,10 @@ ap.add_argument('--pp', type=int, default=1, help='--pipeline-parallel-size')
 ap.add_argument('--experts', type=int, default=None,
                 help='num_experts of the checkpoint (config.json) - decides the A2 <=24 gate')
 ap.add_argument('--max-num-seqs', type=int, default=16, help='used only for the default derivation')
-ap.add_argument('--num-spec', type=int, default=0, help='num_speculative_tokens (decode query len = 1 + this)')
+ap.add_argument('--num-spec', type=int, default=None,
+                help='num_speculative_tokens from --speculative-config (decode query len = '
+                     '1 + this); leave out when the launch has no --speculative-config and the '
+                     'script prints the assumption it made')
 ap.add_argument('--max-num-batched-tokens', type=int, default=None,
                 help='informational: profile_run only takes the extra dummy run when this exceeds capacity')
 
@@ -89,6 +92,9 @@ def derive(label, cap, a):
 
 
 a = ap.parse_args()
+assumed_num_spec = a.num_spec is None
+if assumed_num_spec:
+    a.num_spec = 0
 nodes = [derive('node 0', sizes(a.capture_a), a), derive('node 1', sizes(a.capture_b), a)]
 ep_world = nodes[0]['ep']
 
@@ -120,6 +126,11 @@ print()
 cap_a, cap_b = nodes[0]['capacity'], nodes[1]['capacity']
 gb_a, gb_b = nodes[0]['global_bs'], nodes[1]['global_bs']
 
+if assumed_num_spec:
+    print('note: --num-spec not given -> the decode ceiling below assumes'
+          ' num_speculative_tokens = 0. A launch carrying'
+          " --speculative-config '{\"num_speculative_tokens\": N}' raises it to"
+          ' max_num_seqs x (1 + N); pass --num-spec N before quoting that axis.')
 print('branch split inside one engine (same step, different DP ranks)')
 split_risk = []
 for n in nodes:

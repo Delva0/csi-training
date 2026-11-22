@@ -168,7 +168,9 @@ its 6-row defect table. So budget it explicitly:
 
 - file body **≤ ~8 K characters** in total, 2-2.5 K per write. A 15 K-character
   report is a "how to write it" document, not a "what I found" one — the defect
-  set is 5-6 rows;
+  set is 5-6 rows. It is a target for the *message*, not a cap: the eighth run (#11759)
+  wrote 9 675 characters and still shipped its closing message because it kept reasoning
+  at 24 K characters, so size each write against what is left, not against this number;
 - **size each write against what is *left*, not against what the section needs.**
   #11753 wrote the graded §1 as one 4.4 K block early (it landed) and then put
   §2 deploy + §3 curl + §4 bench into a single append: the cap cut that command
@@ -199,6 +201,38 @@ ignored `max_completion_tokens` (turn 8), the one-card sizing pass (turn 11) and
 the `transformers==4.51.0` install against the image pins (turn 14). The page's verified defect set is tabulated in
 `tutorial-command-audit.md` ("Second worked page"), so a future run on this row can
 write section 1 at turn 2 and skip the audit that killed this one.
+
+## #11759 again, the eighth run: the table unread, the delivery made
+
+Same row and image as the second run, in a fresh session that had this page but read
+only `:1-80` of its 352 lines (`tutorial-verification/index.md` only to `:120`, so the
+route to `tutorial-command-audit.md`'s worked table further down that page was never
+seen either).
+Fifteen assistant turns, `completed`, 16 165 of 16 384 completion tokens: 24.1 K
+characters of reasoning, 14.4 K of tool-call arguments (three heredocs → a 9 675-byte
+report file, above the ≤8 K target) and **5.3 K of message text, including a complete
+3 249-character closing message** — verdict, the three 完整性/易用性/正确性 scores,
+three defects with `path:line`, the corrected one-card deploy script, the corrected curl
+(`max_tokens`, not `max_completion_tokens`) and the bench line whose `--model` is the
+served name. So the emission protocol held from the other side: it is reachable from a
+late start, and what this run paid was audit, not delivery.
+
+Avoidable, each with one call: three rows it re-derived are in the table (absent
+benchmark section, ignored `max_completion_tokens`, the two-card conversion block), and
+two more it found are worth keeping (the missing weight-download command,
+`--max-model-len 4096` as cosmetic); the `conf.py` substitution lag (`v0.17.0rc1` at
+the v0.18.0 tag) is `docs-version-space-and-image-tag.md:62-70`; and the row it
+dropped —
+`pip install transformers==4.51.0` (page `:51`) against `transformers >= 4.56.0, < 5`
+(`vllm/requirements/common.txt:10`) and `>=4.57.4`
+(`vllm-ascend/requirements.txt:42`), a downgrade below both pins of the image the deploy
+script is installing into — was in the table too, and was set aside on reasoning
+("a separate env") without the two greps.
+
+Nothing in it is new knowledge either: the two items it presented as its own findings —
+the page's `IMAGE=…|vllm_ascend_version|` rendering the previous release at this tag, and
+the conversion step's `ASCEND_RT_VISIBLE_DEVICES=0,1` on a one-card row — are already on
+the version-space page and in the table (conversion-only break).
 
 ## #11751, the third run: the file fit, the message did not
 

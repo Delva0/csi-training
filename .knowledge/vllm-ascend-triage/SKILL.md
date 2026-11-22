@@ -255,137 +255,22 @@ the turn the shape is classified, not a second copy of it here.
    report citing `docs.vllm.ai/.../latest/…#<section>` is quoting a doc that may
    postdate the pinned release: check that section exists in the pinned tree,
    answer inside the pinned version, and if it is absent say so and ask for the
-   text rather than assuming what it says. `latest` is the Read the Docs build of
-   main (`READTHEDOCS_VERSION`) and each release is `/en/vX.Y.Z/`, while the tag a
-   page prints is substituted at build time from `mkdocs.yml extra.*` — so a
-   tag/flag disagreement is graded against the docs build with those two greps,
-   not by hunting the upstream `Literal` that owns the value
-   (`references/tutorial-verification/docs-version-space-and-image-tag.md`,
-   #16954). **When the title names one release and
-   the body's launch log another** (recorded #11231: title v0.21.0rc1, body
-   v0.22.1rc1; #18315: title v0.27.1RC1, env v0.26.0rc1), say which one you
-   verified and give the one command the reporter runs on *their* tree
-   (`sed -n 'A,Bp' <file>` around the cited line) instead of asking for another
-   launch — and when a **newer pin in the snapshot already carries the repair**,
-   quote it: that settles "is it fixed upstream" without PR or comment access.
-   A reference page states the pins it was
-   verified at: when those equal the refs in `SOURCES.json`, its `path:line` are
-   citable as they stand — re-grep only what the page itself marks as
-   version-specific, and spend the saved turns on the delivery.
-   **A dependency's patch release is part of the version contract.** `torch_npu`
-   (pta) `2.8.0` leaks memory and `2.8.0.post1`/`.post2` fix it — the pinned tree
-   says so itself (`docs/source/user_guide/release_notes.md:197` at v0.13.0rc1,
-   under `## v0.11.0rc1`: "The memory may be leaked … This is a bug from torch-npu"),
-   reporter-confirmed on #6299 (`--no-enable-prefix-cache` changed nothing, the
-   `.post2` install plus a vllm-ascend rebuild ended it) — while v0.13.0rc1's **own**
-   `requirements.txt:31` pins `torch-npu==2.8.0`, so an install that matches the
-   release table exactly can still carry the defect. Read the env dump's `torch_npu==` against the patch
-   releases before attributing a symptom to vllm-ascend code, and keep the mechanism
-   open when only the fix is confirmed
-   (`references/runtime-memory/host-ram-and-per-rank-rss.md` §Step 0).
-   **And a release can pin the *broken* patch.** vllm-ascend v0.26.0rc1's own
-   `requirements.txt:17` and `pyproject.toml:21` are `torch-npu==2.10.0.post4` — the
-   one patch release on which `/stop_profile` segfaults while `.post2`/`.post6` serve
-   (recorded #15983, later confirmed in-thread as a `torch_npu` profiler-backend
-   compatibility issue). There "install what the release pins" is the failing side, so
-   the patch change *is* rung 1 and the pin is the finding
-   (`references/observability-and-logs/online-profiler-stop-segfault.md`).
-   **The image recipe can override that pin, so an off-pin `torch_npu==` is not by
-   itself a mismatch.** At v0.13.0rc2 `requirements.txt:31` says `torch-npu==2.8.0`
-   while every recipe installs `'torch-npu==2.8.0.post1'` on a `cann:8.5.0-*` base
-   (`Dockerfile:76`, `Dockerfile.openEuler:75`, `Dockerfile.310p:61`,
-   `Dockerfile.a3:75`): a paste from that tag showing post1 is the image's own
-   pairing. One grep — `rg -n 'FROM |torch-npu' <repo>/Dockerfile*`, or
-   `scripts/image-recipe-inventory.sh <root> --soc <variant>` §1b — separates "the
-   tag ships this" from "the reporter changed the env", and the first reading rules
-   out both the hand-modified-env diagnosis and the "use the release image" rung
-   (#6271, image tag named by the reporter afterwards; the collision
-   `references/image-dependency-faults/host-cxx-compile-header-conflict.md` describes
-   ships in that tag).
-   **Any other dependency line in the env dump is checked the same way, from the
-   pin's own requirement files, before the consuming code is read.** The two trees
-   can disagree by shape: vllm v0.17.0 `requirements/common.txt:10` is
-   `transformers >= 4.56.0, < 5` while vllm-ascend v0.17.0rc1
-   `requirements.txt:37` is `transformers>=4.57.4` — floor only — so a
-   `transformers==5.5.0.dev0` install satisfies the plugin and violates upstream,
-   and the tree's per-model `tests/models/registry.py` `min_transformers_version`
-   (`:40`, GLM-5 `5.0.1` at `:283`, Kimi K2.5 none at `:845`) says whether the family
-   *needs* the newer line, with `release_notes.md:52` for the documented exception.
-   Recorded #7876 spent 25 turns and 1.2 M prompt tokens inside the model's
-   processor for an init-time tokenizer assertion whose answer was that range plus
-   the paste's own two `incorrect regex pattern … fix_mistral_regex=True` warnings,
-   and shipped no message text. One call:
-   `bash <skill_root>/scripts/dep-range-check.sh <pkg> <ver> <vllm-root> <ascend-root>`.
-   **A self-built vllm beside an rc vllm-ascend is a version-contract defect even
-   when the torch line matches.** #488 pasted `vllm: 0.7.2.dev` + `vllm_ascend:
-   0.7.1rc1` (from an older page's manual-compile recipe) while the rc's own pair is
-   vllm `v0.7.1` (`docs/source/conf.py:65`); that answer excluded the version lane and
-   ranked a device fault first, and the issue closed on the maintainer's "install
-   0.7.3rc2" plus the reporter's "tried latest … the problem solved". With a mixed or
-   several-rcs-old trio, make the install-and-re-run **rung 1-2** and keep the
-   mechanism below it — a snapshot pinning one commit cannot hold a later fix
-   (`references/startup-failures/environment-correspondence.md` §*A self-built
-   vllm beside an rc vllm-ascend*).
-
-   **The same applies to an old image tag with no mismatch in it.** When the tag in
-   the report is two or more rcs (or ~a month) older than the analysis date, the
-   snapshot predates any fix by construction, so for a **garbage/degenerate output or
-   a crash on a recently registered model** the tag is rung 1: one line in the first
-   message — "re-run the same body on the current image; `<tag>` predates the fix" —
-   and the ranked mechanism below it for the case where the re-run still fails.
-   #3806 pinned v0.11.0rc0 while rc2/rc4 were current; the same `curl` body on
-   `quay.io/ascend/vllm-ascend:latest` returned the correct table (reporter-confirmed),
-   and the recorded session never offered the upgrade
-   (`references/accuracy-benchmarks/vl-vision-tower-degeneracy.md` §*Fourth pin*).
-   Do not read this as licence to demote a real mechanism: quote what the pinned tree
-   *does* carry (the registration, the dead lever, the coverage absence) and say plainly
-   that "is it fixed" cannot be answered from the snapshot.
-   **And when the paste or a later comment already shows the reporter rebuilt from
-   source and it still failed, the tag rung is spent** — recorded #5484 (reporter
-   tried `vllm-ascend==0.11.0`, then `0.11.0-dev` `pip install -e`, same GE
-   `E89999` infershape error): rank the checkpoint/flag axis and say the upgrade was
-   already tried, instead of repeating it as rung 1.
-
-   **Read the direction of the comparison first — the tag rung above is one-directional.**
-   It applies when the **older** tag is the broken one. When the reporter's own control
-   runs the other way (old tag structures the document correctly, new tag garbles it, same
-   weights/card/command — #4730: `v0.11.0rc0` good, `v0.11.0rc1` "html结构都错乱"),
-   upgrading cannot help: they are already on the newer side. #4730's public follow-up
-   (2025-12-05) also has rc2 **and** rc3 failing, so "the next rc fixes it" is not a rung
-   either. Then the first message owes three things instead: the zero-restart request
-   arithmetic (`finish_reason` / `usage.prompt_tokens` against the tutorial's image-token
-   envelope), the one-command stack dump taken **inside each image** (a tag moves vllm /
-   torch_npu / CANN / transformers together, so the delta is not yet a vllm-ascend claim),
-   and the within-image one-restart rows (`USE_OPTIMIZED_MODEL=0`, `--enforce-eager`, a
-   text-only request, the checkpoint's dtype against the engine's) —
-   `references/accuracy-benchmarks/harness-vs-engine-attribution.md` §*When the older image
-   is the good one*, `references/accuracy-benchmarks/vl-vision-tower-degeneracy.md`
-   §*Fifth pin*.
-
-   **A capability the reporter says worked on an older release is a regression before it
-   is a mechanism.** The rule above is about a *symptom*; this is its twin for a
-   *deliverable* — a profiling collection that produced no table, a mode that now refuses to
-   start, a flag that no longer reaches its consumer — where the body says the same
-   combination worked before, or works on the sibling node. Then the ranked answer is
-   "regression between `<works>` and `<fails>`, here is the one command that dates it", and
-   every vendor-stack limitation (`msprof` cannot record graph-replay tasks, CANN skips a
-   table under graph mode) sits *below* it as a labelled hypothesis, because the older
-   release is the control that refutes it. Ask which release did it before believing the
-   premise: a release that never collected is coverage, not a regression. Recorded #12241
-   (`releases/v0.23.0`, `enable_npugraph_ex` + MTP, no `kernel_details.csv`) had a
-   `msprof`/graph-replay limitation ranked first when the reporter wrote "这个组合旧版本一直
-   支持"; the maintainer restored it and the reporter confirmed "现在可以采集了" —
-   `references/performance-throughput/profiler-no-kernel-details-graph-mtp.md`.
-
-   **A matching trio does not close the version lane when the pin is an rc and the
-   trigger is a feature crossing that pin never tests.** An accuracy/numeric report
-   whose own controls are "feature A off: fine, feature B off: fine" points at the
-   intersection, and a fix that lands after the pin is invisible in the snapshot —
-   so the *next rc/final* is rung 1, not the mechanism. Recorded #12060
-   (`v0.20.2rc1` image, PP2+TP2 + chunked prefill, 首token wrong) closed on the
-   reporter's "tried the latest version, it works fine", while the recorded run
-   spent its whole budget deriving the PP token-id path
-   (`references/pipeline-parallel/pp-chunked-prefill-numeric.md`).
+   text rather than assuming what it says (`latest` is main's build; the tag a page
+   prints is substituted at build time —
+   `references/tutorial-verification/docs-version-space-and-image-tag.md`, #16954).
+   When the title names one release and the body's launch log another, say which one
+   you verified and give the one command the reporter runs on *their* tree; when a
+   newer pin in the snapshot already carries the repair, quote it. A reference page
+   states the pins it was verified at: when those equal the refs in `SOURCES.json`,
+   its `path:line` are citable as they stand — re-grep only what the page marks as
+   version-specific. **The contract covers the whole dependency and image stack, and
+   it decides which rung comes first**: a dependency's patch release (a release can
+   pin the *broken* one), an image recipe that installs its own pairing, a mixed
+   self-built trio, an old tag and the direction of the comparison, and a capability
+   that worked on an older release (a regression, not a mechanism) — one grep and one
+   rung each, all in `references/evidence-workspace/version-contract.md`. Open that
+   page when the env dump's `torch_npu==`/`transformers==` line, the image tag, or
+   the reporter's own older-release control is part of the ranking.
 6. **Label the strength of every claim**: reporter-confirmed > verified in the
    pinned source (`path:line` at commit X) > precedent in the issue history
    (quote the issue id) > unverified hypothesis / recalled tool default. Never
@@ -403,7 +288,14 @@ the turn the shape is classified, not a second copy of it here.
    demoted inside the answer; presence claims and absence claims both belong to the pin
    they were seen at (`references/pd-disaggregation/hybrid-state-transfer.md`).
 7. **Keep reads small and exact.** Use `rg -n -C2 <symbol>` and
-   `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines. A
+   `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines — the
+   exception is the page that **is** the protocol for the deliverable in hand
+   (`community-test-report.md` 352 lines, `delivery-discipline.md` 434,
+   `tutorial-command-audit.md` 507, every topic `index.md` whose conditional routes sit
+   after its rules): its rules, routes and worked tables sit past the first window, so
+   read it whole or list its `^## ` headings first; `sed -n '1,80p'` of the first and
+   `'1,120p'` of `tutorial-verification/index.md` is how the #11759 rerun walked past the
+   worked table for its own row. A
    20-40 KB full-file read of an AscendC kernel header buys one fact and costs
    the budget for several conclusions. Listing, dumping and a handful of
    search-command traps each cost a recorded run whole steps; the full text is in
@@ -422,6 +314,16 @@ the turn the shape is classified, not a second copy of it here.
    `sed -n 'A,Bp' | rg -n` numbers the stream (`A + n - 1`); scope every grep to one
    repo; never list a directory or dump a whole file; attachments are the exception —
    open the files the issue links (a manifest grep is not an existence test).
+   **A `| head -N` on a reference grep can cut the page that owns the case.** These
+   pages sit in large topic directories, so `rg -n -i '<feature token>'
+   references/<topic>/ references/<other>/ | head -60` can spend all sixty lines in
+   the first file and drop the hit that matters: recorded #10961 ran
+   `rg -i 'mtp' pd-disaggregation/ accuracy-benchmarks/ spec-decode-mtp/index.md |
+   head -60`, got sixty lines of `spec-decode-mtp/index.md`, and lost
+   `pd-disaggregation/hybrid-state-transfer.md:165` — the page holding that exact
+   case's refuted top rank — then re-derived the recipe from the tutorial and
+   re-shipped the refuted claim. `rg -l` over `references/` first, pick the page by
+   its title and stack, then read it; raise the cap only after reading the file list.
 8. **The prior-month corpus is not evidence of absence, and a lexical accident is
    not "no precedent".** Search titles with **one** distinctive token — an op name,
    an error string, a numeric code, a fault kernel, a model id — never the failure
@@ -526,7 +428,17 @@ the turn the shape is classified, not a second copy of it here.
     the emitting site: an `except Exception` that appends
     `{str(e)}` and re-raises carries the inner error as evidence, not the wrapper.
     Same family as procedure step 3's sync-point trap: where an error surfaced is
-    not necessarily its owner. CANN prints the same kind of wrapper under the code:
+    not necessarily its owner. **One member of the family is a warning that names a
+    harmless feature**: `Failed to import vllm_ascend_C:<tail>. Sleep mode will be
+    disabled.` reads as a sleep-mode notice, but an extension that never imported
+    registers **no** `_C_ascend` op, so the `AttributeError: '_OpNamespace'
+    '_C_ascend' object has no attribute '<op>'` that follows — at a request *or* in
+    the memory-profiling dummy run — names whichever op was reached first, never an
+    unsupported one (#3342/#3090 `weak_ref_tensor`, #6527 `moe_gating_top_k`). Read
+    that warning's **tail** before ranking the op: `No module named …` = no `.so` in
+    the image, `: undefined symbol: …` = present and refused by a SoC source-list
+    gate (`references/image-dependency-faults/custom-op-extension-missing-from-image.md`,
+    Step 0). CANN prints the same kind of wrapper under the code:
     `[Error]: Failed to apply for memory.` / `Check the remaining storage space in the
     hardware environment` + `EL0006 … resources are insufficient` is the canned text of
     a *resource-alloc* refusal (`207005`), so read the `[SqCqManage]Alloc sq cq fail …`
@@ -723,130 +635,23 @@ the turn the shape is classified, not a second copy of it here.
 15. **A working sibling path in the reporter's own evidence constrains the cause.**
     When the same box fails on one entry point and works on another — offline
     `LLM()` vs `vllm serve`, one flag, one model, one card — a mechanism that also
-    predicts the working path fails is not yet the answer: name the difference
+    predicts the working path failing is not yet the answer: name the difference
     first and rank the mechanism below it, with the log line or ablation that
-    separates them. #1534 ranked "mindie_turbo replaces RMSNorm" above the working
-    `vllm serve` path and left the follow-up ("是因为在线推理默认没有开启 acl graph 吗?")
-    unanswered. Two log lines settle which path compiled and which process loaded
-    the plugin — `PIECEWISE compilation enabled on NPU` / `Compilation disabled,
-    using eager mode by default`, plus the wheel's INFO line
-    (`references/image-dependency-faults/mindie-turbo-graph-break.md`);
-    `enforce_eager=True` on the failing path is the one-line ablation.
-
-    **Your own ablations obey the same rule: an ablation only rules out a phase it
-    actually removes, and its own log line has to be in the paste.** `--enforce-eager`
-    is neither universal nor free: at vllm-ascend v0.22.1rc1 it removes torch.compile,
-    the ACL graph and even the `Using OOT custom backend for compilation` banner
-    (`vllm/config/vllm.py:1032-1038` → `decorators.py:390` → `platform.py:590-592`),
-    while the weight load runs identically in both lanes — so it cannot test a
-    load-phase stall, and a reporter's "tried it, still stuck" eliminates nothing
-    unless the paste carries that flag's own lines (`Compilation disabled, using
-    eager mode by default`, `Cudagraph is disabled under eager mode`). Pick the
-    ablation that removes the suspected phase, name the line that proves it ran
-    (`references/startup-failures/compile-backend-banner-then-silence.md`).
-    **Reachability never cancels the run: a flag can move a phase it does not
-    contain.** `--enforce-eager` cleared a *sporadic* `507035` inside CANN's
-    `ApplyTopKTopPWithSorted` sampling kernel although the sampler runs after the
-    forward and outside the captured region (reporter-confirmed #2763, and the same
-    comment prices it at ~5 tok/s against ~40 tok/s — so it is the isolation run
-    first, never the recommendation; at v0.10.1rc1 the flag's own line is
-    `Compilation disabled, using eager mode by default`,
-    `vllm_ascend/platform.py:145-147`). Do not reason "that op is not in the graph,
-    so eager cannot help": pool, workspace, stream overlap and task concurrency all
-    change with the mode. The same trap sits inside `--speculative-config`: with
-    `--async-scheduling` on, `method: mtp` forces the drafter eager regardless of
-    `enforce_eager` (`spec_decode/eagle_proposer.py:136-142` at v0.18.0rc1), so "toggled
-    `enforce_eager`, both crash" is one path run twice — check the serve command for
-    `--async-scheduling` before crediting that ablation
-    (`references/spec-decode-mtp/empty-first-response.md` Step 6b).
-    On one family that knob is not weakened but **erased**: for `deepseek_v32` with
-    `method: mtp` upstream vLLM sets `speculative_config.enforce_eager = True`
-    (`vllm/config/speculative.py:254-257`, commented "cudgraph with v32 MTP is not
-    supported") and `vllm_ascend/platform.py:359-369` force-clears it (`:504-517` at
-    v0.18.0rc1), so `"enforce_eager": true` in `--speculative-config` is a dead lever
-    there — global `--enforce-eager` still works, and the plugin, not upstream, owns the
-    support claim (`references/hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`).
-    Scope that erasure to the family *and* the pin before reusing it: the upstream auto-set
-    is gated on `deepseek_v32` alone (`vllm/config/speculative.py:559-563` at vllm
-    v0.23.0), and the downstream force-clear exists at v0.18.0rc1 but is **gone** by
-    v0.23.0, where `platform.py:513-527` only touches the xlite graph config and
-    `model_config.enforce_eager`. So on a GLM-5.x (`glm_moe_dsa`) v0.23 launch the
-    tutorial's `"enforce_eager": true` inside `--speculative-config` is a **live** recipe
-    key — grep the reporter's launch before calling it dead
-    (`references/spec-decode-mtp/index.md`, the GLM-5.x rule).
-
-    **A workaround named in the report's own prose is the first ablation, not
-    background reading.** When the narrative quotes a neighbouring issue's comments
-    ("comments mention disabling async scheduling or MTP, or adding sampling-stream
-    synchronization as workarounds"), the reporter has already said which phase to
-    remove: take it as rung 1 and rank the mechanism it points at, ahead of any
-    theory that needs a code path the paste cannot show. #13964 is the recorded
-    cost — the body carries exactly that line for a progressive per-rank decode
-    stall (`Running` > 0, flat generation counters, no error, one rank still
-    serving), and the session spent its whole output budget on a DP
-    cudagraph-mode-sync / skipped-all-reduce argument that the report's own
-    "DP1 finished 116 requests" sentence refutes, shipping nothing. The resolution
-    was KV-block reuse under `--async-scheduling`
-    (`references/scheduler-admission/kv-block-lifetime-async-scheduling.md`).
-
-    **The strongest form of this evidence is a tested-configuration matrix in the body**
-    (`DP=1,PP=1,TP=32 → works` / `PP=2,TP=8 → works` / `PP=4,TP=8 → fails` / `DP=2 → fails`):
-    each failing row then has a named owner and one check, so the matrix answer — one
-    verdict line per row — *is* the G1 message, and the rows that work are the controls
-    that close the transport, capacity and labelling lanes. #10910 walked 45 turns and
-    966 K prompt tokens past that matrix and shipped **no** answer text at all. Check each
-    row against the code's own gates before crediting it as a control: on a
-    sparse-attention model a row that toggles `--decode-context-parallel-size` also
-    moves `tp` (`platform.py:723-731` asserts
-    `dcp == tp` at v0.26.0rc1), so "dcp=8 fails, dcp=16 works" compares two recipe rows,
-    not one variable (`references/dsa-sparse-attention/dcp-c8-accuracy-garble.md`).
-
-    The same test applies when the reporter's *control* is another platform: "nv 卡多次
-    一致，npu 多次不一致" makes sampling randomness (`没有 seed`, `temperature > 0`) a
-    refuted cause, because it would randomise NV too — so it can be a one-line
-    confirmation but not the leading rank. #7180 led with it and the reporter's next
-    comment pasted `temperature: 0, top_p: 1, top_k: 1` — reproducibility between
-    repeated runs, not accuracy (`references/accuracy-benchmarks/repeated-run-nondeterminism.md`).
-
-    **And a control the reporter only *asserts* is a premise, not a finding.** "works on
-    灵衢直连, fails on RoCE 组网" / "works on the sibling node" / "works in eager" is the
-    reporter's claim about a run you cannot see, and it can be stale, mis-scoped or
-    already false: build the ranking so the answer still holds if it is. Recorded #9447
-    (v0.18.0rc1, GLM-5.1, 2×A3, `aclnnMoeDistributeDispatchV4` + `hccl_ret 9` at profile)
-    derived its whole answer from the fabric premise — the RoCE-only
-    `enable_mc2_hierarchy_comm` key — shipped **no message text**, and the reporter's own
-    public follow-up (2026-06-22) said 没有解决 with the direct-connect setup failing too. So
-    state one line that re-confirms which setup fails now, and prefer a control you can
-    make true locally — the **one-node** run of the same EP group, the same flags with the
-    feature off — over the fabric or node the reporter believes is healthy
-    (`references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3c).
-    **Its most common form is "direct `curl` at one node works".** That is a *body*
-    control, not an endpoint control — a shorter prompt or a smaller `max_tokens` is
-    exactly the variable under test — and a `400` from a P/D node is its frontend
-    rejecting a body before the engine runs, with the reason in a response body the
-    example proxy discards (`send_request_to_service` / `stream_service_response_with_retry`
-    log only httpx's text). Recorded #15527 (v0.23.0, D node 400 through the proxy,
-    direct curl fine, `--max-model-len` 40960 and 128000 fail while 1M works) is one
-    arithmetic, not a connector question: the proxy sends the prefill leg
-    `max_tokens = 1`, so a 400 there bounds the **prompt**
-    (`references/pd-disaggregation/proxy-upstream-400-body.md`).
-
-    **A repro the reporter built from a lower-level API is a premise about the
-    *serving* path, and it is the one to check before adopting its conclusion.** A
-    tidy 4-row matrix over `torch.npu` primitives ("baseline PASS / no-collective
-    PASS / wrapped collective FAIL / separate PASS — so the *wrapping* combination
-    is the bug") does prove that pair conflicts, and it usually belongs to a
-    component you cannot fix from here. What it cannot show is that the served
-    failure travels through it. Check the tree's own call sites for the primitive:
-    one `rg -n 'graph_task_group_begin' vllm_ascend/` at v0.22.1rc1 returns ten
-    regions that each wrap a single compute op and never a collective, so the
-    reporter's `graph_task_group_begin` + `all_reduce` is a combination the
-    serving stack does not build. Recorded #13688 then has two findings with two
-    owners — `507009` (`ACL_ERROR_RT_TASK_TYPE_NOT_SUPPORT`) belongs to
-    torch_npu/CANN for the API pair, and the replay deadlock (`AIVector` 8-16 % /
-    `AICore` 0 %, no error) to the MC2 × AIV lane — and saying so is also the
-    correction the report's own "revert the patch" ask needs
-    (`references/hccl-and-hardware/aiv-ric-task-group-capture.md`).
+    separates them (#1534 ranked a plugin fix above the working `vllm serve` path and
+    left the follow-up unanswered; which path compiled and which process loaded the
+    plugin: `references/image-dependency-faults/mindie-turbo-graph-break.md`).
+    **The same test governs your own ablations and every control the report offers**:
+    an ablation only rules out a phase it actually removes and its own log line has to
+    be in the paste (`--enforce-eager` is neither universal nor free, and
+    `--async-scheduling` with `method: mtp` makes an "eager" rerun the same path
+    twice); a workaround the report's own prose names is rung 1; a
+    tested-configuration matrix in the body is one verdict line per row, with the rows
+    that work as the controls; and a control the reporter only *asserts* — another
+    platform, a healthy node, a direct `curl`, a repro over lower-level primitives —
+    is a premise, not a finding, so build the ranking so it holds if the premise is
+    false. `references/dispatch/controls-and-ablation.md` carries the five forms, the
+    pin splits that make an ablation inert, and the recorded cost of each (#2763,
+    #13964, #10910, #9447, #15527, #13688).
 16. **A release candidate's experimental mode is a version question before it is a
     mechanism question.** When the mode printed its own banner
     (`FULL_DECODE_ONLY compilation enabled on NPU`, `PIECEWISE …`), every rank finished
@@ -898,7 +703,9 @@ nothing, a title that names a mechanism — the exact row in
 track): each row carries the lane or track it belongs to and the page that owns it. Read the row's middle cell before opening the
 page; it carries the decisive local rule. A token you cannot place: one
 `rg -n '<fragment>' <skill_root>/references/` searches every row **and** every page
-body, which is the version that pays. **Run it before any `/workspace/repos` grep**:
+body, which is the version that pays (one distinctive fragment — an alternation of
+family names returns a path listing, procedure step 6). **Run it before any
+`/workspace/repos` grep**:
 several recorded signatures are emitted by build tooling that ships in no pinned tree
 (the `of bin package … run.sh` SoC text, an op-store refusal), so the library — not the
 source — is where they are written down (#5599 spent its 4th tool call on an empty
@@ -1014,6 +821,24 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    `vllm._C` harmless is the pre-emption for the follow-up, not the verdict —
    `references/image-dependency-faults/platform-plugin-register-raised.md`.
 
+   **2b — one grep of your own library, before any repo read.** Take the paste's two
+   or three most distinctive strings (the error sentence, the op or kernel name, the
+   numeric code) and run `rg -n -l '<token>' <skill_root>/references/`: the library
+   is keyed on the reporter's own wording, so this is the call that finds the page —
+   or the case — already holding it. **A hit in
+   `references/evidence-workspace/recorded-cases*` is opened first**
+   (`rg -n '<token>' <that file>`, then `sed -n '<hit-30>,<hit+40>p'`) before any
+   topical page or repo grep: an entry matching the report's versions, model and
+   stack *is* the case history, and its ladder is the message. Both halves were paid
+   for in one minibatch: #6275's second session had
+   `recorded-cases-device-and-communication.md`, carrying #6275's own entry, in its
+   turn-3 hit list and read two route pages instead (16 turns, 20 tool calls, cut
+   inside ranked cause 1); #11863 skipped this grep, went straight to the two repos,
+   and re-derived what `startup-failures/arg-validation-errors.md:8` already held
+   (21 turns, cut mid-sentence). Redirect: the moment a hit's title or index line
+   names the paste's symptom, the next call opens that file; a repo grep for the
+   raising line is step 3's move, after that read.
+
 3. Take the track's cheap checks before source archaeology:
    - **The recipe diff that pays is by key name, not by flag position.** A reporter's
      `--additional-config` / `--hf-overrides` object carries keys the pin's tutorial for
@@ -1124,7 +949,13 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    titles of all hits in one call without opening the bodies (`-i` when the
    corpus capitalises the token, e.g. `reranker` vs `Reranker`; bodies are searched
    only with `-b`, because `suffix`/`mtp`/`ngram`/`spec` occur in every pasted
-   `collect_env.py` and would return the whole corpus). **A token that is a code
+   `collect_env.py` and would return the whole corpus). **A bag of product-family
+   words is a listing, not a token**: `-i 'GLM5|GLM-5|kimi|MC2|1P1D|挂死'` came back
+   with 60 titles, needed a second call just to page the tail, and named no body
+   worth reading (recorded #10963) — and the same bag handed to
+   `rg -l '<a|b|c>' <skill_root>/references/` prints ~40 page paths with no rule in
+   them. Take the dispatch row for the shape, or one symptom string, error code or
+   op name. **A token that is a code
    identifier or an exception string is the exception — run it with `-b` in the
    same call**, because such tokens live in tracebacks and launch scripts, never in
    the env dump: `-b 'TRITON_ALL_BLOCKS|putenv|marked as skipped'` returned 8 hits

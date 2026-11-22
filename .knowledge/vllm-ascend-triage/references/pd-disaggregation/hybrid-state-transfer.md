@@ -167,6 +167,20 @@ the opposite conclusion first ("the gate misses `qwen3_5_mtp`"), labelled it
 source-verified and left it open; that ranking was wrong at v0.21.0rc1, and the
 report had no log to support any ranking in the first place.
 
+It arrives a **second** way, as recipe advice: "write `method: qwen3_5_mtp`, a
+generic `mtp` mis-pads the draft". The rewrite above happens before the connector
+reads the config, so the spelling is one key in the serve-command diff and is
+**not** a precision knob — never list it among the deviations that "silently cost
+accuracy" (`method` matters as a *symptom* only in the opposite direction: a pin
+older than the rewrite, or a family the `MTPModelTypes` literal does not carry —
+check the literal, `vllm/config/speculative.py:34-52`). For a title-only
+`PD 分离 + MTP 精度` report the owed deliverable is therefore: the two serve
+commands diffed key-by-key against the pinned model tutorial (spec block
+`enforce_eager`, the D node's `cudagraph_capture_sizes`, `--no-enable-prefix-caching`
+and its D-node known-issue note — §4 row 4), the MTP-off / PD-off ablation,
+then the artefact ask. The tutorial's `n x (mtp + 1)` capture-size line is a recipe
+contract to check, not a mechanism to assert.
+
 What actually carries MTP through the connector, cheapest print first:
 
 1. **`num_draft_layers`** — `mooncake_connector.py:476-489`: 1 when the method is

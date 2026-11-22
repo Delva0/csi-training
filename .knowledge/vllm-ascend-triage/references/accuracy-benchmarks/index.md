@@ -35,6 +35,15 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `../dsa-sparse-attention/glm-moe-dsa-tag-regression-corruption.md`; for the hybrid
   families go to `../pd-disaggregation/hybrid-state-transfer.md` (connector matrix plus
   the `mamba_cache_mode` gate) and bring back its ablation rows as the deliverable.
+  **Open that page first even when the report names no symptom and no family** — the
+  title's whole content `v0.22.1rc1 Qwen3.X，PD分离+MTP存在精度问题` with `<details>`
+  empty: its §3 applies whatever the family, while the connector/mamba rows wait for
+  the family to be confirmed hybrid. One warning comes with that read: the cheapest
+  false lead is the **method string** (vllm-ascend's `== "mtp"` vs the tutorials'
+  `qwen3_5_mtp`), refuted upstream by the `MTPModelTypes` rewrite, both as a rank *and*
+  as recipe advice (`../pd-disaggregation/hybrid-state-transfer.md` §3). The
+  deliverable is the two serve commands diffed against the pinned tutorial, the
+  MTP-off / PD-off ablation and the artefact ask (recorded #10961).
 - A number printed while the checkpoint is being *converted* (per-layer
   `MSE loss`, an epoch table, a bad quantized artifact) is converter output and
   precedes any engine comparison — go to `quantized-checkpoint-conversion.md`.
@@ -100,6 +109,18 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   内容错乱, the returned HTML/JSON layout garbled, while the *older* image tag of the same
   serve structured it correctly (#4730) — where the tag rung is inverted and the delta
   must be enumerated inside each image before any code claim (§*Fifth pin*).
+- A **grounding / OCR-coordinate** answer is fluent and schema-valid but its
+  **numbers** are wrong — bbox or keypoint values that miss the objects, checked
+  as IoU against ground truth, with the same checkpoint through `transformers` as
+  the good run — sometimes with a wrong self-reported `image_size` in one TP
+  config and a right one in another while every IoU row fails. That is neither the
+  tower-degeneration shape (content there is repeated/coarse) nor a score
+  comparison without a reference: the content arrives and the *geometry* does not,
+  so the lane is positional and the first two calls are the processor's
+  `image_grid_thw`/`prompt_tokens` against HF's and a non-spatial question on the
+  same image. Go to `vl-grounding-coordinate-drift.md`, whose §5 also corrects the
+  plausible-but-wrong "`MRotaryEmbeddingInterleaved` is not substituted, so m-RoPE
+  is innocent" elimination (recorded #18197, v0.23.0, shipped no message).
 - A **VL or OCR** checkpoint on **310P / Atlas 300I** answers garbage while a text
   model on the same box is fine: the support verdict and the layout → recognise
   *pipeline* come first, because the VLM alone is one stage of a document-parsing
@@ -536,6 +557,16 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   unavailable on 910B, and the `INF_NAN_MODE_ENABLE` (torch_npu 2.5.x) vs
   `INF_NAN_MODE_FORCE_DISABLE` (2.8.x, whose abort text the stale advice produces)
   era split.
+- `vl-grounding-coordinate-drift.md` — bbox/keypoint numbers wrong while the text is
+  fluent and the JSON valid, with the transformers run as the control (IoU): the
+  three sentences the report's own matrix already settles, the `image_grid_thw` /
+  `prompt_tokens` certificate, the content control that separates the tower from the
+  positional lane, v0.23.0's unconditional `patch_qwen3vl` surface (attention forward
+  replaced wholesale, fused `triton_split_qkv_rmsnorm_mrope` with
+  `is_interleaved=True`, eager pos-embed, flashcomm-gated deepstack chunk), the
+  `MRotaryEmbedding` **is** substituted correction, the mask-set equivalence with
+  upstream `apply_interleaved_rope`, and the UT that covers this exact combination
+  but is in no nightly matrix.
 - `vl-vision-tower-degeneracy.md` — VL image/video requests that degenerate into one
   repeated token, with the co-reported "very slow": the two-implementation gate
   (`USE_OPTIMIZED_MODEL`, v0.9.2rc1 `b5b7e0e` `models/__init__.py:23-33`), the head-dim

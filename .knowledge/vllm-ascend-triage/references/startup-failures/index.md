@@ -34,7 +34,15 @@ Inherit the rules in SKILL.md. Conditional routes:
   shm lines are the wait. One flag (`--limit-mm-per-prompt '{"image":0,"video":0}'`) or
   `--skip-mm-profiling` skips the block entirely and decides whether the encoder owns it;
   then cut the budget to the tree's own 310P recipe (2048/16384) and ask for `npu-smi`
-  during the stall.
+  during the stall. **Read the `--additional-config` before following that route**: on
+  a **DeepSeek-V4.x** serve carrying an engram key, the same repeated broadcast-block
+  line arrives *after* weight load and graph capture with `migratepages` helpers alive
+  for >15 min — the Engram HOST_UVA table is being migrated process-wide, i.e.
+  `../feature-enable-recipes/engram-offload.md` row 2, not the encoder profile. That
+  page also owns this file's load-time variant:
+  `ValueError: layers.N.engram.embed.weight: expected BF16 source for bf16` is the
+  printed serve command missing the engram keys (row 1 — one
+  `--additional-config '{"enable_engram":true,"engram_storage":"int8"}'`).
 - The start **does** raise, from the multimodal budget before any EngineCore or NPU
   init — a stack through `encoder_budget.py`/`registry.py get_dummy_mm_inputs` →
   the model file's `get_dummy_mm_data`/`get_dummy_text` ending in a `transformers`

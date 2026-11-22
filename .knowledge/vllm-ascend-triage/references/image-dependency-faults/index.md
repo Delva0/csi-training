@@ -154,16 +154,24 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `missing-subpackage-after-wheel-install.md` (#1156). Distinguish it from the
   top-level `No module named 'vllm_ascend'` two bullets above and from
   `vllm_ascend.vllm_ascend_C` (never built, `../soc-platform-paths/kernel-package-vs-card.md`).
-- The whole image boots and the **first request** raises
+- The whole image boots and the **first use** of `torch.ops._C_ascend.<op>` raises
   `AttributeError: '_OpNamespace' '_C_ascend' object has no attribute '<op>'` after a
-  startup `Failed to import vllm_ascend_C … Sleep mode will be disabled` warning, and
-  `/v1/models` was 200 → `custom-op-extension-missing-from-image.md`. One grep decides
-  whether it is fatal here (`rg -c 'torch\.ops\._C_ascend' vllm_ascend/_310p/`: at
-  v0.23.0.post1 the 310P GDN files hold 6 unguarded call sites, so a Qwen3.5/Qwen3-Next
-  checkpoint on 310P is the fatal case); the build lane that makes it silent is the
-  csrc-cache hit running `COMPILE_CUSTOM_KERNELS=0`
-  (`.github/workflows/_schedule_image_build.yaml:225-250`), and the reporter's own
-  per-tag `vllm_ascend_C*.so` table is the strongest artefact in the report.
+  startup `Failed to import vllm_ascend_C … Sleep mode will be disabled` warning →
+  `custom-op-extension-missing-from-image.md`. The first use is a request **or** the
+  memory-profiling dummy run (`determine_available_memory` → `profile_run`, weights
+  already loaded, `/v1/models` never reached), and the **tail of that warning** picks
+  the owner before any source read: `No module named 'vllm_ascend.vllm_ascend_C'` = no
+  artefact at all (the csrc-cache hit running `COMPILE_CUSTOM_KERNELS=0`,
+  `.github/workflows/_schedule_image_build.yaml:225-250`, or the `develop`-only install
+  prefix), while `/…/vllm_ascend_C*.so: undefined symbol: <internal symbol>` = the
+  artefact is present and `dlopen` refused it, because a SoC branch dropped the TU that
+  defines a symbol the unconditional host binding still references (v0.14.0rc1 on 310P:
+  `CMakeLists.txt:85-93` against `:116` plus `csrc/torch_binding.cpp:31,1400-1401`;
+  recorded #6527). One grep decides whether either lane is fatal here
+  (`rg -c 'torch\\.ops\\._C_ascend' vllm_ascend/_310p/`: at v0.23.0.post1 the 310P
+  GDN files hold 6 unguarded call sites, so a Qwen3.5/Qwen3-Next checkpoint on 310P is
+  the fatal case), and the reporter's own per-tag `vllm_ascend_C*.so` table or one
+  `nm -DC … | grep '<symbol>'` is the strongest artefact in the report.
 - A `python -c "import <pkg>"` (or the first real use) fails **at symbol
   resolution**, not at open: `ImportError: …/<pkg>/_ops.cpython-310-…so: undefined
   symbol: _ZNK6AsdOps3Ops18GetOperationByNameERKSs` and the ENV dump selects
@@ -597,14 +605,17 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   environment or an image regression: the four artefacts that *are* the image's
   dependency set, the version-swap control rule, the container-only rung set, and
   `scripts/image-recipe-inventory.sh` (#2812).
-- `custom-op-extension-missing-from-image.md` — a published image ships **without**
-  the compiled `vllm_ascend_C`: startup `Failed to import vllm_ascend_C … Sleep mode will
-  be disabled` (logger basename `[camem.py:67]`), then a first-request `AttributeError`
-  on `torch.ops._C_ascend.<op>`. Which SoC/model pairs are load-bearing (one grep of
-  `vllm_ascend/_310p/`), the two silent build lanes (`COMPILE_CUSTOM_KERNELS=0` on a
-  csrc-cache hit; the `develop`-only CMake install prefix), the two-command decision,
-  and the artefact-keyed guard that a `COMPILE_CUSTOM_KERNELS=1`-keyed one misses
-  (recorded #17713).
+- `custom-op-extension-missing-from-image.md` — `Failed to import vllm_ascend_C … Sleep
+  mode will be disabled` (logger basename `[camem.py:67]`) followed by an
+  `AttributeError` on `torch.ops._C_ascend.<op>` at the first use. **Step 0 reads the
+  warning's tail** and splits two lanes with two owners: the `.so` is **absent**
+  (`No module named …` — the two silent build lanes, `COMPILE_CUSTOM_KERNELS=0` on a
+  csrc-cache hit and the `develop`-only CMake install prefix, the two-command decision
+  and the artefact-keyed guard that a `COMPILE_CUSTOM_KERNELS=1`-keyed one misses;
+  recorded #17713), or it is **present and refused by `dlopen`** (`…: undefined
+  symbol: …` — a SoC source-list gate that drops a defining TU while the host binding
+  stays, verified at v0.14.0rc1 for 310P, recorded #6527; the op name in the
+  `AttributeError` is arbitrary either way).
 
 ## Common rules
 

@@ -109,7 +109,12 @@ existed. Route now `../pd-disaggregation/plane-selection-a3-parameter-plane.md`.
 — the `method == "mtp"` gate missing `qwen3_5_mtp` — is refuted by upstream's
 `MTPModelTypes` → `"mtp"` rewrite (`vllm/config/speculative.py:520-524`); the
 artifact list plus ablation rows were the right deliverable, the ranking was not
-(`../pd-disaggregation/hybrid-state-transfer.md` §3).
+(`../pd-disaggregation/hybrid-state-transfer.md` §3). A second run on the same body
+never reached §3 — `rg -i 'mtp' pd-disaggregation/ accuracy-benchmarks/ … | head -60`
+spent its sixty lines in `spec-decode-mtp/index.md` — and shipped the same false
+lead in its milder form, "spell `method: qwen3_5_mtp`, a generic `mtp` mis-pads the
+draft", as a silent-accuracy recipe deviation (route now in `SKILL.md` rule 7 and
+`../accuracy-benchmarks/index.md`).
 
 **#5295** vllm-ascend v0.12.0rc1 (`42ceaf0`) / vllm v0.12.0 (`4fd9d6a`), GLM-4.5-W8A8
 on one 16-card 910B node: `--data-parallel-size 2 --tensor-parallel-size 8

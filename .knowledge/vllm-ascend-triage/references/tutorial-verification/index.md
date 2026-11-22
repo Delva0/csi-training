@@ -20,6 +20,30 @@ Scope: the task is to *judge a document*, not to explain a crash. Entry shapes:
 - any "verify this recipe" request where the reporter's hardware is not
   available to you and the evidence is the **pinned tree**, not a run.
 
+## First call: does a worked page already carry this row?
+
+`rg -n '<model family or row id>' <skill_root>/references/tutorial-verification/` —
+the worked-page tables in `tutorial-command-audit.md` record verified defect sets by
+page name (`Qwen3-32B-W4A4` `:315-328`, `Qwen3.5-27B`, `Qwen3-Omni-30B-A3B`,
+`Qwen3-VL-30B-A3B`, `InternVL3.5`, `Qwen3.5-397B-A17B` §5.6), reached from the
+`tutorial-command-audit.md` bullet under *Conditional routes* below. A hit means the
+report's `资料验证` §1 is writable on turn 2 from the table; spend the rest of the
+budget on what the table does not have. The table is not exhaustive — it is the floor,
+not the ceiling.
+
+Cost of skipping it (recorded #11759 rerun: v0.18.0 image, the same row as the second
+worked page, 15 assistant turns, `completed`): it read this index to `:120` and
+`community-test-report.md` to `:80` of 352 — both cuts before the section that mattered —
+never opened `tutorial-command-audit.md`, re-derived the benchmark-section,
+`max_completion_tokens`, card-count and sizing rows over ten turns, **dropped the one row it
+explicitly considered** (`pip install transformers==4.51.0` at page `:51` set aside as
+"a separate env", while its own deploy script installs benchmarks inside the serving
+image, whose pins are `transformers >= 4.56.0, < 5` at
+`vllm/requirements/common.txt:10` and `>=4.57.4` at `vllm-ascend/requirements.txt:42`),
+and re-derived as new the `conf.py` substitution lag that
+`docs-version-space-and-image-tag.md:62-70` already carried. A window read of a protocol
+page is not a read.
+
 Leave this topic when the report contains an actual failure log **and** the
 reporter's own environment is in question (a device/collective lane:
 `../hccl-and-hardware/index.md`, `../runtime-memory/index.md`, or a startup fault
@@ -167,6 +191,17 @@ Conditional routes:
   Parity control: the A2/A3 tab pairs (`GLM5.md:53/96`, `Qwen2.5-7B.md:41/69`,
   `DeepSeek-V3.2.md:44/87`) are parallel options, not a second container — 9 of 33
   tutorial pages carry two `docker run` blocks.
+- The report is a `[Doc]: Feedback for` `…/en/latest/tutorials/models/<Page>.html`
+  and that page **does not exist at the snapshot pin** — `/en/latest` is the build of
+  main while the pin is an older release (`docs-version-space-and-image-tag.md`). Say
+  so in the first message, then treat the corpus as the only local witness of what the
+  page says: `scripts/history-titles.sh -i '<the page slug>'` lists the earlier
+  `[Doc]: Feedback for …/<Page>.html` issues on that same page, and their bodies carry
+  both the page's own serve line and the reporter's fix. Worked case: the
+  DeepSeek-V4.1-Flash thread #17236, whose fix now lives in
+  `../feature-enable-recipes/engram-offload.md` row 1. Grade only the defect you can
+  verify at the pin (an absent page, an incomplete serve line, a missing envelope row)
+  — never a reconstruction of prose you cannot read.
 - The defect is a **version disagreement** — the page prints an image tag the
   pasted command fails on, the report quotes a `…/en/latest/…` URL, or the doc
   names an older release than the flag it shows: `latest` is the build of main

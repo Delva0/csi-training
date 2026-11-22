@@ -34,6 +34,14 @@ across those refs and re-grep the line numbers.
 So the requirement is "an **input-scale** (static W8A8) o_proj", not "not w4a8":
 a BF16 checkpoint with FLASHCOMM1 on a DSA model reaches the same line.
 
+The same tensors are consumed at decode: `enable_dsa_cp_with_o_proj_tp()`
+(`utils.py:1296-1310`) is True when `kv_transfer_config is None` — i.e. **every
+plain non-PD launch** — and `sfa_v1.py:1269-1278` then calls
+`_handle_o_proj_weight_switch_and_forward`, switching between exactly the TP and
+Full copies built at `:707-720`. So a single-node serve is already on the default
+path into this feature (no PD disaggregation needed to hit it), and a code fix has
+to cover both consumers, not only the `hasattr` at `:707`.
+
 ## Answer rule
 
 Verdict first: this combination is **not supported at this ref** — the DSA-CP
@@ -43,13 +51,30 @@ then starts), or run the **W8A8** checkpoint the tutorial ships. There is no oth
 flag that makes W4A8 work on this path, so do not offer an ablation ladder for MTP
 or capture settings.
 
+Before promising that unsetting is enough, one grep of the launch's
+`--additional-config`: **`enable_shared_expert_dp` turns SP on by itself**
+(`ascend_config.py:81-89` asserts `enable_sp(…, enable_shared_expert_dp=True)`, row
+1), so the same line comes back with no export at all — that is the only other
+switch that reopens this path. A similar-looking key is *not* it:
+`multistream_overlap_shared_expert` (`ascend_config.py:106`) only feeds the
+AIV-mode capture-size arithmetic (`utils.py:525-536`) and the mix-placement check
+(`ascend_config.py:200-203`), never `enable_sp`, and #9984's launch carries exactly
+that key with `true` — so there the unset is sufficient. Name which of the two the
+paste has instead of warning generically about "other flags".
+
 Then quote the validation status, which is what makes it "unsupported" rather than
 "a config mistake":
 
 - the pinned GLM5 tutorial's only FLASHCOMM1 recipes serve
-  `/root/.cache/glm5-w8a8` (`docs/source/tutorials/models/GLM5.md:777` and `:859`
-  at v0.19.1rc1) and its notice list says FlashComm targets the prefill node
-  (`:1330`, "with FlashComm enabled, layer_sharding list cannot include o_proj");
+  `/root/.cache/glm5-w8a8` (`docs/source/tutorials/models/GLM5.md:777,782` and
+  `:859,864` at v0.19.1rc1) and both are PD **prefill-node** blocks
+  (`--data-parallel-rank`, `VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT`,
+  `ASCEND_A3_ENABLE`), so the pin never pairs the flag with a W4A8 weight; its
+  notice list says FlashComm targets the prefill node (`:1330`, "with FlashComm
+  enabled, layer_sharding list cannot include o_proj"). A reporter who says
+  「使用文档默认配置」 and links `…/en/latest/…` read a build of main that can
+  postdate the pin — quote the pin's own block and say the two may differ
+  (`../tutorial-verification/docs-version-space-and-image-tag.md`);
 - every `tests/e2e/**` config that sets `VLLM_ASCEND_ENABLE_FLASHCOMM1` at that ref
   is W8A8 or BF16 — no W4A8 coverage;
 - the requirement is structural (`sfa_v1.py:707-709`), so the fix is a guard in
@@ -83,8 +108,11 @@ linear method built `o_proj`.
   `_init_o_proj_tp_full_params` frame; the snapshot carries no resolution, so the
   defect is at least one release older than #9984.
 - **#9984** v0.19.1rc1, GLM-5.1-w4a8 with the tutorial's FLASHCOMM1 + MTP flags on
-  one node: the reported `AttributeError`, confirmed to disappear with FLASHCOMM1
-  off (reporter-confirmed).
+  one node, `{"multistream_overlap_shared_expert": true}` in `--additional-config`:
+  the reported `AttributeError`, confirmed to disappear with FLASHCOMM1 off
+  (reporter-confirmed). The reporter's own control also retires MTP and the
+  `patch_balance_schedule.py` EngineCore wrapper — the flag is the only variable,
+  which is why no ablation ladder is owed.
 
 ## Recheck
 

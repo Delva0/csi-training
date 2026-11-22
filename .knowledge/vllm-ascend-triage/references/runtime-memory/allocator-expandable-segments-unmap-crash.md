@@ -12,6 +12,13 @@ changes nothing there — reporter-confirmed on `#5707` with it set in the conta
 before launch (`kv-budget-per-instance-vs-device-global.md`). Do not read this page
 onto that symptom.
 
+**And a paste whose only crash text is `Fatal Python error: …` is not this page
+either**: `none_dealloc: deallocating None …` (or `_Py_NegativeRefcount`) is the
+interpreter aborting on a C extension's reference count, later in a run that had been
+serving for weeks — the value of this variable is irrelevant to it and the naming
+evidence is the block CPython prints under that line
+(`../hccl-and-hardware/cpython-fatal-error-abort.md`).
+
 The opposite verb is a **sibling, not a copy of this page**: a long-running engine
 that dies on `map:… aclrtMallocPhysical … 507899` with `halMemCreate … drvRetCode=17`
 (§*The map direction* below) has had an allocation fail, so the headroom arithmetic

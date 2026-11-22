@@ -395,7 +395,10 @@ does carry two environments (`npu-smi 24.1.rc3` / openEuler 5.10 versus
 turns, ~48 K characters of reasoning, 2.7 K characters of status lines, cut with
 an empty final message; much of it spent deciding whether `aclnnInplaceNormal` was
 a random-number defect while the paste's own async caveat and the
-`checkUceErrAndRepair` frame already said it was not.
+`checkUceErrAndRepair` frame already said it was not. A second session on the same
+paste had this file's own `#6275` entry in its turn-3 `references/` hit list and
+read two route pages instead: 16 assistant turns, 20 tool calls, cut inside ranked
+cause 1 (`SKILL.md` procedure step 2b).
 
 **#16079** vllm-ascend v0.26.0rc1 (`f2f74a16`) + vllm v0.26.0 (`568afb3a`), two
 nodes × (tp=8, dp=4) + EP, MTP/DFlash draft, 128 K prompts, `kimi-k2.7-Code`:

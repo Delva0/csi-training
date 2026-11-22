@@ -378,7 +378,11 @@ after that keeps the header, not this text.
   `--compilation-config`. It prints `ASYMMETRIC`/`SYMMETRIC` and the next lane;
   that the mismatch *hangs* is a hypothesis (close it with the identical-config
   rerun), and `VLLM_ASCEND_ENABLE_FUSED_MC2` is an A3-only switch
-  (`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` Step 1b). It also runs
+  (`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` Step 1b). Leave
+  `--num-spec` out when the launch carries no `--speculative-config`: the script then
+  assumes `num_speculative_tokens = 0` and **prints that assumption** above the decode
+  ceiling, because a `{"num_speculative_tokens": N}` in the serve line raises the axis
+  to `max_num_seqs × (1 + N)`. It also runs
   the **within-engine** half — the largest per-rank batch (`max_num_seqs ×
   (1 + num_spec)`, and `--max-num-batched-tokens`) against the same capacity — so a
   serve whose two commands are identical is not closed too early: some DP ranks can

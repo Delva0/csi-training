@@ -69,7 +69,19 @@ also being claimed. Verified at vllm-ascend **v0.23.0.post1** (`1cdb8c4db6e5`) +
    entry at this pin. So "the context row you are already serving (512K) is inside what your
    measured footprint supports, while 1M is a documented A3 / 950DT row and not an A2
    configuration at this pin" is the answer; the levers are the A3/950DT row, fewer
-   bytes/token (steps 3-5), or more cards — in that order.
+   bytes/token (steps 3-5), or more cards — in that order. **That statement is about
+   the tutorial's rows, so do not widen it into "1M is impossible on A2":** the corpus
+   carries an A2 **4×8 colocated** DS-V4.1-Flash-w8a8 launcher at
+   `--max-model-len 262144` with the engram keys and dspark 5 (`#16877`,
+   `../feature-enable-recipes/engram-offload.md` §*A field recipe*), and the A2 rows that
+   do ask for 1M appear only as failures — `#9187` (A2, 8-machine large-EP,
+   `--max-model-len 1048576`, the **D instance hangs** under 650 and under 250
+   concurrency) — while `#8746` is the same question asked as "can 8×910B4 32 GB hold
+   it on one node". Answer a 1M-on-A2 report as "the documented A2 rows are
+   133120/135000 (262144 only on the four-node colocated engram recipe), and a 1M A2
+   attempt is a known failure shape, not a supported row", and ask whether engram was
+   on before pricing the same `--max-model-len` — the offload moves both the per-rank
+   weight footprint and the KV capacity (`#16828`: ≈12.87 GiB/rank, ≈1.97× KV).
 7. **Do not offer `index_topk_freq` as a memory lever.** `use_index_cache` /
    `index_topk_freq` / `index_topk_pattern` decide whether a layer **reuses another layer's
    top-k** (`models/deepseek_v4.py:840-852` `skip_topk`, `patch/worker/patch_deepseek_v2.py:186-215`

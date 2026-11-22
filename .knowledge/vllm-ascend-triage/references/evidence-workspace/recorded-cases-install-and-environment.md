@@ -844,3 +844,27 @@ GDN class `qwen_gdn_linear_attn.py:420`) is replaced by the plugin on both SoC p
 themselves). Run: 15 tool rounds, text on 5 turns totalling ~1.5 K characters, verdict
 typed at turn 27 and then two more confirmation rounds — cut at the output cap on an
 empty final message. Rule and gates: `../code-change-requests/index.md` rule 10.
+
+**#6527** image `quay.io/ascend/vllm-ascend:v0.14.0rc1-310p` (arm64), vllm-ascend v0.14.0rc1
+(`52d4acfa51fb`) + vllm v0.14.1, 4×310P1 in one container (`--device davinci4..7`), Qwen3-Coder-30B-A3B,
+TP4: the body reads as **two** bugs — a `WARNING … Failed to import vllm_ascend_C:<…so: undefined
+symbol: _ZN9pp_matmul17GetPpMatmulTilingE…>. Sleep mode will be disabled.` line before the load, and
+then, after `Loading model weights took 14.2651 GB` on every rank, an `AttributeError: '_OpNamespace'
+'_C_ascend' object has no attribute 'moe_gating_top_k'` inside `determine_available_memory` →
+`profile_run`. They are one: the 310P branch of `CMakeLists.txt:85-93` drops
+`csrc/batch_matmul_transpose/op_host/tiling/tiling_data.cpp` (the only definition of
+`pp_matmul::GetPpMatmulTiling`) while `csrc/torch_binding.cpp:31,697-720,1400-1401` keeps including and
+registering the host `batch_matmul_transpose` whose header body calls it
+(`batch_matmul_transpose.h:100`), and `Dockerfile.310p:21` is what selects that branch — so the shipped
+`.so` has an unresolved symbol, `dlopen` refuses the whole module, and `_C_ascend` registers nothing. Both
+swallow sites are silent (`device_allocator/camem.py:55-72` only disables sleep mode;
+`utils.py:243-266 enable_custom_op()` only records False) and the consumer checks none of them
+(`ops/fused_moe/experts_selector.py:102-129` gates on scoring shape, so the `_native_select_experts`
+fallback at `:90` is unreachable). Second-order fact worth the reporter's time: at this pin 310P builds
+**no** custom aclnn op (`csrc/build_aclnn.sh:6-11 exit 0` for `^ascend310`) while the op dispatches through
+`EXEC_NPU_CMD(aclnnMoeGatingTopK, …)` (`torch_binding.cpp:1298`), so re-adding the missing TU restores the
+import at best — the fused gating path stays unavailable on 310P, consistent with `release_notes.md:9`
+("only basic dense and vl models … eager mode", #5776). The run got the chain right and said so, but wrote
+no message text until its 12th assistant turn (758 K prompt tokens over 13 turns): the library had no row
+for this signature, so the mechanism was re-derived from `CMakeLists.txt` and `torch_binding.cpp`.
+Route: `../image-dependency-faults/custom-op-extension-missing-from-image.md` Step 0 / Lane B.

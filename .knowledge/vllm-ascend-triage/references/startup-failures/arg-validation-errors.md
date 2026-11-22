@@ -91,8 +91,14 @@ Fix ladder for a dense model that wants PD + DP-style scale-out:
   `--port` and `engine_id`, prefill `kv_role=kv_producer` / decode
   `kv_consumer`, and balance outside with
   `examples/external_online_dp/dp_load_balance_proxy_server.py`. The
-  `kv_connector_extra_config` `dp_size`/`tp_size` then describe instances, not
-  vLLM ranks.
+  `kv_connector_extra_config` blocks are then checked **per instance**, not per
+  deployment: `check_kv_extra_config` compares each local role's block against
+  that engine's own `parallel_config` (`vllm-ascend` v0.21.0rc1
+  `vllm_ascend/utils.py:1306-1328`, called from `platform.py:440`), so a
+  dropped-DP instance needs `"dp_size": 1` beside `"tp_size": 2`; leaving `8`
+  raises the #8345 section's own text (`… conflicting data parallel size.
+  Expected 1, but got 8.`), and the keys cannot be deleted instead
+  (`mooncake_connector.py:1653-1664` asserts both are present).
 - **B (closest to the documented single-node recipe):** one instance per node,
   `--tensor-parallel-size 8`, node 0 prefill / node 1 decode.
 - **C (only if DP inside one vLLM is required):** internal DP —

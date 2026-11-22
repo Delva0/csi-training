@@ -58,6 +58,37 @@ Two texts, two owners, both on one card with several engines:
 Do not conflate them: `#8621` is the first row (a correct refusal), `#14274` and
 `#7308` are the second.
 
+### What to do with the first row's refusal (the "I commented out the check" reply)
+
+The check is upstream's own `request_memory()`
+(`vllm/v1/worker/utils.py:216-235` at vllm v0.17.0 `b31e932`) inlined into the
+Ascend worker (`worker.py:266-278` at v0.17.0rc1 `e20f0b1`), and the guard is
+called **unconditionally** — `vllm/v1/worker/gpu_worker.py:285` at that ref, with no
+`kv_cache_memory_bytes` gate — so at that ref `--kv-cache-memory-bytes` is not a way
+past it; re-read that call site at the reporter's ref before offering the flag as a
+bypass, because the v0.21+ startup text itself *suggests* a
+`--kv-cache-memory=<bytes>` value (`index.md`, `## Reading a v0.21+ startup memory
+block`). Deleting the guard is not a fix either: the
+Ascend KV budget is derived from `requested_memory` (`worker.py:362-363`:
+`available_kv_cache_memory_bytes = requested_memory − non_kv_cache_memory −
+non_torch_memory_cleared_by_empty_cache`), so the instance then tries to allocate the
+pool its ratio asked for out of memory that is not free, and the failure moves to the
+KV allocation or the first request with a worse message. Say both, then give the
+ratio sum (`../deploy-sizing/index.md`). Same ref, a second co-tenancy failure to
+expect during the attempt: `assert self.init_snapshot.free_memory > free_gpu_memory`
+(`worker.py:353-361`, "other processes sharing the same container release GPU memory
+while vLLM is profiling") fires when a neighbour frees memory inside this instance's
+profiling window.
+
+**Do not assert the earlier instances were holding their caps.** `gpu_memory_utilization`
+is a ceiling charged against `total`, and the guard only compares it with free HBM at
+that instant, so a paste's ratio list and its one free-memory figure need not
+reconcile (recorded #8621: `0.2 + 0.45 + 0.70` implies ≈82 GiB against a 60.96 GiB
+card, yet the fourth start reported 27.18 GiB free, i.e. ≈33.8 GiB held). Recompute
+per instance from its own `Available KV cache memory: X.XX GiB` line and the
+`npu-smi` of each card at that moment — or treat "not all of them are on this die" as
+open — instead of writing a contradiction into the answer.
+
 ### The first row without a co-tenant of yours: a shared die under a device plugin
 
 Recorded #9428 (vllm-ascend `v0.17.0rc1` `e20f0b1`, vllm `v0.17.0`, 910B4 64 GB, a K8s

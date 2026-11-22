@@ -34,6 +34,7 @@ startup memory lines, and the crash tail. Then:
 | HBM flat and near-full from the start; one extra allocation fails | capacity / transient peak | Step 2 |
 | HBM rises monotonically while request load is steady | growth (fragmentation or leak) | Step 3 |
 | Reporter believes graph mode / scheduler / offload is enabled | dead keys — verify before any memory theory | Step 4 |
+| HBM steps **up** during the first high-concurrency loop, then holds flat (idle samples equal, nothing rising) and the *next* loop of the same benchmark is what dies | per-batch high-water retention vs per-request retention — one concurrency sweep decides | Step 3b |
 
 ## Step 2 — capacity branch: the launch budget is the cause
 
@@ -85,6 +86,41 @@ startup memory lines, and the crash tail. Then:
   connector/offload, prefix cache, or a captured-graph path that keeps tensors.
   That distinction is what decides between "config" and "bug", so make the
   reporter state which number grows.
+
+## Step 3b — the amount that tracks concurrency, not request count
+
+A load generator produces a shape the two-sample rule reads wrong: usage jumps
+during the **first** loop, then holds flat, no allocation fails until the *next*
+identical loop, and the reporter's words are "测完不释放" rather than "持续增长".
+One experiment separates the two owners and it is cheaper than any source read:
+from a fresh start, replay a **fixed slice of the same dataset** twice — once at
+concurrency 1, once at the benchmark's concurrency — and read the number after each
+loop has finished and the server is idle (`npu-smi info`, or
+`torch_npu.npu.memory_reserved()` against `torch_npu.npu.memory_allocated()`, or the
+engine's own KV usage metric).
+
+- tracks **concurrency** and plateaus when the loop stops → per-batch high-water
+  retention: activations/workspace for the in-flight sequences (or a captured graph
+  pool) kept by the allocator as reserved bytes. Launch parameters bound it —
+  `--max-num-seqs`, `--max-num-batched-tokens` (Step 2's profile-peak arithmetic) —
+  plus the allocator env gate in Step 3.
+- tracks the number of **requests** at fixed concurrency → per-request retention
+  (encoder cache, prefix cache, KV connector/offload, a captured path holding
+  tensors). No launch parameter bounds it; the reserved-vs-requested split in
+  Step 3 then names which one it is.
+
+Recorded, and still open: #3198's reporter followed up on the same
+"显存占满，长期不释放，再压测就崩溃" thread (2025-10-28) with `vllm 0.11.0rc0` (their
+spelling — vllm vs vllm-ascend is not distinguished), **Qwen2.5-VL-32B, TP2,
+TextVQA, `concurrency: 128`, total prompt 512**: roughly **21 GiB held after the run
+and released by nothing**, and the next TextVQA loop drives the card to OOM. Three
+readings, none of which needs the source: the retained amount is reached while the
+total prompt is small, so it is not prompt-length KV; it survived a **release and a
+model change** from the original 0.10.2rc1 / 7B report, so a pin-specific finding (a
+dead `additional_config` key, one `--max-num-batched-tokens` value) is a secondary
+lever and belongs below the class split; and the reporter supplied neither the
+reserved/allocated split nor a `--max-num-seqs` sweep, so Step 3b *is* the missing
+measurement — ask for it rather than ranking a mechanism.
 
 ## Step 4 — `--additional-config` keys are silently ignored
 
@@ -182,7 +218,7 @@ deployment that value raises instead of helping —
 | #13185 | v0.13.0, Qwen3-VL-32B long run | a collective name in a late OOM (`HcclAllGather` alloc failure) is still the alloc site, not the collective |
 | #13248 | v0.23.0rc1, P/D w8a8c8 + MooncakeLayerwise | HBM abnormally high then P node exhausts; check connector/offload paths per side |
 | #13240 | P/D disaggregation | D node errors and the P node never frees KV → P node HBM exhausted while waiting; a peer-side lifecycle bug, not fragmentation |
-| #3198 | v0.10.2rc1, Qwen2.5-VL-7B, benchmark loops | the literal "显存占满，长期不释放，再压测就崩溃" phrasing that recurs in this family |
+| #3198 | v0.10.2rc1, Qwen2.5-VL-7B, benchmark loops; reporter follow-up on `vllm 0.11.0rc0`, Qwen2.5-VL-32B TP2, TextVQA `concurrency: 128` | the literal "显存占满，长期不释放，再压测就崩溃" phrasing that recurs in this family; ~21 GiB held after a 128-way loop, then OOM on the next loop — the class stayed open through a release and a model change (Step 3b) |
 | #2650 | v0.9.1, DeepSeek + torchair | long-run leak under graph mode; graph paths are a legitimate growth owner |
 
 These are title/body-level precedents: quote them as `#<id>: <one fact>`, never as

@@ -6,7 +6,8 @@ mixed decode+prefill batch faults. Routes: `../custom-ops-runtime-faults/index.m
 `../hccl-and-hardware/index.md`, `../dsa-sparse-attention/index.md`,
 `../mixed-batch-splits/index.md`.
 
-Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
+Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
+family carries one line
 per case in this file.
 
 **#15906** vllm-ascend v0.26.0rc1 (`f2f74a1`) + vllm v0.26.0 (`568afb3`), GLM-5.3-w8a8c8,

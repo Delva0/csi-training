@@ -173,7 +173,15 @@ non-fatal**: `.github/workflows/scripts/wheel/auto_exclude.py` has
 `liboptiling.so` in `BASE_EXCLUDES`, i.e. the wheel deliberately does not ship
 CANN's copy; the vendored opmaster `.so` resolves it only if CANN's directory is
 on the loader path. It prints "may cause missing functionality", never
-`EngineCore failed to start`. An ATB ABI mismatch in the same `collect_env` dump
+`EngineCore failed to start`. The `auto_exclude.py` half is **version-scoped —
+re-grep it**: at v0.19.1rc1 (`da421afad7`) `.github/workflows/scripts/wheel/` holds
+only `config.json`, `make_variant.py` and `pyproject.toml`, and `rg -n liboptiling`
+across the whole tree hits only `csrc/CMakeLists.txt`, `csrc/cmake/config.cmake` and
+the two `tools/install_flash_infer_attention_score_ops_*.sh` (`rm liboptiling.so`);
+when the exclusion is not in the reported tree, answer from the non-fatal call and
+never cite `auto_exclude.py`. A **build-tree** dangling
+`csrc/build/compat/liboptiling.so` (same name, different question) is
+`../image-dependency-faults/custom-op-build-stage.md` §Step 2b. An ATB ABI mismatch in the same `collect_env` dump
 (`ATB_HOME_PATH=…/cxx_abi_1` while `LD_LIBRARY_PATH` lists `…/cxx_abi_0/…`) is a
 separate candidate for a *later* failure; keep it out of the device-type answer
 (`../image-dependency-faults/abi-undefined-symbol.md`).

@@ -6,7 +6,8 @@ startup (a sleep-mode instance conflict, an MC2 collective at capture). Routes:
 `../startup-failures/index.md`, `../hccl-and-hardware/index.md`,
 `../runtime-memory/index.md`.
 
-Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
+Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
+family carries one line
 per case in this file. Cases whose owner is an image, package, SoC/version,
 capability or document question live in `recorded-cases-install-and-environment.md`.
 

@@ -135,7 +135,12 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   both sides' `torch`/`torch-npu`/`torchvision` pins, and the `--pre` /
   `--extra-index-url` lines the wheel metadata drops. Decide mirror-only pin vs
   unsatisfiable pin set vs unreachable index **before** any version survey
-  (`../image-dependency-faults/pip-index-visibility.md`, #1796, #4737). With **no pip
+  (`../image-dependency-faults/pip-index-visibility.md`, #1796, #4737). When the error is
+  the `Cannot install <a> and <b> … conflicting dependencies` one, the line under it decides
+  the owner: `pip subprocess to install build dependencies did not run successfully` →
+  `pyproject.toml [build-system] requires` resolved into an empty prefix, so the reporter's
+  installed torch/torch-npu is irrelevant and `--no-build-isolation` is rung 1 (§D, #446);
+  no build-deps subprocess → the `+cpu` local-label row (§C, #7089). With **no pip
   message pasted** — 「安装 vllm 0.9.1 提示卸载 torch 2.5.1 装 2.7.x」 on a box whose CANN and
   torch came preinstalled, then vllm-ascend "could not find torch 2.5.1" (#1363) — the same
   script plus the release's pairing row decide it, and the rung is vllm from source with

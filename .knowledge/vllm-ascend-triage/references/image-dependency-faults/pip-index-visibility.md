@@ -1,7 +1,7 @@
 # "No matching distribution": the requirement exists but no index pip can see serves it
 
 Scope: the report is a **pip resolution error about a requirement**, and nothing has
-crashed yet. Two faces of one decision:
+crashed yet. Four faces of one decision:
 
 - **install time, from the published wheel** — `pip install vllm-ascend==<ver>` ends in
   `ERROR: Could not find a version that satisfies the requirement
@@ -16,6 +16,12 @@ crashed yet. Two faces of one decision:
   `vllm==<ver>` "prompts you to uninstall torch 2.5.1 and reinstall version 2.7.X", after
   which the vllm-ascend install "reports that torch 2.5.1 could not be found" (#1363) —
   same defect, paraphrase instead of a message: §A0.
+- **`ERROR: Cannot install <a> and <b> … conflicting dependencies` from the
+  build-dependency subprocess**, ending `× pip subprocess to install build dependencies
+  did not run successfully` under `/tmp/pip-build-env-*/` — same words as §C, different
+  owner: the conflicting pins are `pyproject.toml`'s `[build-system] requires`, resolved
+  into an empty prefix, so the reporter's installed torch pair cannot satisfy them and the
+  `+cpu` index ladder of §C is spent: **§D**.
 
 The sibling shape — the same two-command install ending in pip's *warning* block
 rather than an error — is `pip-resolver-warning-block.md`; it owns the "nothing
@@ -277,6 +283,77 @@ Probe it instead of asserting it:
 packaging` needs the network, which is closed; the script falls back to
 `pip._vendor.packaging`, which is installed.
 
+## D. The same words from the build-dependency subprocess — `[build-system] requires`
+
+Recorded: **#446**, `[Installation]: why v0.7.3rc2 install failed, but v0.7.3rc1 install
+successful ?` — `pip install vllm-ascend==0.7.3rc2 -i <internal mirror>`, vllm-ascend
+`v0.7.3rc2` (`00459ae`). Two screenshots, no text; the failing one ends
+
+```
+INFO: pip is looking at multiple versions of torch-npu to determine which version is
+compatible with other requirements. This could take a while.
+ERROR: Cannot install torch-npu==2.5.1rc1 and torch>=2.5.1 because these package versions
+have conflicting dependencies.
+    The user requested torch>=2.5.1
+    torch-npu 2.5.1rc1 depends on torch==2.5.1+cpu
+× pip subprocess to install build dependencies did not run successfully.
+```
+
+The tell is the last line plus the `/tmp/pip-build-env-*/` paths above it. Three reads
+settle it at this ref:
+
+| Read | What it settles |
+|---|---|
+| `pyproject.toml:3-13` | `requires = [… "torch_npu >= 2.5.1rc1" (:11), "torch >= 2.5.1" (:12)]` — the torch pair lives **only** here |
+| `requirements.txt` (6 lines, no torch) + `setup.py:308,318,361` | `install_requires` carries **no** torch line, so a **wheel** install resolves nothing torch-shaped; this fails only on the **sdist** path. Both rcs arrived as `vllm-ascend-0.7.3rcN.tar.gz` on that mirror, which is why the box ever ran a build-deps step |
+| the two rcs' own build-deps logs | rc1's list is `Requirement already satisfied: decorator / pyyaml / scipy / setuptools`, `Collecting setuptools-scm`, then `numpy` / `packaging` from those — **no torch line**, so rc1's build requires never named torch. That is the answer to "why did rc1 install": the release moved the torch pair into the build requirements, not the runtime ones. Tags cannot be diffed here (`one_commit_git`), so the reporter's two pastes *are* the control |
+
+**Build requirements are resolved into an empty prefix, so the reporter's `pip list` can
+never satisfy them.** pip installs them with `--no-user --no-warn-script-location
+--disable-pip-version-check --no-compile --prefix <tmp>` (plus `--ignore-installed` when the
+prefix is not a venv) and forwards the finder flags — `-i`, then one `--extra-index-url`
+per extra index, `--find-links`, `--trusted-host`, `--cert` (`pip/_internal/build_env/installer.py:104-131`;
+read it with `python -c "import pip,os;print(os.path.dirname(pip.__file__))"`, which works
+where `import packaging` does not; verified at pip 26.2.1 — the reporter's version is not in
+the paste, so re-check on theirs). Two consequences: an env dump showing `torch 2.5.1+cpu`
+**and** `torch-npu 2.5.1rc1` installed says nothing about this error (#446's later comments
+are exactly that pair — "torch 2.5.1 and torch 2.5.1+cpu both don't work" — so the version
+axis is spent), and `--extra-index` is an accepted abbreviation of `--extra-index-url`
+(pip long-option prefix matching; the tree's own `installation.md:131` and `pta_install.sh:12`
+write it that way), so never blame the flag's spelling.
+
+**Then read the build floor against the release's own torch_npu, because that is what forces
+the `+cpu` dependency.** The same tag's table says `torch-npu | >= 2.5.1.dev20250320`
+(`docs/source/installation.md:15`) and its release note bumps to `dev20250320.3`
+(`user_guide/release_notes.md:15`, PR #406), while the build floor is `torch_npu >=
+2.5.1rc1` — and a dev build is *below* rc1: `2.5.1.dev20250320` fails `>=2.5.1rc1`
+(`scripts/pep440-local-check.py '>=2.5.1rc1' '>=2.5.1' --candidates
+2.5.1.dev20250320,2.5.1rc1,2.5.1,2.5.1+cpu`). The build env therefore cannot use the wheel
+the release documents; it is pushed onto released `2.5.1rc1`, whose x86_64 wheel pins
+`torch==2.5.1+cpu` — a local label only `download.pytorch.org/whl/cpu` serves (§C; the tree
+passes that index for the same wheel at `pta_install.sh:12`). The doc-versus-metadata drift
+is the defect; the internal mirror is only where it surfaced.
+
+Ladder:
+
+1. `pip install vllm-ascend==<ver> --no-build-isolation` — the host already carries the pair,
+   and at v0.7.3rc2 the build needs nothing from torch when the custom ops are off
+   (`setup.py:289-291`: `ext_modules` is appended only `if envs.COMPILE_CUSTOM_KERNELS is not
+   None`, and the release note says compilation is disabled by default). One line, and it
+   also answers the literal "why rc1 and not rc2".
+2. Keep isolation and *prove* the index reached the subprocess: `pip install -v` prints the
+   build-deps command, which must carry `-i <mirror> --extra-index-url
+   https://download.pytorch.org/whl/cpu/`; `PIP_EXTRA_INDEX_URL` is the env form. If the
+   flag is there and the conflict persists, ask for that command line plus the candidate
+   versions pip lists, instead of adding a third torch pin.
+3. A release whose build requires do not name torch (rc1 here), a **wheel** rather than the
+   sdist (`--only-binary vllm-ascend`), or the release's image.
+
+Open: the reporter's `pip --version` (arg forwarding is version-dependent), whether their
+internal mirror proxies `download.pytorch.org` (a different host, so the CPU index has to be
+named explicitly, which the first command did not do), and the full `pip install -v`
+build-deps command.
+
 ## Common rules
 
 1. **One command per claim, and the claim is the verdict.** These reports are two
@@ -358,6 +435,19 @@ packaging` needs the network, which is closed; the script falls back to
   message is exactly `No matching distribution found for pandas`. Put the
   `pip config list` / unreachable-index check in the opening paragraph when the
   deployment is described as offline.
+
+- **#446** (v0.7.3rc2 `00459ae` + vllm v0.7.3; `[Installation]`, two screenshots, the
+  rc1 one a success log and the rc2 one the build-deps conflict): 580 K cumulative prompt
+  tokens — most of it the ~100 KB skill body re-sent on each of its 15 later turns — and a
+  reasoning allowance spent whole, **every assistant message a bare tool call and no
+  message text at all** — the §D facts were in hand by the last turn
+  (`pyproject.toml:11-12`, `requirements.txt`, the release-note floor). Two openings were
+  missed: the page was read as `sed -n '1,140p'`, so §C/§D never entered context, and the
+  fix was re-derived by hand instead of by the two commands above. The remaining turns went
+  on PEP 440 semantics (`import packaging` and `uv --with packaging` both fail with the
+  network closed — use `scripts/pep440-local-check.py`) and on pip's build-env internals,
+  which the *installed* pip answers in one grep and which no local tree can settle for the
+  reporter's version. Verdict first, one rung, then stop.
 
 ## Not verified
 

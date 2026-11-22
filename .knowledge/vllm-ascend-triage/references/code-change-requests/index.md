@@ -83,3 +83,31 @@ page (`../tutorial-verification/index.md`).
    a null-optional read in the op, so ranking it as the cheapest rung overstates it.
    Worked case, with the reference-implementation layout trap:
    `../custom-ops-runtime-faults/fla-chunk-varlen-null-chunk-offsets.md`.
+10. **"This branch can never run" is a three-gate verdict, and the gates decide fix vs
+   delete.** Recorded #18743 (vllm-ascend `v0.23.0` = `5cb98caa`): the report is that the
+   no-Triton fallback in `patch/worker/patch_triton.py` cannot be installed because its
+   inner guard is the opposite of the importer's. Gate 1 — **guard polarity at one
+   source**: `patch/worker/__init__.py:33-34` imports the module only `if HAS_TRITON:`
+   while the block opens `if not HAS_TRITON:` (`patch_triton.py:25`), one constant from
+   `vllm.triton_utils`, so the two states are complementary and
+   `rg -n 'patch_triton'` proves `:34`/`:37` are the only importers. Say which part is
+   dead: the module's earlier lines still run under `HAS_TRITON` (`:15-20`), so the
+   finding is a dead *block*, not a dead module. Gate 2 — **binding
+   target, read from the consumer**: in that same block `fla.ops.fused_post_conv_prep`
+   is written on the **package** (`:66`) but
+   `fla.ops.fused_recurrent.…_packed_decode` on the **submodule** (`:124`), and
+   `qwen_gdn_linear_attn.py` from-imports both from the package, so the submodule write
+   never reaches it — while `:15`'s submodule write to
+   `fused_recurrent_…_fwd_kernel` *is* correct, because its consumer dereferences the
+   name inside `fused_recurrent.py`'s own body. A write is only "wrong" relative to the
+   consumer's binding (`../upstream-downstream-drift/stale-module-binding.md`). Gate 3 —
+   **call-site survival on every SoC path**: force the block live and ask which call
+   sites remain. At that pin `fused_post_conv_prep`/`…_packed_decode` are reached only
+   from `_warmup_prefill_kernels`, `_forward_core` and `_forward_core_decode_non_spec`
+   of the single upstream GDN class (`qwen_gdn_linear_attn.py:420`), and the plugin
+   replaces all three on **both** paths — `patch_qwen3_5.py:197-209` (else-branch
+   `forward`/`_forward_core`/`_warmup_prefill_kernels`) and `patch_idex_310.py:31`
+   (warmup no-op'd) + `:34` (`_forward_core` swapped to the 310 variant). Only gate 3
+   upgrades "statically unreachable" to "semantically dead"; without it the honest
+   verdict is "fix the guard, then re-evaluate", and "delete the fallback, Ascend covers
+   GDN" overstates it.

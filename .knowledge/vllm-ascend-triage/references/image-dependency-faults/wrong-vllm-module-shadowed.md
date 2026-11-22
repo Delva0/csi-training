@@ -52,6 +52,22 @@ install. Same host family in the corpus — #541 (a day after #540, same box)
 resolved upstream `vllm` from a `/workspace/vllm` checkout while `vllm_ascend`
 came from `site-packages` (`plugin-load-module-missing.md`, candidate 2).
 
+**A `/vllm-workspace/vllm/vllm/…` frame is not this signature by itself.** The
+official images `git clone` vllm into `/vllm-workspace/vllm` and `pip install -e` it
+(`Dockerfile:41,43` at vllm-ascend v0.9.1 `0740d102`), so every ordinary traceback
+from those images carries that path — #527's home-directory tree was a finding
+precisely because that is *not* where an image installs vllm. #2809's follow-up
+(`ImportError: cannot import name 'SamplingParams' from 'vllm' (unknown location)`,
+every frame under `/vllm-workspace/vllm/vllm/`, the script started from
+`/workspace/code`, `example.py` still on the tutorial's `from vllm import LLM,
+SamplingParams`) is therefore **undecided by the path alone**: keep the step-1 probe
+as the decider. One fact the paste does give for free — the frame it names,
+`vllm/v1/sample/logits_processor/interface.py:11`, does **not** exist in vllm v0.9.1
+(`b6553be`; `vllm/v1/sample/logits_processor/` is absent from that tree), so the
+image's vllm is newer than the tag's own pair. Ask for `python -c "import vllm;
+print(vllm.__version__, vllm.__file__)"` plus `pip show vllm`, and do not quote a
+pinned line number for that frame.
+
 ## Steps, in order
 
 1. One line, in the reporter's shell **and** launch directory:

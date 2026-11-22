@@ -68,6 +68,61 @@ the faulting card is still unknown.
   as a hardware problem and cross-checked `0x81a3880c` against the vendor health
   management fault definitions.
 
+## Device lost / heartbeat lost (`507010`)
+
+Signature in the container log: `RuntimeError: ... aclrtLaunchKernelWithHostArgs
+failed ... error code is 507010` (or `ACL_ERROR_RT_LOST_HEARTBEAT`), `npu-smi info`
+shows one chip `Critical`, `ping` to the host is fine and the host never rebooted. The
+title is usually 「设备失联 / Device Lost / Heartbeat Lost」, often with a second
+「共享内存不足」 complaint.
+
+- `507010 = ACL_ERROR_RT_LOST_HEARTBEAT` "ts lost heartbeat"
+  (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h:92`, vendor row
+  `cann/runtime/docs/api_docs/aclError.md:163` whose action is 收集日志并联系技术支持). It
+  is a **runtime/device** code, not an `HcclResult` enum: no vllm-ascend branch mints it,
+  and no source read turns it into a software cause. Look it up, do not recall it —
+  `bash <skill_root>/scripts/cann-error-lookup.sh 507010 507011 107030`.
+- One read decides the owner: the **host `dmesg`**. The driver names the dying die before
+  the container reports anything (`receive ts exception message from device(N)`,
+  `device(N) is not working`, `ts is down`, then `hdcdrv_*`/mailbox callbacks suppressed).
+  `asys health -d=N` / `asys collect` on that id is the reporter-side confirmation.
+- The `No available shared memory broadcast block found in 60 seconds` line is the
+  EngineCore ringbuffer watchdog waiting on the worker that stopped stepping — a
+  *consequence* of the lost device, never a `/dev/shm` sizing problem, so `--shm-size`
+  is not a rung (`rpc-watchdog-timeouts.md`; `error-report-timestamps.md`).
+- Rank, and say it in that order: (1) the device/TS failure on that die — hardware
+  escalation with the dmesg block and per-device health; (2) driver/HDK vs the image's own
+  CANN base (host `cat /usr/local/Ascend/driver/version.info` against
+  `rg -n 'FROM ' Dockerfile*` at the reported tag); (3) an older tag (the version rung).
+  A lost-heartbeat code is not repaired by (2) or (3) alone, so do not let a
+  version-looking paste demote (1) — see the case below, where (1) was the answer.
+
+## Recorded case (#11171, 310P1, image v0.14.0rc1-310p-openeuler)
+
+Two 310P1 dies, Kunpeng 920S host, `CANN 8.1.RC1`, Qwen2.5-7B, TP=2, `--enforce-eager`;
+the engine served for ~4 minutes, then device 1 lost heartbeat mid-decode and the
+second start died in the shared-memory watchdog.
+
+- Container log: `507010` on device 1 (`aclrtLaunchKernelWithHostArgs`), plus
+  `Failed to register custom ops, all custom ops will be disabled` (a caught
+  `ImportError`, still a to-check item — `python -c "import vllm_ascend.vllm_ascend_C"`),
+  `Set PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` (the deploy script exports
+  `PYTORCH_NPU_ALLOC_CONF` twice, so the second value won and vllm-ascend's
+  `expandable_segments` default never applied), and no `vllm_ascend` frame at the fault.
+- Host `dmesg`: `receive ts exception message from device(1)` → `device(1) is not
+  working` / `ts is down` → mailbox noise; `npu-smi` marked that die `Critical`. The
+  boot-time `[vascend_drv] hw_get_vdavinci_type ... can not find any match device, device
+  id: 0xd500` / `Failed to init vdavinci types, ret: -524` is a driver table miss printed
+  before any engine started and both dies served afterwards — context, not the fault, so
+  do not build the answer on it.
+- The pairing was genuinely off — image base `quay.io/ascend/cann:8.5.0-310p-...`
+  (`Dockerfile.310p:18` at v0.14.0rc1 `52d4acfa`, `SOC_VERSION="ascend310p1"` `:21`)
+  against host driver `24.1.t52.b060` — and the
+  maintainer's first reply asked for a ≥0.18.0 image and a driver/CANN check.
+  **The outcome was neither**: the reporter closed it as 目前定位为硬件问题 (2026-07-02),
+  i.e. rank 1 above. Offer (2) and (3) as rungs, but keep the device verdict first and
+  say plainly that no vllm-ascend code path is implicated.
+
 ## Operational notes
 
 - `HCCS_PORT` errors are intra-node NPU-to-NPU links: single-card work can pass

@@ -55,6 +55,55 @@ string as a format mismatch. Patch 7a
 unrelated terminal-chunk split backported from upstream #44098/#44099
 (downstream #8327/#8178) and only matters when the *tail* is wrong.
 
+## Before v0.23 the same region raises instead of printing `{}`
+
+Verified at vllm **v0.14.1** (`d7de043d55d1`, the pair of vllm-ascend v0.14.0rc1
+`52d4acfa51fb`); recorded #6765 (GLM-4.7, `quay.io/ascend/vllm-ascend:v0.14.0rc1`).
+A complete region with no `<arg_key>` pair does not yield `{}` at that pin — it
+aborts the whole extraction:
+
+```
+ERROR [glm4_moe_tool_parser.py:122] Failed to extract tool call spec
+  File ".../vllm/tool_parsers/glm4_moe_tool_parser.py", line 104, in extract_tool_calls
+    pairs = self.func_arg_regex.findall(tc_args)
+TypeError: expected string or buffer
+WARNING [glm4_moe_tool_parser.py:171] Failed to extract any tool calls.
+```
+
+- `glm47_moe_tool_parser.py:17-19` recompiles
+  `func_detail_regex = r"<tool_call>(.*?)(<arg_key>.*?)?</tool_call>"`, so group 2
+  is **optional**: a region without `<arg_key>` leaves `group(2) is None`, and
+  `glm4_moe_tool_parser.py:117-118` hands that `None` to `findall`.
+- **The exception *type* names the parser, so the frame alone misleads.** `tc_args`
+  can only be `None` through the subclass's optional group: `glm45`'s own regex
+  (`glm4_moe_tool_parser.py:43-45`) is `<tool_call>([^\n]*)\n(.*)</tool_call>`, whose
+  group 2 always participates — a region it cannot match raises
+  `AttributeError: 'NoneType' object has no attribute 'group'` at `:117`, never a
+  `TypeError` at `:118`. A `TypeError` therefore proves `glm47` ran even when the
+  serve line (or the file in the frame) says otherwise. Both forms reproduce without
+  a GPU from the two regexes: `<tool_call>f</tool_call>` and
+  `<tool_call>f\n{"a":1}</tool_call>` give `group(2) → None`, while
+  `<tool_call>f<arg_key>a</arg_key><arg_value>1</arg_value></tool_call>` gives
+  `[('a','1')]`. `regex` words the failure `expected string or buffer`, stdlib `re`
+  words it `expected string or bytes-like object, got 'NoneType'`; vLLM imports
+  `regex as re`, so the reporter's wording is a second fingerprint of the pin.
+- The `except Exception` is **outside** the per-region loop (`:136-140`), so one
+  argument-less call discards *every* tool call in that reply: non-streaming returns
+  `content=model_output` with `tools_called=False`, the streaming path returns
+  `None` (`:186-187`) — hence an empty assistant turn, and a rate that looks
+  sporadic on a mixed toolset.
+- No downstream rescue at that pair: `vllm_ascend/patch/platform/` holds only
+  balance_schedule, distributed, ec_connector, mamba_config, multiproc_executor and
+  sched_yield, so the `patch_glm*` backports do not exist yet — owner is upstream.
+- Ladder: raw `model_output` (`VLLM_LOGGING_LEVEL=DEBUG` or `return_token_ids: true`)
+  → the serve line's parser name → an in-place guard (`findall(tc_args or "")`, or
+  make group 2 non-optional) **with the acceptance check that the request now
+  returns the intended `name` and `arguments`, not merely no traceback** → the newer
+  image whose parser carries the region refactor (this page's v0.23.0 form, where
+  the same situation prints `{}`). Line numbers belong to their pin: the reporter's
+  `:104`/`:122` sit 14 lines above v0.14.1's `:118`/`:137`, so ask for `pip show vllm`
+  or the image's `VLLM_TAG` before quoting anchors back.
+
 ## One-request discriminator
 
 Re-send the identical body with `stream: false` and read the same two fields:

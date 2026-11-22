@@ -143,7 +143,7 @@ this page) and its rope override answers a different question
 (`310p-vl-ocr-garbage-output.md` §4), so "MRoPE is unpatched" is a version fact,
 not a permanent one — re-grep before reusing this block.
 
-### One release earlier the lane does not exist at all: v0.9.0rc2 has no 310P
+### One release later the lane still does not exist: v0.9.0rc2 has no 310P
 
 Verified at vllm-ascend **v0.9.0rc2** (`8dd686d`) + vllm **v0.9.0** (`5873877`), recorded
 for #1609 (Atlas 300I Duo, `qwen2.5-vl-7b`, no log, answered at its 9th assistant turn).
@@ -172,6 +172,70 @@ Do not promise that the upgrade fixes it. **#1383** on the first `-310p` release
 found in this op store`. When the paste carries a card table, take capacity from it —
 **#1141**'s `npu-smi` shows `310P3` ×4 at `1460 / 44280 MB` per die — and label it a
 reporter run, never a datasheet.
+
+### The first official release has no 310P lane either: v0.7.3 (`-310p` starts at v0.9.1rc1)
+
+Verified at vllm-ascend **v0.7.3** (`779eebb8021e`, the first official release) + vllm
+v0.7.3 (`ed6e9075d31e`), recorded for #1500: a reporter who **moved a working 910B2
+install onto a 310P card** (torch/torch-npu 2.5.1, CANN 8.0.0) and whose `profile_run`
+died in `torch_npu._npu_rotary_embedding` with a bare `RuntimeError: setup failed!`
+beside `mki_log log dir:/root/atb/log exist`. The paste routes itself: the deepest
+frames are `torch_npu/op_plugin/atb/_atb_ops.py:62` → `getattr(torch.ops.atb, api_name)`,
+so on torch-npu 2.5.1 `_npu_rotary_embedding` *is* an ATB op and the bare
+`setup failed!` is ATB's host-side `Setup()` refusal — **not** the
+`../custom-ops-runtime-faults/setup-failed-call-site.md` shape, where the deepest
+`vllm_ascend` frame's own mask/size argument owns it. Four one-line checks place the
+lane:
+
+| Check at `779eebb8` | Result |
+|---|---|
+| `rg -c -i '310' vllm_ascend/` | **no hit** — no `is_310p()`, no `_310p/`, so the rope path is the 910B one (`ops/rotary_embedding.py:44` is `torch_npu._npu_rotary_embedding`, reached because `cos_sin_cache.shape[-1] == head_size`) |
+| `ls Dockerfile*` | `Dockerfile`, `Dockerfile.openEuler` — no `Dockerfile.310p` |
+| `docs/source/tutorials/` | `index, multi_node, multi_npu, single_npu, single_npu_multimodal` — no `single_node_300i.md` (first at v0.9.1rc1) |
+| `docs/source/faqs.md:14-20` | "Currently, **ONLY Atlas A2 series** … are supported"; "Below series are NOT supported yet: Atlas 300I Duo、Atlas 300I Pro (Ascend-cann-kernels-310p) might be supported on 2025.Q2"; `installation.md:15,87` fetches `Ascend-cann-kernels-910b_8.1.RC1` |
+
+The project's own answer for that issue was one sentence — "vLLM 0.7.3 haven't
+provided the support for Altlas 300I series, pls try: `v0.9.1rc1-310p`" plus the 300I
+tutorial link (maintainer, 2025-06-28, quoted in the reporter's follow-up). **So this
+is rung 1, not a ranked hypothesis**: on a pin with no 310P code the op-level
+mechanisms ("bf16 has no AICore path", "ATB refuses the shape") are untestable on the
+reporter's box *and* on ours, so they belong in the probes, below the image move. The
+recorded session ranked the bf16/dtype theory first (evidence: a `config.json` dtype
+read plus the 310P3 precedent `#641`) and put the `-310p` image **4th of 4** rungs,
+after a monkeypatch probe the reporter never needed. The generic `v0.9.1` tag is the
+same shape and got the same sentence on #2809 ("v0.9.1 does not support 310p, please
+use the latest version") for a `_C.rotary_embedding … no fake impl or Meta kernel`
+crash during `profile_run` — that fake-tensor mechanism is a **910B** recording
+(`#1895`, 4×910B3) and does not transfer to a tag with no 310P lane.
+
+Read the tag, then the traceback: `-310p` in the image name (or `_310p/` in the tree)
+*is* the lane. Without it the verdict is the version — and say in the same message
+what the move will expose, because that is already recorded: the reporter who took
+the advice landed on the `TransData`/`EZ3002` refusal below, from a **different Python
+frame** (`npu_format_cast` in the attention metadata builder) on the same
+Qwen2-0.5B and a bf16 checkpoint.
+
+That verdict is one grep at this pin — `rg -ni '310p|300i' .` returns
+`docs/source/faqs.md:14-20` and nothing else, so no gate, fallback or allocator
+prescription from a v0.9+ page applies here. Recorded #1993 (Atlas 300I Duo,
+vllm-ascend v0.7.3 + vllm v0.7.3, offline `LLM(model="./models/qwen2.5-vl-3")`,
+no `--max-model-len`) reached the allocator, the `camem` pool and `profile_run` over
+15 assistant turns and ~45 K characters of reasoning, and shipped **41 characters**
+of message text — while its answer was two reads: that faqs block plus
+`docs/source/tutorials/single_npu_multimodal.md:168,171-173`, whose Qwen2.5-VL serve
+line is `--dtype bfloat16 --max_model_len 16384 --max-num-batched-tokens 16384` with
+the note that a VL model's 128 K default context is "larger than the maximum number
+of tokens that can be stored in KV cache". Its allocator line is inert as well: it
+sets `PYTORCH_CUDA_ALLOC_CONF` to `max_split_size_mb:40960`, while the tree
+prescribes `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` (`:43-44`, `faqs.md:119`)
+— the CUDA-named variable is read only at `device_allocator/camem.py:155`, which
+merely asserts `expandable_segments:True` is absent and is reachable only in sleep
+mode.
+
+Say what comes next instead of "then it will work": that reporter's September
+follow-up on a source build is the KV-init format-cast allocation failure (`EL0004`
++ `507013` + SMMU Terminate), so the platform verdict ships with that page's
+pool-shrink ladder — `../runtime-memory/kv-init-and-format-cast-alloc.md`.
 
 ## An image that carries triton-ascend cannot import the worker at all
 
@@ -612,6 +676,27 @@ is different text — `EZ9999 … Parse dynamic kernel config fail` /
 `AclOpKernelInit failed opType` / `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed` →
 `kernel-package-vs-card.md`. The `aicpu … groups should be greater than 1` line is the
 CPU fallback's own complaint about the same node: a red herring, not a second cause.
+
+**The frame moves; the lane does not.** #1500's follow-up on the image this page
+recommends (`v0.9.1rc1-310p`, Qwen2-0.5B, V0 engine, one card) pastes the same four
+lines out of the attention-metadata builder instead of rope —
+`vllm_ascend/attention/attention.py:664  mask_nz = torch_npu.npu_format_cast(` →
+`RuntimeError: … OPS function error: Identity, error code is 500002` → `EZ3002
+[TransData] … is unsupported`, under `determine_num_available_blocks → profile_run →
+prepare_model_input → attn_metadata_builder.build`, with `Loading model weights took
+0.9394 GB` above it. Do not re-triage that as a new cause, and do not try to verify
+the frame in a release tree: v0.9.1 final carries no `npu_format_cast` under
+`attention/` (`rg -n npu_format_cast vllm_ascend/` → `worker/worker.py:350-355`, the
+quantization loaders, one commented line at `model_runner_v1.py:2068`, at
+`0740d102`), so that path belongs to the rc/`-310p` build and the paste is the
+citation. Two lines in it pick the next action and neither is `--enforce-eager`:
+`Compilation disabled, using eager mode by default` is already printed (vllm v0.9.1
+defaults `compilation_config.level` to `0` = `NO_COMPILATION` at `config.py:3870` and
+only the V1 branch raises it to `PIECEWISE`, `:4445`; the same paste's engine is V0,
+so its `enforce_eager=False` is not a finding), while the engine line reads
+`dtype=torch.bfloat16` — the tutorial's
+`dtype="float16"` is the line the reporter dropped, i.e. cause 1 in the table below,
+one frame later.
 
 Why bf16 is cause 1 at this pin (all citable):
 

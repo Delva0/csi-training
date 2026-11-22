@@ -38,219 +38,31 @@ a *document review*, a *capability verdict* or a *change plan* instead of a root
 cause, but the same rules apply — answer first, evidence pinned to the reported
 version, gaps stated.
 
-- **Issue report** (template-shaped: environment dump + logs + narrative) about
-  something that went wrong on an Ascend NPU host — a device-side operator crash, an
-  accuracy/score gap, garbled or truncated output, a long-run OOM, a container metric
-  that climbs for days, a performance claim, a flag or endpoint that does nothing, or
-  a `python -c "import <pkg>"` that aborts in a shipped library. When the task is only
-  "explain/answer this issue", the answer is still evidentiary, not a summary.
-- **Install / pip-resolution report**: no engine, no worker, no NPU traceback — two
-  `pip install` lines and what they printed (`Could not find a version that
-  satisfies the requirement …`, `No matching distribution found for <pkg>`,
-  "unmatched torch version between vllm=X and vllm-ascend=Y", an `ImportError:
-  Please install vllm[bench] …` inside a shipped image), or an install that finished
-  and only **warned** (`requires torch==2.10.0`). The deliverable is *which* artefact
-  pip could not see — a mirror-only pin the metadata cannot carry, an unsatisfiable
-  torch/torch-npu/torchvision set, an air-gapped container with no reachable index —
-  never a release survey — `references/image-dependency-faults/pip-index-visibility.md`
-  and `pip-resolver-warning-block.md`.
-- **Deployment failure**: engine start or a running worker fails — `EngineCore failed
-  to start`, `WorkerProc initialization failed`, silent worker death, allreduce /
-  `ERR01100` / `ERR00100`, OOM, "the model failed to load", an `AttributeError` /
-  `TypeError` from a patched forward or a KV connector, or a `ValueError` from
-  upstream `arg_utils` rejecting the parallel/DP flags.
-- **Support / version question**: "does vllm-ascend <version> deploy <model>?" — a
-  version gate with a one-line answer and a registry-level proof, not a bug hunt.
-  When the follow-up is "支持计划是什么样的 / when will F work for M on my SoC", answer
-  in three separate levels — the base model family at that SoC (release-note line,
-  support-matrix row, the SoC fallback `TODO` that bounds it), whether the *feature's*
-  code branch exists (one grep), and whether anything covers the combination (tests,
-  tutorials) — then the prerequisites and the grep whose result would change the answer,
-  and no date (`references/feature-enable-recipes/index.md` item 9).
-- **Feature-enable / capability question**: "如何正确开启 <feature>", "F 单独开均有不同的
-  报错，能否给出能跑通的示例", "does F work on model M on this SoC", usually with no log
-  and two errors in prose. The deliverable is the validation verdict at the reported
-  ref plus the constraints the code enforces, not a launcher assembled from them —
-  `references/feature-enable-recipes/index.md`.
-- **PD / EPD disaggregation**: the deployment is up but P and D cannot move KV
-  (`HIXL Connect failed | 103900`, HCCL `RanktableCheck` / `'device_ip' is not set
-  correctly`, `wait_for_save failed`, `Failed to put N keys out of N`, a recipe that
-  needs `hostNetwork: true`), or KV moves and the decode node emits wrong/alternating
-  output on a hybrid linear-attention model (GDN/Mamba — but a **DSA/MLA** model such
-  as GLM-5.2 that repeats one phrase to the token cap is a recipe-contract question
-  first: `references/pd-disaggregation/recipe-contract-diff.md`), or a KV pool is attached and the *first*
-  transfer fails (`503900` / `HcclCommPrepare ret: 0x13`, the pool's
-  `global_segment_size` the cause), or the put never lands (`HcclBatchPut,
-  hccl_result = 4`, `PutEnd` 0), or the decoder never receives the request
-  (`proxy通信超时`) — an endpoint-count question before any connector read; transport
-  identity and rank tables are a topology question, a pool deployment a config
-  question — `references/pd-disaggregation/index.md`.
-  If instead a `LLMDataDistCMgrConnector` deployment **starts and then loops forever** on
-  `INFO … Checking query_register_mem_status again` once a second (the decode worker has
-  already printed `try link with remote`, the rank table, `comm name` and `cluster rank
-  info`, so the handshake and the local memory registration worked): that wait is the
-  connector's own `while True` with no timeout, and the field to read in the printed table
-  is `server_count` — `"2"` for two engines on **one** machine in two container-network
-  namespaces, because their `get_ip()`s differ, so the datapath required is cross-server
-  RoCE over `device_ip` from inside a container; **relaunch both containers with
-  `--net=host` (`hostNetwork: true`) and `server_count` becomes `"1"`** — reporter-confirmed
-  #2498, a CANN limitation. Both sides' `ranktable` / `cluster_rank_info` / `comm name` must
-  first be printed and compared (any difference is a config cause); cross-machine with
-  matching values is the NPU NIC / after-sales rung —
-  `references/pd-disaggregation/llmdatadist-register-mem-loop.md`.
-  When the transport lines are Mooncake's (`ascend_direct_transport.cpp:820 Failed to
-  connect to target … 103900`, `mooncake_connector.py:410 Mooncake transfer failed …
-  ret: -1`) rather than HIXL's, the decoder's plog is the first request, not a
-  port/`hostNetwork` test: cross-node P/D is already multi-server, so the requirement is
-  a `device_ip`, and `use_ascend_direct` (default `True` at v0.11.0rc2, engine-name
-  only) is not the fix — `references/pd-disaggregation/mooncake-adxl-connect-103900.md`.
-  If instead the engines start and the **first request** kills one side's EngineCore
-  behind a bare `EngineDeadError: … See stack trace (above)` on a deployment setting
-  `--decode-context-parallel-size` > 1: DCP is a *matched* parameter (a 1M recipe's
-  `8` reduced on one side fails the connector's divisibility assertion), so compare
-  both serve commands before any source walk —
-  `references/feature-enable-recipes/context-parallel-pcp-dcp.md` §3.
-  If instead requests *are* served and TTFT is slow while the prefiller prints
-  `Some requests in prefill node fail to receive KV Cache transfer done signal in 120s`
-  (`VLLM_LLMDD_ABORT_REQUEST_TIMEOUT`, default 120): that line is expiry bookkeeping
-  emitted by design on the non-zero P `tp_rank`s — the advertised RPC port carries no
-  `tp_rank` — so it is not the slow-TTFT mechanism. Settle TTFT with the concurrency and
-  first-request discriminators before any connector or rank-table read —
-  `references/pd-disaggregation/llmdatadist-done-signal-and-ttft.md`.
-  If instead the **decode node logs `Error in KVCacheTransferThread. error=unhashable
-  type: 'list'.`** and the deployment keeps serving: that line is the recv thread's catch-all
-  printed *in place of* the real failure — downstream `_mark_failed_recv_request` feeds
-  `set[int].update(<list[list[int]]>)` a grouped `BlockIds` before the `logger.exception` that
-  would have named it — so the paste carries no transport information; unmask (flatten, or the
-  layerwise connector, which already flattens) before any HCCL, plog or rank-table read
-  (`references/pd-disaggregation/kv-transfer-thread-masked-error.md`).
-  If instead the same catch-all carries a **bare** `AttributeError` on a downstream
-  metadata field — `Error in KVCacheTransferThread: 'ReqMeta' object has no attribute
-  'block_ids'`, with no environment block in the issue — the pin's own class **has** the
-  field (a compat property over the renamed `block_ids_by_group`), so the line reports
-  the reporter's *build*, not a reader bug: diff `vllm_ascend`'s install path and that
-  one class's source on P and D before any source walk (reporter-confirmed #10398,
-  「P和D节点没注意统一代码版本」) —
-  `references/pd-disaggregation/node-build-skew-attribute-error.md`.
-  If instead **both engines run on one machine** and the second one to start never gets
-  past worker init — `Bind_Failed(EJ0003) … port have been bound already` +
-  `hcclCommInitRootInfoConfig … error code is 7` out of `w8a8_dynamic.py`'s
-  `get_hccl_comm_name`, plog `[HcclSocket][Listen] … port[16666] fail`, "start P first,
-  D crashes; start D first, P crashes" — the port is real and the collision is a shared
-  **card**: intersect the two launches' device sets (the external-DP launcher numbers
-  cards from 0 every invocation) before any `HCCL_IF_BASE_PORT` / control-plane
-  arithmetic — `references/pd-disaggregation/same-host-pd-device-partition.md`.
-  If instead **one side's EngineCore dies on its own bookkeeping** and the other keeps
-  serving, name the side and the owning structure from the last three frames before any
-  transport read: a prefiller bare `AssertionError` in upstream
-  `v1/core/sched/scheduler.py` `_update_from_kv_xfer_finished`
-  (`assert req_id in self.requests`) is a send-completion for a request the scheduler
-  already freed, and `step_with_batch_queue` in the same stack proves
-  `--async-scheduling` (or PP>1) — one launch-flag ablation, no connector walk
-  (`references/pd-disaggregation/prefill-scheduler-kv-xfer-assert.md`); a decode
-  `assert … chosen_rank_list(…) does not match num_group_pulls(…)` on P TP≠D TP with an
-  MLA/DSA model is one pull-count derivation skipping the MLA single-pull rule
-  (`references/pd-disaggregation/asymmetric-tp-pull-count.md`); and a decode
-  `IndexError: list index out of range` inside `_get_kernel_block_ids`
-  (`meta.remote_block_ids[kv_cache_group_id]`, `_get_kv_split_metadata` above it) is
-  a KV-cache-**group-count** mismatch — the decode side indexes the prefiller's list
-  with its own group ids — so diff the two `--speculative-config` blocks (a draft
-  model on one side only adds a group) before any connector or transport read
-  (`references/pd-disaggregation/kv-group-count-mismatch.md`, reporter-confirmed #16177).
-  The same one-sided-config class has a second decode-side face that never reaches the
-  connector: spec decoding **and** structured output on the same launch, the decode
-  EngineCore dying at the scheduler step on `AssertionError: (-1, '<req>', {'<req>':
-  [-1, -1, -1]})` at `vllm/v1/structured_output/__init__.py` right after xgrammar's
-  `Failed to advance FSM … for tokens -1`. The ids are seeded **placeholder** draft
-  slots (count = the decode node's `num_speculative_tokens`), so the parity diff is
-  row 1 *and* one launch rides with it — `recompute_scheduler_enable` off on both
-  nodes separates the recorded #6421 resolution (P/D parity) from the source-verified
-  seeder (`vllm_ascend/core/recompute_scheduler.py:107-111`) —
-  `references/pd-disaggregation/structured-output-draft-placeholder-assert.md`.
-  If instead the pair **serves** and then individual *decode* ranks keep their
-  requests `Running` while generation and completion counters stop — health 200, no
-  traceback, one rank taking all the new work, affected ranks recovering hours
-  later — the KV blocks are being freed and reused under an in-flight step on an
-  `--async-scheduling` + hybrid-KV (`--no-disable-hybrid-kv-cache-manager`) serve:
-  `references/scheduler-admission/kv-block-lifetime-async-scheduling.md`
-  (#13964 → vllm-ascend #13518), not a collective and not the throughput topic.
-- **Deployment sizing / stage layout**: the question is a plan — "does this model
-  fit on 2×64 GB", "the GPU docs do a 2-device stage deploy and mine does not come up
-  on 2 NPUs", a bundled `platforms.<vendor>` yaml with more stages than the reporter
-  has cards, "how do I pin stage 1 to one card" — **or** two serve commands that
-  differ by one resource knob (`--tensor-parallel-size`, `--max-model-len`,
-  `--gpu-memory-utilization`) where the smaller one comes up and the larger one OOMs
-  at engine start — **or** a KV number against the reporter's own arithmetic ("27
-  KB/token/card, I compute ~7.4 KB/token from the fp8 KV layout") and a context
-  target ("a path to ≥512K on A2?"). Answer with per-card arithmetic plus the
-  device-visibility variable, and for the KV half reconcile the cache-kind term list
-  and quote the tutorial's per-SoC envelope before accepting a dtype-promotion
-  hypothesis — `references/deploy-sizing/index.md`, `references/deploy-sizing/dsv4-kv-footprint-terms.md`.
-  A report that the **whole model is loaded on every card instead of being split** is
-  the same topic and is *not* answered by `npu-smi`: the per-rank weight-footprint line
-  against `params × bytes ÷ TP` decides it —
-  `references/deploy-sizing/sharding-not-applied-full-model-per-card.md`.
-- **Community-test / doc-verification task** (`[Community Test]`, a 众测任务书 row
-  with 蓝区镜像 / 权重链接 / 卡数 / 交付件 测试报告, or a `[Doc]` report that a
-  tutorial step does not work as written): the deliverable is a *report about a
-  document*, graded on completeness/usability/correctness without the reporter's
-  hardware. The evidence is the pinned tree — which command no longer parses, which
-  path is absent from the image, which baseline predates the image, whether the card
-  count matches the weights — `references/tutorial-verification/index.md`.
-  When the reported defect is an **absence** instead ("the Quick Start should
-  mention a mirror / link the FAQ", "the contributor docs never state a
-  prerequisite"), three greps decide it — does the content exist, does any page
-  reach it, do the sibling pages already carry it — and the reporter's own URL
-  anchor is checked against the pin before it is quoted
-  (`references/tutorial-verification/missing-guidance-and-contributor-docs.md`).
-- **Release known-issues bulletin**: a maintainer's notice for one release —
-  `[Bug][vX.Y.Zrc1]: Known Issues for <model A>/<model B> service hang on A3`, an
-  impact table (version / models / hardware / scenario), one or two tracked issue
-  ids with error codes, "reply in the comments instead of opening a new issue" —
-  or a user quoting that notice and asking whether their run is the same thing.
-  No log, and none is owed: the deliverable is a **claim-check at the pinned
-  release** — which signatures the notice pins and what they localize, what they
-  cannot settle (mechanism, event ordering), whether each code is even
-  model-specific, whether the reported config is inside the release's validated
-  envelope — plus one ranked list per tracked issue and the reply template
-  (plog `[AIC_INFO] fault kernel_name=` block, both serve commands).
-  `references/release-known-issues/index.md`.
-- **Code-change / cleanup request**: the body asks for an *edit*, not a diagnosis —
-  "remove `VLLM_ASCEND_ENABLE_<X>` before <release> final release", "delete the
-  temporary switch added in PR #N", "deprecate this flag", often with nothing but two
-  links and no log. First question: does the named identifier exist at the pinned ref
-  (absence dates the snapshot against the PR and is itself the finding); deliverable:
-  the removal sweep with `path:line` anchors plus the behaviour change a default flip
-  implies — `references/code-change-requests/index.md`, then `env-flag-retirement.md`.
-  The delivery gates apply here too: no crash to report, so the absence verdict goes in
-  the first message (recorded #1262 replay: first message text on turn 15).
-  The variant that ships a **review** instead of a plan links a main-only fix and its
-  backport PR ("问题在主线已修复 … 未回合进<branch>分支, pr已提，请review"): the first move is
-  the predicate at both pins — the fixed form on main versus what the branch still has,
-  one grep in the image's tree — then the sibling call sites and the CI test that a
-  file-local change does not select. Worked checklist, anchors and the CI gap:
-  `references/accuracy-benchmarks/first-generate-degenerate.md`, "When the ask is to
-  review the backport".
+**Issue report** (template-shaped: environment dump + logs + narrative) ·
+**Install / pip-resolution report** · **Deployment failure** · **Support / version
+question** · **Feature-enable / capability question** · **PD / EPD disaggregation** ·
+**Deployment sizing / stage layout** · **Community-test / doc-verification task** ·
+**Release known-issues bulletin** · **Code-change / cleanup request**.
 
-Recorded cases, per-issue index and how each session ended:
-`references/evidence-workspace/recorded-cases.md`; the load-bearing
-delivery pattern is rule 1.
+Their applicability conditions, the exclusions that keep a neighbouring shape out
+(a `-310p` image, a *decision* task, a maintainer bulletin) and each shape's route
+into a topic index are `references/dispatch/problem-classes.md` — read that entry on
+the turn the shape is classified, not a second copy of it here.
 
 ## Rules that apply whenever this skill is used
 
 1. **Say the answer in a message, early, and obey the delivery gates.** A long
    session can be cut off mid-sentence, so the deliverable has to survive
    truncation: what decides the outcome is not how much evidence was gathered but
-   whether the message exists. The 21 recorded runs that shipped **no answer at all**
+   whether the message exists. The 23 recorded runs that shipped **no answer at all**
    each had a usable lead in hand (ids and per-run detail: `delivery-discipline.md`);
-   #1255 and #5772 with the owning line already in the paste; #2807 and #15394 held
-   every verified fact of a complete ranked answer and spent the remainder on a host
-   detail no local file settles; #4296 answered in ten turns from one traceback. The
-   two thinnest are also the most recent:
-   #6488 wrote **81 characters** of message text over 21 turns / 39 tool calls against
-   40.6 K characters of reasoning, and #7996 1 540 characters over 11 turns against
-   48.9 K — each ending on a reasoning block with no accompanying message and no tool call,
-   i.e. the cap landed on reasoning that had the shape of the deliverable.
+   #1255/#5772 held the owning line; #2807/#15394 every fact of a ranked answer and
+   spent the rest on a host detail no local file settles; #4296 answered from one
+   traceback in ten turns. Thinnest, and newest: **#8301 wrote no message text at all**
+   (16 turns / 26 tool calls, 48.4 K characters of reasoning) and #11171 **54 characters**
+   (18 / 30, 47.5 K) with the ranked answer already in its 8th-turn reasoning; before them
+   #6488 (81 / 21) and #7996 (1 540 / 11). Each ended on a reasoning block with no message
+   and no tool call: the cap landed on the answer's shape.
    Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
      reporter's literal question plus the track/lane classification. A pasted
@@ -335,37 +147,37 @@ delivery pattern is rule 1.
      cannot carry the answer after a truncation (#11680 and #587 each held the
      decisive datum by turn 8 and kept reading).
    - **The paste can already contain the whole answer surface.** An argparse error
-     prints the complete valid choice list; a log line can name its own thread and
-     owner. When the evidence is one such line, the verdict is owed at G1 with no
-     source read: #4796 had `--task rerank` vs the printed `score` by its 4th turn,
-     spent 32 turns and 1.77 M cumulative prompt tokens before the cap, and emitted
-     **no message text at all**; the same issue's pooling release gate (v0.9.1 🟡
-     Planned, v0.9.2rc1 #1359) was two greps from the same paste. A traceback can
-     also name its own owner and rule: `'DummyModelLoader' object has no attribute
-     'get_all_weights'` (#2346) names the loader class *and* the method that only
-     `DefaultModelLoader` has, and the MLA `queries per kv … only support {32, 64,
-     128}` assert (#1451) states the rule and tells the reporter to check the ratio
-     after the TP split — two greps plus arithmetic close both. Its minibatch
-     sibling #10962 reasoned the whole source-verified answer and typed it on the
-     last turn, cut mid-sentence. Test at every turn: could I write the first
-     paragraph now? — if yes, the tool call goes in a message that already carries it.
+     prints the complete valid choice list, a log line can name its own thread and
+     owner, and a traceback can name the class *and* the rule
+     (`'DummyModelLoader' object has no attribute 'get_all_weights'` names the method
+     only `DefaultModelLoader` has; the MLA `queries per kv … only support {32, 64,
+     128}` assert states the rule and leaves only the TP-split arithmetic). Then the
+     verdict is owed at G1 with no source read: #4796 had its answer by turn 4 and
+     spent 32 turns to the cap emitting **no message text** (its pooling gate,
+     v0.9.1 🟡 → v0.9.2rc1 #1359, was two greps away); minibatch sibling #10962
+     reasoned the whole answer and typed it on the last turn, cut mid-sentence. Test
+     at every turn: could I write the first paragraph now? — if yes, the tool call
+     goes in a message that already carries it.
    - **A new hypothesis that needs a new code area is not this session's job.**
-     Put it in the answer as an open question with the one command that decides it;
-     #14506 delivered only after a final half-session block, and #2934 read the `-inf`
-     id pattern that decides its own lane on turn 8, then spent the rest on how a mask
-     reaches the logprobs and shipped nothing
-     (`references/accuracy-benchmarks/topk-logprob-negative-inf.md`). For an
-     accuracy/corruption or topology report, a ranked list plus an ablation matrix
-     already *is* the full answer. The same applies to a **mechanism the paste cannot
-     carry**: *which* scheduler step mixed decode with prefill, or *which* phase
-     refused a communication resource, is a fact about the reporter's run that local
-     source reading cannot produce — both forwards of one recorded minibatch spent
-     their whole budget there after the answer existed (#1369, #5947) and shipped no
-     message text. The same shape with a *confound the report never carried*: #8350
-     held its two serve flags by turn 3, treated `--block-size 128
-     --enable-prefix-caching` as a hybrid KV-cache experiment with no works-vs-fails
-     control, and shipped 185 characters in 16 turns
-     (`references/accuracy-benchmarks/reasoning-output-routing.md`, #8350 section).
+     Put it in the answer as an open question with the one command that decides it.
+     For an accuracy/corruption or topology report a ranked list plus an ablation
+     matrix already *is* the full answer, and a **mechanism the paste cannot carry**
+     (*which* scheduler step mixed decode with prefill, *which* phase refused a comm
+     resource) is a fact about the reporter's run that no local source read produces:
+     five recorded sessions (#14506, #2934, #1369, #5947, #8350 — the last treating
+     `--block-size 128 --enable-prefix-caching` as a hybrid KV experiment with no
+     works-vs-fails control) spent the remainder of their budget there after the
+     answer existed and shipped nothing or 185 characters
+     (`references/accuracy-benchmarks/reasoning-output-routing.md` §#8350,
+     `references/accuracy-benchmarks/topk-logprob-negative-inf.md`).
+     The same block on a **closed component** is the #7774 shape: with the owning line
+     already found on turn 8 (the hybrid-SSM mask clear at
+     `patch/worker/patch_qwen3_5.py:180`) it went on deriving *how* an MTE "DDR address
+     out of range" arises inside a CANN `NonZero` kernel whose source `SOURCES.json`
+     lists as `unavailable` — 19 turns, 34 tool calls, **45 K characters of reasoning
+     against 39 characters of message text**, cut with no answer — while the deliverable
+     was the version lane the same pin's page already carried
+     (`references/custom-ops-runtime-faults/hybrid-ssm-mask-nonzero-fault.md`).
    - **A paste that stops in silence is answered, not investigated.** When the log
      simply ends (no traceback, last line inside init), the cause is decided by
      artefacts on the reporter's machine — process count, per-rank logs, device
@@ -383,18 +195,13 @@ delivery pattern is rule 1.
      module with the decisive check in hand.
    - **When the deliverable is a document, the document is the gate.** Open the
      report file on the 2nd-3rd turn with the skeleton plus the first verified
-     section, then append **2-3 K characters per write** and make the final
-     message the condensed report (path, defects, open items). Never compose the
-     whole report in one heredoc: #11739 wrote no file, #11759 lost a finished 5.7 K
-     report to the cap, #11742 opened its heredoc on turn 9 of 10 and shipped **no
-     text** (`community-test-report.md`). The file body and the message share one
-     budget — heredoc characters are tool-call arguments, i.e. output tokens: #11751
-     wrote a 15.4 K-character report in three appends (16.1 K characters of tool
-     arguments, 36 % of the cap) and then had its **message** cut inside the defect
-     table, losing the three required 完整性/易用性/正确性 scores and the FAQ. Keep
-     the file ≤ ~8 K characters and lead the message with the 交付件 items (verdict,
-     report path, the three scores, one line per defect) instead of re-pasting the
-     deploy script or the tables.
+     section, append **2-3 K characters per write**, keep the file ≤ ~8 K characters,
+     and lead the final message with the 交付件 items (verdict, path, the three
+     完整性/易用性/正确性 scores, one line per defect) — never one heredoc, never a
+     re-paste of the deploy script. Heredoc characters are output tokens from the
+     same budget as the message: #11759 lost a finished 5.7 K report to the cap,
+     #11751's message was cut inside its defect table, #11739/#11742 wrote no file or
+     no text (`community-test-report.md`).
    - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
      write it at G2 *in place of* the reasoning block; once it exists the next
      turn's text is the answer (`delivery-discipline.md` §draft).
@@ -403,12 +210,11 @@ delivery pattern is rule 1.
      does not carry. State the gap, give the one command that closes it, stop.
    - **A byte count that "matches" is not the answer.** Re-deriving a mechanism from
      an allocation size needs inputs the report does not carry (a `config.json`, a
-     group size, an expert count). #7123 died at the cap re-deriving upstream DP/EP
-     group algebra for a 674 MiB request while the two log lines that settle it
-     (`[EP Rank r/N] … Local/global number of experts`) were never asked for, and the
-     reporter's own resolution was a serve line, not a mechanism — ask for the line
-     and send the ranked answer
-     (`references/deploy-sizing/moe-load-oom-expert-shard.md`). **The same holds for a
+     group size, an expert count): ask for the line that settles it and send the
+     ranked answer, since the reporter's own resolution is usually a serve line rather
+     than a mechanism (`references/deploy-sizing/moe-load-oom-expert-shard.md`, #7123
+     died at the cap deriving DP/EP algebra for a 674 MiB request whose two
+     `[EP Rank r/N] … experts` lines were never asked for). **The same holds for a
      tensor shape quoted from a debugger** (`变量 x.shape [5040, 1, 1152]`): it is a
      gap in the paste, not the failing allocation. #7419 spent 19 tool turns locating
      the producing `.unsqueeze(1)` and shipped **zero** text, while the two answer
@@ -541,15 +347,12 @@ delivery pattern is rule 1.
    `bash <skill_root>/scripts/dep-range-check.sh <pkg> <ver> <vllm-root> <ascend-root>`.
    **A self-built vllm beside an rc vllm-ascend is a version-contract defect even
    when the torch line matches.** #488 pasted `vllm: 0.7.2.dev` + `vllm_ascend:
-   0.7.1rc1` (installed from an older page's manual-compile recipe) while the rc's
-   own pair is vllm `v0.7.1` (`docs/source/conf.py:65`); the recorded answer
-   excluded the version lane from the matching `torch_npu` wheel, ranked a device
-   fault first, and the issue closed on the maintainer's "you are using a old
-   version vllm / vllm-ascend / torch_npu … install 0.7.3rc2" plus the reporter's
-   "i tried latest version (vLLM Ascend 0.7.3rc2) and the problem solved." With a
-   mixed or several-rcs-old trio, make the install-and-re-run **rung 1-2** of the
-   action ladder and keep the mechanism below it — a snapshot pinning one commit
-   cannot hold a later fix, and the upgrade is the only check that can see one
+   0.7.1rc1` (from an older page's manual-compile recipe) while the rc's own pair is
+   vllm `v0.7.1` (`docs/source/conf.py:65`); that answer excluded the version lane and
+   ranked a device fault first, and the issue closed on the maintainer's "install
+   0.7.3rc2" plus the reporter's "tried latest … the problem solved". With a mixed or
+   several-rcs-old trio, make the install-and-re-run **rung 1-2** and keep the
+   mechanism below it — a snapshot pinning one commit cannot hold a later fix
    (`references/startup-failures/environment-correspondence.md` §*A self-built
    vllm beside an rc vllm-ascend*).
 
@@ -640,22 +443,21 @@ delivery pattern is rule 1.
      `faqs.md` — which it nearly published as a doc typo and dropped only by
      luck, blaming a "stale .po". **The tell is one short token spliced
      uniformly into every match across unrelated files**; re-run as
-     `rg -n '<pat>' <dir>` before quoting any matched text. Recursion is implicit
-     on a directory: use `rg -n "pat" .` or `grep -rn`. **An empty replacement is
+     `rg -n '<pat>' <dir>` before quoting any matched text, and use `grep -rn`
+     as the tie-breaker when output looks mangled. Recursion is implicit on a
+     directory: `rg -n "pat" .` or `grep -rn`. **An empty replacement is
      the same flag with a worse tell:** a replace flag prints whole matching *lines*,
      so `rg -n "30566" -r '' .` returned **63 KB** — one minified
      `tests/models/fixtures/*.json` line, matched by accident inside a number — and
      that run (#8036) ended output-truncated with no answer typed. A "hit" whose
-     result is a single gigantic line is this trap, not a finding: quote only the
-     `path:line` you asked for, with `-l` or `--no-messages -c` when you only need
-     to know whether it exists.
-     An **empty pattern matches every line of every file**: a probe typed while
-     unsure how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped
-     65 KB into one recorded session (#6240, mid-investigation, buying nothing).
-     To list files use `rg -ln '<pat>' <dir>`; with no pattern in mind use
-     `rg --files -g '<glob>' <dir>` (or `find <dir> -maxdepth 1 -name '<glob>'`) —
-     never an empty pattern, which is still what #549 typed while looking for an
-     upstream selector and cost itself 65 KB in one result.
+     result is a single gigantic line is this trap, not a finding.
+     An **empty pattern matches every line of every file**: a probe typed while unsure
+     how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped 65 KB in one
+     result (#6240; #549 while looking for an upstream selector). To list files use
+     `rg -ln '<pat>' <dir>`; with no pattern in mind use `rg --files -g '<glob>' <dir>`
+     (or `find <dir> -maxdepth 1 -name '<glob>'`), and quote only the `path:line`,
+     with `-l` or `--no-messages -c` when existence is all you need. Detail:
+     `references/evidence-workspace/case-layout.md`.
    - **A pasted message is usually split across source lines.** C++ `OP_LOGE` and
      Python messages are emitted as adjacent literals (`"… default chat template is no
      longer "` / `"allowed …"`), so `grep -rn "<whole sentence>"` returns nothing and reads
@@ -671,17 +473,13 @@ delivery pattern is rule 1.
      neither their text nor their line numbers are citable.
    - **A piped `sed -n 'A,Bp' file | rg -n '<pat>'` numbers the stream, not the file.**
      `rg` counts its stdin from 1, so every match line is `A + n - 1` — an off-by-one
-     that lands as a wrong `path:line` in the answer. Either cross-check one match
-     against an absolute `rg -n '<pat>' file` before quoting the rest, or keep the
-     file's own numbers: `rg -n '<pat>' file | awk -F: '$1>=A && $1<=B'`. Recorded
-     #12905 re-derived a tutorial block's anchors twice (`sed | rg -n` then `1199 +
-     index`) before one absolute grep confirmed them; the window form would have
-     answered in the same call. The same off-by-one arrives with no pipe at all:
-     a line number counted by eye inside a `sed -n 'A,Bp'` window. In a
-     doc-verification report the page anchor is the first thing a maintainer
-     re-checks, so quote it from an absolute `rg -n '<token>' <page>` — recorded
-     #11738 shipped `:113` for the page's `--served-model-name`, which is `:114`,
-     inside an otherwise source-verified answer.
+     that lands as a wrong `path:line`. Cross-check one match against an absolute
+     `rg -n '<pat>' file`, or keep the file's own numbers:
+     `rg -n '<pat>' file | awk -F: '$1>=A && $1<=B'`. Recorded #12905 re-derived a
+     tutorial block's anchors twice before one absolute grep confirmed them. The same
+     off-by-one arrives with no pipe at all: a line number counted by eye inside a
+     window. A doc-verification anchor is the first thing a maintainer re-checks —
+     recorded #11738 shipped `:113` for the page's `--served-model-name`, which is `:114`.
    - **Scope a grep to one repo.** A case view holds 20-40 exported trees under
      `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
      seconds and returns hits from unrelated products (torchair, metadef,
@@ -689,18 +487,16 @@ delivery pattern is rule 1.
      string, and the finding was that the string is in **no** export — state that
      as the gap (rule 10) instead of widening the pattern: `rg -n '<pat>'
      /workspace/repos/<issue>/<owner>/<repo>` per candidate, then stop.
-   - **Never list, never dump** — the recipe at the top of this file is the rule; this
-     is what breaking it costs. A listing was ~24-28 KB once (#13699: 2857 entries) and
-     13-104 KB per later session (#9335, #9183, #11739, #8984, #11454 — the last in the
-     same block as `skill_view`), `cat SOURCES.json` likewise, `cat
-     /workspace/history/*.md` 7 KB for one issue because those files are flat whole
-     bodies (#3107). A missing `/workspace/attachments` also makes a bundled listing
-     exit 2, which reads like a failed orientation. One recorded two-line
-     orientation block (`ls /workspace`, `ls scratch`, `cat SOURCES.json`,
-     `ls history`) came back as a single **62 K-character** tool result (#15985:
-     `SOURCES.json` alone is 25 KB at v0.26.0rc1, the history listing ~800 names)
-     and that run ended at 1.1 M cumulative prompt tokens, output-truncated; #5687's
-     same block cost 3 KB only because `SOURCES.json` was piped through `head -50`.
+   - **Never list, never dump** — the recipe at the top of this file is the rule; this is
+     what breaking it costs. A listing of `/workspace` was 24-28 KB once (#13699) and
+     13-104 KB per later session (#9335, #9183, #11739, #8984, #11454), `cat
+     SOURCES.json` or `cat /workspace/history/*.md` likewise (#3107), and one recorded
+     orientation block (`ls /workspace`, `ls scratch`, `cat SOURCES.json`, `ls history`)
+     returned **62 K characters** (#15985) and ended output-truncated at 1.1 M cumulative
+     prompt tokens — #5687's same block cost 3 KB only because `SOURCES.json` was piped
+     through `head -50`. A missing `/workspace/attachments` also makes a bundled listing
+     exit 2, which reads like a failed orientation.
+
    - **Attachments are the exception: a manifest grep is not an existence test.**
      `ATTACHMENTS.txt` lists names and SHA256s only, so a grep for the issue's
      tokens proves nothing (#12658 read that as "no attachments", skipped
@@ -840,7 +636,14 @@ delivery pattern is rule 1.
     #302: 「已解决，加个--privileged=true即可」, driver unchanged, one variable); then the
     driver/firmware × image-CANN pairing, with the printed SoC name read against
     `npu-smi`. No precision/dtype flag is ever the cause →
-    `references/startup-failures/acl-init-500001-and-soc-version.md`. **The same phase *without* `500001` is a file
+    `references/startup-failures/acl-init-500001-and-soc-version.md`. The **fifth** form is an
+    **ATB op-create refusal**: `RuntimeError: LinearOperation CreateOperation failed!` (also
+    `GroupTopkOperation …`) out of a `torch_npu._npu_*` call — at a 310P engine start it is the
+    unconditional `_warm_up_atb` (`worker_v1.py:332,337-341` at v0.11.0) meeting an ATB/NNAL build
+    that cannot create the op, so the caller's shapes, the KV flags and `--enforce-eager` are all
+    spent levers and the wording exists in no export; three checks (one-op repro outside
+    vllm-ascend, the `nnal/atb` identity, the SoC stamp) plus the pin's own `-310p` recipe answer
+    it — `references/custom-ops-runtime-faults/atb-create-operation-failed.md` (#5170). **The same phase *without* `500001` is a file
     question, not a privilege or pairing one**: `RealPath:Path '<…>/<arch>-linux/lib64/
     ../data/platform_config' does not exist.` + `InitializePlatformInfo:File path[] is not
     valid.` ending `RuntimeError: Get ACL JitCompile default value failed.` names the FE `.so`'s
@@ -1013,10 +816,11 @@ delivery pattern is rule 1.
     remains is model×mode support at that ref or a defect fixed after it. Three
     checks, then deliver: (a) which models the pinned tree validates for that mode —
     `rg -n 'cudagraph_mode.*FULL_DECODE_ONLY' <ascend>/tests/`, then confirm a
-    `.github/workflows` file actually runs that test (at v0.11.0rc1 the single
-    FULL-mode e2e file was not wired anywhere while the wired ACL-graph runs were
-    PIECEWISE at `max_model_len=1024` on Qwen3-0.6B / DeepSeek-V2-Lite / Qwen3-30B-A3B,
-    so no VL, 72B or 16 K case was covered); (b) whether the reporter's own control
+    `.github/workflows` file runs that test **and sets the mode it names**
+    (v0.11.0rc1: the wired `test_mtp*_correctness_full_graph` cases pass `FULL`,
+    which `platform.py:237-242` sends to `NONE`; §3 of
+    `hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`); (b) whether the
+    reporter's own control
     works — a default-mode success on the same command makes the *mode* the lever;
     (c) whether the tree carries any mode-specific handling for their family (absence
     is quotable as coverage, never as the cause). A fix that lands in the next rc **is
@@ -1044,7 +848,17 @@ failing frames at all** — prose only, "installing vllm 0.9.1 prompted me to un
 **pairing** question: the release's own versioning-policy row, the two requirement trees and
 `_no_device()` decide it in four reads, and rung 1 is the project's own recipe (vllm from
 source with `VLLM_TARGET_DEVICE=empty`, then the tree's mirror), not another pip command
-(`references/image-dependency-faults/pip-index-visibility.md` §A0). A `multiple
+(`references/image-dependency-faults/pip-index-visibility.md` §A0). **Two no-frame
+shapes are not pairing questions.** A title that paraphrases a *Python* requirement
+(「python version should above 3.10」) with its printed line only in the screenshot's OCR
+is an interpreter question: the string is in no tree, pip was told `>=3.9` by
+`pyproject.toml` / `python_requires` / `installation.md:8`, and the failure is a PEP 604
+`X | None` annotation evaluated at import in `vllm/` — recreate the env on 3.10/3.11
+(`references/image-dependency-faults/python-floor-import-error.md`, #3657). A body that is
+nothing but one dangling build path (`csrc/build/compat/liboptiling.so 指向无效`) is a
+build-tree artefact answered in two commands, not a stage to walk
+(`references/image-dependency-faults/custom-op-build-stage.md` §Step 2b, #10792: 60 tool
+calls, 1.65 M prompt tokens, no message emitted). A `multiple
 definition` at the AscendC kernel relink is one source under two path spellings, not a
 kernel defect: `references/image-dependency-faults/custom-op-build-stage.md`. A build that dies
 **before** any CMake work with `__main__.py: error: unrecognized arguments: --cmake` is pybind11
@@ -1104,7 +918,13 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    the evidence: an image's `.ocr.txt` is the log paste, a referenced `*.json` is
    usually a machine-readable dump (request body, rendered prompt, tokenized
    request, completion) whose fields decide the case before any source read
-   (`references/evidence-workspace/index.md`). Not only logs: a screenshot of a **vendor
+   (`references/evidence-workspace/index.md`). **Read that `.ocr.txt` whole or grep it
+   for the error line, never a prefix**: its line order is scrambled and the
+   `raise …`/`XxxError: <message>` pair can sit 200+ lines below the frames — #3816
+   read a 200-line prefix of a 466-line OCR, stopped on the last frame, and asked for
+   a traceback whose `RuntimeError: Invalid request status: WAITING_FOR_FSM` was
+   already there *and* already a route row in this skill (grep the exception text,
+   not the mechanism word). Not only logs: a screenshot of a **vendor
    docs page** is the vendor's own table — a capability/image question ("可以用
    `quay.io/ascend/vllm-omni:vX` 部署 <model> 么") is often settled by its OCR's
    `Hardware` columns in one read, while reconstructing tag conventions from other
@@ -1113,7 +933,15 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    `HcclResult`) is one call, not a source walk**: `bash <skill_root>/scripts/cann-error-lookup.sh <code>`
    prints the vendor's own `errTitle`, message and `Possible Cause`/`Solution` from
    `cann/metadef/error_manager/error_code.json` / `cann/hcomm/…/error_code.cc`, or the enum
-   name from any exported `hccl_types.h`. Two of its answers change the lane outright:
+   name from any exported `hccl_types.h` — and, for a numeric `507xxx`/`107xxx` **runtime**
+   code that no `HcclResult` enum holds, its `ACL_ERROR_RT_*` name with the header's own
+   comment and the vendor's action
+   (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h`,
+   `cann/runtime/docs/api_docs/aclError.md`). That name is the lane: `507010` =
+   `LOST_HEARTBEAT` "ts lost heartbeat", `507014/507015/507016` = aicore timeout/exception/
+   trap, so such a paste has no vllm-ascend cause to find
+   (`references/hccl-and-hardware/device-health-checks.md`). Two of its answers change the
+   lane outright:
    `7 = HCCL_E_UNAVAIL` beside `EJ0001` means **the previous process is still alive**
    (sleep mode, an engine that never exited), not a parameter or NIC fault; and `EI0006`'s
    solution text names `HCCL_CONNECT_TIMEOUT` before any link theory. When
@@ -1279,7 +1107,7 @@ live where they are used. Two procedure helpers come first:
 `cheap-checks-by-track.md`) and `references/evidence-workspace/index.md` (case
 layout, `SOURCES.json`, history search, attachment/OCR caveat;
 `delivery-discipline.md` holds rule 1's G1/G2/G3 gates and the reasoning patterns
-that break them, `recorded-cases.md` the per-issue index).
+that break them, `recorded-cases/index.md` the per-issue index).
 
 **The recorded-shape → topic-entry table** — one row per routing decision, written in
 the reporters' own symptom wording, each row carrying the owner and the page to open — is

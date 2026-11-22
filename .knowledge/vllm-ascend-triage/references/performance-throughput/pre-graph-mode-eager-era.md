@@ -16,7 +16,10 @@ to move to (step 3), on v0.9.x the serve is V0 only because nobody exported `VLL
 This is the *older* sibling of `index.md`'s rules: those assume the V1 logger, ACL graphs
 and `max_cudagraph_capture_size`. On v0.8.x none of the three exist; on v0.9.x the V1 logger and
 the ACL graph do exist but are off until `VLLM_USE_V1=1` (step 3b). Either way the lever list is
-different and the newer pages will misfire.
+different and the newer pages will misfire. **Older than both** — a v0.7.x rc pin, e.g.
+vllm-ascend `v0.7.3rc1` — has none of this machinery to switch on (no `enforce_eager`
+override, no graph key, no V1 worker): go to `pre-0.8-vl-vs-transformers.md` instead of
+reading step 3 or 3b, and do not carry `VLLM_USE_V1=1` backwards.
 
 ## Step 1 — the metric line dates the engine, and the engine picks the lever list
 

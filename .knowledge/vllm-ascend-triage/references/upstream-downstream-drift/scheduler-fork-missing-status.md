@@ -1,6 +1,6 @@
 # Downstream scheduler fork missing an upstream request status
 
-Recorded twice, at two pins, with the same gap underneath (the *signature* variant of the same family — a fork that stops binding the base's constructor keyword — is `fork-ctor-arg-sweep.md`, #18688 at v0.23.0):
+Recorded three times, at two pins, with the same gap underneath (the *signature* variant of the same family — a fork that stops binding the base's constructor keyword — is `fork-ctor-arg-sweep.md`, #18688 at v0.23.0):
 
 - **#3979** — vllm-ascend `v0.11.0rc0` (`00ba07102212`) + vllm `v0.11.0rc3`
   (`8ce5d3198d00`), QwQ-32B-w8a8 on Atlas 800I A2, "其他模型有同样问题";
@@ -9,6 +9,17 @@ Recorded twice, at two pins, with the same gap underneath (the *signature* varia
   pasted; the reporter's traceback ends at `scheduler.py, line 260`, which is the
   `raise` in this tree. Same shape: ordinary chat fine, a 500 on the requests that
   carry `response_format`/guided parameters, which is why it reads as 偶发.
+- **#3816** — the same pins as #3979, GLM-4.6-w8a8, **tool calling**: plain chat
+  fine, a tool-calling request kills the engine, and the only evidence is a
+  screenshot whose OCR (`/workspace/attachments/<issue>/*.ocr.txt`) carries the
+  whole chain — `core.py` `run_busy_loop` → `_process_engine_step` → `step` →
+  `schedule()`, then `vllm_ascend/core/scheduler.py:274`, then
+  `RuntimeError: Invalid request status: WAITING_FOR_FSM`, then
+  `EngineDeadError` and the `Parent process exited, terminating worker` tail.
+  Nothing more is needed to classify it: the recorded run read a 200-line prefix
+  of that OCR, declared the message truncated, and ranked four hypotheses
+  (`../evidence-workspace/index.md`, *read the OCR whole*). Its trigger question —
+  which tool-calling field set the state — is the *trigger* section below.
 
 A plain chat request is fine; the same request with `extra_body={"guided_choice":
 [...]}` kills the server:
@@ -60,6 +71,33 @@ computation before building the SchedulerOutput, `should_advance` in
 `update_from_output`), and the general rule holds beyond this case: **when a fork
 drops an upstream state, enumerate every field that state fills, not just the branch
 that reads it.**
+
+## The trigger can be `tool_choice`, not only `guided_*` / `response_format`
+
+The state is set from `sampling_params.structured_outputs`
+(`vllm/v1/request.py:74-75` at vllm v0.11.0rc3), and the OpenAI frontend builds
+those params from `response_format` **and from a forced tool choice**:
+`protocol.py:726` calls `_get_json_schema_from_tool()`, whose `:790-810` body
+returns the tool's own `parameters` for a *named* `tool_choice`
+(`ChatCompletionNamedToolChoiceParam`, `:796-803`) and a one-of envelope for
+`tool_choice: "required"` (`:805`), while `"auto"` — the field's default at
+`:296`, and what an omitted field becomes (`:935-936`) — returns `None`. So on
+this pin a tool-calling client that **forces** the function is a
+structured-output request in the scheduler's eyes, and one that leaves
+`tool_choice` at `"auto"` is not. Re-grepped at this case's own pins (vllm
+`8ce5d3198d00` / vllm-ascend `00ba07102212`); the request body is the only place
+that decides which branch the reporter is on.
+
+That makes the request body the discriminator and the cheapest rung: read
+`tool_choice` in the client's body. `"required"`/named → the state is set, this
+page is the answer, and `"auto"` is the reporter-side check that both confirms
+the mechanism and keeps tool calling working (`--structured-outputs-config` /
+`--async-scheduling` below stay the serve-side escape). `"auto"` reproducing the
+same crash → the trigger is `response_format`/`guided_*` or something else in the
+body, and the two-gap mechanism still owns it. Do not assume the tool lane
+implies the forced choice: #3816's screenshot shows the `tools` array but its
+`curl` body is cut before `tool_choice`, so which one the reporter sent stays
+open and belongs in the answer's "send me this" list.
 
 ## Is the fork even in play? Yes by default at both recorded pins
 

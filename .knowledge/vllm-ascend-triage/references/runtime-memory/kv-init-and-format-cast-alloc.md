@@ -28,6 +28,32 @@ report at `…36.054.123` (the two lines use different time zones in the paste �
 compare seconds, not hours). So do not let the loudest line (SDMA hardware error)
 become the cause without checking the memory numbers first.
 
+A second recorded paste is the same signature on a **source build**, so a rebuild is
+not the rung that ends it: #1993's 300I Duo thread (original report v0.7.3,
+Qwen2.5-VL-3B offline `LLM()`) had its reporter answer "ready to install again from
+the source code" (2025-07-30) and then, on 2025-09-17 from `/vllm-workspace`:
+
+- frames `worker_v1.py:293` → `model_runner_v1.py:2396 initialize_kv_cache` →
+  `:2579 initialize_kv_cache_tensors` → `:2377 _convert_torch_format` →
+  `npu_format_cast`;
+- `Memory async copy failed … length=2654994432` (2.47 GiB — the same order as the
+  two 310P rows below, i.e. one or two layers' K+V, not a second whole pool),
+  `sdma channel is 0 … SMMU Terminate … CQE status is 2`, then
+  `EL0004 … Failed to allocate memory` with the canned advice
+  `Possible Cause: Available memory is insufficient`, ending
+  `Engine core initialization failed … Failed core proc(s): {}` in the frontend;
+- and, just above it, the torch_npu warning `Cannot create tensor with NZ format`
+  for a rank<2 tensor, which continues `tensor will be created with ND format`. That
+  line is **torch_npu declining an NZ cast, not the failure**, and not evidence the
+  cast is wrong: it only dates the run to the `ACL_FORMAT_FRACTAL_NZ` lane
+  (`is_enable_nz` above).
+
+Its `:2396` / `:2579` / `:2377` match neither this pin's numbers nor #4812's, so quote
+them as "the reporter's tree", and with no `npu-smi` and no `Using max model len` in
+the paste ranked action 1 below is still the deliverable. Do not let "rebuilt from
+source" promote a device-fault theory: the failed copy is an allocation, and the
+ladder that decides it is `--max-model-len` then `--gpu-memory-utilization`.
+
 This is a different lane from `../hccl-and-hardware/index.md` (there the frame is
 a sync point for a pre-existing collective/device fault and no allocation failed)
 and from `../custom-ops-runtime-faults/index.md` (there an op is named). It is
@@ -106,6 +132,8 @@ rows above do) proves the checkpoint geometry you assumed is the one that ran.
    host while it fails, plus the serve log's `Using max model len` and any
    `NPU out of memory … tried to allocate … (… total capacity; … free)` line. If
    free HBM is genuinely small, this is capacity, and no code reading is needed.
+   A source install (`/vllm-workspace/...`) changes none of this — the #1993
+   follow-up above was exactly that host and the ask was still these three.
 2. **Shrink the pool**: `--max-model-len` (a VL model's default context is huge),
    then `--gpu-memory-utilization`. Two full pools (raw + NZ copy) have to fit.
    This is the cheapest one-line test and it decides capacity vs defect.

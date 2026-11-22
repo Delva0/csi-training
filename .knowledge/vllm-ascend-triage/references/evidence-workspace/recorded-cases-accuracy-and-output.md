@@ -7,7 +7,8 @@ and embedding outputs. Routes: `../accuracy-benchmarks/index.md`,
 `../spec-decode-mtp/index.md`, `../tool-call-streaming/index.md`,
 `../pooling-embedding/index.md`, `../serving-frontend-faults/index.md`.
 
-Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
+Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
+family carries one line
 per case in this file.
 
 **#5725** vllm 0.13.0 + vllm-ascend v0.13.0rc1 (`72506c9834` / `1b5d5abf865f`) pinned,

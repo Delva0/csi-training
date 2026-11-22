@@ -153,9 +153,12 @@ anomalous, check the precedent before blaming the doc
 (e.g. `#5991: Qwen3-Omni-30B-A3B-Thinking, when max-concurrency >= 2, TPOT only
 100ms` against the page's ~99 ms mean TPOT).
 A **dead flag** whose owner is the release, not the command, is graded one way
-further: the page's image tag is not its text but the `{{ vllm_ascend_version }}`
-substitution from `mkdocs.yml extra.*` at build time, so compare that value with
-the tag the reporter pasted, and grade `/en/latest/` as main — `docs-version-space-and-image-tag.md`
+further: the page's image tag is not its text but a build-time substitution — the
+`{{ vllm_ascend_version }}` form from `mkdocs.yml extra.*` on the later mkdocs trees,
+the pipe form `|vllm_ascend_version|` from `docs/source/conf.py` → `myst_substitutions`
+on the older Sphinx ones (no `mkdocs.yml` exists there at all; at v0.18.0 the value is
+`v0.17.0rc1`, one release behind the tag it ships in) — so grep both files, compare
+that value with the tag the reporter pasted, and grade `/en/latest/` as main — `docs-version-space-and-image-tag.md`
 (recorded #16954: a main-only `--kv-cache-dtype int8` pair printed beside a stale
 `0.23.0` tag; tier **breaks the command**, but the defect is the version line).
 The page can print **two** image tags: the templated `{{ vllm_ascend_version }}`
@@ -452,6 +455,33 @@ The perf command is `vllm bench serve --dataset-name random`, i.e. text-only
 prompts, so a VL model's throughput number there never exercises the vision tower
 and the page prints no result at all — say both (the row's 交付件 asks for a
 performance screenshot).
+
+## Sixth worked page: Qwen3-Omni-30B-A3B-Thinking at v0.18.0 (recorded #11750)
+
+Page `docs/source/tutorials/models/Qwen3-Omni-30B-A3B-Thinking.md` (324 lines),
+pinned vllm-ascend v0.18.0 `e18643f8` + vllm v0.18.0 `bcf2be96`. Row: 2×Atlas 800I
+A2, 1 T RAM, HDK 25.5.0.B078, image `quay.io/ascend/vllm-ascend:v0.18.0`, weights
+`Qwen/Qwen3-Omni-30B-A3B-Thinking` (ModelScope). Verified findings, each
+`path:line` at that pin — a future run on this row can write 资料验证 §1 from this
+table:
+
+| Tier | Finding | Evidence |
+|---|---|---|
+| breaks the command | the bench server line passes `--swap-space 16` **and** `--disable-log-request`, and neither exists at vllm v0.18.0 — argparse exits before the server starts (the neighbouring `--disable-log-stats` *does* exist, so grade each flag separately) | page `:288`; `vllm/engine/arg_utils.py` has no `swap_space` and no `disable.log.request` anywhere in `vllm/`; `--disable-log-stats` at `:1300` |
+| breaks the command | `pip install -r vllm-ascend/benchmarks/requirements-bench.txt` cannot resolve in the image: `WORKDIR /workspace` and the source is copied to `/vllm-workspace/vllm-ascend/`, so the prefix is neither the cwd nor the copy target | page `:291`; `Dockerfile:30,32` |
+| 正确性 (version) | the `docker pull` block renders `vllm_ascend_version` = **v0.17.0rc1** at a v0.18.0 tag, while the page's own `ci_vllm_version` is v0.18.0 — the tester is told to run the previous release | page `:37`; `docs/source/conf.py:72`, `:80` |
+| wrong requirement | "tensor-parallel-size should be at least 1" for a 64 GB card contradicts the page's own card count and serve line (30B-A3B bf16 is ≈60 GB of weights, beyond one 64 GB die) | page `:177` vs `:19`, `:185` |
+| stale baseline | both result blocks are labelled `vllm-ascend:0.13.0rc1`, five releases before the task image | page `:255`, `:296` |
+| cosmetic | `--random-input 200` for `--random-input-len` (check 2's prefix rule — settled, do not re-open) and `--enable_expert_parallel` (underscore parses) | page `:293`, `:185`; `vllm/benchmarks/datasets.py:1565` |
+| completeness (coverage) | the only in-tree gate is the **Instruct** variant at TP4/`max_model_len 8192` while the page documents **Thinking** at TP2 with no `--max-model-len`, so the served variant is not the CI one | `.github/workflows/schedule_nightly_test_a2.yaml:188`; `tests/e2e/models/configs/Qwen3-Omni-30B-A3B-Instruct.yaml:1` |
+| pass (say so) | `--load-format dummy`, `--disable-log-stats`, `--limit-mm-per-prompt`, `--served-model-name`, `--max-model-len` all resolve; remote media URLs are allowed unless `--allowed-media-domains` is set | `vllm/config/load.py:37`, `arg_utils.py:1300`, `:694/:720/:1048` |
+
+The run ended `output_truncated` with **no report file and no closing message**: it
+spent 40.8 K characters of reasoning (~80 % of the completion budget) re-deriving
+each candidate, then composed the report inside a reasoning block and started one
+`cat > … <<'EOF'` heredoc for the deploy script; the cap cut that command
+mid-argument, so nothing was written and nothing was sent. Every row above was
+already verified before that turn — see `community-test-report.md`, the seventh run.
 
 ## What a finding must carry
 

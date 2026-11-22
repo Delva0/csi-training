@@ -8,7 +8,8 @@ tutorial document cases and `[Community Test]` reports. Routes:
 `../feature-enable-recipes/index.md`, `../upstream-downstream-drift/index.md`,
 `../tutorial-verification/index.md`, `../release-known-issues/index.md`.
 
-Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
+Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
+family carries one line
 per case in this file. Engine-start failures live in `recorded-cases-startup.md`.
 
 **#13199** image v0.23.0rc1 `-310p` on x86 310P3, Qwen3-VL-8B: `import torch`
@@ -299,6 +300,22 @@ had `findings.md` and the verdict in hand. Its first bash call paid 104 KB for
 `cat SOURCES.json` + `ls /workspace/history` (SKILL.md rule 7), and the pinned
 tree is v0.11.0, which has no `vllm_ascend/ops/triton/` directory — the version gap
 it flagged correctly.
+
+**#18354** vllm-ascend v0.20.2rc1 (`367b8e62da79`) + vllm v0.20.2 (`bc150f502991`), A3,
+a customer's own 星火 model (custom rope geometry), one screenshot as the whole report:
+`ub overflow, requires 15589248 bits while 1572864 bits available!` under
+`Failed to run BiShengHIR pipeline` on the first request, frames
+`rotary_embedding.py:168` → `ops/triton/rope.py:285` → `triton/runtime/jit.py`. **Same
+banner as #5750 above, opposite verdict** — a tile budget, not the wheel/compiler pair
+(`../custom-ops-runtime-faults/triton-ub-overflow-tiling-budget.md`). The run pinned the
+reporter's wheel to the tree by matching the OCR'd `path:line` (`:168`, `:285` — the OCR
+mangles `_triton_rope` and every digit), read the validated envelope from
+`tests/e2e/…/triton/test_rope.py:14-31` (only `(64,32)` and `(128,128)`), and established
+that `rope_forward_oot` picks Triton on `HAS_TRITON` alone (`:166-168`, driver detection,
+no env switch). What it lost was the delivery: 20 assistant turns, 42.4 K characters of
+reasoning (much of it hand-deriving per-buffer byte counts from the two bit numbers)
+against **179 characters** of message text, `output_truncated` mid-answer — so the
+ladder and the tile lever it had worked out never shipped.
 
 **#15389** vllm-ascend v0.23.0 (`5cb98caaadef`) / vllm v0.23.0 (`0fc695fc`), the
 Qwen3.5-397B-A17B tutorial's §5.6 请求转发 example: the reporter runs
@@ -790,3 +807,20 @@ https://github.com/vllm-project/vllm-omni/issues/2777" — i.e. the recorded ran
 ownership and repair split were right, and which of the two failure forms bit him is
 still open (his `loc`/`input_type` was never posted). Page (new):
 `../upstream-downstream-drift/protocol-model-class-swap.md`.
+
+**#18743** vllm-ascend `v0.23.0` (`5cb98caaadeff42b5b62b996e34bb2aaa29d20fd`) + vllm
+`v0.23.0` (`0fc695fc6d1d`), no hardware symptom at all: a **maintenance report** that the
+no-Triton PyTorch fallback in `patch/worker/patch_triton.py` cannot be installed through
+the worker import path, because `worker/__init__.py:33-34` imports the module only
+`if HAS_TRITON:` while the block opens `if not HAS_TRITON:` (`patch_triton.py:25`), and
+that the same block writes `fla.ops.fused_post_conv_prep` on the package (`:66`) but
+`fla.ops.fused_recurrent.…_packed_decode` on the submodule (`:124`) while the consumer
+`qwen_gdn_linear_attn.py` from-imports both from the package. Both claims hold at the
+pin, and the recorded run added the stronger gate: every call site of the two symbols
+(`_warmup_prefill_kernels`, `_forward_core`, `_forward_core_decode_non_spec` of the single
+GDN class `qwen_gdn_linear_attn.py:420`) is replaced by the plugin on both SoC paths
+(`patch_qwen3_5.py:197-209`; `patch_idex_310.py:31,34`), so "delete" is safe and
+"remove the outer guard" is the wrong edit (`patch_triton.py:1-9` imports the fla modules
+themselves). Run: 15 tool rounds, text on 5 turns totalling ~1.5 K characters, verdict
+typed at turn 27 and then two more confirmation rounds — cut at the output cap on an
+empty final message. Rule and gates: `../code-change-requests/index.md` rule 10.

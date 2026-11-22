@@ -39,6 +39,13 @@ releases on one command line — and pastes one number per run ("12s vs 4s", "�
 an EvalScope/AISBench table or a screenshot of one). Convert those into rates on a stated
 axis before ranking anything: `cross-run-ratio-normalization.md`, one script call.
 
+**And the cross-*model* form of that shape:** the two sides are two **different models**
+on the same box, image and release ("910B 部署 X-35B 为什么推理很慢, 20k 不到 25 t/s, 比
+Y-27B 的还慢, 是部署参数问题吗") with a screenshot table of t/s and TTFT across context
+lengths. There the second model is a genuine control — same cards, same flags — so the
+deliverable is the ratio its bytes predict plus the two startup lines, not a flag hunt:
+`cross-model-decode-ratio.md`.
+
 **And the PD variant of that shape:** the two runs are **one model's PD deployment and its
 colocated/multi-node deployment** ("the TTFT of PD is 2 times longer than TTFT of
 Multi-node Deployment … but the typical model of qwen no this issue"), with no numbers,
@@ -63,6 +70,16 @@ matrix with the single-card control inside it: the deliverable is the per-reques
 plus a one-client TP sweep, and the pin decides whether a comm lever even exists (at v0.8.x the
 MC2 MoE decode path is DeepSeek-only and `VLLM_ENABLE_MC2`-gated, and there is no EP flag at
 all) — `multicard-scaling-and-vendor-baseline.md`.
+
+**And this topic, on a pre-v0.8 pin:** the baseline is **transformers**, not another
+engine image — "[Bug]: [0.7.3rc1] vlm inference … inferring speed is slower than
+original transformers" (recorded #1427: vllm-ascend `v0.7.3rc1`, Qwen2.5-VL-3B,
+`-tp 2`, client-side latency rows only and no transformers numbers). The 0.8/0.9 pages
+above misfire there (no graph key, no V1 worker at that ref), two flags in the pasted
+command are inert (`--enable-prefix-caching` for a multimodal model under V0,
+`--multi-step-stream-outputs` already default), and the vision tower is the one
+component with a pinned up/downstream gap (Qwen2-VL patched, Qwen2.5-VL not) —
+`pre-0.8-vl-vs-transformers.md`.
 
 **And this topic:** the two runs differ by one `--speculative-config` and the direction
 is **negative** ("开启 mtp 性能下降 30 %", "PD 双机 mtp=2/3 比 mtp=1 差", while a sibling
@@ -265,6 +282,17 @@ Not this topic, leave immediately:
   a cross-platform table whose per-request lengths differed 4 K/100 vs 2 K/1024, and a
   two-release PD report at "12s vs 4s" with `num_speculative_tokens: 3` on the decode
   side and no token counts anywhere (`cross-run-ratio-normalization.md`).
+- **When the two sides are two *models* on one box, the fast one is the control and
+  the paste's own concurrency row prices the step.** If raising concurrency 1 → 2
+  leaves the per-stream step wall (`2 / aggregate_t_s`) within a few percent while the
+  two models sit ~2x apart row by row, the step is weight-byte bound and the
+  scheduler / KV-pool / `--max-num-seqs` / preemption lanes are closed. The answer is
+  then `params × bytes_per_param / TP` against the card's bandwidth class plus the
+  per-rank `Model loading took … GiB` line from **both** startups; and when the nominal
+  size ratio is smaller than the observed ratio (1.3x vs 2.1x), the remainder is
+  dtype/quantization or the model class's decode efficiency — separated by those same
+  two logs, never by a registry hunt for an unknown model name
+  (`cross-model-decode-ratio.md`).
 - **A MoE serve with EP off is not a tuning question.** When the command drops
   `--enable-expert-parallel` (or keeps it on one node only), every MoE layer runs the
   TP all-gather path instead of MC2 dispatch/combine at the same card count — one
@@ -390,6 +418,17 @@ Not this topic, leave immediately:
   the `1 + num_speculative_tokens` budget with `Mean acceptance length` as the
   logged multiplier), the missing-control list, and the version-absent-from-snapshot
   diff command.
+- `cross-model-decode-ratio.md` — two models on the same box and release (#11260,
+  v0.18.0, 2×910B 64G, TP2: 35B-class 22/18.9/14 t/s vs 27B-class 48/40/27, TTFT
+  identical to within a few percent, both tables at mtp=2): the TTFT-vs-t/s split, the
+  concurrency-row test that makes the step weight-byte bound (45.5 → 48.2 ms for double
+  the batch), the `params × bytes/param / TP` floor at the ~1.6 TB/s class (~48 % vs
+  ~80 % of class for the two models), the 1.30x-nominal-vs-2.1x-observed gap and the two
+  readings it leaves, the per-rank `Model loading took %s GiB memory` line
+  (`vllm/v1/worker/gpu_model_runner.py:4567`) plus the `config.json` fields that
+  separate them, the table-vs-command tells (mtp=2 with no `--speculative-config`,
+  `--served-model-name` of another model), and why the run's zero-text truncation was
+  the delivery failure rather than a missing mechanism.
 - `spec-decode-gain-accounting.md` — "MTP on is slower" with acceptance fine
   (#8967, Qwen3.5-35B-A3B w8a8 on one 910B3, `qwen3_5_mtp` K=3, vllm 0.18.rc1):
   tokens/step ≈ `ITL_p50 / TPOT_p50` = 53.8/16.2 ≈ 3.3 of a 4-token budget, step
@@ -436,3 +475,14 @@ Not this topic, leave immediately:
   often with the reporter's own ablation and `path:line` (#5124, Qwen spec decode at
   v0.11.0rc3): the cited block re-read at the pin, what the line compensates for, the
   patch that keeps the contract, and why this axis is not `spec-decode-gain-accounting.md`.
+- `pre-0.8-vl-vs-transformers.md` — a v0.7.x-era VL perf report whose reference point
+  is transformers (#1427, vllm-ascend `v0.7.3rc1` + vllm `v0.7.3`, Qwen2.5-VL-3B TP2 on
+  two 910B4): the two inert flags in the pasted command (`--enable-prefix-caching` is
+  forced off for multimodal under V0 at `arg_utils.py:1129-1134`, chunked prefill is off
+  at `:1170-1173`, `--multi-step-stream-outputs` is already the default), the
+  registry-level vision gap (only `Qwen2VLForConditionalGeneration` is patched:
+  `vllm_ascend/models/__init__.py:5-9` → `_npu_flash_attention_unpad` at
+  `qwen2_vl.py:87-101`, while Qwen2.5-VL keeps the upstream
+  `get_vit_attn_backend` → TORCH_SDPA per-image Python loop at
+  `qwen2_5_vl.py:227,304-320`), the per-vision-block TP all-gather both paths pay, and
+  why no graph-mode or `VLLM_USE_V1=1` lever exists at that ref.

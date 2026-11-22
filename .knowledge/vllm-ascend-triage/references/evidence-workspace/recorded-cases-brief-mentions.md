@@ -5,7 +5,8 @@ classification, the one-line fact and the delivery outcome are all that is known
 Use them as precedent ids and route to the topical page named in each clause; the
 full entries live in the other five case pages.
 
-Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
+Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
+family carries one line
 per case in this file.
 
 **#3859** v0.11.0 line (pin `v0.11.0rc0` `00ba071`), 910B3, no log: "910B3 是否支持权重

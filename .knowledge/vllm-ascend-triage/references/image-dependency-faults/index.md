@@ -220,6 +220,18 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   2.9.0`, plus torchaudio/torchvision/opencv lines) → `pip-resolver-warning-block.md`
   (which requirement file supplied each pin, and why raising torch is the one thing
   that breaks the install).
+- The **title is a Python-version requirement in the reporter's own words** —
+  「python version should above 3.10」, "requires python 3.10+" — with `npu-smi`, a
+  `conda`/`pip` transcript and a screenshot but **no printed line**, and the install
+  itself succeeded. The string is nowhere in either tree (`rg -n 'above 3\.10'`), so the
+  deciding line is the screenshot's OCR: at #3657 it is
+  `TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'` inside
+  `vllm/model_executor/models/registry.py`'s class body, i.e. a PEP 604 annotation
+  evaluated at import on Python 3.9, and the pin's own metadata
+  (`requires-python = ">=3.9,<3.14"`, `python_requires=">=3.9"`,
+  `installation.md:8` `>= 3.9, < 3.12`) is why pip never refused it. Verdict: recreate the
+  env on 3.10/3.11 — and the paste's `conda create --clone` of an old `PyTorch-2.1.0` env
+  is where the 3.9 came from → `python-floor-import-error.md`.
 - The complaint is a **dependency conflict that asks for a pin change** — "A 依赖 B，
   B 依赖 C …", "能否把 vllm-ascend 依赖的 torch-npu 升级为 2.8.0？", no pip error quoted →
   `dependency-pin-bump-request.md`. Verdict first (no, not for this release), then the
@@ -247,6 +259,15 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   third-party tarballs from `gitcode.com` at configure time →
   `offline-source-build.md` for the inventory, the pre-seed gates and the two knobs
   that do not work (`CANN_PKG_SERVER`, an exported `CANN_3RD_LIB_PATH`).
+- The build **finished** and the whole report is one dangling path —
+  `…/csrc/build/compat/liboptiling.so -> lib/linux/aarch64/libcust_opmaster_rt2.0.so 指向无效`,
+  often with "the real file is under `_CPack_Packages/…/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64/`"
+  or "should it be `./build/libcust_opmaster_rt2.0.so`?" — no failing frame, no exit
+  code. `compat/` is a **build-tree-only** relative link whose layout exists only after
+  `install()` (`csrc/CMakeLists.txt:195-209` vs the absolute `$<TARGET_FILE:optiling>`
+  link at `:186-189`), so the packaged copy resolves and nothing needs `ln` or a rebuild:
+  answer that first, then the two-command check on the reporter's box →
+  `custom-op-build-stage.md` §Step 2b (v0.19.1rc1, #10792).
 - A **compiler or linker** error in that same source build, with no engine start:
   `ld: … multiple definition of '<symbol>'` / `first defined here`, `collect2: error:
   ld returned 1 exit status`, `ccec_compiler`/`ascendc_pack_kernel` frames, then
@@ -445,7 +466,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `datasets`, the image's own `global.index-url`, the wheelhouse recipe) (#4737), and the
   no-error paraphrase of a PyPI `vllm` wheel that replaced the box's preinstalled torch
   (§A0, #1363 — the pip leg of that ref's install doc has no Ascend mirror, the
-  build-from-source leg does).
+  build-from-source leg does). §C is the `Cannot install <a> and <b> … conflicting
+  dependencies` text read as a `+cpu` local-label/visibility row; §D is the same words
+  coming from the **build-dependency** subprocess (`× pip subprocess to install build
+  dependencies did not run successfully`), where the pins are `pyproject.toml`'s
+  `[build-system] requires` resolved into an empty prefix — the reporter's installed torch
+  pair cannot satisfy them, so `--no-build-isolation` is rung 1 (#446).
 - `offline-source-build.md` — an offline source build: the own-source invocation
   chain (`setup.py` `build_aclnn` → `csrc/build_aclnn.sh` → `csrc/build.sh` →
   `csrc/CMakeLists.txt`), the five network legs with the existence gate that
@@ -474,6 +500,10 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   the failures concentrate in `ops/layernorm_gated.py` (unguarded import at
   `ops/layernorm.py:24`, `triton.next_power_of_2` at `:139`), and why
   `pip uninstall triton` on a triton-ascend box leaves a gutted tree (#11681).
+- `python-floor-import-error.md` — an install report whose title paraphrases a Python
+  requirement and whose only failure is an import-time `TypeError` in `vllm/` (PEP 604
+  `X | None` on 3.9): the metadata that let pip through, the OCR line that is the real
+  evidence, and the clone-the-old-env reason the interpreter stayed 3.9 (#3657).
 - `custom-op-build-stage.md` — a `COMPILE_CUSTOM_KERNELS=1` source build that fails
   in the compiler/linker log: which stage the last frames name, whose code it is
   (vllm-ascend `CMakeLists.txt`/`setup.py` vs the CANN toolkit), the version

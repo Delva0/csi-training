@@ -88,7 +88,8 @@ done < <(printf '%s\n' "$txt" | sed -n 's/.*Can not support soc_version: \([0-9]
 
 # 3) neighbouring evidence that is NOT this fault
 if printf '%s\n' "$txt" | grep -q "liboptiling.so"; then
-  echo "note: liboptiling.so dlopen failure in the paste is expected and non-fatal (auto_exclude.py excludes it); it never causes EngineCore failed to start"
+  echo "note: liboptiling.so dlopen failure in the paste is expected and non-fatal; it never causes EngineCore failed to start"
+  echo "  (the wheel exclusion that explains it is version-scoped - re-grep auto_exclude.py in the reported tree; absent at v0.19.1rc1)"
 fi
 if [ "$found" -eq 0 ]; then echo "no device-type assertion or unmapped soc_version found in the paste"; fi
 echo "$MAP_NOTE"

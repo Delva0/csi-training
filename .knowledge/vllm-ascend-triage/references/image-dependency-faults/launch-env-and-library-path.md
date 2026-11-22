@@ -43,6 +43,26 @@ Reporter-confirmed on #7352 (v0.17.0rc1, Mooncake PD, 910B4, both pods under a
   image regressed"; it only proves the two pods were started with different
   effective environments. Compare launch commands before comparing images.
 
+## Why `/usr/local/lib` is the directory being appended
+
+The artifact is a target of the **source** build, and its install location explains the
+reporter's one-line fix: in `kvcache-ai/Mooncake`
+`mooncake-transfer-engine/src/transport/ascend_transport/CMakeLists.txt` the library is
+`add_library(ascend_transport SHARED …)` (`:23` in the v0.3.8 export `823064aa`, the
+pin behind #6949), `install(TARGETS ascend_transport DESTINATION lib)` (`:37`) with
+`set_target_properties(… PREFIX "")` (`:46-48`) — so it lands at
+`${CMAKE_INSTALL_PREFIX}/lib/ascend_transport.so`, i.e. `/usr/local/lib/…` under the
+default prefix, and without a `lib` prefix. Quote that pair whenever "why that
+directory" is the question, and give the remedies in the pin's own order: the
+`LD_LIBRARY_PATH` export **inside the launch command** (step 4 below), Mooncake's
+"copy the `.so` file to another path referenced by `$LD_LIBRARY_PATH`"
+(`docs/source/design/transfer-engine/ascend_transport.md:48`), or the launcher-proof
+one-liner in the image — `echo /usr/local/lib > /etc/ld.so.conf.d/mooncake.conf &&
+ldconfig` — after which no per-process export exists for a launcher to drop.
+Path drift to expect when grepping the tutorials: from v0.15.0rc1 onward they sit under
+`docs/source/tutorials/features/` (`…/pd_disaggregation_mooncake_single_node.md:138`
+at `3d43ed99`, #6949), not directly under `docs/source/tutorials/`.
+
 ## When the image recipe itself is the source
 
 Ask for the `~/.bashrc` grep before blaming the reporter's launcher: vllm-ascend's own

@@ -154,7 +154,10 @@ KV transport: the title's sync call is the reporting point, and the code after i
   masked assign `initial_state[~has_initial_state, ...] = 0` (a data-dependent
   `Nonzero` under capture); at v0.19.1rc1 the clearing is the Triton `clear_ssm_states`
   (`ops/triton/fla/utils.py:98`), and the masked assign survives only on 310P
-  (`_310p/ops/fla/gdn_310.py:195`). Cite #7863 for symptom and owner, never for the line.
+  (`_310p/ops/fla/gdn_310.py:195`). Cite #7863 for symptom and owner, never for the line; the same masked
+  clear is the owner of a **non-PD**, long-run `NonZero` device fault (#7774, sites
+  per pin and the version lane in
+  `../custom-ops-runtime-faults/hybrid-ssm-mask-nonzero-fault.md`).
 - State the scope defect in the first paragraph: a variant absent from the support
   matrix at that pin (`Qwen3.5-35B-A3B` is not listed; only 397B-A17B and 27B,
   `docs/source/user_guide/support_matrix/supported_models.md:82-83`) is an unvalidated

@@ -106,6 +106,19 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   attn_metadata.multimodal_placeholder_index_maps["audio"]`). One `cat` would have
   classified the case. A scrambled *numeric* claim still needs a cross-check; the
   *stack* is ordered and can be quoted with the OCR caveat.
+  **The prefix read loses the exception line specifically.** #3816 ran
+  `sed -n '1,200p'` of a 466-line OCR and stopped on the *last frame* of an
+  `EngineCore encountered a fatal error` traceback, so the answer said "the
+  exception was cut off, send the block below it" — while OCR lines 223-228 held
+  `raise RuntimeError(f"Invalid request status: {request.status}")`,
+  `RuntimeError: Invalid request status: WAITING_FOR_FSM` and
+  `vllm_ascend/core/scheduler.py:274`, i.e. the entire mechanism, against a page
+  (`../upstream-downstream-drift/scheduler-fork-missing-status.md`) that carried
+  the same traceback at the same two pins. `cat` the file, or run
+  `rg -n -i 'error|exception|raise|traceback' <file>`, and read only an empty
+  result as a data gap: the `raise` source line and the `…Error: <message>` line
+  are separate OCR entries in scrambled order, so join them by keyword, not by
+  adjacency.
 - **A `user-attachments` link names the first artefact — open the file, not its
   manifest.** `/workspace/attachments/<issue>/` holds what the issue linked:
   `ATTACHMENTS.txt` is a manifest (file name | kind | source SHA256) and carries
@@ -149,21 +162,22 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   nothing".
 - `case-layout.md` — concrete commands for orientation, source reading at a pinned commit,
   and history search; what to quote in the final answer.
-- `recorded-cases.md` — the per-issue index behind rule 1: version, symptom, track,
-  and how each recorded session ended (delivered early, delivered late, cut
+- `recorded-cases/index.md` — the per-issue index behind rule 1: version, symptom,
+  track, and how each recorded session ended (delivered early, delivered late, cut
   mid-answer, or shipped nothing). Read it to place a new report beside a precedent,
   or before deciding that a session which already has a usable lead should keep
-  digging. It carries one index line per case and routes to seven pages split by
-  track family: `recorded-cases-startup.md`,
+  digging. The index is split by track family into six pages under
+  `recorded-cases/` — `startup-and-install.md`, `device-and-communication.md`,
+  `accuracy-and-output.md`, `memory-and-throughput.md`, `pd-kv-and-features.md`
+  and `brief-mentions.md` (the lines that list several issues at once) — one index
+  line per case, while the detail (mechanism, checks, per-session sizes) stays in
+  the seven family pages `recorded-cases-startup.md`,
   `recorded-cases-install-and-environment.md`,
   `recorded-cases-device-and-communication.md`,
   `recorded-cases-accuracy-and-output.md`,
   `recorded-cases-memory-and-throughput.md`,
-  `recorded-cases-pd-kv-and-features.md` and `recorded-cases-brief-mentions.md`
-  (the paragraphs that list several issues at once). Open one page, not all seven;
-  `rg -n '#<issue>'` across this directory finds an entry either way. The engine-start
-  family and the install/image/version family were split apart at the per-file size
-  cap, so add a case to whichever of `recorded-cases-startup.md` and
-  `recorded-cases-install-and-environment.md` owns its page plus one line in the index;
-  keep each of them under the cap rather than condensing entries, and split the index
-  itself by the same family boundaries when it reaches the cap.
+  `recorded-cases-pd-kv-and-features.md` and `recorded-cases-brief-mentions.md`.
+  Open one index page, not all six; `rg -n '#<issue>'` across this directory finds an
+  entry either way. Add a case to the family page that owns its topical page plus one
+  line in the matching index page, and keep every page under the per-file size cap by
+  splitting along the same family boundaries rather than condensing entries.

@@ -67,6 +67,23 @@ Inherit the rules in SKILL.md, plus these:
 5. **Deployment-sizing claims belong to the sizing route.** Whether the stated
    card count can hold the model is arithmetic, not a doc-reading exercise:
    `../deploy-sizing/index.md` and `scripts/card-budget.sh`.
+6. **The report file and the message are opened before the audit finishes, and the
+   reasoning channel is not where the report is drafted.** One output budget (16 384
+   tokens) holds the reasoning, every heredoc and the message, so a run that reasons
+   each finding out at length and writes at the end ships nothing. Concretely: on the
+   turn the first defect is pinned (turn 2-3) write `资料验证` §1 to
+   `/workspace/scratch/<row>-report.md` — defect table with `path:line`, tier and
+   corrected line, then the three 完整性/易用性/正确性 scores — and send the verdict plus
+   the severe defects as **message text in that same turn**; after that keep 2-4 lines
+   of reasoning per turn and one artefact per `bash` call. #11750 is the seventh run
+   of this shape and the first to ship neither a file nor a message: 40.8 K characters
+   of reasoning (~80 % of its budget) over 14 turns, then the report drafted inside a
+   reasoning block and a single heredoc for the deploy script, cut mid-argument — with
+   eight verified findings already in hand, now tabulated in
+   `tutorial-command-audit.md` ("Sixth worked page") so the next run on that row can
+   open §1 on turn 2. For scale, the same shape at its best: #11741 used 15 546 of
+   16 384 tokens with the file opened early; #11751 spent 24 K characters of reasoning
+   plus 16.1 K of tool arguments on a 15.4 K report and still lost the message.
 
 Conditional routes:
 

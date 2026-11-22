@@ -20,14 +20,28 @@ Definitions used (all derived from the five reliable fields):
   prefill_ms_per_tok  = 1000 * ttft_s / per_req_in      # only when --ttft is given
 
 usage:
-  benchmark-table-normalize.py --run NAME OUT_TOK_S WALL_S REQS CONC
+  benchmark-table-normalize.py --run NAME OUT_TOK_S WALL_S REQS [CONC]
                                [--total-tok-s RUN=TOTAL] [--ttft RUN=SECONDS]
+                               [--mean-itl-ms RUN=MS] [--mean-tpot-ms RUN=MS]
+                               [--median-itl-ms RUN=MS] [--arrival-rate RUN=RPS]
                                [--compare A B]
 
-  --run        repeatable; the five required numbers positionally
+  --run        repeatable; the four reliable numbers positionally, plus CONC when
+               the driver has a concurrency column (closed loop)
   --total-tok-s  RUN=value, repeatable (gives per-request input tokens)
   --ttft         RUN=value, repeatable (gives prefill ms per input token)
+  --mean-itl-ms  RUN=value, repeatable; the block's "Mean ITL (ms)" column
+  --mean-tpot-ms RUN=value, repeatable; the block's "Mean TPOT (ms)" column
+  --median-itl-ms RUN=value, repeatable; the block's "Median ITL (ms)" column
+                 (only for the mean/median ratio: the median is one fast step)
+  --arrival-rate RUN=value, repeatable; the driver's --request-rate
   --compare      A B: print the pairwise ratios and say which axis moved more
+
+An arrival-rate driver (`vllm bench serve --request-rate R`) has no concurrency
+column: the benchmark is open loop, so the in-flight sequence count is *derived*
+from a mean latency, `out_total * mean_ITL / wall` (equivalently
+`out_tok_s * mean_TPOT`). Use the MEAN columns for that: the median describes one
+fast decode step and understates the count by the ratio mean/median.
 
 Exit 0 on success, 2 on unusable input (non-numeric, zero output throughput or
 zero requests). Ratios are printed as B/A. The script does not decide the cause:
@@ -40,15 +54,18 @@ import sys
 
 def parse_run(raw):
     parts = raw.split()
-    if len(parts) < 5:
-        raise ValueError(f"--run needs NAME OUT_TOK_S WALL_S REQS CONC, got {raw!r}")
+    if len(parts) < 4:
+        raise ValueError(
+            f"--run needs NAME OUT_TOK_S WALL_S REQS [CONC], got {raw!r}")
     name = parts[0]
     try:
-        out_tok_s, wall, reqs, conc = (float(x) for x in parts[1:5])
+        out_tok_s, wall, reqs = (float(x) for x in parts[1:4])
+        conc = float(parts[4]) if len(parts) > 4 else None
     except ValueError as exc:
         raise ValueError(f"--run {name}: non-numeric field ({exc})") from exc
-    if wall <= 0 or out_tok_s <= 0 or reqs <= 0 or conc <= 0:
-        raise ValueError(f"--run {name}: wall/output-tok-s/requests/concurrency must be > 0")
+    if wall <= 0 or out_tok_s <= 0 or reqs <= 0 or (conc is not None and conc <= 0):
+        raise ValueError(
+            f"--run {name}: wall/output-tok-s/requests/concurrency must be > 0")
     return name, out_tok_s, wall, reqs, conc
 
 
@@ -67,6 +84,10 @@ def main():
     ap.add_argument("--run", action="append", required=True)
     ap.add_argument("--total-tok-s", action="append", default=[])
     ap.add_argument("--ttft", action="append", default=[])
+    ap.add_argument("--mean-itl-ms", action="append", default=[])
+    ap.add_argument("--mean-tpot-ms", action="append", default=[])
+    ap.add_argument("--median-itl-ms", action="append", default=[])
+    ap.add_argument("--arrival-rate", action="append", default=[])
     ap.add_argument("--compare", nargs=2, metavar=("A", "B"))
     args = ap.parse_args()
 
@@ -74,6 +95,13 @@ def main():
         runs = [parse_run(r) for r in args.run]
         totals = dict(parse_named(r, "--total-tok-s") for r in args.total_tok_s)
         ttfts = dict(parse_named(r, "--ttft") for r in args.ttft)
+        itls = {k: v / 1000.0
+                for k, v in (parse_named(r, "--mean-itl-ms") for r in args.mean_itl_ms)}
+        tpots = {k: v / 1000.0
+                 for k, v in (parse_named(r, "--mean-tpot-ms") for r in args.mean_tpot_ms)}
+        med_itls = {k: v / 1000.0 for k, v in
+                    (parse_named(r, "--median-itl-ms") for r in args.median_itl_ms)}
+        rates = dict(parse_named(r, "--arrival-rate") for r in args.arrival_rate)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -82,7 +110,6 @@ def main():
     for name, out_tok_s, wall, reqs, conc in runs:
         out_total = out_tok_s * wall
         per_req_out = out_total / reqs
-        step = conc / out_tok_s
         row = {
             "wall": wall,
             "reqs": reqs,
@@ -90,9 +117,12 @@ def main():
             "out_tok_s": out_tok_s,
             "out_total": out_total,
             "per_req_out": per_req_out,
-            "step_s": step,
-            "waste": wall / (reqs / conc * per_req_out * step) if step > 0 else 0.0,
+            "served_rps": reqs / wall,
         }
+        if conc is not None:
+            step = conc / out_tok_s
+            row["step_s"] = step
+            row["waste"] = wall / (reqs / conc * per_req_out * step) if step > 0 else 0.0
         if name in totals:
             per_req_in = (totals[name] * wall - out_total) / reqs
             row["total_tok_s"] = totals[name]
@@ -104,11 +134,47 @@ def main():
         derived[name] = row
 
         print(f"== {name}")
-        print(f"   wall={wall:.4g}s  requests={reqs:.6g}  concurrency={conc:.6g}")
+        print(f"   wall={wall:.4g}s  requests={reqs:.6g}  concurrency="
+              + (f"{conc:.6g}" if conc is not None else "none (arrival-rate driver)"))
         print(f"   output tokens total = {out_total:.5g}  -> per request = {per_req_out:.5g}")
-        print(f"   decode step (full batch of {conc:.4g}) = {step*1000:.4g} ms"
-              f"   per-sequence rate = {out_tok_s/conc:.4g} tok/s")
-        if reqs / conc > 1:
+        print(f"   served = {reqs / wall:.4g} req/s"
+              + (f" of {rates[name]:.4g} offered ({rates[name] / (reqs / wall):.4g}x"
+                 " oversubscribed)" if name in rates and reqs / wall > 0 else ""))
+        if conc is not None:
+            print(f"   decode step (full batch of {conc:.4g}) = {step*1000:.4g} ms"
+                  f"   per-sequence rate = {out_tok_s/conc:.4g} tok/s")
+        inflight = None
+        if name in itls and itls[name] > 0:
+            inflight = out_total * itls[name] / wall
+            print(f"   mean ITL = {itls[name]*1000:.4g} ms -> implied in-flight sequences ="
+                  f" {inflight:.4g}  (output tokens x mean ITL / wall)"
+                  f"; per stream = {1/itls[name]:.4g} tok/s")
+        if name in tpots and tpots[name] > 0:
+            inflight_tpot = out_tok_s * tpots[name]
+            print(f"   mean TPOT = {tpots[name]*1000:.4g} ms -> implied in-flight sequences ="
+                  f" {inflight_tpot:.4g}  (output tok/s x mean TPOT)"
+                  f"; per stream = {1/tpots[name]:.4g} tok/s")
+            if inflight is not None and max(inflight, inflight_tpot) / max(
+                    min(inflight, inflight_tpot), 1e-9) > 1.3:
+                print("   WARNING the two routes disagree: check that both means come from"
+                      " the same run, and never substitute the MEDIAN columns — the median"
+                      " ITL is one fast decode step and understates the count by mean/median")
+            inflight = inflight if inflight is not None else inflight_tpot
+        if name in itls and name in med_itls and med_itls[name] > 0:
+            spread = itls[name] / med_itls[name]
+            print(f"   mean / median ITL = {spread:.3g}x"
+                  + ("  -> a minority of gaps carry most of the wall time: those steps emit"
+                     " no decode tokens (prefill admission, preemption, or queue re-entry),"
+                     " so the median is a single fast step and is NOT the capacity number"
+                     if spread > 3 else
+                     "  -> gaps are of one size, so the run is steady-state decode"))
+        if inflight is not None:
+            row["inflight"] = inflight
+            print("   quote the MEAN columns for concurrency; the median describes one step")
+        if conc is None and inflight is None:
+            print("   no concurrency column and no mean latency given: pass --mean-itl-ms or"
+                  " --mean-tpot-ms RUN=MS to derive the in-flight sequence count")
+        if reqs / conc > 1 if conc else False:
             print(f"   waves = {reqs/conc:.4g}; wall / (waves x per-request tokens x step) = "
                   f"{row['waste']:.3f}  (>>1 means queueing, warmup, or a per-request fixed cost"
                   " on top of the decode loop)")
@@ -116,8 +182,20 @@ def main():
             print(f"   total tok/s = {row['total_tok_s']:.5g}  -> per request input = "
                   f"{row['per_req_in']:.5g}  (prefill share of tokens = {row['prefill_share']*100:.1f}%)")
         if "prefill_ms_per_tok" in row:
-            print(f"   TTFT = {row['ttft']:.4g}s -> prefill = "
-                  f"{row['prefill_ms_per_tok']:.4g} ms per input token")
+            share = row["ttft"] / wall
+            queued = 0.25 <= share <= 0.75
+            print(f"   mean TTFT / wall = {share:.3g}"
+                  + ("  -> about half the run, i.e. ONE FIFO queue drain: the requests that"
+                     " arrive after capacity is reached wait for their predecessors, so this"
+                     " TTFT is queue time and says nothing about prefill latency"
+                     if queued else
+                     "  -> TTFT is not queue-dominated at this share; read it as a"
+                     " first-token cost"))
+            print(f"   TTFT = {row['ttft']:.4g}s -> "
+                  + ("prefill is NOT derivable from it (queue-dominated: divide total prompt"
+                     " tokens by the prompt throughput line instead)"
+                     if queued else
+                     f"prefill = {row['prefill_ms_per_tok']:.4g} ms per input token"))
         derived_avgs = [f"avg out {row['per_req_out']:.4g}"]
         if "per_req_in" in row:
             derived_avgs.append(f"avg in {row['per_req_in']:.4g}")
@@ -130,6 +208,14 @@ def main():
         if a not in derived or b not in derived:
             print(f"error: --compare needs two --run names, got {a!r}/{b!r}", file=sys.stderr)
             return 2
+        if "step_s" not in derived[a] or "step_s" not in derived[b]:
+            print(f"== {b} / {a}  (no concurrency column: compare per-stream rates)")
+            for side in (a, b):
+                if "inflight" in derived[side]:
+                    print(f"   {side}: {derived[side]['inflight']:.4g} in flight,"
+                          f" {derived[side]['out_tok_s']/derived[side]['inflight']:.4g} tok/s"
+                          " per stream")
+            return 0
         step_ratio = derived[b]["step_s"] / derived[a]["step_s"]
         print(f"== {b} / {a}  (cost ratios: >1 means {b} is slower)")
         print(f"   decode step cost = {step_ratio:.3g}x  (output tok/s ratio = "

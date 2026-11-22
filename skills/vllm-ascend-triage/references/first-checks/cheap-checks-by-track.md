@@ -460,6 +460,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   same-command, two-release ratio also divides out the output token count and, on a
   spec-decode decode side, `Mean acceptance length`
   (`../performance-throughput/cross-run-ratio-normalization.md`, #2833, #14291).
+- The whole evidence is **one** client-side `vllm bench serve` summary with a
+  huge TTFT and no engine log: price the run before anything else —
+  `uv run --no-project python <skill_root>/scripts/benchmark-table-normalize.py --run 'N OUT_TOK_S
+  WALL_S REQS' --mean-itl-ms N=MS --mean-tpot-ms N=MS --median-itl-ms N=MS --arrival-rate N=RPS`.
+  It prints `served ÷ offered req/s`, the mean-TTFT/wall FIFO-drain test and the
+  in-flight sequence count from the **mean** columns; the median ITL is one fast
+  step and understates that count by mean/median (#3112: 26 vs 2)
+  (`../performance-throughput/prefill-queue-and-throughput.md`, second half).
 - A DP×TP **MoE** serve reports low throughput while its own command omits
   `--enable-expert-parallel` (or has it on one node only, often because "开 EP 会胡言乱语"):
   read the selector once — `ep_size` is the EP group's world size when enabled and `1`
@@ -482,6 +490,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `bash <skill_root>/scripts/host-ram-check.sh <paste|->` and report the ratio
   before any NPU lane, quoting RES and never the `8326g` VIRT
   (`../runtime-memory/host-ram-and-per-rank-rss.md`).
+- Same crash and **no** `top` pasted, but the log does **not** stop at startup (the
+  serve printed its banner or answered before the box went down): count the ranks
+  sharing that host (`-tp N`, or `--data-parallel-size-local × -tp`) and price them
+  against that host's RAM — every rank's resident footprint is paid from **one** pool
+  that `npu-smi` cannot see. Ask for `free -g`,
+  `ps -eo pid,rss,cmd --sort=-rss | head -25` and `dmesg -T | grep -iE 'oom|kill'`,
+  and keep the host budget at rank 1: a VL model's profile-run / multimodal-budget
+  page and the graph-capture ladder are **device** lanes and do not explain a dead
+  box (`../runtime-memory/host-ram-and-per-rank-rss.md`; worked #3902 — 16 × 88-100
+  GiB RES = 1472 of 2014 GiB host RAM, while the recorded session on a `-tp 16`
+  single-A3 Qwen3-VL-235B report had ranked the model's own budgets first).
 - Same crash but **no** `top` to sample and the log stops mid-startup: last lines
   are the per-rank `rank N in world size M is assigned ...` set, no
   `Starting to load model` after them, `--max-model-len` 128K+. Run
@@ -680,6 +699,14 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   census plus one constructor read: the export quantised a module the model file
   built without `quant_config` (ViT tower, projector), and its `(`class`)` is the
   runtime CustomOp name (recorded #7200).
+- A load-phase `RuntimeError: The expanded size of the tensor (P) must match the
+  existing size (C)` out of a quant `weight_loader`'s `copy_`: divide first, then read
+  one description. `P = C // N` with `N` the parallel size means the engine allocated
+  the param with the divisor and the loader branch it took never shards; which branch
+  is the param's own tag, and on W4A8 MoE that tag depends on `group_size`
+  (`version: "1.0.0"` + `group_size: 0` is the trigger, absent `group_size` = 256
+  cannot raise). `--scales` on the model dir prints `version`/`group_size` beside the
+  census (`../startup-failures/quant-aux-param-tp-shape-mismatch.md`, recorded #7088).
 - A `RuntimeError: Promotion for Float8 Types is not supported … Float8_e4m3fn and
   Bool` in `ops/fused_moe/token_dispatcher.py` on the first MoE forward: three
   `sed` reads and one ablation, never a device theory
@@ -748,6 +775,16 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   true (`../tutorial-verification/community-test-report.md`). Stop
   auditing after 3-5 tiered defects; never present a doc baseline as a
   measurement.
+- A **quantized artifact** reported as *both* "no speedup" and "worse accuracy"
+  (usually one sentence, no numbers, a dense model, `--quantization ascend`): split
+  the claims before any source read — one call,
+  `scripts/quant-description-census.py <ckpt>` gives the scheme histogram (`W8A8`
+  static per-tensor vs `W8A8_DYNAMIC` per-token vs `FLOAT`-skipped layers) and, with
+  the checkpoint's `config.json`, the `R = 2/(1+u)` decode ceiling; the score belongs
+  to the scheme and its calibration, the rate to that ceiling plus the graph lane and
+  `VLLM_ASCEND_ENABLE_NZ` (`../performance-throughput/quantized-dense-no-gain.md`,
+  #10604). Do not walk `vllm_ascend/quantization/*` for either half, and check the
+  same-family *published* artifact as the control before believing a conversion fault.
 - Accuracy/corruption: establish whether both numbers came from the same
   server, weights and serve flags before choosing a culprit
   (`../accuracy-benchmarks/index.md`); for a garbled prompt, get the

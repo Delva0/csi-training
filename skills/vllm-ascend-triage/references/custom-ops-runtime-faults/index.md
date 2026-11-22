@@ -353,7 +353,8 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   `SUSPECT REMOTE ERROR` / `error code is 507057` / an `EZ9999 … chipId:` dump /
   `error code = 0x8…`, it is a lane C device fault: the `fftsplus aivector error` there
   names the chip's failure class, not a tiling defect in the named op (recorded #10829:
-  the reporting rank printed `Device:0`, the dump named `chipId:4`). Route to
+  the same output carried an `EZ9999 … (chipId:4, dieId:0) … fftsplus aivector error`
+  dump while one node printed only `SUSPECT REMOTE ERROR`). Route to
   `../hccl-and-hardware/index.md` and do not compute tiling for it.
 - **A custom op that faults only in varlen mode is a null-optional read before it is a
   geometry bug.** When `507015` / `The MPU address access is invalid` names an FLA/GDN
@@ -486,7 +487,9 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   reporter-confirmed solved by CANN 8.3, and the launch pair (`attention_v1.py:540-554`, TND +
   `block_table` + `sparse_mode=3`) is what the plugin intends, so chunking avoidance is only a sidestep.
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
-  each line does/does not pin down, plus the **built-in CANN kernel** lane where there is no
+  each line does/does not pin down; its step 0 is the check that an op-map page at the same
+  pin already answers the tiling question, which the #8944 forward skipped before
+  re-deriving that page from source; plus the **built-in CANN kernel** lane where there is no
   `csrc/<op>/` to open (`fault kernel_name=unpad_flashattention_…`, `FlashAttentionScore…`):
   the V1 `Dumping scheduler output … SchedulerOutput(...)` disaster dump read field by field
   (`scheduled_encoder_inputs` ⇒ vision tower vs LM, `num_computed_tokens > 0` ⇒ continuation
@@ -538,7 +541,10 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   op is unreachable with SP on).
 - `add-rms-norm-bias-op-map.md` — worked map of `csrc/add_rms_norm_bias` at vllm-ascend
   v0.19.1rc1: files, tiling key = dtype*10+mode, mode-selection table, buffer sizes, arch
-  macros, python call sites. Read it only once the error family is a device fault.
+  macros, python call sites, plus the cross-checks already closed at this pin (host rejects an
+  `x2 != x1` row mismatch, NORMAL last-core arithmetic, the `rstd` `#if`) and the artefact
+  order for an `aclnnAddRmsNormBias` MTE dump. Read it **before** `op_host/*_tiling.cpp` —
+  at this pin it *is* the tiling read — and only once the error family is a device fault.
 - `attention-op-numeric-errors.md` — silent numeric wrongness in
   `npu_fused_infer_attention_score` / `npu_fusion_attention` /
   `_npu_flash_attention_unpad` with a framework-free `torch_npu` repro: which caller

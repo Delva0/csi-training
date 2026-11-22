@@ -25,11 +25,15 @@ The deepest `vllm_ascend` frame is the **KV store**, not attention math: `attent
 
 ## The verdict, and it is a config verdict
 
-At this pin the 310P document states the envelope outright —
-`docs/source/tutorials/hardwares/310p.md:5`: *"the 310I series only supports eager mode
-and the float16 data type"* — and **no** validated row in that file passes
-`--kv-cache-dtype` (`rg -n 'kv-cache-dtype' docs/source/tutorials/hardwares/310p.md` is
-empty at `99e1ea0`). So a non-fp16 KV cache on 310P is outside the supported set at the
+The envelope is the file's **rows**, not its prose: **no** validated row in
+`docs/source/tutorials/hardwares/310p.md` passes `--kv-cache-dtype`
+(`rg -n 'kv-cache-dtype' docs/source/tutorials/hardwares/310p.md` is empty at
+`99e1ea0` v0.18.0rc1 and still empty at `5f6faa0` v0.22.1rc1) while every row carries
+`--dtype float16`. Do not reach for the old *"the 310I series only supports eager mode
+and the float16 data type"* sentence on a v0.22.1rc1 paste: `rg -n 'only supports eager
+mode' docs/` has **no hit** at that ref, whose `hardwares/310p.md:17-27` instead
+documents `FULL_DECODE_ONLY` and whose rows pass a cudagraph config (quote the rows;
+`index.md` rule 4). So a non-fp16 KV cache on 310P is outside the supported set at the
 reported release, and the cheapest next action is one flag: drop `--kv-cache-dtype`
 (leave `--dtype float16`). Lead the answer with that sentence; the mechanism below is
 supporting detail, not the deliverable.

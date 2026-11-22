@@ -138,3 +138,9 @@ hit rate) to prove traffic really was steady; the request shape (prompt/output
 tokens, `stream`, client disconnects); the container memory limit; and whether the
 service's own reported ref exists in the snapshot at all — #16563 reports
 0.23.0RC1 against a v0.26.0rc1 pin, so every `path:line` needs that scope.
+
+Pins: the `path:line` above are verified at vllm-ascend **v0.26.0rc1**
+(`f2f74a16c3c5`) + vllm **v0.26.0** (`568afb3a1380`) — when `SOURCES.json` names
+those two, cite them as they stand and spend the turns on the delivery; re-grep only if
+the pin moved or a line is marked version-specific (`utils.py:861-889`'s env name, the
+`enable_dsa_cp` gate, the recipe block).

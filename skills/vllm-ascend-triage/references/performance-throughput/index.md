@@ -33,6 +33,11 @@ quantization/linear internals for a count question. **The one profiler report th
 BF16 because *this layer class* has no quant kernel" (recorded #9443, the
 full-attention `self_attn` rows of a Qwen3.5 hybrid): there the layer class, not the
 window, is what needs checking, and `quantized-artifact-layer-coverage.md` owns it.
+**Its dense-model sibling has no dump at all** — the whole report is one title,
+"Qwen2.5-7B-w8a8量化配置，没有性能收益（甚至有降低），精度同样降低", with no serve line
+and no numbers — and that one is two claims whose owners differ:
+`quantized-dense-no-gain.md` (scheme histogram from the artifact's own json, then the
+`2/(1+u)` byte ceiling, before any engine cause).
 
 **Also this topic:** the report compares **two runs** — two platforms, two images, or two
 releases on one command line — and pastes one number per run ("12s vs 4s", "吞吐高了一倍",
@@ -177,17 +182,39 @@ Not this topic, leave immediately:
 - **Separate the two complaints before answering.** "排队久" is TTFT: total
   prefill work ahead / prefill throughput, and it is *not* improved by
   `--max-num-seqs` or by memory. "生成慢" during the same window is
-  prefill/decode interference inside one scheduler budget. A report usually
+  prefill/decode interference inside one scheduler budget. When the driver offers
+  a *rate* of long-output requests (`--request-rate` × `--random-output-len`) the
+  queue is decode-bound instead: the wall time is `output tokens ÷ aggregate
+  rate`, `mean TTFT ≈ wall/2` is one FIFO drain, and the prefill terms are not in
+  the report at all (`prefill-queue-and-throughput.md`, second half). A report usually
   contains both, and each has a different lever. When it does, load **both** pages
   in the same `skill_view` turn before any grep: the arithmetic page answers
   "排队", the cache page answers "命中 0", and the recorded #6833 replay lost its
   session by opening only the cache page and re-deriving the queue arithmetic from
   `scheduler.py`.
+- **Name the load driver before reading any of its columns.** The same numbers
+  mean different things per tool, and one tool's per-request row is not the
+  engine's `Output token throughput`. Four families are seen: upstream
+  `vllm bench serve` / `benchmark_serving.py` (TTFT from the client send, ITL/TPOT
+  pooled, `--request-rate` open loop — `prefill-queue-and-throughput.md`),
+  EvalScope and AISBench (the same block plus an `Average … per request` pair),
+  and third-party Chinese load generators — the sheet headed
+  `LLM 性能测试汇总报告` with `总生成Token` / `总测试时间` / `总体Token生成速率`
+  over a per-concurrency ladder of `平均延迟` / `P99延迟` / `首token延迟` /
+  `成功率` is **lework/llm-benchmark**, which the #2328 reporter named when asked
+  (2025-08-26) after a run had guessed EvalScope/AISBench from the layout. That
+  sheet has no ITL/TPOT column, so nothing about the decode step or the in-flight
+  count is derivable from it: ask for the tool plus its config (the concurrency
+  ladder, input/output length) instead of OCR-reconstructing transposed small
+  fields, and compare only the header's aggregate rate.
 - The reporter's serve command is the first missing artefact: defaults differ per
   usage context and per device size, and vllm-ascend rewrites some of them
   (`refresh_block_size`, the `ascend_config` alignment). Ask for the startup line
   (`Chunked prefill is enabled with max_num_batched_tokens=%d`,
-  `vllm/config/scheduler.py:229-232` at v0.14.1) rather than assuming a default.
+  `vllm/config/scheduler.py:229-232` at v0.14.1) rather than assuming a default —
+  but not on a v0.10.x non-MLA serve, which forces chunked prefill off and logs
+  `Non-MLA LLMs forcibly disable the chunked prefill feature …` instead
+  (`prefill-queue-and-throughput.md`).
 - Quote the project's own validated command at the pinned ref as the baseline the
   reporter's command should be diffed against — at vllm-ascend v0.14.0rc1 it is
   `docs/source/tutorials/Qwen3-Next.md:64` (`--tensor-parallel-size 4
@@ -340,7 +367,11 @@ Not this topic, leave immediately:
   `--max-num-batched-tokens` trade-off, and the levers that actually change TTFT.
   If the paste's samples match that table line for line, the arithmetic is
   settled — cite it and spend the remaining turns on the answer, not on
-  re-deriving it.
+  re-deriving it. **Its second half is the opposite shape**: no engine log at all,
+  only a `vllm bench serve` summary with `--request-rate`/`--num-prompts` (#3112
+  on one 910B4), where the queue is *decode*-bound, `mean TTFT ≈ wall/2` proves a
+  single FIFO drain, and in-flight sequences come from the **mean** ITL/TPOT
+  (`output tokens × mean ITL / wall`), never from the median.
 - `gdn-fusion-lanes-and-roadmap.md` — "why isn't linear attention one big op
   on Ascend, and will it be fused" (#8940, Qwen3.5-0.8B on 910B4, v0.15.0rc1):
   the per-lane stage map (`chunk_gated_delta_rule` prefill vs the single
@@ -359,6 +390,17 @@ Not this topic, leave immediately:
   and not "the artifact's choice" (the reporter's own follow-up on #9443), the
   sibling-artifact `jq` and the same-request bf16/w8a8 A/B that separate the two,
   and the variant-coverage facts.
+- `quantized-dense-no-gain.md` — a **dense** model where the quantized checkpoint is
+  no faster than BF16 (or slower) **and** scores lower, pasted as one sentence with no
+  numbers (#10604, Qwen2.5-7B-w8a8 on v0.11.0; the same direction with numbers in
+  #1015, QwQ-32B-w8a8 at 10.49 vs 12.54 tok/s): `W8A8` static vs `W8A8_DYNAMIC`
+  per-token in the artifact's json (one script call, and the static one is what the
+  pin's own dense w8a8 tutorial produces with `--anti_method m1` over a BoolQ
+  calibration file), why static-vs-dynamic moves accuracy but not the matmul, the
+  `R = 2/(1+u)` ceiling that decides whether "no gain" is arithmetic, the three
+  asymmetric levers (graph lane, `VLLM_ASCEND_ENABLE_NZ=0` which costs only the int8
+  side, one-sided runs), the two tables behind 「是否有模型对应版本表」, and the
+  Qwen2.5-7B-w8a8 coverage gap with the published 0.5B artifact as the control.
 - `qwen3-next-decode-throughput.md` — Qwen3-Next-80B-A3B at 4-6 tok/s on one
   request: the per-step arithmetic that rules capacity and queueing out, the
   verified v0.11.0rc2 map (`--enforce-eager` in the project's own command,

@@ -60,6 +60,18 @@ be measured on the dead box, but an arithmetic peak can be computed from the
 flags alone. Both routes end at the same levers (`free -g`, `dmesg -T | grep -iE
 'oom|kill'`, fewer ranks per host, smaller `--max-model-len`).
 
+**The third case — no `top`, and the log does *not* stop at startup** (the serve
+printed its banner or answered a `curl` before the box went down, so the bracket
+above does not apply): the rank count is the arithmetic. `N` ranks on one host
+(`-tp N`, or `--data-parallel-size-local × -tp`) pay `N` resident footprints out
+of **one** pool, so rank 1 is that multiplication plus the ask (`free -g`,
+`ps -eo pid,rss,cmd --sort=-rss | head -25`, `dmesg -T | grep -iE 'oom|kill'`),
+with the model's profile-run / multimodal budget and the graph-capture ladder as
+the *device*-lane causes below it. Recorded #3902 is that case: a `-tp 16`
+Qwen3-VL-235B start on one A3 with no `top` in the body, where the model's
+multimodal budget was ranked first while the reporter's later `top` showed the
+host filled to 73 % by the 16 ranks themselves.
+
 ## Step 0: the `torch_npu` (pta) line in the same paste, before the arithmetic
 
 **One grep first: the pinned tree's own release notes name this leak and its owner.**

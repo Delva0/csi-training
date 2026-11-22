@@ -1128,3 +1128,33 @@ mechanism: on weights the reporter converted, provenance comes before any engine
 because the engine consumes numbers the converter chose and can neither validate nor
 explain them — `../accuracy-benchmarks/quantized-checkpoint-conversion.md` rule 2 (and
 its published-checkpoint split as the one-command discriminator).
+
+**#5835** vllm-ascend **v0.11.0** reported, the snapshot pinning only v0.13.0rc1
+(`1b5d5abf865f`) + vllm v0.13.0 (`72506c98349d`); Qwen3-235B, env dump literally `none`,
+no serve command, no log: `response_format: {"type": "json_schema"}` answered as
+doubled/interleaved characters (`"{\"{\"eexxxtttrrraaacctceded__eentntnitiiteesss\"…`),
+`finish_reason: "stop"`, `completion_tokens: 207`. The recorded run found both the
+mechanism hazard (the Ascend runner applies the xgrammar mask through a host float32
+roundtrip, so the bitmask row is whatever `input_batch.req_id_to_index` plus the
+spec-decode offsets say) and the two corroborating precedents (#4323 v0.11.x
+Qwen3-32B + `eagle3` → `tctctctctc…`; #5144 v0.11.0 fp16 → `!!!!` on the first request
+of a pair), yet shipped **74 characters** of message text across 15 assistant turns and
+27 tool calls, cut while checking `vllm/entrypoints/openai/processor.py` — a path the
+aarch64 guided-decoding page verified at vllm v0.7.3, where the whole-tree answer at
+this pin is that `guided_decoding_backend` is gone and the backend is server-resolved.
+Page (new): `../accuracy-benchmarks/structured-output-garble.md`; the delivery half is
+`delivery-discipline.md` (*Verifying what a page already verified*).
+
+**#10068** evalscope + MMLU-Pro scoring 5-6 points below ais-bench on
+vllm-ascend v0.19.1rc1 (`da421afa`) + vllm v0.19.1 (`b1388b1f`), env dump matching the
+pin exactly; the only evidence was three OCR'd screenshots of the two harness reports and
+a vendor blog table. The recorded run shipped the ranked harness-vs-engine answer on its
+sixth turn (reasoning-output routing → decode budget → sampling → thinking switch →
+aggregation), correctly refused to pair the OCR'd per-subset labels with the numeric
+block, and closed the coverage question arithmetically (evalscope's `Num` column sums to
+12 032, the full MMLU-Pro test set). What it cost was a reasoning block spent on the
+unpairable OCR table and an `rg -rn 'mmlu'` that ran `--replace`; the fixes are the
+§*Reading the OCR'd score table* section of
+`../accuracy-benchmarks/harness-vs-engine-attribution.md` (pair only where an
+independent line fixes the mapping; quote ais-bench's `naive` **and** `weighted` columns
+against evalscope's single `OVERALL`; ask for `summary_*.csv`/`reports/*.json`).

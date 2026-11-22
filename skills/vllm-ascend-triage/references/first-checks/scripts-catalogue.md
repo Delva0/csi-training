@@ -52,18 +52,29 @@ after that keeps the header, not this text.
   flat line is not roundoff and owes a `top_logprobs: 5` dump at that token. Row =
   `P_LOW,P_HIGH,N,MEAN_ABS` (two fields accepted). Exit 0; 2 on bad input. Usage and
   the worked reading: `../accuracy-benchmarks/cross-platform-logprob-parity.md`.
-- `scripts/benchmark-table-normalize.py --run 'NAME OUT_TOK_S WALL_S REQS CONC'
-  [--run …] [--total-tok-s NAME=V] [--ttft NAME=SECONDS] [--compare A B]` — the
-  two-run ratio in one call (#2833 Ascend-vs-H800 EvalScope screenshots, #14291
-  v0.23→v0.24 PD "12s vs 4s"). The summary block's only OCR-stable fields are the wall
-  time and the two throughput fields; this derives per-request output/input tokens, the
-  decode step (`concurrency / output tok/s`), the per-sequence rate, the prefill cost
-  (`TTFT / input tokens`), a wall-clock closure check (`wall / (waves × tokens × step)`,
-  `>>1` = queueing/warmup/fixed per-request cost) and, with `--compare`, the cost ratio
-  per axis plus which axis moved more and on which run. Prints the derived averages to
-  quote instead of the table's own transposable columns. Exit 0; 2 on non-numeric or
-  zero-throughput input. Rows with no `--total-tok-s` keep only the decode figures.
-  Step 1 of `../performance-throughput/cross-run-ratio-normalization.md`.
+- `scripts/benchmark-table-normalize.py --run 'NAME OUT_TOK_S WALL_S REQS [CONC]'
+  [--run …] [--total-tok-s NAME=V] [--ttft NAME=SECONDS] [--mean-itl-ms NAME=MS]
+  [--mean-tpot-ms NAME=MS] [--median-itl-ms NAME=MS] [--arrival-rate NAME=RPS]
+  [--compare A B]` — the two-run ratio in one call (#2833 Ascend-vs-H800 EvalScope
+  screenshots, #14291 v0.23→v0.24 PD "12s vs 4s"). The summary block's only
+  OCR-stable fields are the wall time and the two throughput fields; this derives
+  per-request output/input tokens, the decode step (`concurrency / output tok/s`),
+  the per-sequence rate, the prefill cost (`TTFT / input tokens`), a wall-clock
+  closure check (`wall / (waves × tokens × step)`, `>>1` = queueing/warmup/fixed
+  per-request cost) and, with `--compare`, the cost ratio per axis plus which axis
+  moved more and on which run. **Omit CONC** for an arrival-rate driver
+  (`vllm bench serve --request-rate …`): the in-flight sequence count is then
+  derived from the mean latencies (`output tokens × mean ITL / wall`, or
+  `out tok/s × mean TPOT`), the run is priced against the offered rate
+  (`served ÷ offered req/s`), `mean TTFT / wall` is read as a FIFO-drain test
+  (`≈0.5` ⇒ TTFT is queue time and the prefill figure is suppressed), and
+  `mean / median ITL` flags the long gaps that emit no decode tokens (#3112:
+  26 in flight, mean/median 13.5×, 410× oversubscribed). Prints the derived
+  averages to quote instead of the table's own transposable columns. Exit 0; 2 on
+  non-numeric or zero-throughput input. Rows with no `--total-tok-s` keep only the
+  decode figures. Step 1 of
+  `../performance-throughput/cross-run-ratio-normalization.md`; second half of
+  `../performance-throughput/prefill-queue-and-throughput.md`.
 - `scripts/opcount-reconcile.py --count NAME=N [--count …] [--table FILE|-]
   [--max-factor M] [--layers L] [--steps N] [--elapsed-s S] [--avg-us NAME=US]` —
   profiler-table arithmetic for an op-count report (#7351): prints every row's
@@ -442,7 +453,13 @@ after that keeps the header, not this text.
   `quantization_config`; it separates "quantised export, wrong/absent method" from
   "full-precision release whose few FP8-stored projections carry a scale" behind a
   load-phase `KeyError: '<prefix>.weight_scale'`
-  (`../startup-failures/weight-scale-keyerror-quant-variant.md`). `--dtypes` switches
+  (`../startup-failures/weight-scale-keyerror-quant-variant.md`). It also prints the
+  description's `version` / `group_size` with the two booleans the W4A8 MoE loader
+  derives from them (`new_quant_version = version == "1.0.0"`,
+  `is_per_channel_weight = group_size == 0`, absent `group_size` = 256), and the
+  `version: "1.0.0"` + `group_size: 0` pair adds the prediction of the load-phase
+  `RuntimeError: The expanded size of the tensor (16 // N) must match the existing
+  size (16)` (`../startup-failures/quant-aux-param-tp-shape-mismatch.md`). `--dtypes` switches
   it to the **weight-dtype** census instead: the header `dtype` histogram over every
   shard, the module families carrying `F8_E4M3`/`F8_E5M2` *weight* tensors (scale-like
   suffixes counted apart), and `quant_model_description.json` / `config.json` side by
@@ -450,6 +467,19 @@ after that keeps the header, not this text.
   910 does not execute — the answer `config.json` cannot give, since the conversion
   guide has converters delete those fields first
   (`../startup-failures/quantization-method-gate.md` §E).
+- `scripts/quant-description-census.py <model-dir|quant_model_description*.json|->
+  [--json <path>] [--config <path>]` — the **scheme** census of a modelslim artifact,
+  which the scale/dtype modes of the script above do not answer: the value histogram
+  over `quant_model_description.json` (`W8A8` static per-tensor vs `W8A8_DYNAMIC`
+  per-token vs `FLOAT` = layer skipped back to an unquantized linear), any top-level
+  `fa_quant_type` / `kv_quant_type` / `kv_cache_type`, the `FLOAT`-only module families,
+  and — with a `config.json` — per-family parameter counts, the unquantized share `u`
+  and the decode ceiling `R = 2/(1+u)`. It warns when the only file is the misnamed
+  `quant_model_description_<scheme>.json` the reader ignores, and skips the ceiling on
+  a MoE checkpoint (the expert budget is EP-dependent). One call for
+  `Qwen2.5-7B-w8a8量化配置，没有性能收益…精度同样降低` (#10604): the histogram decides the
+  accuracy half, `R` prices the speed half before any engine cause is ranked
+  (`../performance-throughput/quantized-dense-no-gain.md`).
 - `scripts/checkpoint-header-scan.py <model-dir|*.safetensors>` — is each shard a
   safetensors *container* and does it hold the tensor data its header declares: per
   file the size, whether the first 8 bytes are a Git-LFS pointer / zeros / HTML, the

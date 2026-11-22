@@ -128,8 +128,9 @@ capability question — the run never stated the support verdict, and the
 reporter's later public comment asked whether anyone had actually run PCP on
 A2); #12487 v0.22.1rc1 A3 3P1D DeepSeek-V4-Flash long-run crash whose title
 named `port 65536 have already been bound`, a three-day-old re-printed EI0019
-record, while the in-window error was an AICPU `reduce_scatter`
-parameter-invalid on a chip the reporting rank did not own; #133 vllm-ascend 0.7.1rc1 + vllm 0.7.1, open-r1/`trl` GRPO rollout failing
+record, while the in-window device block was four `notify wait timeout … timeout=204s`
+records and then an AICPU `reduce_scatter` parameter-invalid, all on the one die
+`chipId:4`/`device_id=8` (the paste names no peer: `Waiting peer end: 4294967295`); #133 vllm-ascend 0.7.1rc1 + vllm 0.7.1, open-r1/`trl` GRPO rollout failing
 on step 0 with `RuntimeError: Prefix cache and chunked prefill are currently not
 supported` — a downstream capability gap whose trigger was the trainer's own
 `LLM(enable_prefix_caching=True)`; answered in 12 calls from the raise site plus the V0

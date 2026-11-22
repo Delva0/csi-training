@@ -119,4 +119,11 @@ that skipped that block has neither the matching ATB nor the stamp.
 
 Pins: vllm-ascend `v0.11.0` `2f1aed98ccdb` / vllm `v0.11.0` (case #5170, opened
 2025-12-18). Re-grep `_warm_up_atb` per ref: later releases may gate it by SoC, and a
-snapshot holds one commit, so "is it fixed upstream" is not answerable here.
+snapshot holds one commit, so "is it fixed upstream" is not answerable here. The gate
+did arrive: at v0.18.0 `worker.py:469-470` calls it only
+`if get_ascend_device_type() != AscendDeviceType.A5` (A5 also skips ATB registration,
+`:104-105`), and the 310P worker overrides it as a log-only no-op
+(`_310p/worker_310p.py:107`) — so on an A5 or 310P paste this call site is not the
+crash path at all, and a reader who quotes the v0.11.0 shape misdiagnoses it. The same
+dummy matmul also owns a fixed ~98 MiB-per-rank device allocation the KV budget never
+charges (`../runtime-memory/device-allocations-outside-profiling-window.md`).

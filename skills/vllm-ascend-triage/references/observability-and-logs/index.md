@@ -139,6 +139,14 @@ Conditional routes:
   naming `Profiling is not enabled` — a route-registration question in the
   serving process (upstream `serve/profile/api_router.py` `attach_router`), not a
   model or device question: `online-profiling-endpoints.md`.
+- `POST /start_profile` answers 200 but `<torch_profiler_dir>` is empty, holds an
+  unexpected layout, or the reporter wants to know which path it even is: the relative
+  dir from the guide is rewritten to an absolute one (`vllm/config/profiler.py:144-145`),
+  one named subdirectory per rank/API-server writer appears only after `/stop_profile`,
+  and the loud variants are `torch_profiler_dir cannot be empty.` /
+  `MSMONITOR_USE_DAEMON` — `online-profiling-endpoints.md`, the `torch_profiler_dir`
+  section. "Collected but `kernel_details.csv` absent" stays on
+  `../performance-throughput/profiler-no-kernel-details-graph-mtp.md`.
 - The endpoint answers and then the process **dies**: `/start_profile` or
   `/stop_profile` → `!!!!!!! Segfault encountered !!!!!!!` /
   `Worker proc … died unexpectedly (exit code: None)` /

@@ -101,7 +101,11 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   four contract facts that exclude the arity / kwarg / pop-loop / cold-pool
   theories at the pin, the proof that `core.py step_with_batch_queue` implies async
   scheduling the printed command does not show, why `/start_profile` is not the
-  trigger, and the two ablations that split the remaining lanes.
+  trigger, and the two ablations that split the remaining lanes. §6 there is the
+  mirror variant — the *consumer* widened to per-group hit lengths while the copied
+  coordinator still returns the scalar (`TypeError: '<type>' object is not iterable`
+  at `max(per_group_hits)`, #13998, vllm-ascend 0.24.0rc1 + vllm 0.24.0), where the
+  shape is the cause and `--no-enable-prefix-caching` is reporter-confirmed.
 - `balance-scheduler-admission-stall.md` — `VLLM_ASCEND_BALANCE_SCHEDULING=1`
   admits nothing at `--max-num-seqs 1` (recorded #17953, v0.18.0rc1 `99e1ea0fe685`):
   the patch's waiting-loop guard `max(balance_queue) >= max_num_running_reqs - 1` over a

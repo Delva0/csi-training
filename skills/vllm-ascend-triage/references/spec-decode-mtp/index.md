@@ -217,6 +217,14 @@ at request time. The shapes:
   plog with **both** host tuples → `../custom-ops-runtime-faults/gdn-conv1d-accepted-tokens-varlen.md`
   (recorded #10372).
 
+- or **nothing raises at all**: on a hybrid GDN/Mamba family (`qwen3_5`, Qwen3.5/Qwen3.6) with
+  `--async-scheduling` + `--speculative-config` MTP + `--enable-prefix-caching`, a small fraction
+  of requests (2/512 at 100 % KV) come back with repeated/omitted token runs, the reporter's own
+  control `--async-scheduling` off is clean, and the body's diagnosis is that the previous
+  iteration's accepted-token counts are gathered from mutable `InputBatch` rows that
+  `add_request()`/`condense()` already rewrote — the **silent** member of the
+  `num_accepted_tokens` family (`accepted-token-row-snapshot.md`).
+
 Not this topic: a first-request fault whose only extra axis is PP > 1
 (`../pipeline-parallel/spec-decode-first-request.md`), a launch/startup failure
 (`../startup-failures/index.md`), a drafter that refuses to **load** (a load-phase
@@ -326,6 +334,35 @@ from the acceptance numbers.
   running is a coverage gap, not a config value and not a device fault. The recorded
   #2071 run reached that verdict only after re-reading three overlapping regions of
   `model_runner_v1.py`; the grep answers it in one call (`dense-attn-state-gap.md`).
+
+- **The sync is not a snapshot: check what the gather *reads*, not whether the copy waited.**
+  When a report says the previous iteration's counts are read out of mutable storage after the
+  batch was condensed, two greps settle it — the writers in `gpu_input_batch.py` (`add_request`
+  writes `1`, `condense` swaps rows) and the gather in `_prepare_inputs` — and
+  `event.synchronize()` never refutes it: it orders the device-to-host copy and says nothing
+  about which request owns the row afterwards. At v0.23.0rc1 that gather is copied into **three**
+  sites (upstream `gpu_model_runner.py:2019-2032`, `model_runner_v1.py:1082-1098`,
+  `_310p/model_runner_310p.py:283-294`), so quote the site you verified and say the fix has to
+  cover the others. A defect of this shape is invisible in every "is the copy synchronized?"
+  argument, which is why the reporter's own control is the one to rank on (async off → clean).
+  Recorded #13863 then shipped no message text at all while re-deriving the align-mode
+  auto-default and the fused kernel (`accepted-token-row-snapshot.md`).
+
+- **On GLM-5.x the `--speculative-config` key `enforce_eager` is a recipe contract, and at
+  v0.23.0 nothing restores it for you.** `glm_moe_dsa` + `method: deepseek_mtp` is the pin's
+  documented pair, and every GLM-5.2 example pins `"enforce_eager": true` inside the spec
+  config with the sentence "required because GLM-5.2 does not support graph-mode speculative
+  decoding" (`docs/source/tutorials/models/GLM5.2.md:190`, examples `:176,258,312`). Upstream's
+  automatic `enforce_eager = True` is gated on `model_type == "deepseek_v32"` only
+  (`vllm/config/speculative.py:559-563`), and the v0.18-era downstream force-clear is **gone**
+  at that ref — `vllm_ascend/platform.py:513-527` now only touches the xlite graph config and
+  `model_config.enforce_eager` — rule 15 of `SKILL.md` carries that pin split, and its
+  "dead lever" erasure stays `deepseek_v32`-only: this family at this pin does not get it.
+  One grep of the reporter's launch against the tutorial decides
+  whether the drafter ran in graph mode, so take it **before** ranking any graph-mode drafter
+  mechanism; recorded #14686's summary line lists only `deepseek_mtp,
+  num_speculative_tokens=3`, which is why the exact config is a question to ask rather than a
+  fact to assume.
 
 - **Check family parity before reading positions or block tables.** When acceptance is
   exactly 0.000 with a correct target and non-zero drafts, one grep —
@@ -448,6 +485,17 @@ from the acceptance numbers.
   `0 < temperature < 1` branch anchor in the rejection sampler with what remains
   unverified, the ladder (async off → MTP off → token step), and the upstream fix
   shape (#8724).
+- `accepted-token-row-snapshot.md` — the **silent** member of the `num_accepted_tokens` family:
+  intermittent repeated/omitted token runs on a hybrid GDN serve with async scheduling + MTP +
+  prefix caching, reporter-controlled by "async off: 0/1024". Carries the two row spaces
+  (iteration-N write per row, N+1 gather through `prev_positions`), the writers that run first
+  (`add_request` → `1` at `gpu_input_batch.py:466`, `_swap_states` under `condense` at `:683`),
+  why `event.synchronize()` is not a snapshot, the three read sites at the pin, the consumer that
+  turns the count into a state-copy offset (`mamba_utils.py:304,331`), the fix shape (a
+  runner-owned buffer, the align-mode fused call's argument included), the value-level regression
+  test that the pin's source-text UT cannot provide, the three redirects, and what is *not* owed
+  (align auto-default, kernel internals, upstream parity). Recorded #13863 = 59 turns, zero
+  message text.
 - `rope-cos-sin-slice-token-mismatch.md` — `RuntimeError: shape '[N, -1]' is invalid
   for input of size M` at `ops/triton/rope.py`'s `cos = cos.view(num_tokens, -1)` under
   MTP: why `cos` is a **process-global** (`set_cos_and_sin` / `update_cos_sin` /

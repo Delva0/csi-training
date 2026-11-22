@@ -52,10 +52,12 @@ manifest list) and `uname -m`.
 
 ## Step 2 — what the tree intends to publish (two greps)
 
-`bash <skill_root>/scripts/image-arch-matrix.sh <vllm-ascend-root> --soc 310p`
-prints the tag suffixes, the `platforms:`/`arch:` matrix, the runner legs, every
-`FROM` base, the wheel-release matrix and the per-SoC variant list in one call.
-Read it as three facts:
+Run `bash <skill_root>/scripts/image-arch-matrix.sh <vllm-ascend-root> --soc 310p`
+first: one call prints the tag suffixes, the `platforms:`/`arch:` matrix, the runner
+legs, every `FROM` base, the wheel-release matrix and the per-SoC variant list —
+the four hand `rg`/`sed` reads below only re-derive what it already prints (a
+recorded #2178 run spent four calls on exactly those greps after planning to run
+this script). Read it as three facts:
 
 1. **Tag suffix ⇒ SoC variant.** At v0.9.2rc1 the `docker/metadata-action` tag
    lists are the table: `-310p` (ubuntu,
@@ -78,7 +80,11 @@ Read it as three facts:
    single-arch fallbacks (differing by workflow: `'linux/amd64'` for the ubuntu
    one, `'linux/arm64'` for the openEuler one, whose runner flips to
    `ubuntu-24.04-arm` off the push event, `:43-47`) only describe *check* builds
-   that publish nothing. Consequence: a published `-310p*` tag that resolves to
+   that publish nothing. The **generic** pipelines carry the same expression and
+   the same two fallbacks (`image_ubuntu.yml:96-101`, `image_openeuler.yml:100-105`),
+   so an unsuffixed tag is not "amd64-only by design" either — the single-arch
+   reading always needs step 1's manifest check, never the workflow alone.
+   Consequence: a published `-310p*` tag that resolves to
    amd64 alone is **not** explained by the fallback — either the arm64 leg failed
    on the base image (fact 3), or the client/mirror flattened the list (step 1).
    At

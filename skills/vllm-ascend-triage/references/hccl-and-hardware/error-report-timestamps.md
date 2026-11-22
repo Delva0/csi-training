@@ -50,9 +50,11 @@ failure. Adopting it names the wrong owner *and* the wrong ablation set.
    (`~/ascend/log/debug/plog/plog-<pid>_<timestamp>.log`, every reporting rank) plus
    the vLLM log's first traceback. Do not build a mechanism from the older block —
    that is the recorded #9183 failure mode.
-3. Search every rank for the device line: `grep -n 'EZ9999\|chipId' <log>`. The
-   reporting rank is not necessarily the faulting chip
-   (`collective-error-chain.md` step 4).
+3. Search every rank for the device line: `grep -n 'EZ9999\|chipId' <log>` — another
+   rank's block may own the fault (`collective-error-chain.md` step 4). Convert ids
+   before comparing them: the PTA prefix's `Device:N`, a record's `device_id=N` and a
+   dump's `(chipId:C, dieId:D)` are three different fields, and the last two are the
+   *same* physical die (`device-health-checks.md` §*Which device actually failed*).
 4. Order the in-window families by timestamp and classify the *first* one:
    - `EZ9999 ... (chipId:N, dieId:M) ... fftsplus aivector error ... error code =
      0x800000 ... The DDR address of the MTE instruction is out of range` →
@@ -185,6 +187,59 @@ that gap plus: the plog window around the derived stall start
 (`grep -rn 'error cqe'`), per-card health (`device-health-checks.md`), whether the
 crash follows one card/instance or moves, and whether the same instance's stall
 recurs at a fixed interval (a leak/slow-rank shape) or at random (a fabric shape).
+
+## When the expiry bound is not 1836: notify waits beside an AICPU `param invalid` (#12487)
+
+The same subtraction has a second form, and the bound in it is **not** `HCCL_EXEC_TIMEOUT`.
+Recorded #12487: vllm-ascend v0.22.1rc1 A3 3P1D DeepSeek-V4-Flash, healthy for 2.5 days,
+then a P-node worker died. Its paste is, in order: `ERR00100 PTA call acl api failed` +
+`[Error]: The aicpu execution is abnormal`; a Python traceback whose deepest frame is
+`torch.repeat_interleave` in the MoE dispatch preprocess
+(`vllm_ascend/ops/fused_moe/token_dispatcher.py:612`, right after the
+`output_splits = … .to("cpu").numpy()` readback) with
+`RuntimeError: … LocalScalarDenseNpu.cpp:23 … AclrtSynchronizeStreamWithTimeout(copy_stream), error code is 507018`;
+a re-printed EI0019 record dated three days earlier (see above); then the device block:
+
+```
+serial number is 1 … notify wait timeout occurred during task execution,
+  stream_id:142, sq_id:146, task_id:46645, notify_id=155, timeout=204s
+… serial number is 2,3,4 (streams 143,144,182, same 204s) …
+  tag[AllGather_group_name_7ringAlignedAllGatherDoubleRingFor91093Executor_device],
+  AlgType(level 0-1-2):[ring-ring-NHR], Waiting peer end: 4294967295, remote rank:[local]
+serial number is 5 … an exception occurred during AICPU execution, stream_id:91,
+  task_id:57859, errcode:1, msg:execute kernel param invalid  →  retCode=0x2a
+Aicpu kernel execute failed, device_id=8, stream_id=91, so_name=libccl_kernel.so,
+  funcName=RunAicpuRpcSrvLaunchV2, kernelName=RunAicpuRpcSrvLaunchV2_reduce_scatter
+```
+
+- `507018` is `ACL_ERROR_RT_AICPU_EXCEPTION`
+  (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h:100`), reported at a
+  host readback in the MoE dispatch path — a **sync point**, not the owner (step 1).
+- **The block is a record list, not a causal chain.** Serials 1-4 are the waits and the
+  AICPU record is last, so "the AICPU `param invalid` came first" is not something this
+  paste establishes. Two readings stay open and both are lanes: (a) a rejected
+  `reduce_scatter` RPC launch never signalled, so the AllGather waits expired after their
+  bound — the AICPU record owns the case (CANN/HCCL, `soName=libccl_kernel.so`); (b) the
+  peer had already stopped and the AICPU record is a later symptom on a poisoned stream.
+- `timeout=204s` is that Notify Wait task's **armed bound**, and it expired, so
+  `stall start ≈ print time − 204 s` (⇒ ≈`06:24:20` for a `06:27:44` block) — the same
+  arithmetic as the 1836 s block above. What it is *not*: 204 ≠
+  `NOTIFY_DEFAULT_WAIT_TIME = 27 * 68` (`cann/hcomm/src/pub_inc/hccl_common.h:84`), so
+  this wait was not armed by `HCCL_EXEC_TIMEOUT` and the paste says nothing about the
+  reporter's `HCCL_EXEC_TIMEOUT` setting. Which class armed 204 s is not in the exports —
+  a stated gap, not a finding.
+- `Waiting peer end: 4294967295` (`0xFFFFFFFF`) with `remote rank:[local]` is HCCL's
+  invalid-rank value, not a rank id: `INVALID_VALUE_RANKID = 0xFFFFFFFF` /
+  `INVALID_UINT = 0xFFFFFFFF` (`cann/hcomm/src/pub_inc/hccl_common.h:54,57`) — the dump
+  could not name the peer it was waiting on. So the
+  paste cannot name the owner, and no local read can. The deliverable is the request:
+  every other rank's plog for `06:20`-`06:28` (first ERROR, and whether any rank issued
+  the same `tag`/`reduce_scatter`), the twin DP engine's and the P-side logs for the same
+  second, and the plog of the die the dump names (`chipId:4`/`device_id=8`, one die — see
+  `device-health-checks.md` §*Which device actually failed*). The 7 minutes of
+  `No available shared memory broadcast block found in 60 seconds` before the print date
+  the stall the same way (`rpc-watchdog-timeouts.md`), and the reporter's title line
+  (`port 65536 … already been bound`) is out of window.
 
 ## Where `107030` belongs
 

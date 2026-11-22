@@ -81,7 +81,15 @@ Not this lane — same code family, different owner:
    line is the recorded first lever: #5236 is reporter-confirmed — a device-side
    `aclnnRmsNorm` execution error on Qwen3-235B was "solved by updating the npu driver to
    25.25.0". Keep the two apart when citing: that report never reached a link creation,
-   while #4148 ran on `25.2.0` and its outcome was never confirmed.
+   while #4148 ran on `25.2.0` and its outcome was never confirmed. The **image tag**
+   is part of this same pairing question and not a separate lane — an unsuffixed
+   `vllm-ascend:vX` is the generic (910b-based) line while 310P has its own `-310p`
+   tag and `SOC_VERSION=ASCEND310P3` build (`Dockerfile:18` vs `Dockerfile.310p:18,53`
+   at v0.11.0rc1) — but a paste that reached a full forward pass has already cleared
+   the op-kernel gate, so a SoC/kernel mismatch cannot explain a *later* collective
+   failure: rank the re-run as a cheap control, never as the cause
+   (`../soc-platform-paths/kernel-package-vs-card.md` for what that gate looks like
+   when it does fire).
 2. **Reproduce the edge set without vLLM** — 2 ranks on the two chips of one card (expect a
    pass) and 4 ranks spanning both cards (expect the same `DestLink`), then swap the
    pairing. One `torch.distributed` allreduce or `hccl_test` run decides

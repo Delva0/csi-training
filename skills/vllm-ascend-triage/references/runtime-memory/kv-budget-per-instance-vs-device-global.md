@@ -41,8 +41,10 @@ cache config is simply wrong.
 Both are the same answer, owed immediately: the device had the HBM, and the
 worker charged the co-tenant's usage to this instance a second time. It is not
 `kv-init-and-format-cast-alloc.md` (there the KV-init *allocation* fails with
-`EL0004` at the format cast) and not a genuinely small card
-(`../startup-failures/max-model-len-budget.md`).
+`EL0004` at the format cast), not a genuinely small card
+(`../startup-failures/max-model-len-budget.md`), and not
+`device-allocations-outside-profiling-window.md` (there the budget arithmetic is
+correct and something allocates *after* it, so no co-tenant is involved).
 
 ## Which of the two multi-instance failures is it
 

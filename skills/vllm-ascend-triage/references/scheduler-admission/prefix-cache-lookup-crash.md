@@ -16,6 +16,13 @@ Verified at vllm-ascend **v0.26.0rc1** (`f2f74a1`) + vllm **v0.27.1**
 (`6e448d0e`), the #16760 pair. Line numbers move between releases; the four
 contracts below do not.
 
+The same two classes meet with the drift running the **other** way: the upstream
+*consumer* starts aggregating a per-group list while the downstream producer still
+returns the scalar (`TypeError: '<type>' object is not iterable` at
+`max(per_group_hits)`). Decide the direction from the paste's failing line first —
+§6 — because the exclusions in §2 hold at the pins named there and not at every
+release.
+
 Sibling lanes: a device fault in a DSA kernel is
 `../dsa-sparse-attention/indexer-cache-scatter-fault.md`; a "服务崩溃 / 崩溃" with
 no log at all is `../dsa-sparse-attention/concurrency-crash-with-no-log.md`; an
@@ -134,3 +141,60 @@ classified. Recorded #16760 spent 21 assistant turns and shipped no message text
 at all, after reaching the coordinator, its manager dispatch and the alignment
 derivation — the frame, the exclusions and the two ablations were in hand well
 before halfway.
+
+## 6. The mirror case: the consumer widened to per-group hits (#13998, reporter-confirmed)
+
+Recorded #13998 (vllm-ascend **0.24.0rc1** + vllm **0.24.0**, 910B2C, 1P1D
+Qwen3.5-35B-A3B-w8a8-mtp + Mooncake). The paste's own traceback ends:
+
+```text
+vllm_ascend/patch/platform/patch_balance_schedule.py:152 in schedule
+    return super().schedule(throttle_prefills)
+vllm/v1/core/sched/scheduler.py:701 in schedule
+    num_new_local_computed_tokens = max(per_group_hits)
+TypeError: 'int' object is not iterable
+```
+
+and the reporter's control is in the same body: the **P** command carries
+`--enable-prefix-caching` with `--no-disable-hybrid-kv-cache-manager
+--mamba-cache-mode align` (so more than one KV-cache group), the **D** command
+carries `--no-enable-prefix-caching`, and only P dies. Later comments confirm
+it: `p 节点关闭prefix-cache后可以正常推理`, then the next release fixed it on the
+unchanged launch.
+
+Read it as the §1 gate run backwards. Upstream's *consumer* now takes an
+iterable of per-group hit lengths (`max(per_group_hits)`); the downstream copied
+producer still returns the pre-change scalar. So here the shape **is** the
+cause, and which side is stale is decided by the printed failing line, not by
+this page's pins: a `max(...)`/`sum(...)`/tuple-unpack over a name the pin does
+not contain means upstream moved. Grep the *producer of that value*, not
+`get_computed_blocks` — at v0.23.0rc1 the chain is
+`kv_cache_manager.get_computed_blocks → coordinator.find_longest_cache_hit`
+returning `(tuple(blocks per group), hit_length: int)`
+(`patch/platform/patch_kv_cache_coordinator.py:350,453`; upstream declares the
+same 2-tuple at `vllm/v1/core/kv_cache_coordinator.py:320,586` and
+`kv_cache_manager.py:196`) — note the tuple **width** itself moved (2 here, 3 at
+v0.26.0rc1 in §2), which is why §2's exclusions must be re-grepped per release.
+
+- **The `patch_balance_schedule.py` frame is a shell, not a cause.** At
+  v0.23.0rc1 the patch assigns `vllm.v1.core.sched.scheduler.Scheduler =
+  BalanceScheduler` unconditionally at module import (`:718`), so every Ascend
+  engine shows that frame; do not rank `enable_balance_scheduling`,
+  `recompute_scheduler_enable` or the PD layout, and do not read the balance
+  scheduler's body (in the 0.24 paste it is the delegating wrapper).
+- **One flag is both the discriminator and the workaround:
+  `--no-enable-prefix-caching`.** It routes the serve to the original upstream
+  factory (§1 gate), removing the downstream producer without touching anything
+  else — reporter-confirmed on #13998. The durable fix is the next release
+  (`版本更新至…正常推理，bug 已修复`), so rank *ablation, then upgrade*, never a
+  local patch.
+- **The snapshot may pin the working side of the comparison** (v0.23.0rc1 +
+  vllm v0.23.0 for #13998): quote the pin for the producer's pre-change shape,
+  label the newer side a hypothesis taken from the paste, and hand the reporter
+  the one grep that settles it on their tree —
+  `rg -n 'per_group_hits' <site-packages>/vllm/v1/core/sched/scheduler.py`
+  beside `rg -n 'return tuple' -A2
+  <site-packages>/vllm_ascend/patch/platform/patch_kv_cache_coordinator.py`.
+- **Prefix caching off is also the fastest rung for a reporter who needs the
+  service up now**, and the D node of that very report is the working arm — say
+  so rather than only naming the mechanism.

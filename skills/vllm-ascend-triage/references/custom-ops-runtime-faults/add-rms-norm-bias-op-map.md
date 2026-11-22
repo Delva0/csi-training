@@ -72,6 +72,43 @@ cheapest artefact to request.
 - `rstd` GM window is `blockIdx_*blockFactor` wide `blockFactor`, while `rowWork` may be
   smaller on the last core — verify against `numRow` when any rstd overrun is suspected.
 
+## Already checked at this pin — do not redo
+
+Re-verified against `da421afa` after a recorded forward (#8944, the GLM-5.1 / A2
+`aclnnAddRmsNormBias` MTE-DDR dump) spent most of its budget here. Each line below is a
+*closed* question; cite it instead of re-reading the files:
+
+- **The host refuses a row-count mismatch, so a TP-chunked residual cannot produce this
+  dump.** `op_host/add_rms_norm_bias_tiling.cpp:157-190` (`CheckInputOutputShape`) compares
+  `x2`, `y` and `x` with `x1` dim-by-dim and returns `GRAPH_FAILED` with
+  `Input x2/x1 shape invalid, shape is not equal x1 shape.` So
+  `vllm_ascend/ops/register_custom_ops.py:23-36` (`_maybe_chunk_residual_impl`: `F.pad` by
+  `_EXTRA_CTX.pad_size`, then `torch.chunk(residual, tp_size, 0)[tp_rank]`, uneven whenever
+  rows are not divisible by TP) can only yield a **tiling refusal in the log**, never a
+  device MTE fault. No such line in the paste retires that candidate.
+- **`MODE_NORMAL`'s last-core arithmetic is consistent.** `op_kernel/add_rms_norm_bias.h:43-47`
+  sets `rowWork = numRow - (blockNum-1)*blockFactor` on the last core, the GM windows
+  `:49-57` are sized `rowWork*numCol` (rstd `blockFactor`), and the copy loop bounds
+  `:83-90` walk `CeilDiv(rowWork, rowFactor)` rows. A NORMAL-mode overrun claim needs a
+  *specific* mode boundary, not "the remainder path".
+- **`rstd` is written only on some builds.** `CopyOutRstd` is compiled in under
+  `__CCE_AICORE__ == 220 || __NPU_ARCH__ == 3003` (`:327-333`); elsewhere the rstd window is
+  allocated and never written (`DataCopyPad` guards in `rms_norm_base.h` follow the same
+  macros). A "rstd stays uninitialised" report on another arch is that `#if`, not tiling.
+
+**Deliverable for a #8944-shaped dump** (op named, one rank/chip, runs a while before
+faulting): the failing rank's tiling I-line (`Tiling Key` / `Block Dim` /
+`num_row,num_col,block_factor,row_factor,ub_factor`), whether `enable_custom_op()` and the
+compile-time fusion passes are on for that run, and the version lane. Repeated with
+`--enforce-eager` the passes do not run, so the op is then reached only from
+`layernorm.py`'s eager branch — that is the ablation which separates the two call sites.
+Ranked candidate causes, each with its one check — (1) that rank's `numRow` at a mode
+boundary (I-line above); (2) the fusion-pass call site, whose inputs (`beta` plus a
+`maybe_chunk_residual` residual) differ from the eager call; (3) the CANN/`torch-npu` triple
+and any post-pin fix, checked by re-running the same load on the current image. None of
+these is settled by reading the kernel again: the paste carries no shape, so the I-line is
+the discriminator.
+
 ## Who reaches this op (vllm-ascend v0.19.1rc1)
 
 - `vllm_ascend/ops/layernorm.py` `forward_oot`: uses

@@ -472,9 +472,17 @@ table:
 | 正确性 (version) | the `docker pull` block renders `vllm_ascend_version` = **v0.17.0rc1** at a v0.18.0 tag, while the page's own `ci_vllm_version` is v0.18.0 — the tester is told to run the previous release | page `:37`; `docs/source/conf.py:72`, `:80` |
 | wrong requirement | "tensor-parallel-size should be at least 1" for a 64 GB card contradicts the page's own card count and serve line (30B-A3B bf16 is ≈60 GB of weights, beyond one 64 GB die) | page `:177` vs `:19`, `:185` |
 | stale baseline | both result blocks are labelled `vllm-ascend:0.13.0rc1`, five releases before the task image | page `:255`, `:296` |
-| cosmetic | `--random-input 200` for `--random-input-len` (check 2's prefix rule — settled, do not re-open) and `--enable_expert_parallel` (underscore parses) | page `:293`, `:185`; `vllm/benchmarks/datasets.py:1565` |
+| completeness (usability) | Functional Verification (`:185`) never exports `VLLM_USE_MODELSCOPE` while the page's own Performance section does (`:286`) and the row's weight link is ModelScope — the variable defaults to `False`, so a first run on a China-network node goes to huggingface.co | page `:185` vs `:286`; `vllm/envs.py:18` |
+| cosmetic | `--random-input 200` for `--random-input-len` (check 2's prefix rule — settled, do not re-open: a later replay of this row re-opened it and wrote 基准无法运行) and `--enable_expert_parallel` (underscore parses) | page `:293`, `:185`; `vllm/benchmarks/datasets.py:1565` |
 | completeness (coverage) | the only in-tree gate is the **Instruct** variant at TP4/`max_model_len 8192` while the page documents **Thinking** at TP2 with no `--max-model-len`, so the served variant is not the CI one | `.github/workflows/schedule_nightly_test_a2.yaml:188`; `tests/e2e/models/configs/Qwen3-Omni-30B-A3B-Instruct.yaml:1` |
 | pass (say so) | `--load-format dummy`, `--disable-log-stats`, `--limit-mm-per-prompt`, `--served-model-name`, `--max-model-len` all resolve; remote media URLs are allowed unless `--allowed-media-domains` is set | `vllm/config/load.py:37`, `arg_utils.py:1300`, `:694/:720/:1048` |
+
+One FAQ row belongs to this page and not to the report's environment: its
+performance table's 98.96 ms TPOT at `Peak concurrent requests: 24.00` is the
+regime the project already tracks as under-optimised — `#5991` reports TPOT
+≈100 ms at max-concurrency ≥2 against ≈50 ms at 1 — so a tester who reproduces
+~100 ms has measured the known state, not a deployment fault. Quote the issue
+id, do not rank it as a defect.
 
 The run ended `output_truncated` with **no report file and no closing message**: it
 spent 40.8 K characters of reasoning (~80 % of the completion budget) re-deriving

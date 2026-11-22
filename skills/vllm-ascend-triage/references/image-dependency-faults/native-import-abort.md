@@ -35,7 +35,17 @@ Reporter-confirmed outcome (later public comments on the same issue):
    tutorials themselves reference for library paths
    (`docs/source/tutorials/pd_disaggregation_mooncake_multi_node.md:224`,
    `DeepSeek-V3.1.md:400`). Two copies with different builds is the default
-   state, not an exotic one.
+   state, not an exotic one. **Do not turn that into "the image builds Mooncake
+   twice":** `tools/mooncake_installer.sh` (`:170-331`) builds only third-party
+   dependencies (`thirdparties/yaml-cpp` `:177-185`, `yalantinglibs` `:204-240`), runs
+   `git submodule update --init` and installs Go — it never configures or installs
+   Mooncake. The single source build is `Dockerfile.a3:40-41`
+   (`cmake .. -DUSE_ASCEND_DIRECT=ON && make install`), whose site-packages
+   destination is `/usr/local/lib64/python3.11/site-packages/mooncake`
+   (`docs/source/user_guide/feature_guide/kv_pool.md:30`). A recorded triage of this
+   case ranked "the same prefix holds a stale non-Ascend-direct `.so` from an earlier
+   build" as a live open question; at the pin that build does not exist, so the only
+   two copies are the Dockerfile one and the toolkit one above.
 2. **Allocator interposition** — the decisive cheap action for this symptom class.
    `apt install libjemalloc2` (Ubuntu) or `yum install jemalloc` (openEuler), then
    preload it: `LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2` on

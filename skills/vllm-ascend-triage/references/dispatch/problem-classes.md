@@ -37,6 +37,15 @@ version, gaps stated.
   upstream `arg_utils` rejecting the parallel/DP flags.
 - **Support / version question**: "does vllm-ascend <version> deploy <model>?" — a
   version gate with a one-line answer and a registry-level proof, not a bug hunt.
+  When the literal ask is 「是否有模型对应版本表」, there are **two** tables and no
+  model × version matrix: the release pairing (`docs/source/community/
+  versioning_policy.md` §*Release compatibility matrix* — vLLM Ascend | vLLM | Python |
+  Stable CANN | PyTorch/torch_npu, which is also the citation for "your two versions
+  are the released pair") and the family list (`user_guide/support_matrix/
+  supported_models.md`, ✅/❌ only, `:3` pointing at issue #1608); per-release
+  *validation* lives in `release_notes.md` + `developer_guide/evaluation/
+  accuracy_report/` + `tests/e2e`. The worked answer, with the coverage gap stated, is
+  rule 7 of `../performance-throughput/quantized-dense-no-gain.md`.
   When the follow-up is "支持计划是什么样的 / when will F work for M on my SoC", answer
   in three separate levels — the base model family at that SoC (release-note line,
   support-matrix row, the SoC fallback `TODO` that bounds it), whether the *feature's*

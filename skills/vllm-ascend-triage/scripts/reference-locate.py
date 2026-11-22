@@ -17,6 +17,15 @@ op / kernel name, numeric code, flag, or symptom phrase. The script greps
    topical owner is often its last line, and a truncated list is where that page
    disappears (recorded #6972: 13 members, `startup-failures/graph-mode-not-applied.md`
    fell into `+5 more` of a capped 8);
+2a. every graded page whose own body records cases gets the same kind of arrow:
+   `→ #855:557 (3/4)` names the entry (id, heading line, matched-token count) that
+   shares at least two tokens, because a **topical** page keeps its case history in
+   the `recorded-cases*` record-heading forms too (`- **#855** — …`, `## 5. The
+   recorded run (#3959)`). `sed` that range before reading the page's sections: the
+   entry is the case history and its ladder is the message. Recorded #855's replay
+   graded `image-dependency-faults/pip-index-visibility.md` 3-of-4, saw only the
+   page's summary, shipped the premise its entry refutes and re-derived the
+   `VLLM_TARGET_DEVICE=empty` mechanism the entry already held;
 2b. a **[case-first]** block whenever a `references/evidence-workspace/
    recorded-cases*` entry shares a token: the entry to open, with a ready-to-run
    `sed -n 'A,BP'` range. Printed when no page carries every token and some entry
@@ -233,6 +242,46 @@ def case_entries(path):
 
 
 PTR = re.compile(r"#(\d+):(\d+)(?: \((\d+)/(\d+)\))?")
+
+
+def page_entries(path, tokens, regex, case, min_hits=2, limit=2):
+    """`#<id>:<line> (n/m)` for the recorded entries a **topical** page carries.
+
+    A topical page keeps its case history in the same record-heading forms as
+    `recorded-cases*` (`- **#855** — …`, `## 5. The recorded run (#3959)`), and the
+    entry that matters most is often the report's own earlier run. Only the
+    `recorded-cases*` filter used to be scanned, so a topical page that graded on a
+    near-miss line showed its `# heading` summary and no entry: recorded #855's
+    replay graded `image-dependency-faults/pip-index-visibility.md` 3-of-4, opened
+    no entry, shipped the premise the entry refutes (that the pin's
+    `requirements.txt` makes `vllm-ascend==0.8.5rc1` depend on `vllm==0.8.5`) and
+    re-derived the `VLLM_TARGET_DEVICE=empty` mechanism that entry already held.
+    Two shared tokens is the floor: one is noise, and a page this grades already
+    shares the paste's wording.
+    """
+    try:
+        lines = io_lines(path)
+    except OSError:
+        return []
+    spans = []
+    for idx, line in enumerate(lines):
+        m = CASE_HEADING.match(line)
+        if m:
+            spans.append((m.group(1) or m.group(2), idx))
+    if not spans:
+        return []
+    spans.append((None, len(lines)))
+    pats = [re.compile(tok if regex else re.escape(tok), 0 if case else re.IGNORECASE)
+            for tok in tokens]
+    scored = []
+    for (cid, first), (_nxt, stop) in zip(spans, spans[1:]):
+        body = "\n".join(lines[first:stop])
+        hits = sum(1 for pat in pats if pat.search(body))
+        if hits >= min_hits:
+            scored.append((-hits, first, cid))
+    scored.sort()
+    return ["#{}:{} ({}/{})".format(cid, first + 1, -neg, len(pats))
+            for neg, first, cid in scored[:limit]]
 
 
 def case_first(refs, counts, tokens, regex, case, best_grade, ntok):
@@ -508,7 +557,9 @@ def main():
                       args.issue)
 
     lo = min(args.min_grade, n)
+    topical_noted = False
     for grade in range(n, lo - 1, -1):
+        topical_arrow = False
         hits = sorted((f for f, c in counts.items() if c == grade), key=order)
         if not hits:
             if grade > lo:
@@ -532,6 +583,11 @@ def main():
                     ncase = case_entries(f)
                     if ncase:
                         line += f" ({ncase} case entries \u2014 grep '#<id>')"
+            else:
+                ptr = page_entries(f, args.tokens, args.regex, args.case)
+                if ptr:
+                    line += "   \u2192 " + ", ".join(ptr)
+                    topical_arrow = True
             h = heading(f) if show_head else ""
             if h:
                 line += "  \u2014 " + h
@@ -543,6 +599,11 @@ def main():
             print("   lane \u2014 read that row's own line together with the entry. Recorded #2984:")
             print("   the arrow pointed at #3494, a `\u2026-w8a8` export another section owns,")
             print("   while the row held this report's verdict and its pin lines.)")
+        if topical_arrow and not topical_noted:
+            topical_noted = True
+            print("  (a \u2192 arrow on a topical page is that page's own record of the case:")
+            print("   sed that range first. A grep for a neighbour's id plus `head` lands in")
+            print("   the header note \u2014 recorded #855 shipped the premise its :557 entry refutes.)")
         if len(hits) > cap:
             print(f"  +{len(hits) - cap} more")
             if grade == n:

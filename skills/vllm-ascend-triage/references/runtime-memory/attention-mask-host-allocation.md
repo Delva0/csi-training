@@ -161,6 +161,22 @@ before the retry** or the next launch stacks a second set of eight masks
 one-off host/DIMM flake — ask for both hosts' `free -g`, since a smaller-RAM
 box lowers the ceiling before anything in the command changes.
 
+Read those process rows by **footprint against the checkpoint**, never by pid. A row at
+the driver baseline (recorded #2873: ~115 MB, with `No running processes found` beside
+the clean dies) is a process that never allocated device memory — no engine got past
+device attach on that die; a row at roughly
+`params × bytes / TP` or above means some process **completed** engine init there — a
+30B bf16 at TP=8 is ~7 GB of weights, while **Qwen3-Next-80B at TP=4 is ~40 GB** and
+~59–60 GB with the KV pool (recorded #3170: four dies at 60329 MB and four clean, TP=4,
+`--enforce-eager`). Do **not** attribute such a row to the run that died: `npu-smi`
+prints *host* pids while a containerized service's log carries namespace-local ones
+(#3170: log `APIServer pid=718` / `EngineCore_DP0 pid=1127` against rows
+`2997963/2997965/2997967/2997970`), so the match is unavailable — ask for
+`ps -eo pid,rss,lstart,cmd | grep vllm` and, if a full-size engine is still resident,
+treat it as ranked cause 2 (a second `vllm serve` holding the cards; reap it before the
+retry). What that footprint never does is argue for or against this page's mechanism:
+host allocations are invisible in the table before and after the crash.
+
 ## Recorded instance where the flag was simply omitted: #3314
 
 Qwen3-30B-A3B (the 2507 refresh, ceiling **262144**), image
@@ -241,6 +257,18 @@ on an 8.3+ pair the value that now sets the mask is `--max-num-batched-tokens`.
 - One sentence: the machine ran out of **host** RAM inside the eager
   `max_model_len²` attention mask that every worker builds before loading
   weights; it is not a card, HCCL or model problem, and `npu-smi` cannot show it.
+- **When the paste carries no host RAM, price two sizes instead of waiting for
+  `free -g`** — the collector's output in these reports carries no RAM line at all (the
+  #3170 paste prints CPU model, caches and NUMA nodes only), and the term is large enough
+  that the verdict usually does not depend on it (TP4 at 262144 is 225 % of a 1 TiB host
+  and still 112 % of a 2 TiB one). Ask for `free -h` as confirmation, not as a
+  precondition for the answer.
+- A release note that tells this family to lower `max_model_len` (**#2884**, at
+  v0.10.2rc1: "The HBM usage of Qwen3 Next is higher than expected … set `max_model_len`
+  and `gpu_memory_utilization` to suitable value") agrees with the rung but is a
+  **device-HBM** statement. Quote it as the project's own advice; never as evidence that
+  the host mask is the term — the two resources are separate, and only `free -g` /
+  `dmesg` speak to this one.
 - Then the number (`9·N²` peak per rank at their `max-model_len`, × workers),
   the version scope (0.10.1rc1 has the refactor; 0.10.0rc1 is confirmed good),
   and the first action (`--max-model-len 32768` re-run, or `dmesg -T | grep -i

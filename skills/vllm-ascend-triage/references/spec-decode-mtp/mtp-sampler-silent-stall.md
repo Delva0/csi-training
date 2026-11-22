@@ -33,7 +33,7 @@ fixed by the sampling/MTP set. Which of the three removed the stall is **not
 attributable**: they were installed together, so do not tell a reporter that one of them
 is "the fix".
 
-Two consequences that change how the report is read:
+Three consequences that change how the report is read:
 
 1. **The installed tree is not the tag.** `0.18.0rc1` + cherry-picks means no
    `path:line` from the pinned `v0.18.0rc1` tree describes the reporter's process, and
@@ -42,7 +42,22 @@ Two consequences that change how the report is read:
    "at the tag, not necessarily yours" (same class as
    `../pd-disaggregation/node-build-skew-attribute-error.md`).
 2. **A stall fix is not "all clear".** Ask for a correctness spot-check on the same
-   recipe afterwards; on this case the accuracy defect survived the stall fix.
+   recipe afterwards; on this case the accuracy defect survived the stall fix and was
+   filed separately (#8932). That follow-up is the *two-image* shape — `0.18.0` scoring
+   3.5 AIME points below `0.18.0rc1` on the docs' own PD block — so the ladder is
+   `../accuracy-benchmarks/harness-vs-engine-attribution.md` §*When the older image is
+   the good one*, not the hybrid-PD page: this reporter's `rc1` side was an rc plus the
+   three cherry-picks above, so rung 0 there is "is the good side a tag at all". The three
+   PRs are **not** an answer to an accuracy report on this stack; say explicitly that the
+   sampler set fixed only the stall.
+3. **A build that already carries all three is a build on which this page is spent.**
+   The reporter's confirmation is that the set *closed* the stall, so a same-shape stall
+   on a tree whose cherry-pick list already names #8531/#7904/#8764 (or on a later
+   release that carries them) is not this lane: ask for `pip show vllm-ascend` plus the
+   patch list first, and on a build that has them put the MTP/async flags back to
+   context and return to the plog route of
+   `../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md`. Re-issuing the
+   same three-PR advice to that reporter spends a turn on a fix they already run.
 
 ## Step 1 — the serve command decides whether this page applies
 
@@ -64,9 +79,12 @@ an MTP launch: `docs/source/tutorials/models/Qwen3.5-397B-A17B.md:101`
 "enforce_eager": true}'`), `:122`
 (`--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'`), `:124`
 (`--async-scheduling`), at vllm-ascend **v0.18.0rc1** (`99e1ea0`) / vllm v0.18.0
-(`bcf2be96`). A reporter pointing at that page (the #8916 body did, verbatim:
-`docs.vllm.ai/projects/ascend/zh-cn/v0.18.0/tutorials/models/Qwen3.5-397B-A17B.html`)
-has MTP `n=3` and async scheduling on, and their env block will never show it.
+(`bcf2be96`). A reporter pointing at that page has MTP `n=3` and async scheduling on,
+and their env block will never show it: #8916's reporter linked it — `docs.vllm.ai/
+projects/ascend/zh-cn/v0.18.0/tutorials/models/Qwen3.5-397B-A17B.html` — in a **later
+comment** ("the server config is reference as this one 397B's config"), not in the filed
+body, which was four lines plus the untouched `collect_env.py` template. So that link is
+his own statement about the recipe; it is not a line you can read out of the paste.
 
 ## Step 2 — the candidate sites at the tag
 

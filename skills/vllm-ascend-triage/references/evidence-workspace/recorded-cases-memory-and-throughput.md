@@ -55,8 +55,9 @@ divide_grid < 65536` gate on `fused_qkvzba_split_reshape_cat` at `:58-60`) and r
 splits more" against upstream v0.15.0. Delivered at turn 21. What it could not know (and the
 maintainers' later public reply supplied): the roadmap is a mega GDN fusion op (PR #8872)
 replacing the chunk op, and the reporter's next question targets the decode lane — that op is
-prefill-only, decode falls back to Triton. That per-lane roadmap split belongs in the first
-answer. Route: `../performance-throughput/gdn-fusion-lanes-and-roadmap.md`.
+prefill-only, decode falls back to Triton, and no decode-side plan answered it in the public
+record we hold. That per-lane roadmap split belongs in the first answer. Route:
+`../performance-throughput/gdn-fusion-lanes-and-roadmap.md`.
 
 **#12534** vllm-ascend v0.23.0rc1 (`f4a08bbd`, `v0.23.0rc1-310p-openeuler` image),
 torch_npu 2.10.0.post2, CANN 9.1.0-beta.1, Ascend310P3 ×4, Qwen3.5-35B-A3B w8a8 with

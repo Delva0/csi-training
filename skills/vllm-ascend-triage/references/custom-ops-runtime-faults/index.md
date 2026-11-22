@@ -520,9 +520,12 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   CANN floor (`Dockerfile:18`) so the `not support Page Attention` upgrade rung does not apply —
   recorded #4135, which verified all of it and shipped no text.
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
-  each line does/does not pin down; its step 0 is the check that an op-map page at the same
-  pin already answers the tiling question, which the #8944 forward skipped before
-  re-deriving that page from source; plus the **built-in CANN kernel** lane where there is no
+  each line does/does not pin down; its step 0 is the reported release's own `Known Issues`
+  row (the operator the launcher names is not the owner — #8944's replay answered from
+  `release_notes.md:201`, `../release-known-issues/glm5-single-node-runtime-fault-row.md`),
+  then the check that an op-map page at the same pin already answers the tiling question,
+  which the #8944 forward skipped before re-deriving that page from source; plus the
+  **built-in CANN kernel** lane where there is no
   `csrc/<op>/` to open (`fault kernel_name=unpad_flashattention_…`, `FlashAttentionScore…`):
   the V1 `Dumping scheduler output … SchedulerOutput(...)` disaster dump read field by field
   (`scheduled_encoder_inputs` ⇒ vision tower vs LM, `num_computed_tokens > 0` ⇒ continuation

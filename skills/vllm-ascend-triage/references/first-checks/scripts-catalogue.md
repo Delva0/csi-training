@@ -207,6 +207,11 @@ after that keeps the header, not this text.
   slugs are dash-separated while a caller guesses underscores: `one_boundary_per_chunk`
   then reaches `tool-call-streaming/one-boundary-per-chunk.md` at the all-token grade
   (recorded #5596 graded it 0 and fell back to the family-word guard; fixed here).
+  A page that grades and *also* records cases ends its line the same way even when it is
+  not a `recorded-cases*` file (`image-dependency-faults/pip-index-visibility.md   →
+  #855:557 (3/4)`): topical pages keep their case history in the same record-heading
+  forms, and that entry is the case to `sed` first — recorded #855's replay read the
+  line as "a topical page" and shipped the premise its entry refutes.
   `[case]` = a `recorded-cases*` page (open it first), and its line
   names the entries inside that file that share most of the query tokens —
   `→ #12985:488 (3/3)` is id, record-heading line and matched-token count — so a hit

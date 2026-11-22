@@ -77,12 +77,26 @@ Where it does come from is the `get_extended_attention_mask` /
 
 Next steps for the reporter, in order: print `attention_mask.shape` at the tower's
 `forward` (proves the `Sq=1` axis and settles the `B=` conflict), then the model-side
-patch (pass `attention_mask=None`, or a `[B,1,Sq,Skv]` mask), then the version question. #6573's
-reporter later said the same model deployed before vllm-ascend **v0.11.0rc1** and
-never after, so the diff that matters is the *pair*: the audio-lens mask plumbing in
-vllm and the NPU attention routing in the image — one `rg -n
-'get_attention_mask_by_audio_len|audio_lens' ` in the reporter's vllm tree settles
-which side moved.
+patch (pass `attention_mask=None`, or a `[B,1,Sq,Skv]` mask). The version question is
+closed for this model: its reporter said (later public comment on the same issue,
+2026-02-05, model `fixie-ai/ultravox-v0_5-llama-3_1-8b`) that it runs on **every**
+vllm-ascend before **v0.11.0rc1** and on **none** after. Read a cumulative split like
+that as a *persistent* change, not a flapping one: the mask is built in the model half
+before any vllm-ascend backend is involved, so no later image produces a different shape
+and a version trial only re-tests it — keep a version/downgrade trial out of the ladder
+and do not ask the reporter which version last worked — the paste already prints the pair
+(`vLLM API server version 0.14.1` + `vLLM Ascend Version 0.14.0rc1`), and asking for it
+is the round trip this record replaces. What the split leaves open is only which half
+carries the plumbing, and one command in the reporter's own tree answers it:
+
+```bash
+VLLM=$(uv run --no-project python -c 'import vllm,os;print(os.path.dirname(vllm.__file__))')
+rg -n 'get_attention_mask_by_audio_len|audio_lens' $VLLM/model_executor/models/ultravox.py
+```
+
+A hit means the audio-lens mask shipped in their vLLM and the model-side patch is the
+only repair; no hit means the `[B,1,1,S]` mask arrives from another caller and the
+shape contract above is the whole answer.
 
 ## Member B — the TND tail invariant, and the one call site that forgets to trim
 
@@ -153,7 +167,11 @@ not "correct" the gate above on the strength of the `:1021` hit alone.
 - A `[B,1,1,Skv]` mask never becomes legal; a legal one has `Sq` in slot 3. Do not
   explain the batch number, and do not re-derive it — the profile batch size in the
   log ("profiled with 1 audio items") and the `B=` in the paste are different numbers
-  and the conflict is the check to hand over, not a mechanism to prove.
+  and the conflict is the check to hand over, not a mechanism to prove. In particular
+  do not attribute `B=16` to `_MAX_ENCODER_BATCH_SIZE` (=16, `:64`) being the slicing
+  width: with one profiled audio item that loop runs once, so the attribution
+  contradicts the same log line. A recorded replay wrote exactly that sentence beside
+  this rule; the print request is the whole answer.
 - A tiling refusal is an argument refusal: the deliverable is the invariant, the one
   producing call site and the discriminating print — never a source walk down every
   candidate caller.

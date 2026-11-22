@@ -75,6 +75,13 @@ answering. `rpc-watchdog-timeouts.md` classifies the direction, the configuratio
 artefacts to request. One call decides it:
 `bash <skill_root>/scripts/executor-timeout-check.sh <paste|->`. Recorded #1865 was
 titled 卡间通讯超时 ("inter-card communication timeout") for exactly this text.
+When the trigger is **concurrency depth** (单并发正常 / 推大并发挂掉) and the paste
+carries a `SchedulingOutput(… total_num_scheduled_tokens=…)` tail, that page's bullet
+*The trigger is concurrency depth* sizes the stalled step and diffs the serve line
+against the pin's own multi-node recipe in one read — recorded #3784's stalled step
+(26 requests / 6644 tokens) cannot occur under the recipe it was copied from
+(`docs/source/tutorials/multi_node.md:132-139`, `--max-num-seqs 16
+--max-num-batched-tokens 4096`).
 
 **Then separate a documented env-knob ablation from the mechanism.** If the title
 or narrative is "removing `HCCL_OP_EXPANSION_MODE` / `PYTORCH_NPU_ALLOC_CONF` lets

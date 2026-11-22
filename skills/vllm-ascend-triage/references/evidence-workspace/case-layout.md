@@ -220,7 +220,13 @@ kernel clock (`[600.985841]`) and prints `receive ts exception message from devi
 (`../hccl-and-hardware/device-health-checks.md`, *Device lost / heartbeat lost*). Two more
 lines to read in the engine log itself before quoting the pasted serve script: its
 `non-default args:` dict is the launch that actually ran (that case's body said
-`--max-model-len 8192`, the log ran `32768`), and `Asynchronous scheduling is enabled.`
+`--max-model-len 8192`, the log ran `32768`) — including its `model`/`model_tag`
+field, which can name a **different model** than both the command block and the
+title (recorded #3819: the block served `Qwen/Qwen2.5-VL-7B-Instruct` while
+`model_tag` was `/root/.cache/modelscope/hub/models/Qwen/Qwen3-VL-8B-Instruct`, so
+the Qwen2.5-VL ✅ row applied to a run that never happened and the version gate
+belonged to Qwen3-VL); match the support row and the architecture gate to that
+field, not to the shell block — and `Asynchronous scheduling is enabled.`
 appears there with no `--async-scheduling` on the command line.
 
 Checklist for the final answer: repo+ref+commit cited once; every code claim has
@@ -339,6 +345,14 @@ These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
   window by eye, shipped `:124` and `:137`. A `sed -n` window confirms the *text*;
   `rg -n '<exact expression>' <file>` is the only confirmation that also carries the
   number, so run it when the anchors matter and leave the page's own numbers alone.
+- **`rg -rn` is `--replace n`, not "recursive + line numbers".** `-r` takes the
+  replacement text, so every match prints with the matched bytes swapped for `n` and the
+  output reads like source (`impl.n = True`, `runner.sfa_dcp_n_size = 1`) — a quote that
+  exists nowhere in the file. Recorded #12905 ran it over `tests/` for
+  `enable_sparse_sfa_c8|replicated_indexer` coverage and printed `impl.n = True` /
+  `runner.sfa_dcp_n_size = 1` instead; the plain form then returned nothing for the symbol
+  it was actually after, which was the finding. Use `rg -n`, and `-r` only with a
+  deliberate replacement string.
 - **Scope a grep to one repo.** A case view holds 20-40 exported trees under
   `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
   seconds and returns hits from unrelated products (torchair, metadef,

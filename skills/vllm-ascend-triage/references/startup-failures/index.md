@@ -53,6 +53,12 @@ Inherit the rules in SKILL.md. Conditional routes:
   the checkpoint's multimodal-ness from upstream source — `architectures` is on the
   reporter's disk, and only an `Encoder cache will be initialized with a budget of …`
   line moves the case onto `mm-encoder-profile-stall.md` (recorded #12985).
+  **A launch carrying `speculative_config` / `--speculative-config` moves that route
+  again**: the phase is then the drafter's, and the pin prints its own markers in order
+  (`Loading drafter model...` → `drafter.load_model` → the EAGLE3 aux-layer wiring →
+  dummy run/capture, `vllm_ascend/worker/model_runner_v1.py:2644-2648,2482-2483` at
+  v0.11.0rc0), so take the per-rank log's last line from the reporter instead of their
+  phase claim — `../spec-decode-mtp/draft-phase-stall-watchdog-only.md` (recorded #3398).
 - The start **does** raise, from the multimodal budget before any EngineCore or NPU
   init — a stack through `encoder_budget.py`/`registry.py get_dummy_mm_inputs` →
   the model file's `get_dummy_mm_data`/`get_dummy_text` ending in a `transformers`

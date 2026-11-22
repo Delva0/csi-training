@@ -231,16 +231,30 @@ not a permanent one — re-grep before reusing this block.
 ### One release later the lane still does not exist: v0.9.0rc2 has no 310P
 
 Verified at vllm-ascend **v0.9.0rc2** (`8dd686d`) + vllm **v0.9.0** (`5873877`), recorded
-for #1609 (Atlas 300I Duo, `qwen2.5-vl-7b`, no log, answered at its 9th assistant turn).
+for #1609 (Atlas 300I Duo, `qwen2.5-vl-7b`, no log, answered at its 9th assistant turn; a
+replay answered at its 3rd).
 `git grep -n -i -E '300i|310p'` over the whole tree returns **one** hit —
 `docs/source/faqs.md:18` "Below series are NOT supported yet: Atlas 300I Duo … might be
 supported on 2025.Q2" (with `:12` "Currently, **ONLY Atlas A2 series**"). There is no
 `docs/source/tutorials/single_node_300i.md` (that directory is `index.md`, `multi_node.md`,
 `multi_npu.md`, `multi_npu_quantization.md`, `single_npu.md`, `single_npu_multimodal.md`),
-no `Dockerfile.310p` (only `Dockerfile`, `Dockerfile.openEuler`) and no `is_310p` in any
+no `Dockerfile.310p` (only `Dockerfile`, `Dockerfile.openEuler`, and
+`.github/Dockerfile.buildwheel` once `--hidden` is on) and no `is_310p` in any
 `.py`. The VL class is still registered unconditionally (`vllm_ascend/models/__init__.py:11-13`,
 `:24-26`, `:30-31`), so the engine resolves the architecture and a run *starts* — the
 verdict is **"the lane is absent from this release"**, not "the model is unregistered".
+
+**The "or any VLM?" half at this pin** is the same three-column matrix the v0.9.1rc1 block
+quotes, one release earlier, and it answers the question in one read:
+`docs/source/user_guide/supported_models.md:38-47` is `| Model | Supported | Note |` with
+**no hardware column at all** — ✅ `Qwen2-VL`, `Qwen2.5-VL`, `LLaVA 1.5`, `LLaVA 1.6`
+(#553), `InternVL2`, `InternVL2.5`, `Qwen2-Audio`; "Need test" `LLaVA-Next`,
+`LLaVA-Next-Video`, `Phi-3-Vison/Phi-3.5-Vison`, `GLM-4v`, `Ultravox`. The A2 recipe is
+also at their own pin: `docs/source/tutorials/single_npu_multimodal.md:1` is titled
+"Single NPU (Qwen2.5-VL 7B)", and `docs/source/user_guide/release_notes.md:32` records
+"Qwen2.5 VL works with V1 Engine now" (#736). So answer the shape as two sentences —
+**VL: yes on A2, at the tutorial above; 300I: no lane** — and quote the ✅ rows together
+with the absence of a hardware column, because a ✅ in this table never implies a 300I row.
 
 **The doc the reporter quotes is itself the version marker.** #1609 quoted a 300I page
 listing "Qwen3-0.6B: 1 card, Qwen2.5-7B-Instruct: 2 cards, Pangu-Pro-MoE-72B: 8 cards" —

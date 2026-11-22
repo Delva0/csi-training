@@ -219,19 +219,27 @@ Two source-verified facts that make the direction non-obvious at that pin:
   `register/OptionsManager.cpp:98-101`), while `:210` and `:251` sync
   unconditionally for `sync=true`. The same traceback appears with the env off.
 
-Ladder, cheapest first:
-1. **Env off -> turn it on**: `export ASCEND_LAUNCH_BLOCKING=1`, same command. One
-   launch, reporter-confirmed to make this serve work; it re-attributes
+Ladder, cheapest first - but **read the block you were pasted before sending rung 1**,
+because this case's own launch block already carries the export (the reporter edited in
+the fix):
+1. **Block without the export -> turn it on**: `export ASCEND_LAUNCH_BLOCKING=1`, same
+   command. One launch, reporter-confirmed to make this serve work; it re-attributes
    asynchronously reported errors and serialises the stream, so report success as a
    *workaround*, not a fix - a defect that vanishes under a device-wide sync is an
    ordering symptom.
+   **Block already carrying the export -> rung 3 comes first, not this one.** Telling a
+   reporter to add a line their paste already has is this page's own failure mode; the
+   recorded replay of this case opened with the fork instead ("was this traceback
+   produced before or after the export?"), kept the env untouched, and made rung 2 the
+   branch for the live-env answer.
 2. **Env on and the serve still dies here -> turn it off** (`=0`) and, if capture is
    then what fails, add `--enforce-eager`; that pair is legal on every pin, the env
    alone is not legal with graph mode on newer refs.
-3. **Ask which run produced the traceback.** The pasted launch block can already
-   carry the env because the reporter edited in the fix (this case's block does), so
-   "your env is the cause" is unprovable from the paste. The full worker log
+3. **Ask which run produced the traceback** - and for the full worker log
    (`Starting to load model` -> `PIECEWISE compilation enabled on NPU` ->
    `Graph capturing finished` or the first error) plus the plog's
-   `[AIC_INFO] ... fault kernel_name=` line decide whether a real device fault sits
-   under the wrapper.
+   `[AIC_INFO] ... fault kernel_name=` line, which decide whether a real device fault
+   sits under the wrapper. Do not re-ask for the `collect_env.py` trio on this case:
+   the reporter's own dump is on record (torch 2.5.1, torch_npu
+   2.5.1.post1.dev20250619, CANN 8.1.RC1, driver 24.1.rc1, two 910B3 dies), and it
+   adds no lever this ranking uses.

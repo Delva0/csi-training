@@ -126,3 +126,11 @@ tool calls against a 16 K output cap. The detour was ~8 calls into `kvcache-ai/M
 one `grep -rl` per third-party repo would have said "no source, ask for the plog".
 For a no-log plane question the body is: verdict, the ping block, two ranked rows,
 3-5 lines of limits.
+
+**Replay (same paste, three turns / six calls).** `sources-summary.sh` plus this page,
+then four greps — the `gen_ranktable.py:78-101` A3 branch, the connector's
+`server_count`/`super_pod_list` lines, the support-matrix row and PD-tutorial scope, and
+the one `grep -rl` precedent search — and the answer shipped whole: verdict, the
+`hccn_tool`/`ping` block, the `super_pod_id` trap, the stale `tests/e2e` warning and the
+limits. A page that already holds the case is the stopping condition, not a starting
+point: the replay needed no Mooncake or mind-cluster walk.

@@ -87,7 +87,8 @@ them a graph.
    reporter measured **10-12 tok/s** there versus 2-3 tok/s with the adapter, so
    the LoRA path — not the card, not TP2, not `--max-model-len` — owns the cost.
    If base-only is *also* a few tok/s, you are in
-   `../performance-throughput/index.md`, not here.
+   `../performance-throughput/index.md`, not here. For #1629 the measurement is
+   already on record — quote it, and do not put it back in the ask list.
 2. `VLLM_USE_V1=1 … --enforce-eager` on the **same** command. Compile off ⇒ no
    dynamo trace ⇒ predicted to start (mark it a prediction), and it then
    reproduces the slow decode, which unifies both halves of the report. Confirm

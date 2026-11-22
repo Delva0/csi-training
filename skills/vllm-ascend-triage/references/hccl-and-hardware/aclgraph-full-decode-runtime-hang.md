@@ -49,15 +49,27 @@ mode/capture/step summary together with the watchdog verdict.
 ## The two checks to run before any source read
 
 1. **Which models does the pinned tree validate for that mode?**
-   `rg -n 'cudagraph_mode.*FULL_DECODE_ONLY' <ascend>/tests/`, then confirm the hit
-   is wired: `rg -n '<test-file-basename>' <ascend>/.github/workflows/`.
-   At v0.11.0rc1 the answer was: `tests/e2e/multicard/test_full_graph_mode.py` only
-   (`Qwen/Qwen3-30B-A3B` TP2, `max_model_len=1024`, `max_tokens=32`), plus the MTP
-   correctness files — and **no workflow invoked it**, while the wired ACL-graph runs
-   are PIECEWISE (`_e2e_test.yaml:77,91` → `tests/e2e/singlecard/test_aclgraph.py`,
-   models `Qwen/Qwen3-0.6B` + `vllm-ascend/DeepSeek-V2-Lite-W8A8`, `max_model_len=1024`;
-   `:181` → `tests/e2e/multicard/test_single_request_aclgraph.py`, DP2, **no**
-   `cudagraph_mode` key). No VL model, no 72B, no 16 K context is covered anywhere.
+   `rg -n 'FULL_DECODE_ONLY' <ascend>/tests/` — the **bare token**, because a compound
+   `cudagraph_mode.*FULL_DECODE_ONLY` misses any case whose kwarg wraps: at v0.11.0rc1
+   the multicard call closes `"FULL_DECODE_ONLY"}) as runner:` on the line *after*
+   `compilation_config={"cudagraph_mode":` (:45-46), so the compound form returns only
+   the two singlecard lines and the mode's only unwired case silently disappears.
+   Then confirm a hit is wired:
+   `rg -n '<test-file-basename>' <ascend>/.github/ --hidden` (`_e2e_test.yaml:77,91` →
+   `singlecard/test_aclgraph.py`, `:92` → `test_aclgraph_mem.py`).
+   At v0.11.0rc1 the answer was **three lines in two files**:
+   `tests/e2e/multicard/test_full_graph_mode.py:46` (`Qwen/Qwen3-30B-A3B` TP2,
+   `max_model_len=1024`, `max_tokens=32`) — **no workflow invoked it** — and
+   `tests/e2e/singlecard/test_aclgraph.py:156,175`, both inside
+   `test_models_with_aclgraph_full_decode_only`
+   (`Qwen/Qwen3-0.6B` + `vllm-ascend/DeepSeek-V2-Lite-W8A8`, `max_model_len=1024`),
+   which `@pytest.mark.skip("… it fails intermittently and needs investigation")` at
+   `:103` disables in the one file CI *does* wire — so the mode itself ran in no CI
+   job. The wired ACL-graph runs are PIECEWISE (`:181` →
+   `tests/e2e/multicard/test_single_request_aclgraph.py`, DP2, **no**
+   `cudagraph_mode` key), plus the wired MTP correctness cases that pass `FULL`, which
+   `platform.py:237-242` sends to `NONE` (rule 16). No VL model, no 72B, no 16 K
+   context is covered anywhere.
    When the reporter's model sits outside that set, the coverage verdict is the
    first sentence of the answer (same shape as rule 14's "no validated recipe for
    this combination").

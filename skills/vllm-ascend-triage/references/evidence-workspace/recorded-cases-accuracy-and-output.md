@@ -531,20 +531,22 @@ cut mid-sentence while it was still ranking the causes (its own notes had said
 (`openai-embeddings`, sharegpt) answers ~1800 requests, then the engine dies and
 everything after gets `400 Bad Request`. Evidence is four bench screenshots only;
 the `KeyError` key is unreadable, so the mechanism is source-derived, not
-reporter-confirmed. Real finding (source-read, never delivered): at v0.11.0
-vllm-ascend ships **its own copy** of upstream's `InputBatch`
-(`vllm_ascend/worker/npu_input_batch.py:94`) with a pooling fast path upstream
-lacks (`add_request` -> `num_reqs` at `:316-324`, `remove_request` skipping
-`removed_append` at `:462-465`, trim-only `condense` at `:573-577`, forced by
-`assert request.sampling_params` at `:303`), which leaves a `None` hole plus a
-duplicated slot under concurrency and raises at
-`vllm/v1/attention/backends/utils.py:798`; already at v0.13.0rc1 the copy is
-gone (`npu_input_batch.py:33 class NPUInputBatch(InputBatch)`, `__init__` only).
+reporter-confirmed. The real finding (source-read, never delivered) is the pooling fast path on
+vllm-ascend's own `InputBatch` copy
+(`vllm_ascend/worker/npu_input_batch.py:94`), spelled out in
+`../pooling-embedding/batch-index-desync.md`; gone by v0.13.0rc1 (thin
+`NPUInputBatch` shell).
 **Shipped no answer**: 20
 assistant turns, 11 of them with zero message text (bare tool calls), the 16 K
 output budget entirely in reasoning, cut while it was still verifying
 `add_request`'s index assignment after having named the root cause two turns
-earlier. Lane: pooling batch bookkeeping
+earlier. A later replay at the same pins delivered the whole answer from that
+page in seven assistant turns, so nobody owes the slot arithmetic again: it
+grepped the four `.ocr.txt` for the symbol fragments (`Error|assert|Traceback|
+raise|Exception`), read two windows around the hits, then confirmed the frames
+at the pin in one call. Six of those seven turns still carried no message text —
+the pattern that cost the recorded session — safe only because this replay
+finished. Lane: pooling batch bookkeeping
 (`../pooling-embedding/batch-index-desync.md`).
 
 **#5687** vllm-ascend `v0.11.0rc3`, Qwen3-Embedding-8B, `--max-num-seqs 256` on a

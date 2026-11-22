@@ -334,12 +334,20 @@ text, cut at the cap while still opening new code areas (`acl_graph.py` update
 stream, `platform.py` splitting ops, upstream dispatcher) — the mechanism it was
 hunting is not in the rc1 tree at all, because the reporter later reported the bug
 fixed on **0.11.0rc2** (later public observation on the same issue, not a reply to
-these investigators). What it did establish and should have delivered: `tests/e2e`
-validates `FULL_DECODE_ONLY` only in `multicard/test_full_graph_mode.py` (Qwen3-30B-A3B
-TP2, `max_model_len=1024`, `max_tokens=32`), no workflow invokes that file, the wired
-ACL-graph runs are PIECEWISE at 1024 context on Qwen3-0.6B / DeepSeek-V2-Lite, and the
-runner's only mode-specific provisioning at rc1 is the MLA `cos`/`sin` buffer
-(`model_runner_v1.py:374-377`). Route now:
+these investigators). What it did establish and should have delivered:
+`rg -n 'FULL_DECODE_ONLY' tests/` returns three lines in two files —
+`multicard/test_full_graph_mode.py:46` (Qwen3-30B-A3B TP2, `max_model_len=1024`,
+`max_tokens=32`), which no workflow references, and
+`singlecard/test_aclgraph.py:156,175` inside the test
+skipped at `:103` ("fails intermittently") in the one file CI does wire
+(`_e2e_test.yaml:77,91`) — so the mode ran in no CI job; the wired ACL-graph runs are
+PIECEWISE at 1024 context on Qwen3-0.6B / DeepSeek-V2-Lite, and the runner's only
+mode-specific provisioning at rc1 is the MLA `cos`/`sin` buffer
+(`model_runner_v1.py:374-377`). A later replay took this entry's `[case]` arrow,
+re-ran that one grep (the compound `cudagraph_mode.*FULL_DECODE_ONLY` returns only the
+two skip-ped lines, because the multicard kwarg wraps) and shipped the whole ranking at
+its 6th assistant turn with the rc2 fix as rung 1: the route works, and the 22-turn
+failure was the detour, not the case. Route now:
 `../hccl-and-hardware/aclgraph-full-decode-runtime-hang.md`, SKILL.md rule 16.
 
 **#6018** vllm-ascend `0.12.0rc1` in the title / `0.12.0rc2` in the environment
@@ -722,3 +730,42 @@ vllm-ascend 0.13.0rc1) and #5684 has no public resolution. Pages:
 `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3b2 (CANN-pairing
 negative + the `107000`/`ret = 2`/128 TiB sibling), and
 `../hccl-and-hardware/index.md` (one-box branch paragraph).
+
+**#3784** vllm-ascend v0.11.0rc0 (`00ba071`) + vllm v0.11.0rc3 (`8ce5d319`), 2 nodes ×
+8×910B3 (65536 MB rows), torch 2.7.1+cpu / torch_npu 2.7.1.dev20250724 / CANN 8.2.RC1,
+DeepSeek-R1-W8A8: `--data-parallel-size 4 --data-parallel-size-local 2
+--tensor-parallel-size 4 --enable-expert-parallel --max-num-seqs 256 --max-model-len
+8192 --quantization ascend --max-num-batched-tokens 8192 --no-enable-prefix-caching
+--gpu-memory-utilization 0.92 --additional-config '{"ascend_scheduler_config":
+{"enabled":true},"torchair_graph_config":{"enabled":true}}'` plus `HCCL_BUFFSIZE=1024`,
+driven by `benchmark_serving.py --dataset-name random --num-prompts 256
+--random-input-len 256 --random-output-len 256 --ignore-eos`. Title and body both say
+单并发推理正常 / 推大并发请求时服务挂掉. The paste is a truncated `SchedulingOutput`
+tail — 26 request ids at 256 tokens, `total_num_scheduled_tokens=6644` — then
+`EngineCore encountered a fatal error` and `TimeoutError: RPC call to execute_model
+timed out.` out of `multiproc_executor.collective_rpc` → `get_response` →
+`shm_broadcast.acquire_read`, with `[dump_input.py:79] Dumping scheduler stats
+(num_running_reqs=27, step_counter=0, kv_cache_usage=0.3086)` from the *other* DP
+engine in the same second and `Parent process exited, terminating worker` teardown
+lines for DP0's four TP workers. Classification: the 300 s executor watchdog, not HCCL
+and not a tuning knob (`../hccl-and-hardware/rpc-watchdog-timeouts.md` §*A deliberately
+slow step* closes the dump lane — there is no `dump_config_path`/`--profiler-config` in
+the launch).
+
+Two pin-checked findings, both cheap and both in the paste or the pin's docs:
+(1) **the serve line is the pin's own two-node DeepSeek recipe with three numbers
+changed** — `docs/source/tutorials/multi_node.md:117-139` (node0) / `:158-180` (node1)
+at `00ba071` is identical down to `--data-parallel-rpc-port 13389`, `HCCL_BUFFSIZE=1024`
+and both config keys, and validates `--max-num-seqs 16` (`:132`, `:173`),
+`--max-num-batched-tokens 4096` (`:135`) and `--max-model-len 32768` (`:133`). The
+stalled step's 6644 tokens and 26 sequences exceed both caps, so that step cannot exist
+under the validated recipe: the first launch is the recipe's numbers (the batched-token
+cap is what admits the step), one axis at a time, on the same benchmark.
+(2) **the per-rank MoE-comm-method mismatch is refuted at this pin**, so it must not be
+ranked: `_select_moe_comm_method` is called with the DP-wide maximum
+(`worker/model_runner_v1.py:1938`, from `num_input_tokens = maybe_padded_num_tokens` at
+`:1298`, the `torch.max` of `_sync_metadata_across_dp` at `:827-837`; `_dummy_run`
+syncs identically at `:2345-2349`), and `mc2_tokens_capacity = 512` at `:455`. What
+moves is the collective *family* between steps, which only the plog's per-step
+`newtag[…]` / operator names can settle. Cause stays **open**: no plog, no
+per-rank error line, no `npu-smi` from during the hang.

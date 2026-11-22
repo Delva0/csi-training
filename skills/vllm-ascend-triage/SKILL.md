@@ -15,12 +15,10 @@ a tool quirk, not "no skill for this task", and this name is already in
 Anything batched beside that call — `ls
 /workspace`, `cat SOURCES.json` — executes before this body is in context, so no rule
 here can stop it, and its output is re-sent on every later turn: six recorded runs paid
-14-54 KB that way, one ending output-truncated at 1.1 M cumulative prompt tokens, which
-is why the frontmatter description carries both pre-load prohibitions, not only the
-reading order: nothing in this body can stop a `skills_list` or a batched shell
-listing that runs before the body loads, and a recorded #7076 replay still opened with
-`skills_list` and only then `skill_view`, on a name `<available_skills>` had listed all
-along.
+14-54 KB that way, one ending output-truncated at 1.1 M cumulative prompt tokens — which
+is why the frontmatter description, not this body, carries the pre-load prohibitions: a
+recorded #7076 replay still opened with `skills_list` and only then `skill_view`, on a
+name `<available_skills>` had listed all along.
 If something has to share it, let it be
 `bash <skill_root>/scripts/sources-summary.sh` (one line per repo, ~45 per case, not the
 28 KB file) — that summary plus the reporter's own paste **is** the orientation. Never
@@ -291,12 +289,14 @@ the turn the shape is classified, not a second copy of it here.
    never add an `r` flag** — `rg -r` is `--replace`, not "recursive" (`-rn`, `-rln`, `-r ''`
    rewrite or dump whole lines; an empty pattern matches every line), so a result whose matched
    text is missing or replaced by `n` is that accident, not a finding: re-run without the flag
-   before quoting it, and never read a `self.…n == "align"` line as source (recorded #13863
-   reached for it **four times in one session** with this warning already in context,
-   `rg -n '_update_states_after_model_execute' -r ''` printed a `self.(sampler_output…)` line,
-   and #9596 lost two calls to `rg -rn` — `def get_capture_descs` came back as `n(self)` —
-   while #10068 paid the same slip); a pasted message is
-   often split across adjacent literals, so grep the shortest clause (or `-A1`); a
+   before quoting it, and never read a `self.…n == "align"` line as source (recorded
+   #13863 reached for it **four times in one session** with this warning already in
+   context; #9596 and #10068 paid the same slip — the replaced lines are in
+   `case-layout.md`); a pasted message is
+   often split across adjacent literals, so grep the shortest clause (or `-A1`) — and a
+   ruff-formatted call whose kwargs wrap splits one too, where `a.*b` drops the file
+   carrying both halves (`cudagraph_mode.*FULL_DECODE_ONLY` missed
+   `test_full_graph_mode.py:46` at v0.11.0rc1); grep the one distinctive token; a
    `--glob '!<dir>/**'` exclusion is matched against the path you passed; a piped
    `sed -n 'A,Bp' | rg -n` numbers the stream (`A + n - 1`); scope every grep to one
    repo; **a recursive grep from a repo root does not enter `.github/`, so any CI
@@ -312,10 +312,8 @@ the turn the shape is classified, not a second copy of it here.
    (§*Search-command traps*); never list a directory or dump a whole file, with **one** exception: a
    single `ls -la /workspace/attachments/<issue>/` (or `cat ATTACHMENTS.txt`) as soon
    as the report names a log you have not located. Attachment dumps carry no settled
-   extension — a recorded segfault case kept its scripts as `.txt` and **both node
-   logs as `.log`**, so a `*.txt` glob showed 3 of 5 files and the session asked the
-   reporter for logs the case view already held — and a one-level
-   `search_files (target='files')` is capped (returned `total_count: 102` twice), so
+   extension (a recorded segfault case kept **both node logs as `.log`**, so a `*.txt`
+   glob showed 3 of 5) and a one-level `search_files (target='files')` is capped, so
    neither a glob nor that listing is an existence test
    (`references/evidence-workspace/case-layout.md` §*Attached log dumps*). Then open
    the files the issue links; a manifest grep is not an existence test either.
@@ -330,41 +328,34 @@ the turn the shape is classified, not a second copy of it here.
    `ATB_SHARE_MEMORY_NAME_SUFFIX=`, `mtp`, `ngram`, `spec`, `npu`, `acl`, and any version
    placeholder such as `0\.0\.0`, whose `-b` search returns every `0.0.0.0` bind address in
    the corpus — #16559 spent a turn on 573 hits that way) or a
-   mechanism phrase (`graph capture|capture size|图捕获`). Two recorded forms: #9278
-   searched `-i 'suffix|507035|aivec|MPU address'`, got "207 hits / 207 distinct
-   issue ids", read the whole result as env-var noise and stopped — while #488 in
-   that same output carries the reporter's own `error code:507035`, and the
-   titles-only search returns eight real precedents (`suffix` +
-   `full_decode_only` among them); #16581's mechanism words returned 442 hits of
-   file names, while the paste's own code tokens (`507015|MTE|DDR address`)
+   mechanism phrase (`graph capture|capture size|图捕获`). Two recorded forms: #9278 read
+   a 207-hit `-i 'suffix|507035|aivec|MPU address'` as env-var noise and stopped,
+   while #488 in that same output carried its own `507035`; #16581's mechanism words
+   returned 442 file names while its own code tokens (`507015|MTE|DDR address`)
    returned 91 and named #3263/#2424. When a pattern hits ~every file, split the
    alternation instead of discarding the survivors. **A `-l` list cannot be graded
    from its output** — it prints paths and no matched text, so "my alternation was
    a bag" is a guess, not a reading: split it per token (`search_files` on one
    token under `<skill_root>/references/`, or `rg -l '<one token>'
-   <skill_root>/references/`) before writing it off. Recorded #3543 did exactly
-   that to a `head -40`-capped `-l` list over `references/`, with
-   `startup-failures/silent-worker-exit.md` and
-   `startup-failures/max-model-len-budget.md` — the two pages owning its case — on
-   it; the recorded-cases detour it took instead cost six calls. Inside
+   <skill_root>/references/`) before writing it off — #3543's own `-l` list held both
+   pages that owned its case, and the recorded-cases detour instead cost six calls.
+   Inside
    `references/` the **model id is a listing token, not a distinctive one**: every
    case line carries its model, so `-i 'qwen3-vl|qwen3_vl|qwen3vl'` over
    `recorded-cases*` returns lines from every family page of the index (accuracy,
    startup, install, device, pd-kv, memory), all of them other symptoms' ladders.
    Grep the wrapper sentence, the op name or the code.
    `history/*.md` and
-   lexical issue search cover only earlier issues; a current issue is never in
-   them, and the ids this skill's own pages cite as recorded cases are usually
-   newer than the case's corpus (a #6533 view ends at 6436 while the pages cite
-   8590, 7689, 13591 …). So a `not in this corpus` from `history-body.sh` weakens
-   nothing: quote the page's pin and facts instead of re-opening the id, and never
-   drop the script's only message with `2>/dev/null | head` — #6533 read the empty
-   stdout as an empty body, then spent a GitHub call on a 404 and disowned the
-   same-pin #8590 precedent it had. A raw `head -1` of
-   `/workspace/history/<id>.md` with stderr dropped is the same trap: absent and
-   empty print identically, and this is the one id that is reliably absent (the
-   page's own case is newer than the corpus) — #10495 spent a call there after its
-   owning page had already matched its body line for line. Make one grep for the
+   lexical issue search cover only earlier issues; a current issue is never in them,
+   and the ids these pages cite as recorded cases are usually newer than the corpus (a
+   #6533 view ends at 6436 while the pages cite 8590, 7689, 13591 …). So a `not in this
+   corpus` from `history-body.sh` weakens nothing: quote the page's pin and facts instead
+   of re-opening the id, and never drop the script's only message with
+   `2>/dev/null | head` (#6533 read empty stdout as an empty body, spent a GitHub call on
+   a 404 and disowned its same-pin #8590 precedent). A raw `head -1` of
+   `/workspace/history/<id>.md` with stderr dropped is the same trap: absent and empty
+   print identically — #10495 spent a call there after its owning page had already
+   matched its body line for line. Make one grep for the
    distinctive token (op name, error string, dataset
    name), read 2-3 hits, then stop: **for a corruption report the distinctive token
    is the pasted output itself** — the repeated character run (`-b '!!!'`) or the
@@ -659,13 +650,15 @@ the turn the shape is classified, not a second copy of it here.
     has already closed the capture lane and the "setting never applied" chain; what
     remains is model×mode support at that ref or a defect fixed after it. Three
     checks, then deliver: (a) which models the pinned tree validates for that mode —
-    `rg -n 'cudagraph_mode.*FULL_DECODE_ONLY' <ascend>/tests/`, then confirm a
+    `rg -n 'FULL_DECODE_ONLY' <ascend>/tests/`, the **bare token** (a compound
+    `cudagraph_mode.*FULL_DECODE_ONLY` drops a case whose kwarg wraps), then confirm a
     `.github/workflows` file runs that test **and sets the mode it names**, and read
     the markers above the case: a wired file is not coverage when the case is
-    `@pytest.mark.skip`-ped (v0.11.0rc1 and v0.11.0rc2 `a2e4c3f`:
-    `tests/e2e/singlecard/test_aclgraph.py:103-108` skips "it fails intermittently
-    and needs investigation" on the file's only `FULL_DECODE_ONLY` case, so that
-    line's full-graph coverage was a multicard file no workflow referenced) —
+    `@pytest.mark.skip`-ped (at v0.11.0rc1 `c5fe179` the token returns
+    `multicard/test_full_graph_mode.py:46` — unwired — and
+    `singlecard/test_aclgraph.py:156,175`, inside the test skipped at `:103` in the one
+    file CI wires, so the mode ran in no CI job; rc2 `a2e4c3f` and the full set:
+    `aclgraph-full-decode-runtime-hang.md`, check 1) —
     v0.11.0rc1 also has wired `test_mtp*_correctness_full_graph` cases that pass
     `FULL`, which `platform.py:237-242` sends to `NONE`; §3 and the #4326 section of
     `hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`); (b) whether the
@@ -673,10 +666,9 @@ the turn the shape is classified, not a second copy of it here.
     works — a default-mode success on the same command makes the *mode* the lever;
     (c) whether the tree carries any mode-specific handling for their family (absence
     is quotable as coverage, never as the cause). A fix that lands in the next rc **is
-    not in the snapshot**, so a source walk cannot find it: #4178 walked 22 turns and
-    48 K characters of reasoning on that path, emitted zero message text, and was cut
-    before answering, while the coverage verdict was three greps and its reporter
-    later reported the bug fixed on `0.11.0rc2`
+    not in the snapshot**, so a source walk cannot find it: #4178 walked that path for
+    22 turns and shipped nothing, while the coverage verdict was three greps and the
+    reporter later confirmed the fix on `0.11.0rc2`
     (`references/hccl-and-hardware/aclgraph-full-decode-runtime-hang.md`).
 
 ## Classify the evidence
@@ -685,7 +677,14 @@ Two passes. First the **track**, from the dispatch table under *Support entry po
 below (`references/dispatch/classified-shapes.md`); for a startup log that means lane
 A (worker died without a per-rank traceback), lane B (worker raised a Python error) or
 lane C (collective or device fault), and for a report with no symptom that means one of
-the D tracks (sizing, document, capability, code-change). **An `[Installation]` / 安装
+the D tracks (sizing, document, capability, code-change). **Take the lane from what
+raised it, not from the number inside it**: a per-rank Python traceback is lane B even
+when the payload is device-level (`107027`/`107030`/`507015` — refusal markers inside
+code that ran on that rank), while lane C is the fault that arrives *without* a per-rank
+Python exception; labelling such a traceback "lane C (device-op fault)" is what a
+reporter quotes back as a hardware argument
+(`references/startup-failures/captured-stream-host-sync.md`,
+`references/soc-platform-paths/310p-mtp-graph-splitfuse-mask.md`). **An `[Installation]` / 安装
 report that fails before any engine exists** — a compiler or linker log, a pip
 resolution error, a missing library at import — is its own track: the paste's last
 frames name the failing *stage* and the stage names the owner
@@ -901,6 +900,13 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    message — open it even when the heading reads as another model's case
    (`references/evidence-workspace/delivery-recorded-sessions-replays.md`: #12985's
    second session saw the `[case]` file first, opened no entry, and shipped no text).
+   **A topical page records cases too, and its grade line ends the same way**: a page
+   outside `recorded-cases*` that records cases in the same heading forms ends
+   `→ #855:557 (3/4)` — `sed` that range before reading the page's own sections, since
+   the entry is the case history; never grep the page for a neighbour's id (recorded
+   #855 read the line as a topical page and shipped the premise its own entry refutes —
+   `first-checks/scripts-catalogue.md`,
+   `image-dependency-faults/pip-index-visibility.md`).
    **An arrow in the *near-miss* or family-word block is still the case** (an entry
    quotes the reporter's own wording, so it grades 2-of-4 while family words fill 100+
    pages), and while no page carries every token the script prints it as a
@@ -915,9 +921,9 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    `sed` range — and **when the paste carries no id, pass no flag at all** (a bare
    `--issue` is ignored rather than fatal, which cost a recorded call) — because a
    thick all-token grade is often family words while the own entry sits one grade
-   down. Recorded #5075's printout already carried `→ #5075:82 (2/4)` in its
-   `3-of-4` grade, no entry was opened, and ~20 turns re-derived (less completely) what
-   that entry and `soc-platform-paths/atlas-300i-310p.md`'s pin-keyed block already held.
+   down. Recorded #5075's `3-of-4` grade already carried `→ #5075:82 (2/4)`, no entry
+   was opened, and ~20 turns re-derived what it and
+   `soc-platform-paths/atlas-300i-310p.md`'s pin-keyed block already held.
    **The arrow's id need not match the report's.** One body can be archived under a
    neighbouring number, so match the entry's quoted wording, versions and stack: the paste
    answered as **#8974** (Feishu link + QR image, no log, 16 dies with both engines'
@@ -961,9 +967,16 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    library — an op-name suffix (a paste's `aclnnMoeDistributeDispatchV4` against the
    pin's `npu_moe_distribute_dispatch_v2`) or a Chinese phrasing — so read the
    shortest list by hand. **A hit in
-   `references/evidence-workspace/recorded-cases*` is opened first** — but that glob
-   spans **two or more files per family**, `recorded-cases/<family>.md` (the condensed
-   index line) and its `recorded-cases-<family>.md` detail page(s) — the startup
+   `references/evidence-workspace/recorded-cases*`, or in the sibling tables
+   `delivery-recorded-sessions.md` / `delivery-recorded-sessions-replays.md` (one row per
+   issue: what an earlier run of that same case had established, and where it failed), is
+   opened first** — an
+   ALL-token grade whose **one file** holds those tables is that issue's own row, not a
+   weak hit (#3398 wrote "Not a strong hit" of exactly that, then re-derived three of
+   the row's facts) — and the row's failing column is the warning that stops that dead
+   end. That glob, though, spans **two or more files per family**,
+   `recorded-cases/<family>.md` (the condensed index line) and its
+   `recorded-cases-<family>.md` detail page(s) — the startup
    family splits into `recorded-cases-startup.md` and
    `recorded-cases-install-and-environment.md`, and the device family into
    `recorded-cases-device-and-communication.md` and its `hccl-and-hardware`-owned half

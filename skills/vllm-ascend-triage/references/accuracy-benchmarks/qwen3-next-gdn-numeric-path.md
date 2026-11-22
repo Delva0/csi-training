@@ -61,9 +61,19 @@ That single line closes four ablation rows before they are proposed: **graph mod
 off** (`--enforce-eager`), **no MTP / no speculative config**, **no
 `--enable-expert-parallel`**, **no quantization flag** — and, at this version, no
 prefix cache to enable (see `../performance-throughput/zero-prefix-cache-hit-hybrid.md`).
-`--max-model-len 8192` deviates from the tutorial's `4096` but is a documented-valid
-value and irrelevant at 19 prompt tokens. What remains is the linear-attention
-numeric path above, KV/state dtypes, and sampling.
+Read against the pinned tutorial (`docs/source/tutorials/multi_npu_qwen3_next.md:89`,
+`vllm serve Qwen/Qwen3-Next-80B-A3B-Instruct --tensor-parallel-size 4 --max-model-len 4096
+--gpu-memory-utilization 0.7 --enforce-eager`) that line **is** the documented recipe —
+same TP, same `0.7`, same `--enforce-eager`, plus `--served-model-name`/`--port 8010` and
+`--max-model-len 8192` in place of `4096` — so "the tutorial's own command degenerates on
+digit prompts at this rc" is citable rather than an inference, and the one changed length
+is a valid value that is irrelevant at 19 prompt tokens (`:86` asks TP ≥ 4 for a 64 GB A2,
+which TP=4 satisfies). `--port 8010` is also this thread's identification hook: the
+report's screenshot is a `curl` to `…:8010/v1/chat/completions`, so the screenshot and the
+later comment are one deployment — when a digit-soup paste shows a port in its OCR and a
+serve line arrives in a later comment, match the two before treating them as different
+runs. What remains is the linear-attention numeric path above, KV/state dtypes, and
+sampling.
 
 Because that command lives here and not in the report body, it is a **fact in hand, not
 an ask**: open with it ("your later comment's `TP=4 --max-model-len 8192
@@ -71,7 +81,11 @@ an ask**: open with it ("your later comment's `TP=4 --max-model-len 8192
 say so", and keep it off the *send this back* list. A later replay of this issue (same
 pins) read this section, quoted the command in a mitigation bullet, and then asked for
 "your actual `vllm serve` command line, the body has none" in the same message — the one
-ask that could not move the case.
+ask that could not move the case. A second replay (same pins) opened with the quoted
+command and closed with only "if you now serve with other flags, say so", so this section
+holds as written; its one surplus turn was a single `rg` re-confirming the four GDN sites
+the mechanism table already pins — keep that grep only because *Precedents* marks those
+three sites version-specific, not as a routine step.
 
 Answer-shape guard for this case: the first sentence is *prompt-conditioned degeneration
 at this pin, owner not established*, with rows 1-2 as the cheapest next action and rows

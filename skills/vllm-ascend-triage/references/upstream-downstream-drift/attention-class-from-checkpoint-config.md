@@ -73,6 +73,17 @@ id), rank checkpoint provenance first and make the swap the first action: the
 project's own published `vllm-ascend/<model>-W8A8` weight is the same-day test,
 and it is the only action that does not need the reporter to read code.
 
+Two qualifiers the reporter's own follow-up exposes. The published set is **per
+model**, and the maintainer named `vllm-ascend/DeepSeek-R1-W8A8` on a
+`DeepSeek-V3-0324-w8a8` report; the reporter's next reply was the question that
+leaves open — does a `deepseek-v3-0324-w8a8` exist at all. So (a) name the artifact
+for *their* model and do not assert it exists (this snapshot cannot list the hub, and
+the quoted comment is one model's), and (b) a swap to a sibling model's conversion
+exercises the modelslim toolchain, not their checkpoint: treated alone it leaves the
+reporter's own export unvalidated, so pair it with the `config.json` print above, or
+report the swap as toolchain evidence and say the model itself is still open. The
+maintainer's "will fix later" is a statement of intent, not a release or a date.
+
 The recorded answer ranked "vllm and vllm-ascend are not the paired halves"
 first, with a correct but secondary observation ("the error names
 `DeepseekV2Attention`, **not** `DeepseekV2MLAAttention`") buried in its

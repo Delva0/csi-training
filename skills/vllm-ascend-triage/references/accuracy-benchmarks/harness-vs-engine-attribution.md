@@ -163,6 +163,27 @@ that they now suspect 精度. Two consequences:
   not a one-release regression that the next rc repairs — do not put either in the first
   message. Say instead that a single-commit pin cannot diff the two tags and give the dump
   below.
+- **Check that each side is a tag before calling the pair a version comparison.** A
+  reporter's "old version" is often an rc plus a cherry-pick set: recorded #8916 installed
+  `0.18.0rc1` and then #8531 (sampler `mask`-not-static / invalid `draft_token_id`), #7904
+  (decoder MTP padding token id) and #8764 (non-blocking `num_accepted_tokens` race) — all
+  three move sample-side numerics — and the same reporter's follow-up (#8932:
+  `Version 0.18.0：… accurancy is lower than version 0.18.0rc1 in dataset AIME`, `acc_score`
+  3.5 points apart, `<details>` still the untouched template) measures that build against
+  the `0.18.0` tag. So `pip show vllm vllm-ascend` **plus the cherry-pick list for each
+  side** is rung 0, and a fix list is not a regression
+  (`../spec-decode-mtp/mtp-sampler-silent-stall.md`). The same later comment answers the
+  recipe question too — its config reference is
+  `…/v0.18.0/tutorials/models/Qwen3.5-397B-A17B.html` *Prefill-Decode Disaggregation* —
+  so ask which doc block was copied rather than deriving hybrid page geometry from a launch
+  nobody pasted.
+- **Convert the gap into items before ranking a cause.** An AIME run is 15–30 questions
+  (one year set, or two), so one item is 3.3–6.7 points and a reported "3.5 points" is a
+  single question; MMLU-Pro is 12 032 items (≈0.008 per item). Divide the gap by the item
+  value before theorising, then ask for both runs' per-item score lists and for the newer
+  side's repeat spread at the same temperature — a one-item flip inside that spread is the
+  noise floor, and only a *pattern* (a contiguous subset, or items that came back
+  garbled/truncated) is an engine claim.
 - **Enumerate the stack rather than guessing which component moved.** A tag moves `vllm`,
   `vllm-ascend`, `torch_npu`, CANN and `transformers` together, so "the code changed
   between the tags" is not yet a claim about vllm-ascend. One command per image, then

@@ -19,6 +19,17 @@ In `serving.py`: with a reasoning parser, `content` is whatever the parser retur
 `reasoning` is only populated when the request asks for it (`include_reasoning`); without a
 parser, `content` is the full text (thinking tags included).
 
+Re-verified at vllm **v0.20.2** (`bc150f5`, the pairing of vllm-ascend `v0.20.2rc1`
+`367b8e6`) — quote the pin the report is on: `qwen3_reasoning_parser.py:21-27`
+(Qwen3.5 puts `<think>` in the prompt and `enable_thinking=False` is the switch), `:129`
+("a missing `</think>` means the output was truncated and everything is reasoning"),
+`:178` (`prompt_is_reasoning_end` routes deltas as content when thinking is off), with
+`basic_parsers.py:89` `extract_content_ids`. So on a v0.20.x image a raw body carrying
+`content: null`, every completion token inside `reasoning` and `finish_reason: length`
+is the truncation branch by the parser's own docstring: raise the request's `max_tokens`
+before any template/model/rope theory (recorded #10405, whose screenshot OCR was the only
+artefact that carried those three fields).
+
 ## First gate: did the end marker survive detokenization? (#9361)
 
 Before any template or model theory, `content: null` + the whole CoT *and* the answer
@@ -74,6 +85,26 @@ in the subsets with the longest CoT. A harness that strips think tags from the r
 (ais-bench's `extract_non_reasoning_content`) or reads `reasoning` too does not lose them.
 That asymmetry alone can produce a multi-point tool-vs-tool gap on the same server.
 
+### The bundled perf symptom: "首 token 极慢" is that same routing, measured client-side
+
+A report that pairs "the thinking content is gone" with "首 token 延迟显著增加, 推理速度
+正常 without the flag" is one mechanism, not two. Before `</think>` every delta is
+`DeltaMessage(reasoning=delta_text)` with `content` unset
+(`qwen3_reasoning_parser.py:146-147` at vllm v0.18.0; the R1 parser likewise,
+`deepseek_r1_reasoning_parser.py:63-65`), so a client whose "first token" test is the
+first non-empty `delta.content` is timing the **end of thinking**. Rank it above any
+prefill/device theory on two arguments the paste already carries: the parser runs in
+the API server *after* generation, so it cannot move prefill, and the reporter's own
+control (same server, flag removed, fast) differs by exactly that frontend switch — a
+kernel/prefill cause would have slowed both. One discriminator, engine-side:
+`vllm:time_to_first_token_seconds` (histogram observed from the engine's own
+`time_to_first_tokens_iter`, `vllm/v1/metrics/loggers.py:726-727,1138-1139`) across
+the two launches, or the arrival time of the first non-empty `delta.reasoning`. If
+that histogram is flat, this is a measurement finding and the perf lane closes; if it
+moves, it is a separate case with its own evidence. Recorded #8022 shipped the routing
+half and no engine metric with it, so this route stays a **labelled hypothesis** until
+the histogram arrives — ask for it rather than asserting the artifact.
+
 ## The parser *name* space: `--reasoning-parser` is not `--tool-call-parser`
 
 Recorded follow-up on #8022. The reporter asked "qwen3_coder可以吗?" and got:
@@ -112,6 +143,15 @@ names `openai_gptoss` / `seed_oss`, which differ from their files
 `minimax_m2_append_think` are two classes in one file. Grep
 `_REASONING_PARSERS_TO_REGISTER` at the claimed ref instead of trusting the spellings,
 and never propose a name you have not found there or in the reporter's own list.
+
+**Put that boundary in the first answer, before it is asked.** #8022's first answer
+diagnosed the field/routing bug correctly and never named the registry split, so the
+reporter's next public comment (2026-04-08) was 「qwen3_coder可以吗？」 and the KeyError
+above followed — a boot failure the same session already had every fact to pre-empt.
+One line covers it: 「`--reasoning-parser` 只能取上面那份 reasoning parser 名列表；
+`qwen3_coder` 是 tool-call parser 名，要配 `--tool-call-parser qwen3_coder`
+（+ `--enable-auto-tool-choice`），不要填进 reasoning 位」, plus "a Coder/non-thinking
+checkpoint wants no reasoning parser at all".
 
 ## DeepSeek / `deepseek_v3`: the delegation is per request, and `thinking` *is* its key
 
@@ -180,6 +220,22 @@ vllm v0.22.1 the chat response field is `message.reasoning`
 that a pre-validator renames (`:429-446`). Advice to read
 `choices[0].message.reasoning_content` is right for older releases and wrong for
 this one; name the field the pinned version emits.
+
+Do not date that drift from v0.22.1 — the v0.18.0 anchor row is in the #8350 table below
+(`protocol.py:64,183`), and the streaming delta carries `reasoning` beside `content`
+there too (`engine/protocol.py:258-262`). What the earlier pin adds is that
+`reasoning_content` occurs in the tree **only** as a deprecated *input* field on an
+assistant-history message (`entrypoints/chat_utils.py:329`, no renaming pre-validator
+yet), so a `rg -n 'reasoning_content'` hit is not evidence the field is ever emitted.
+That makes a DeepSeek-style client read `null` on **both** sides of the flag. Recorded
+#8022 (vllm-ascend v0.18.0rc1 `99e1ea0` / vllm v0.18.0, Qwen3.5-27B streaming,
+"无论设置为 qwen3 还是 deepseek_r1 均无法正常工作") — the two cases were mirror images of
+that one field-name bug: no parser ⇒ everything in `content`; `qwen3`/`deepseek_r1` ⇒
+CoT in `reasoning`, answer in `content`. And the downstream half of the question
+("Ascend 版本是否完整支持") is one grep, which is worth running instead of reading:
+`rg -ln 'reasoning' vllm_ascend/` at that pin matches only
+`patch/platform/patch_minimax_usage_accounting.py`, `patch_glm_tool_call_parser.py` and
+`patch/__init__.py` — no Qwen reasoning patch, so none of the parsing is Ascend's.
 
 ## `think 混乱` and "关闭思考就返回空 list" on a Qwen3.5 serve: two serve flags, not a cache walk (#8350)
 
@@ -331,6 +387,13 @@ the returned `content` can account for, the bulk is in `reasoning` rather than l
 (recorded #13002 shape 2: `completion_tokens: 9665` against 831 characters).
 
 ## Documentation gap that produces this signature by itself
+
+At vllm-ascend **v0.18.0rc1** (`99e1ea0`, #8022) the Qwen3.5-27B page exists and its
+whole serve block (`docs/source/tutorials/models/Qwen3.5-27B.md:105-127`) passes **no**
+`--reasoning-parser`, while `supported_models.md:23-26` has no Qwen3.5 row at all
+(only Qwen3 / Qwen3-Coder / Qwen3-Moe / Qwen3-Next) — so a reporter on that pin who
+followed the tutorial lands on the "CoT inside `content`" signature with no validated
+recipe to diff against; say that as the doc/support gap it is.
 
 At vllm-ascend v0.22.1rc1 only seven model pages pass `--reasoning-parser`
 (`DeepSeek-V4-Flash.md`, `DeepSeek-V4-Pro.md`, `GLM4.x.md`, `GLM5.md`,

@@ -229,6 +229,21 @@ enqueued earlier — the tower's sharded linears (`vllm/model_executor/models/qw
   one function settles it, and recorded #7239 spent several turns on a tie-break /
   `PYTHONHASHSEED` theory before running out of output budget.
 
+**A blocking-mode rerun on this shape has been recorded, and it named the embedding.**
+On #7477 (Qwen3.5-27B, TP4, v0.17.0rc1) the reporter added `--enforce-eager` +
+`ASCEND_LAUNCH_BLOCKING=1` and the sync moved into the LM embedding:
+`vllm_ascend/ops/vocab_parallel_embedding.py:192 _forward_origin` →
+`torch.ops.vllm.maybe_pad_and_reduce` → `register_custom_ops.py:88
+_maybe_pad_and_reduce_impl` → `tensor_model_parallel_all_reduce` → `HcclAllreduce,
+error code is 4` / `ERR01100 OPS call acl api failed`. So the pending collective was
+the vocab-parallel embedding's all-reduce, the paste's vision-tower frame was only the
+head of the async queue, and the identification did not move the verdict — the same
+thread's `asys health` put HCCS link faults on devices 2-7
+(`device-health-checks.md` §#7477). Predict that frame in the answer instead of asking
+which layer issued the collective, and take the model path from the reporter's own
+traceback: Qwen3.5-VL is `qwen3_vl.py` at vllm v0.17.0 (`qwen2_5_vl.py` above is the
+v0.16.0 Qwen2.5-VL/Omni record), so the family file name is not a discriminator.
+
 **The no-traceback form of this line is a different page.** When the same
 `Encoder cache will be initialized …` line is followed by silence and EngineCore's
 `shm_broadcast … 60 seconds` warnings instead of a traceback, nothing has faulted in a

@@ -33,7 +33,7 @@ Separate the four surfaces before reading any kernel code:
 
 | Text in the report | Phase | Owner |
 |---|---|---|
-| `call aclnnX failed` + `AclNN_Runtime_Error` (+ tiling / UB / DDR text, often a device dump or plog) | kernel launch | op kernel, shape-dependent — `add-rms-norm-bias-op-map.md` (recorded #8944) |
+| `call aclnnX failed` + `AclNN_Runtime_Error` (+ tiling / UB / DDR text, often a device dump or plog) | kernel launch | op kernel, shape-dependent — `add-rms-norm-bias-op-map.md` (recorded #8944). **Not the page for a row below it**: that map is verified at another pin (v0.19.1rc1) and carries no registry, symbol or install evidence — recorded #11519 opened it first, for the `EZ1001 Get regInfo failed` text, and took nothing from it |
 | `AclNN_Parameter_Error(EZ1001)`, `Get regInfo failed`, `binary_info_config.json of socVersion [...] does not support opType [...]` | aclnn op-registry lookup | this page: build SoC, stale vendor package, wrong image tag |
 | `aclnn<Op> or aclnn<Op>GetWorkspaceSize not in libopapi.so, or libopapi.sonot found.` from a `torch.ops._C_ascend.<op>` call | `op_api` **symbol lookup** (`EXEC_NPU_CMD` dlsym) | neither this page nor the CANN release first: the vendored custom-op package and the `ASCEND_CUSTOM_OPP_PATH` search roots — `opapi-symbol-absent.md` |
 | `undefined symbol`, `op not found`, or *no* custom-op error at all because `import vllm_ascend.vllm_ascend_C` failed | Python import / `enable_custom_op()` fallback | install completeness — **first check the build gate**: at v0.7.3 the official image ships without the extension (`setup.py:296-298` builds it only when `COMPILE_CUSTOM_KERNELS` is set; `platform.py:29-38` warns for any other `ImportError`), so `Failed to register custom ops …` is expected there; at v0.23.0.post1 the gate is `setup.py:462-464` + `:368-370`, and where the SoC×model pair needs the extension (310P GDN) the same warning is fatal at the first prefill → `../image-dependency-faults/custom-op-extension-missing-from-image.md` |
@@ -61,6 +61,23 @@ forgot `add_rms_norm_bias`" is refuted before you assert it:
    `envs.COMPILE_CUSTOM_KERNELS`; `:419-427` copies the *repo's*
    `vllm_ascend/_cann_ops_custom` into `build_lib`. A wheel built on a CPU-only
    host or for another SoC therefore ships no binaries for the reporter's SoC.
+   **For a site-packages install this is not a hypothesis: the plain PyPI wheel is
+   the A2 build at v0.18.0.** The per-SoC split exists at this pin
+   (`.github/workflows/dockerfiles/Dockerfile.buildwheel.a2:20`
+   `ARG SOC_VERSION="ascend910b1"`, `.a3:20` `ascend910_9391`, `.310p:20`
+   `ascend310p1`), but only the A2 wheel job twine-uploads `dist/*.whl`
+   (`schedule_release_code_and_wheel.yml:192-196`; the `:84-89` Release in the sdist job
+   uploads the source tarball); the A3/310P packages ship as
+   **variant** wheels (`-l a3` / `-l 310p`, labels in `.github/workflows/scripts/wheel/config.json`)
+   on the OBS variant index. The docs' own wheel recipe is unqualified, so
+   `pip install vllm-ascend==0.18.0` on a 910_93 host reproduces this paste by
+   construction: `docs/source/installation.md:142-151` runs
+   `pip install vllm-ascend==<version>` with no SoC note (only the docker table at
+   `:197-204` carries the `-a3` suffix). For a site-packages reporter the first
+   question is therefore *which wheel* (the pip line, `pip show vllm-ascend`, the
+   variant label), not what the build host exported.
+   `opapi-symbol-absent.md` §*The published wheel is built for one SoC: A2* holds
+   the same rule at v0.15.0rc1; this pin adds the variant-wheel half.
 2. **Runtime vendor path.** `vllm_ascend/platform.py:573-579` prepends
    `ASCEND_CUSTOM_OPP_PATH` with `<site-packages>/vllm_ascend/_cann_ops_custom/
    vendors/vllm-ascend` **only if that directory exists**. When it is missing or
@@ -83,13 +100,31 @@ for batch-invariant, A5, or a failed `vllm_ascend_C` import). So there is **no
 launch flag** that moves the reporter to the `torch_npu` fallback at v0.18.0;
 the fix is the package, not a serve option.
 
+## The one no-rebuild isolation run
+
+When the reporter cannot reinstall, `VLLM_BATCH_INVARIANT=1` is the probe that
+separates this package/registry lane from every other: `enable_custom_op()`
+returns `False` when vLLM is batch-invariant (`vllm_ascend/utils.py:274` at
+v0.18.0), so each `torch.ops._C_ascend.*` site — `npu_add_rms_norm_bias` included
+— takes its `torch_npu` fallback (`ops/layernorm.py:99-106`) and the `EZ1001`
+cannot recur. It is a diagnostic, not a fix, and it is not free:
+`init_batch_invariance()` (`worker/worker.py:577` → `batch_invariant.py:127-146`)
+sets `VLLM_ASCEND_ENABLE_NZ=0`, `VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE=0`,
+`HCCL_DETERMINISTIC=strict`, `LCCL_DETERMINISTIC=1` (`batch_invariant.py:76-86`)
+and re-registers `aten::{addmm,bmm,mm,matmul,linear,softmax}`. Label it "isolation
+run" wherever you ship it, and read the per-op envelope in
+`../accuracy-benchmarks/batch-invariant-coverage.md` before calling it a
+workaround. Recorded #11519 shipped it as its third rung with that label.
+
 ## Ranked causes and the one check each
 
-1. **Image or build targets another SoC** (A2 image on an A3 host, or a source /
-   pip build without `SOC_VERSION`). Check on the reporter's host: the image
-   tag; `echo $SOC_VERSION`; then
+1. **The installed package targets another SoC** — an A2 image on an A3 host, the
+   plain PyPI wheel (A2, §1 above), or a source build without `SOC_VERSION`.
+   Check on the reporter's host: image tag **or** the pip line and wheel variant,
+   `echo $SOC_VERSION`, then
    `P=$(python -c "import vllm_ascend,os;print(os.path.dirname(vllm_ascend.__file__))")`
-   and look for `AddRmsNormBias` under `$P/_cann_ops_custom`.
+   and look for `AddRmsNormBias` under `$P/_cann_ops_custom` (absent or
+   `ascend910b`-only there is the finding).
 2. **Stale / shadowing vendor package** from an earlier release (`op added
    later`). Check `echo $ASCEND_CUSTOM_OPP_PATH` and
    `ls /usr/local/Ascend/ascend-toolkit/latest/opp/vendors`; compare the op
@@ -106,8 +141,10 @@ the fix is the package, not a serve option.
 Headline first: this is a *registry/build* fault, not the device fault of the
 same op in the precedent issue; the kernel never ran. Then the source evidence
 that the tree does build it for both SoCs, the four checks in order, and the
-cheapest action (use the `-a3` image, or rebuild with `SOC_VERSION` and the
-catlass submodule). Ask for what the report omitted: `collect_env.py` output
-(the environment block was empty in #11519), image tag, install method, and the
-`binary_info_config` grep result. Do **not** ask for a tiling I-line: no tiling
-decision was reached.
+cheapest action (a pip install: the `a3` variant wheel, or the `…-a3` image; a
+source build: `SOC_VERSION=ascend910_9391` plus the catlass submodule), then the
+`VLLM_BATCH_INVARIANT=1` isolation run for a reporter who cannot reinstall. Ask
+for what the report omitted: `collect_env.py` output (the environment block was
+empty in #11519), image tag **or the exact pip line and installed wheel variant**,
+and the `binary_info_config` grep result. Do **not** ask for a tiling I-line: no
+tiling decision was reached.

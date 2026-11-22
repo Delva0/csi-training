@@ -165,8 +165,11 @@ at request time. The shapes:
   "block_size may be adjusted to 2048" caveat) while every validated row — the nightly
   yaml, the 4-card `test_qwen3_5.py`, and the dense spec-decode e2e that hard-codes
   `enable_prefix_caching=False` — runs it off, and at a v0.19+ ref the align-mode block
-  arithmetic (`MambaManager`, `num_speculative_blocks`) is the crash surface. Verdict +
-  ladder in the first message (`hybrid-mtp-prefix-cache-unvalidated.md`, worked #9003).
+  arithmetic (`MambaManager`, `num_speculative_blocks`) is the crash surface. The body's
+  "error" may also be a `<details>` block whose whole content is one `user-attachments`
+  link (`errors.txt`, #8913) — a link is not text, so that is the same form. Verdict +
+  ladder in the first message (`hybrid-mtp-prefix-cache-unvalidated.md`, worked #9003,
+  #8913).
 
 - or the **decode node's EngineCore dies at the scheduler step**, before any model
   execution, with `Warning: The token id -1 is out of range … Rejecting the token`
@@ -262,6 +265,14 @@ from the acceptance numbers.
   strength of 98 % cache usage, and the reporter then removed MTP and reported
   normal inference — the metric collapse tracked MTP, not the queue. Rank the
   capacity arithmetic *after* the MTP row unless MTP-off has already been run.
+- **With no error text, the op-message lanes are unreachable — do not open them.** The
+  `numAcceptedTokens` / conv1d-tiling, FIA `queryT` and rope-slice pages are keyed by a
+  *sentence* in the paste, so ranking one of them without that sentence is a guess. Look
+  for a `<details>`-wrapped `user-attachments` link first, then go to the launcher/pair
+  verdict (`hybrid-mtp-prefix-cache-unvalidated.md`). Recorded #8913 read
+  `../custom-ops-runtime-faults/gdn-conv1d-accepted-tokens-varlen.md` and grepped
+  `num_accepted` / `conv_state` across the pinned tree a full turn before the launcher
+  pair was on the table.
 - **Read the metric pair, not the throughput number.** Drafts still arriving
   (`Drafted: N`, non-zero) while nothing is accepted means both models run; the
   question is whether they see the same context (positions, `num_computed_tokens`,

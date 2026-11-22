@@ -55,7 +55,11 @@ output, or did no request ever reach a decode engine?**
   `device_ip`/plog ladder does not apply → `adxl-connect-status-same-host.md`.
 - Connected, but the answer is corrupt/empty/alternating, or the decode node's
   first token is wrong, on a **hybrid linear-attention (GDN/Mamba)** model —
-  Qwen3.5/Qwen3.6, DeepSeek-V4 — under PD → `hybrid-state-transfer.md`.
+  Qwen3.5/Qwen3.6, DeepSeek-V4 — under PD → `hybrid-state-transfer.md`. Grep the pin
+  for `MambaSpec` in `kv_p2p/mooncake_connector.py` before ranking the connector:
+  empty at v0.18.0 (the connector then assumed one page geometry), 13 hits at
+  v0.22.1rc1 (a full mamba branch), so on newer pins connector choice is a recipe
+  deviation, not the cause.
 - Connected, and the decode output is **garbled on some requests only, while those same
   requests' TTFT is *shorter*** than the normal class, on a `use_layerwise: true`
   `MooncakeLayerwiseConnector` (often wrapped in a `MultiConnector`) at 40-60 K context:
@@ -532,10 +536,13 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   `VLLM_ASCEND_BALANCE_SCHEDULING` (`:135`). Two-turn answer, recorded #7182.
 - `hybrid-state-transfer.md` — PD on a hybrid linear-attention model: the
   connector matrix (`MooncakeConnectorV1` / `MooncakeHybridConnector` /
-  `MooncakeLayerwiseConnector` / `AscendStoreConnector`), the generic connector's
-  single-geometry assumption (`register_kv_caches` reads `num_blocks`/`block_len` off the
-  first cache tensor, and its `Registering KV_Caches … shape …` line is the artefact to
-  ask for), which doc section a reporter copied when they say "the PD doc" (that page
+  `MooncakeLayerwiseConnector` / `AscendStoreConnector`), the **era gate** for the
+  generic connector's mamba support (no Mamba branch and one flat page geometry at
+  v0.18.0 — `register_kv_caches` reading `num_blocks`/`block_len` off the first cache
+  tensor; `is_mamba_group` + `_append_mamba_transfer_meta` + per-address
+  `block_len_per_addr` at v0.22.1rc1 — one `rg -c 'MambaSpec|_append_mamba_transfer_meta'`
+  decides which, and its `Registering KV_Caches … shape …` line is the artefact to ask
+  for), which doc section a reporter copied when they say "the PD doc" (that page
   names two different connectors), the
   `mamba_cache_mode` gate that only the KV-store connectors satisfy, which
   runner paths that skips, the MTP-under-PD accounting sites (`num_draft_layers`,

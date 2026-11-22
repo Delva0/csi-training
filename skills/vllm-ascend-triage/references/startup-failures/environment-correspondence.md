@@ -44,12 +44,27 @@ build lacked it, not which reader is wrong —
    naming a vllm file absent from the pinned tree is therefore a
    snapshot-coverage gap, not evidence about upstream — say so, ask for
    `pip show vllm`, and do not hunt for the missing line.
-   **Two gaps make the row lookup come back empty, and neither is a missing matrix.**
+   **Three gaps make the row lookup come back empty, and none is a missing matrix.**
    The tag's table can stop at the last rc: at vllm-ascend `v0.11.0` (`2f1aed98`)
    `docs/source/community/versioning_policy.md:23-43` runs `v0.12.0rc1 … v0.7.3` with
    **no** `v0.11.0` row, so read the nearest rc row (`v0.11.0rc3 | v0.11.0 | … |
    8.3.RC2 | 2.7.1 / 2.7.1.post1`) and confirm it against `requirements.txt`'s
-   `torch==2.7.1` / `torch-npu==2.7.1` (`:13,28`). And when `SOURCES.json` marks the
+   `torch==2.7.1` / `torch-npu==2.7.1` (`:13,28`).
+   **The table can instead stop at the previous release *line*, and then the nearest
+   row is not usable.** At vllm-ascend `v0.20.2rc1` (`367b8e62da79`, #10525) the top
+   row is `v0.19.1rc1 | v0.19.1 | … | 8.5.1 | 2.9.0 / 2.9.0 | 3.2.0`
+   (`docs/source/community/versioning_policy.md:26`), `docs/source/conf.py:71-79` still
+   substitutes `vllm_version = v0.19.1` / `pip_vllm_version = 0.19.1`, and
+   `docs/source/user_guide/release_notes.md` starts at `## v0.18.0` — so quoting that
+   nearest row would declare the reporter's CANN 9.0.0 / `torch` 2.10.0 stack **out of
+   matrix** when it is exactly the tag's own pair. Read the pair off the tag's component
+   table and pins instead: `installation.md:12-18` (CANN `== 9.0.0`, `torch-npu ==
+   2.10.0`, `torch == 2.10.0`, NNAL `== 9.0.0`) and `requirements.txt:17,20,38`
+   (`torch-npu==2.10.0`, `triton-ascend==3.2.1`, `transformers==5.5.3`). A version table
+   the reporter **screenshots** (that issue's `v0.20.2rc1 / v0.20.2 / CANN 9.0.0 /
+   2.10.0 / 2.10.0` row) is then the GitHub release page, consistent with those in-tree
+   lines — not a hand-edited table, and not something to re-derive from the lagging
+   docs. When `SOURCES.json` marks the
    vllm entry `version_role: "dated_reference_only"` (with `reported_ref_status:
    "image_variant_recipe_unverified"`), that pin is a dated reference, not the
    reporter's upstream: the matrix row plus the requirements pins are the pair to

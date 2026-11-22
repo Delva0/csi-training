@@ -24,6 +24,16 @@ reporter-confirmed on #6299, where the growth surfaced in worker host RSS and
 §Step 0). One pip line, already fixed once for a reporter, so it ranks above every
 growth mechanism below while the paste carries that version.
 
+**When the report carries no env block, the pin's own pin line decides whether the
+lane exists.** `rg -n 'torch-npu|torch==' requirements.txt pyproject.toml` at the
+case's ref: v0.11.0rc3 pins `torch-npu==2.7.1` (`requirements.txt:13,28`;
+`pyproject.toml:16-17`), so nothing about that release *ships* 2.8.0, and the bullet
+naming the leak is not in that pin's `release_notes.md` (newest section
+`v0.11.0rc0`) — a `leak` grep there returning only the P/D `#2650` bullet and a
+v0.9.x CPU-leak fix line is a version gap, not a refutation. Then rank it only on the
+reporter's `collect_env.py` line; recorded #4766 ranked it first on an assumption, paid
+two greps, and demoted it after reading the pin (it was not the answer there).
+
 ## Step 1 — split the class with two samples, not with source
 
 Ask for: `npu-smi info` during the run **twice, timestamped**, the serve log's
@@ -182,6 +192,19 @@ per ref, because the same switches move between releases.
   either way. `refresh_block_size`, the site newer refs use, does not exist yet; see
   `../accuracy-benchmarks/hybrid-block-size-corruption.md` for the hybrid form of the
   same rule.
+- **First ask which tail the crash carries; if it is not an OOM, do no memory
+  arithmetic.** At the v0.11.0 line an image-dataset benchmark (TextVQA, and
+  InfoVQA/DocVQA in the same report) killed `EngineCore` with `Program terminated
+  with signal SIGBUS, Bus error` — the frame in CPython's memoryview copy
+  (`copy_single` / `memory_ass_sub`, `Objects/memoryobject.c`) — for **both**
+  Qwen3-VL-30B-A3B and Qwen2.5-VL-7B, on a different test case each replay, with
+  `EngineDeadError` at the API server and `There is no error in any plog files`
+  (#3513, vllm-ascend 0.11.0rc0 + vllm 0.11.0rc3, `torch_npu 2.7.1.dev…`; left
+  unresolved in that corpus). A write past a mapped buffer's end is a host-side
+  buffer-length fault, so it classifies away from HBM growth, and two different VL
+  models dying the same way is what rules out one model's weights — send the tail
+  line rather than a memory ladder (mechanism open: that report was never carried to
+  a resolution in its corpus).
 
 ## Step 4c — older refs: the allocator gate may not exist at all
 

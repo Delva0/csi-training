@@ -4,8 +4,9 @@ Worked case: #12339 — Qwen3.5-397B-W8A8-MXFP8-FULL_QUANT, Ascend950, vLLM v0.2
 / vllm-ascend releases/v0.23.0, CANN 9.1.0.B103, PD disaggregation with
 `MooncakeConnectorV1` (P `kv_producer`, D `kv_consumer`), TP=8 + EP, no MTP:
 **the same request alternates between a good answer and a bad one**. Closed
-`已解决` by the reporter with no published mechanism — so the deliverable is the
-ranks + the ablation that separates them, never a single asserted cause.
+`已解决` by the reporter (public follow-up 2026-08-03) with no published mechanism —
+so the deliverable is the ranks + the ablation that separates them, never a single
+asserted cause, and no row below was ever confirmed on the reporter's side.
 
 Why this model is different: Qwen3.5-397B is a **hybrid** stack (GDN linear
 attention layers + full attention, plus MTP layers). Under PD the decode node
@@ -44,7 +45,27 @@ inside the hybrid connector are hard asserts, worth quoting when you compare:
 P/D TP with Mamba (`:1419`, "Mooncake connector does not support different TP
 size with Mamba").
 
-**The generic connector's mismatch is a page-geometry assumption, not only a missing
+**The generic connector's mamba support is a version question — settle the era before
+quoting the mismatch at all.** At vllm-ascend **v0.22.1rc1** (`5f6faa0`)
+`kv_p2p/mooncake_connector.py` carries a full Mamba branch, so "the generic connector
+cannot carry hybrid state" is **false** there: `is_mamba_group = group_spec["kv_cache_spec_type"]
+== "MambaSpec"` (`:691`), a dedicated branch that moves one block per MambaSpec group
+(`:724-730`), `_append_mamba_transfer_meta` (`:920-960`) splitting
+`remote_conv_addr, remote_ssm_addr = dst_layer_base_addr[:2]` with
+`remote_ssm_len = local_ssm_len // tp_ratio`, and `reformat_kv_cache_hybrid_linear_torch`
+(`:892`); the worker's geometry is per-address too
+(`block_len_per_addr[layer_idx][cache_idx] = element_size * prod(block_shape)`,
+`:1993-2014`, plus a dedicated `_get_mamba_conv_padding` for the conv page at
+`:1907-1912`), so the flat `num_blocks * block_len`
+registration the paragraph below describes is gone. One call places the pin:
+
+`rg -c 'MambaSpec|_append_mamba_transfer_meta' vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py`
+→ `13` at v0.22.1rc1, **empty** at v0.18.0. Non-empty ⇒ the connector is the *recipe*
+deviation (row 2 of §4, rank 3), never the root cause, and the ranks to keep are the
+single-block index arithmetic (§3 item 2) and `mamba_cache_mode` (§2). Empty ⇒ the
+paragraph below is the lane.
+
+**On that older pin the mismatch is a page-geometry assumption, not only a missing
 branch** — verified at vllm-ascend **v0.18.0** (`e18643f8`) + vllm **v0.18.0**
 (`bcf2be96`), the pin of recorded #8920 (Qwen3.5 MoE under PD "per the docs", curl answer
 mixes Chinese and English, no env dump / serve command / log; answered with the ranked
@@ -153,19 +174,26 @@ What actually carries MTP through the connector, cheapest print first:
    the PP layer window (`end_layer_index += self.num_draft_layers`, `:654` inside
    `pp_layer_indices`). Print it on both roles; a mismatch moves the wrong layer
    set and shows up as wrong tokens, never as an error.
-2. **MambaSpec block indexing** — `:698-703`: P and D block counts must be equal
-   (`RuntimeError("For MambaSpec num block should equal on P node and D node.")`),
-   then `transfer_block_idx = len(remote_group_block_ids) - self.num_speculative_tokens - 1`
-   moves exactly one block. `num_speculative_tokens` (`:449-453`) must match on
-   both roles and interacts with how many blocks the decode step reserves — an
-   ablation row (3 → 1), not a theory.
+2. **MambaSpec block indexing** — the arithmetic
+   `transfer_block_idx = len(remote_group_block_ids) - self.num_speculative_tokens - 1`
+   takes the P node's **last** mamba block into the D node's **first** allocated one
+   (`mooncake_connector.py:728-730` at v0.22.1rc1, `:698-703` at v0.21.0rc1), so exactly
+   one block moves whatever the D-side page size is; `num_speculative_tokens` (`:449-453`)
+   must match on both roles and moves that index — an ablation row (3 → 1), not a theory.
+   **The block-count equality check is version-scoped**: v0.21.0rc1 raises
+   `RuntimeError("For MambaSpec num block should equal on P node and D node.")` there,
+   while v0.22.1rc1 replaces it with a comment ("When Prefix Caching is enabled on both P
+   and D nodes, num_block should not be forced to match", `:724-726`) and no assert —
+   grepping the `RuntimeError` at a newer pin finds nothing, and that absence is not a fix
+   for the alternating output.
 3. **Layer-name predicates** — `"mtp" in layer_name` at `:972,1714,1754` routes MTP
    KV-cache layers to indices above `num_layers`. These key off the *cache dict
    names*, not the method string, so the check is `print(kv_caches.keys())` on both
    roles: names without `mtp` drop all three sites into the non-MTP branch at once.
 
-All line numbers are the v0.21.0rc1 tree (`80610e4`); #10961 reported v0.22.1rc1,
-which the snapshot does not carry — say so and have the reporter re-grep.
+Items 1 and 3 are the v0.21.0rc1 tree (`80610e4`); item 2 is quoted at **both**
+v0.21.0rc1 and v0.22.1rc1 (`5f6faa0`). #10961 reported v0.22.1rc1, which that snapshot
+does not carry — say so and have the reporter re-grep.
 
 ## 4. The ablation to hand back (this is the answer when the symptom alternates)
 
@@ -176,7 +204,9 @@ Ask for a single fixed prompt/seed, then one row at a time, both P and D:
    path is the single-token (query-len 1) decode step.
 2. Connector: `MooncakeConnectorV1` → `MooncakeLayerwiseConnector` (tutorial for
    this model) and → `MooncakeHybridConnector` (hybrid-aware); note which of the
-   three has the same TP on both sides and `dcp=pcp=1`.
+   three has the same TP on both sides and `dcp=pcp=1`. This row asks whether the
+   *validated* recipe works, not whether the generic connector can carry mamba state —
+   at ≥v0.22.1rc1 it can (§1), so a clean result here is a coverage finding.
 3. `--enforce-eager` on D (kill the `FULL_DECODE_ONLY` graph path) while keeping
    everything else; if the alternation disappears, the graph/padding path is in
    scope, not the transport.
@@ -195,20 +225,26 @@ Ask for a single fixed prompt/seed, then one row at a time, both P and D:
    the tutorial's checkpoint is `-w8a8-mtp`, not MXFP8 — flag the difference
    instead of assuming equivalence.
 
-Ranking language that survived review: (a) hybrid state not transferred /
-mamba_cache_mode path untested — source-verified asymmetry, unproven here;
-(b) non-documented decode shape (no MTP) with a graph-mode/padding interaction —
-test by row 1/3; (c) connector mismatch vs the documented recipe — cheapest to
-test; (d) weights/quantisation mismatch — row 6/7. Name what each row's outcome
-would confirm, and say that the reporter's "resolved" carries no mechanism.
+Ranking language that survived review: (a) the single-block mamba move into a
+whole-sequence-sized page (`mamba_cache_mode` staying `"none"`, §2 + §3 item 2) —
+source-verified asymmetry, unproven here; (b) non-documented decode shape (no MTP)
+with a graph-mode/padding interaction — test by row 1/3; (c) connector mismatch vs
+the documented recipe — cheapest to test, and on a pin where §1's grep is non-empty
+it is only a recipe deviation, never the mechanism; (d) weights/quantisation
+mismatch — row 6/7. Name what each row's outcome would confirm, and say that the
+reporter's "resolved" carries no mechanism.
 
 ## 5. Budget note (why this page exists)
 
 The recorded run on this case spent the entire session on source archaeology
 across four mechanisms (rank mapping, mamba mode, A5 MXFP8 dispatch, recompute
 scheduler) and delivered **no answer at all** — 20 turns, the final message
-reasoning-only, `stop_reason: output_tokens`. The material above was already sufficient for a complete ranked
-answer plus the ablation table. For an alternating-accuracy PD report, the
+reasoning-only, `stop_reason: output_tokens`. The replay that had this page read it
+on its 5th assistant turn and shipped the full ranked answer at turn 11 (4.8 K
+characters of message text, 13 tool calls) — the connector grep above was the one
+source read that changed a rank, demoting §1's old "connector cannot describe the
+hybrid page" claim to recipe row 2. The material above was already sufficient for a
+complete ranked answer plus the ablation table. For an alternating-accuracy PD report, the
 ranked causes + ablation matrix *is* the deliverable; further source walks are
 refinement and must not delay it. The gates that enforce this are rule 1 of
 SKILL.md and `../evidence-workspace/delivery-discipline.md`.

@@ -79,10 +79,14 @@ the fenced dump replaced by a marker, and drops `<details>`/`<summary>` furnitur
 counts report text. Do **not** then slice the script's own output with
 `sed -n 'A,Bp'`: the default cap is 80 lines, so `history-body.sh <id> | sed -n '120,260p'`
 prints nothing at all and reads as an empty body (two such calls in the #10532 run). Pass
-`-n 0`, `-n <lines>` or `-g REGEX` instead, and read the `... (N more lines; raise -n or use
--g REGEX)` marker the script prints. Keep the dump reachable with `--env`: it is the
-artefact when the question is the torch_npu/CANN pin, the card count or host RAM, and
-reporters also type free prose into that field (#4554's whole symptom sits there). Two
+`-n 0` — that is the flag that lifts the cap: `-n` caps the **matched** lines too, so a
+broad `-g '.'` stops at the same 80 — or `-n <lines>`, and read the `... (N more lines;
+-n 0 for all of it, -n LINES for more, or narrow -g REGEX)` marker the script prints.
+The numbers `-g` prints are **raw-file** line numbers while the printed stream is
+collapsed and re-numbered, so they are not addresses in the output. Keep the dump
+reachable with `--env`: it is the artefact when the question is the torch_npu/CANN
+pin, the card count or host RAM, and reporters also type free prose into that field
+(#4554's whole symptom sits there). Two
 layouts: flat, `/workspace/history/<issue>.md`, or one directory per case,
 `/workspace/history/<issue>/<other-id>.md` (which `ls` prints as a bare list of ids).
 **Today's issue is never in that corpus**, at either layout: its id appears only in the

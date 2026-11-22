@@ -272,6 +272,20 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `../feature-enable-recipes/torchair-mla-graph-and-chunked-prefill.md` §*chance-level*:
   graph mode off first, then scheduler fork off (chunked prefill on, APC on), then a
   checkpoint/harness baseline with all three off.
+- A number compared against an **official / vendor / blog score** is not yet a two-run
+  comparison, and on a reasoning checkpoint the missing half is the *thinking setting*: the
+  reference was produced by someone else's harness and its thinking mode and effort level are
+  part of the measurement. Read the reporter's request body first —
+  `chat_template_kwargs={"thinking": False}`, the key omitted (chat mode *is* the silent
+  default at vllm v0.20.2 `deepseek_v4`), and an effort value other than the baseline's are the
+  three variants — and put "same dataset, thinking on, the baseline's own effort value" in the
+  first message, ahead of any PD-transfer, quantization or kernel rank. Reporter-confirmed on
+  #10413 (v0.20.2rc1 + vllm 0.20.2, DeepSeek-V4-Flash w8a8, 4P1D 128K, GPQA 63-57 vs official
+  71): MMLU-Pro closed at weighted 85.91 vs 86.2 once thinking **max** was on, GPQA was still
+  short at max and matched at `<think> HIGH` — the effort value is a second, dataset-calibrated
+  variable and a higher value is not monotonic. Table, the `prompt_tokens` probe, the
+  `reasoning_effort` upstream/downstream gate and the `hccn_conf` de-rank:
+  `harness-vs-engine-attribution.md` §*thinking checkpoint*.
 - First question: **did both numbers come from the same server, weights and serve flags?**
   If yes, sampling, decoding budget, output routing, extraction and aggregation are the
   attributable knobs — but **"same server" does not mean identical logits on Ascend**: on a
@@ -309,6 +323,20 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   different node count, and this lane's own noise floor is 2-3 points run to run
   (`release_notes.md:270`, #14378). Take the reporter's same-model row as the control,
   then ablate the recipe — `quantized-sibling-score-gap.md`.
+- **A PD score gap whose report ties the degradation to a *state* — "long output,
+  high concurrency, GPU memory stays saturated" — is the recompute hand-back before it
+  is a harness-measurement question, whenever the launch carries
+  `recompute_scheduler_enable: true`.** One rule generalises it: when the reporter's own
+  hypothesis names a state and the config carries a flag gated on that state, the
+  flag-vs-state control is rung 1. On a kv **consumer** the recompute fork skips
+  preemption — `running.pop()`, free the blocks, report the request with
+  `stop_reason: "recomputed"` and only its last token
+  (`vllm_ascend/core/recompute_scheduler.py:217-239`, `:700-712` at v0.13.0rc3) — and
+  the front end re-prefills prompt+generated text, with `max_tokens` shrunken by what
+  was already generated (`examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py:767-782`).
+  `Preemptions: 0` and a clean log exclude nothing; ask for per-sample
+  `stop_reason`/`completion_tokens`. Reporter-confirmed #8844: flag off on both nodes
+  removed the GPQA loss — `pd-recompute-after-kv-saturation.md`.
 - A corruption report whose request carries **audio** — `audio_url`, a `file://` media
   path, a data URL — is a modality-pipeline question before it is a text-MoE one, and
   `usage.prompt_tokens` is what says the audio got in. At v0.11.0rc3 the online audio
@@ -355,7 +383,11 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 
 - `harness-vs-engine-attribution.md` — knob-by-knob checklist (thinking, max tokens,
   sampling, extraction, aggregation), where the project's own baselines live, and the
-  decisive experiment to run.
+  decisive experiment to run. Its §*thinking checkpoint* is the "below the official
+  number" shape (#10413): the three request spellings that do or do not produce a
+  thinking prompt at vllm v0.20.2, the effort-value mapping (and its upstream/downstream
+  gate), the reporter-confirmed max-vs-high per-dataset outcome, and why a hand-created
+  `hccn_conf` is not an accuracy lever.
 - `structured-output-garble.md` — a `response_format` / `structured_outputs` request
   whose answer is JSON-shaped but corrupt (#5835, v0.11.0, Qwen3-235B, no env dump):
   why invalid structure out of a masked row is a contradiction, the one-body lane split
@@ -371,7 +403,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   that "thinking inside `content` + no `reasoning` field + `reasoning_tokens: 0`" is a
   missing `--reasoning-parser` (default `""`), that the chat field is now `reasoning`
   with `reasoning_content` only a deprecated input alias, and that the Qwen3.6 tutorial
-  omits the flag while seven sibling pages pass it. (c) A "thinking is in the wrong
+  omits the flag while seven sibling pages pass it — and that this drift is already true
+  at vllm v0.18.0 (`chat_completion/protocol.py:64`, `reasoning_content` surviving only
+  as an *input* field in `chat_utils.py:329`), so "reasoning_content 始终为空" is the
+  field name in both cases (#8022), while a bundled "加了 parser 后首 token 极慢" is
+  that same routing measured client-side and is decided engine-side by
+  `vllm:time_to_first_token_seconds`. (c) A "thinking is in the wrong
   language / 回答中英混杂 / the answer is in English" report: first **is the text after
   `</think>` right at all?** If it is wrong, or the reasoning keeps re-deciding itself,
   routing is display only and the lane is numerics on a MoE serve
@@ -387,7 +424,9 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `--reasoning-parser` and `--tool-call-parser` read two separate registries, so the
   flag is the whole gate, the printed list fingerprints the release, and a Coder /
   non-thinking checkpoint needs no reasoning parser at all (#8022; the name-space
-  section of the page). (e) A `deepseek_v3` serve: that parser reads
+  section of the page). Name that boundary in the **first** answer even when the report
+  did not ask: #8022's reporter concluded with 「qwen3_coder可以吗？」 and got this
+  KeyError after an answer that had covered only the field routing. (e) A `deepseek_v3` serve: that parser reads
   `thinking`/`enable_thinking` from **each request's** kwargs and delegates to the
   R1 splitter or to the identity parser (vllm v0.18.0
   `deepseek_v3_reasoning_parser.py:32-41`, `chat_completion/serving.py:229-236`), so
@@ -418,6 +457,14 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (#14378/#14322/#14011/#14329), the release's model-restricted validated list,
   strict/loose arithmetic as a truncation hypothesis, and where `reasoning_effort` is
   actually handled at the pin (upstream template kwarg; vllm-ascend only for DeepSeek-V4).
+- `pd-recompute-after-kv-saturation.md` — a PD score gap that the reporter ties to
+  long output × high concurrency × saturated decode memory, on a launch whose
+  `--additional-config` sets `recompute_scheduler_enable: true`: what the decode-side
+  fork does instead of preempting (`running.pop()` + `stop_reason: "recomputed"`,
+  `vllm_ascend/core/recompute_scheduler.py:217-239`, `:700-712`), the example proxy's
+  text re-issue with a shrinking `max_tokens`, the three accuracy channels and the one
+  per-sample check, the flag-off arm and the headroom arm that tells them apart, and
+  #8844's reporter-confirmed resolution.
 - `omni-audio-chat-degeneration.md` — an Omni/audio request over
   `/v1/chat/completions` that loops a phrase to `finish_reason: length` or returns
   garbage: the stage/owner table (audio encoder = `transformers` and absent from the

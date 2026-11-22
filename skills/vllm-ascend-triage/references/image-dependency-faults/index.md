@@ -202,8 +202,14 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   The owner is NNAL/ATB, not CANN: each install root has its own `set_env.sh`,
   and sourcing the CANN one does not export the ATB paths (a later comment on
   #10525 reports that test; the pinned docs list the two `source` commands as
-  separate steps). Same page carries the reporter-confirmed `CANN: None`
-  `collect_env.py` blind spot and the non-fatal `triton_kernels` log noise.
+  separate steps). The dump's own `ATB_HOME_PATH`/`LD_LIBRARY_PATH` lines decide
+  "installed but not sourced" before any round trip — vllm-ascend's
+  `collect_env.py:307` prints every `ASCEND_*`/`ATB_*` variable, so an absent
+  `ATB_HOME_PATH=` is a finding, not a gap. Same page carries the reporter-confirmed
+  `CANN: None` `collect_env.py` blind spot, the non-fatal `triton_kernels` log
+  noise, and — for the 「从零构建这条路很难走通？」 follow-up — the from-zero stage
+  order with a gate per stage (the manual CANN block, NNAL included, is a collapsed
+  dropdown under the pip tab, which is why a package-by-package follower misses it).
 - Engine start (or plugin activation) aborts with a C++ exception and no Python
   frame — `terminate called after throwing an instance of 'std::logic_error'`,
   `what(): basic_string::_S_construct null not valid`, then

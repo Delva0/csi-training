@@ -15,7 +15,7 @@ Every branch guarded by one of those names is this topic's candidate owner, and
 and `vllm_ascend/attention/attention_v1.py` (attention routing, masks) are where
 they live.
 
-Eleven symptom classes, different owners — decide which one the report is before
+Twelve symptom classes, different owners — decide which one the report is before
 reading any code:
 
 1. **The service never becomes ready**: `EngineCore failed to start` at the first
@@ -129,6 +129,18 @@ reading any code:
    (recorded #3462, v0.11.0rc0 + vllm v0.11.0rc3, bge-m3, k8s/`--task embed`). Not a
    batch, mask or numeric lane: one request, before any token is computed.
 
+12. **It serves, returns 200, and every `/rerank` relevance score is plausible but
+   wrong** (all documents inside a narrow band, the exact match ranked below unrelated
+   text, no traceback) — divide the response's own `usage.total_tokens` by the number of
+   documents before any numeric theory. At vllm v0.11.0 that field is the summed prompt
+   length (`serving_score.py:462-468,479`) and `get_score_prompt` has three branches
+   (score template / pad-token pair / raw `prompt_1 + prompt_2`), while **no Qwen3-family
+   class implements `SupportsScoreTemplate`** — so a Qwen3-Reranker `/rerank` call at that
+   pin scores an untemplated pair and its number is not a relevance. The route is the
+   documented embedding+`Instruct:` path or a later release: `rerank-untemplated-score.md`.
+   Recorded #4616 shipped nothing after ~25 calls in `adapters.py`/`pooler.py`/`registry.py`
+   with that arithmetic already in hand.
+
 Not this topic: a score/MMLU gap between harnesses (`../accuracy-benchmarks/index.md`),
 garbled *text* from a generation model (`../accuracy-benchmarks/`), a device dump
 or a kernel-launch aclnn error from a custom op (`../custom-ops-runtime-faults/`),
@@ -238,6 +250,12 @@ Three scripts serve this topic's startup classes directly:
 
 ## Pages
 
+- `rerank-untemplated-score.md` — class 12. `/rerank` answers 200 with a plausible score
+  band and no traceback: `usage.total_tokens` / pair count versus the checkpoint's
+  instruction template (the usage field is the summed prompt length,
+  `serving_score.py:462-468,479` at vllm v0.11.0), the three `get_score_prompt` branches
+  and the one model that implements a score template at that pin (`jina_vl.py:116`), why
+  #4616's `--hf_overrides` head is innocent, and the five-call answer.
 - `embedding-checkpoint-as-generate.md` — class 1. Worked cases vllm-ascend
   #5549 (vllm v0.10.0 + vllm-ascend v0.10.0rc1, 310P3, Qwen3-Embedding-0.6B
   launched with no `--task`) and #2556 (same pair on a 910B/A2 host, screenshot-only

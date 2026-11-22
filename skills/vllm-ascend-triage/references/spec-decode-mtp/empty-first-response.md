@@ -173,11 +173,23 @@ path off while leaving the target model's `FULL_DECODE_ONLY` graphs on.
 **The `--async-scheduling` half of that gate voids a reporter's own graph A/B.**
 `use_cuda_graph` is ANDed with `not self.use_async_scheduling`, so a `method: mtp`
 launch carrying `--async-scheduling` never captures the drafter *at all*, whatever
-`enforce_eager` says. A report that states "we ran `enforce_eager` true and false
-inside `--speculative-config`, both crash, so the drafter's graph is not the cause"
+`enforce_eager` says — **at the refs quoted above (`v0.18.0`, and the `mtp_proposer.py`
+era in `rope-cos-sin-slice-token-mismatch.md`). That second line is version-dependent
+and is absent at vllm-ascend v0.19.1rc1 (`da421af`):** there
+`spec_decode/eagle_proposer.py:144` is the whole expression
+(`self.use_cuda_graph = self.runner._use_aclgraph() and not self.speculative_config.enforce_eager`),
+`mtp_proposer.py` does not exist, and `rg -n 'use_async_scheduling|disable_padded_drafter_batch' vllm_ascend/spec_decode/`
+finds neither in that gate (`use_async_scheduling` is only stored, `:103`). On such a
+pin `"enforce_eager"` stays the live drafter-graph switch and the reporter's A/B is
+real (recorded #8913 is exactly that launch: `qwen3_5_mtp` K=3 +
+`"enforce_eager": true` + `--async-scheduling`). One call —
+`rg -n 'use_cuda_graph =' vllm_ascend/spec_decode/` — says which side of the boundary
+the reported pin is on; never answer "your A/B is void" without it. On a pin that
+carries the AND, a report that states "we ran `enforce_eager` true and false inside
+`--speculative-config`, both crash, so the drafter's graph is not the cause"
 therefore ran the same code path twice (#8091: `--async-scheduling` next to
-`{"method": "qwen3_5_mtp", "num_speculative_tokens": 3, "enforce_eager": true}` at
-this pin). One `rg -n 'async-scheduling'` over both serve commands decides whether to
+`{"method": "qwen3_5_mtp", "num_speculative_tokens": 3, "enforce_eager": true}`). One
+`rg -n 'async-scheduling'` over both serve commands decides whether to
 believe the claim; say plainly that the axis is still untested and hand back
 `--async-scheduling` **removed** as the row that reaches the draft graph. Two
 corollaries: the `Replaying aclgraph` lines in the paste come from the **target**
@@ -191,7 +203,7 @@ once, so it is not a control either (SKILL.md rule 15).
 |---|---|---|
 | 1 | warm-up request at start, then the real one | order/warm-up class; also the mitigation to hand back |
 | 2 | delete `--speculative-config` (MTP off) | whether the MTP draft/verify path owns the first decode (`acceptance-collapse.md`) |
-| 3 | `"enforce_eager": true` **inside** `--speculative-config` | draft/MTP proposer eager while the target keeps its graphs (`eagle_proposer.py:136`) — the row that separates the two graph paths, and the sibling tutorial's own setting. **Void if the launch has `--async-scheduling`** (Step 6b): both values then leave the drafter eager, so the row only closes the axis once async scheduling is off |
+| 3 | `"enforce_eager": true` **inside** `--speculative-config` | draft/MTP proposer eager while the target keeps its graphs (`eagle_proposer.py:136`) — the row that separates the two graph paths, and the sibling tutorial's own setting. **Void only if the launch has `--async-scheduling` *and* the reported pin still carries the `method == "mtp"` AND inside `eagle_proposer.py`** (Step 6b): at v0.18.0 both values then leave the drafter eager, so the row only closes the axis once async scheduling is off — at v0.19.1rc1 that AND is gone and the row is live |
 | 4 | `"disable_padded_drafter_batch": true` (with `method: mtp`) | same effect reached through the padded-drafter gate (`:137-142`), so padded drafter batches are split from "graph replay" |
 | 5 | `--enforce-eager` (target and draft) | both graph paths off; run it only after rows 3-4 |
 | 6 | `--no-enable-prefix-caching`, then `--max-num-seqs 1` | hybrid `mamba_block_size` geometry, and single-request isolation |

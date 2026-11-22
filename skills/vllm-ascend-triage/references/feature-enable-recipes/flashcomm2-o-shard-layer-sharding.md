@@ -90,7 +90,9 @@ tuning flags.
    is insufficient, requests are sent back to the prefill node to recompute the KV cache;
    recommended on both sides in PD. It plays no part in this crash; answer it in one line
    so the doc-gap complaint ("我根本不知道…需要填几") does not pull the session into
-   `additional_config` schema work.
+   `additional_config` schema work. What that flag does cost — the decode node dropping
+   a request back to the prefiller once its pool fills, and the score a PD run loses
+   because of it — is `../accuracy-benchmarks/pd-recompute-after-kv-saturation.md`.
 
 ## Recorded case
 

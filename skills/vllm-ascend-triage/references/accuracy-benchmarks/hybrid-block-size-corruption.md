@@ -72,7 +72,11 @@ Verified at vllm-ascend v0.20.2rc1 (`367b8e6`), upstream vllm v0.20.2 (`bc150f5`
   `--mamba-cache-mode align` is already in align mode: the flag the tutorial tells
   users to add (`docs/source/tutorials/models/Qwen3.5-27B.md:136`, "set
   `--enable-prefix-caching` and `--mamba-cache-mode align`") is redundant at this ref,
-  and its absence is **not** a cause. The discriminating row is prefix caching itself
+  and its absence is **not** a cause. `enable_prefix_caching` is also `True` by default at
+  this ref (`vllm/config/cache.py:91`, vllm v0.20.2 `bc150f5`, checked for #13853), so a
+  serve line that passes **no** cache flag at all is already in align mode — do not read
+  align or the mamba state block as a knob the reporter turned on, and do not credit the
+  "clean" command with turning it off. The discriminating row is prefix caching itself
   (row 3), not the flag.
 
 That is why a block-size change is not a tuning change here: it moves the

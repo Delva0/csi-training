@@ -31,6 +31,17 @@ non-fp16 KV cache (`--kv-cache-dtype fp8`) refused at the first store is
   while the image line at `:17` still says `v0.10.0rc1-310p`. When a reporter
   pastes a command that is verbatim from a tutorial, say so — it removes "user
   error" from the ranking and it is a documentation finding in its own right.
+- **What #4812's traceback finally showed is *not* that tag lane.** The dump arrived
+  later in the thread and is the KV-cache format-cast allocation signature —
+  `initialize_kv_cache_tensors → _convert_torch_format → npu_format_cast`, then
+  `Memory_Allocation_Failure(EL0004)` / `207001`, `507013`, `sdma copy error` and an
+  SMMU Terminate (`../runtime-memory/kv-init-and-format-cast-alloc.md`) — with no rope
+  or MRoPE frame anywhere in it. So on a 310P VL 「拉起失败」 report that pastes **no
+  log**, the message owed is the doc verdict plus the traceback ask in one block: do not
+  spend turns deriving a rope / "the tag is broken" mechanism (recorded #4812 reached
+  its single message on turn 20 and was cut inside the ranking), and when the paste
+  arrives match its `npu_format_cast` / `EL0004` / `507013` lines against that page
+  before any other lane.
 - Environment the tutorial requires and reporters routinely omit (`:43-49`):
   `VLLM_USE_MODELSCOPE=True` and
   `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256`. That value is the project's

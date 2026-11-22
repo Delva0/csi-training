@@ -70,10 +70,17 @@ bash <skill_root>/scripts/history-titles.sh -i 'PCP|DCP|context.parallel|长序�
 > so "nobody in the searchable corpus reports success" is the strongest claim the
 > tooling supports — say it in that form, not "impossible".
 
-Two failure modes to avoid when writing that sentence: do not promote a *different*
+Three failure modes to avoid when writing that sentence: do not promote a *different*
 weight set's A2 datapoint to the reporter's (`#8580` is `DeepSeek-V3.2-W8A8`, never
-`-mtp-QuaRot`), and do not let a launcher you still hand back contradict your own
-card arithmetic (§5 rung 1).
+`-mtp-QuaRot`); do not let a launcher you still hand back contradict your own
+card arithmetic or the SFA `dcp == tp` rule (§2, §5 rung 1); and **phrase it as the
+answer, not as a defence of the answer**. Recorded #8984's replay did carry the corpus
+sentence in its first message and still shipped it as 「语料检索（这一步必须和结论一起给，
+否则你会紧接着问"那有人在 A2 上跑通过吗"）」 — this page's own instruction plus a
+prediction of the reporter's next question, inside the text he reads. Ship the finding
+in his terms (「没有任何人在 A2 上成功跑通这个权重集；A2 上最近的三条都带缺陷 …」) and
+keep the clause about *why* it belongs in the first message for the analyst
+(`../evidence-workspace/delivery-discipline.md`, the gates).
 
 ## 2. Constraints the code enforces (map each to its error text)
 
@@ -92,6 +99,25 @@ mismatch, not as a PCP defect.
 DCP divisibility (`context_parallel.md:70-78`): MLA models (DeepSeek) need
 `tp >= dcp` and `tp % dcp == 0`; GQA models need the same on
 `tp // num_key_value_heads`.
+
+An **SFA** weight set (DeepSeek-V3.2, GLM-5.x — `hf_text_config.index_topk` present)
+carries a second, tighter DCP rule: `dcp == tp`, not merely `tp % dcp == 0`. At a pin
+that has the replicated-indexer flag (v0.26.0rc1 `f2f74a1`,
+`vllm_ascend/utils.py:122-129` and `vllm_ascend/platform.py:723-731`)
+`enable_sfa_dcp_replicated_indexer` is on as soon as
+`decode_context_parallel_size > 1`, and the platform then refuses anything else with
+`AssertionError("DCP for SFA is only supported when dcp_size(...) == tp_size(...)")`;
+rule, its pinned rows and the A5 refusal are
+`../dsa-sparse-attention/dcp-c8-accuracy-garble.md` Rule 1. **A reported pin that
+lacks that assert is not permission**: at v0.19.1rc1
+`rg -n 'replicated_indexer|sfa_dcp' vllm_ascend/` returns nothing, so
+`--decode-context-parallel-size 2 --tensor-parallel-size 8` is *accepted* and runs an
+unvalidated split whose family failure mode is silent (garbled tokens / accuracy
+loss, no exception). Hand back `dcp == tp` instead — for the tutorial's A2 row
+(DP2 / TP8) that is `--decode-context-parallel-size 8`, which is also the corpus's
+own A2 value (#8580 is TP8 / PCP2 / **DCP8**). A reporter already running `dcp != tp`
+gets one rung: the same command with `--decode-context-parallel-size 1`, outputs
+compared, before any fix is believed.
 
 KV transfer + CP (`vllm_ascend/platform.py:513-522`): when
 `kv_transfer_config is not None` (PD disaggregation, KV pool) and
@@ -268,13 +294,18 @@ at all** — the turn it matched this page's precedent was the turn the verdict 
 When the report compares EP-on with EP-off, rung 0 is `--enable-expert-parallel` with
 nothing else changed (§4b).
 
-1. DCP only, co-located, short input: `--tensor-parallel-size 8
-   --decode-context-parallel-size 2 --max-model-len 8192 --enforce-eager` — no
-   extra cards, no PD assertion, no env var. **Check the weight set fits one node
-   first**: at this pin `docs/source/tutorials/models/DeepSeek-V3.2.md:20` puts
+1. DCP only, co-located, short input: one field added to the tutorial's own A2 row —
+   `--data-parallel-size 2 --tensor-parallel-size 8 --decode-context-parallel-size 8
+   --max-model-len 8192 --enforce-eager` (world = 2 × 8 = 16, and `dcp` = `tp` = 8
+   because the set is SFA, §2) — no PD assertion, no CP env var. The
+   `--decode-context-parallel-size 2` this page used to recommend is **not** an SFA
+   row, and `tp=8 / dp=1` is 8 cards, which cannot hold the set at all. **Check the
+   weight set fits one node first**: at this pin
+   `docs/source/tutorials/models/DeepSeek-V3.2.md:20` puts
    `DeepSeek-V3.2-w8a8` on 1×A3 (64G×16) or **2×A2 (64G×8)**, so a single 8-card A2
-   node cannot hold that set and rung 1 has to stay a two-node launch (TP8 / DP1 /
-   DCP2, `--nnodes 2 --node-rank N`); only a set that actually fits one node does
+   node cannot hold that set and every rung stays a two-node launch (world 16; use
+   `--nnodes 2 --node-rank N` for the non-DP rungs and the `--data-parallel-*` block
+   for a DP one); only a set that actually fits one node does
    (compare the checkpoint's size with `cards × card HBM × --gpu-memory-utilization`,
    and note the tutorial lists no w4a8 row at all, so its A2 node count is the only
    published one). The recorded #8984 answer quoted the 16-card requirement

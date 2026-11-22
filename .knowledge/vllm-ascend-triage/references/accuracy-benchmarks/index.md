@@ -544,7 +544,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (#1754's PP × graph known-issue line, #374's 100%-reproducible upstream-clean run),
   and the #3547 ladder — including why that serve's `ascend_scheduler_config`
   `enable_chunked_prefill: true` means `schedule()` delegates to upstream, so "the
-  fork's chunked scheduling is buggy" is not available there. Its Step 3b is the
+  fork's chunked scheduling is buggy" is not available there. Its Step 4a is the read
+  to do before ranking any rung: the `### Known issue` list at the pin may already
+  name the reporter's flag combination (v0.10.2rc1 `release_notes.md:66`, #2943:
+  chunked prefill × prefix cache × Ascend scheduler), and the *effective* config has
+  to be resolved from the serve's own `Prefix cache hit rate` line because V1 enables
+  prefix caching by default (`arg_utils.py:1560-1561`). Its Step 3b is the
   zero-restart row to run before any dtype/wheel restart: a damaged or mixed-revision
   **copy** of the checkpoint loads, serves and still emits one id (recorded #6136,
   fixed by the reporter's re-download).

@@ -94,8 +94,9 @@ that passes **untrimmed** `query`:
 
 - the FIA sibling immediately above it trims first —
   `forward_fused_infer_attention` does `num_tokens = attn_metadata.actual_seq_lengths_q[-1];
-  query = query[:num_tokens]` (`attention_v1.py:789-790`, `key`/`value` too at
-  `:792-795`) — which is why every FIA model survives a padded batch;
+  query = query[:num_tokens]` (`attention_v1.py:784-785`, `key`/`value` too at
+  `:790-791`, inside the `PrefillNoCache` / non-`ENCODER_DECODER` branch) — which is
+  why every FIA model survives a padded batch;
 - `_forward_encoder_attention` passes `query/key/value` as handed to it with
   `actual_seq_qlen=actual_seq_kvlen=attn_metadata.actual_seq_lengths_q`, so any
   graph-mode token padding (vLLM rounds `num_tokens` up to the dispatched bucket,
@@ -119,14 +120,31 @@ workaround until (1) lands.
 
 **The `causal` gate is a version question, not a puzzle.** The encoder branch is opened
 by `attn_metadata.model_runner_type == "pooling" and not attn_metadata.causal`
-(`attention_v1.py:972`), and at the pinned v0.18.0 **nothing** sets it false: the V1
-runner hardcodes `causal=True` (`worker/model_runner_v1.py:2127`) and the V2 builder
-omits the field, so it keeps upstream's default `True`
-(`vllm/v1/attention/backend.py:351`). The paste still proves the branch ran (only it
+(`attention_v1.py:972`), and at the pinned v0.18.0 **nothing** sets it false — read the
+two paths that carry the field, not one: the runner's own metadata build hardcodes
+`causal=True` (`worker/model_runner_v1.py:2127`, upstream likewise at
+`vllm/v1/worker/gpu_model_runner.py:1975`), and the builder path **propagates** it
+rather than supplying its own (`attention/attention_v1.py:322`
+`causal=common_attn_metadata.causal`, fed from `attention/utils.py:183`), whose default
+is `True` (`vllm/v1/attention/backend.py:351`). So the field is True on both halves and
+`not causal` is False at this pin. The paste still proves the branch ran (only it
 launches FA-varlen), therefore the reporter's build — `vLLM Version: dev` in the
 collect_env — is newer than the pin. Ask for the vLLM commit; do not derive how
 `causal` became false from the snapshot. Recorded cost of deriving it anyway: #10757
 spent most of a 16 K output budget on this side question and shipped no answer.
+**The two-hit grep is not a contradiction of that gate.** `rg -n
+'_forward_encoder_attention' vllm_ascend/` at v0.18.0 returns two call sites, and only
+the second drops the `causal` term: `:973` (`AscendAttentionBackendImpl.forward`, the
+gate above) and `:1021-1022` (`AscendC8AttentionBackendImpl.forward`,
+`if attn_metadata.model_runner_type == "pooling":`). That subclass is installed by class
+surgery for an **INT8 KV-cache** layer (`quantization/methods/kv_c8.py:109-116` sets
+`layer.impl.__class__ = AscendC8AttentionBackendImpl` and the kv dtype to int8), so on a
+C8-quantized checkpoint the encoder branch is reachable at the pin and the version rung
+does not apply to it. `C8` is a **checkpoint** marker, not a launch flag: the scheme is
+chosen when the quant description carries `kv_cache_type == "C8"`
+(`quantization/modelslim_config.py:494-497`, i.e. the export's
+`quant_model_description.json`), so read that file before ranking the version — and do
+not "correct" the gate above on the strength of the `:1021` hit alone.
 
 ## Rules
 

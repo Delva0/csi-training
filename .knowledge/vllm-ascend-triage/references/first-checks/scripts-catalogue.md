@@ -669,12 +669,18 @@ after that keeps the header, not this text.
   (`../hccl-and-hardware/link-establish-timeout.md`). A **`-8xxx`** argument is the DCMI
   return code a container's `npu-smi` prints: `-8005` → `DCMI_ERR_CODE_INNER_ERR
   (BASE - 5)` from `cann/driver/src/custom/include/dcmi_interface_api.h:1682` (base at
-  `:1677`) plus the vendor row 「内部错误。请提供日志…」, with the neighbouring rows
-  (`-8002` not-permitted, `-8008` device-not-exist, `-8013` not-supported-in-container)
-  expanding the discriminating window; when `src/custom/lqdrv/kernel/ioctl_comm_def.h`
-  is exported its `LQ_DCMI_*` collision is printed under a `SEPARATE TABLE, do not
-  cross-apply` heading, because that numbering says `-8005 = IOCTL_FAIL` and mis-quoting
-  it cost the #8809 run a posted correction
+  `:1677`) plus the vendor row 「内部错误。请提供日志…」, `-8020` →
+  `DCMI_ERR_CODE_RESOURCE_OCCUPIED` (vendor action 「请排查设备是否被其他容器、进程等占用」,
+  i.e. the another-holder lane), and the neighbouring rows (`-8002` not-permitted,
+  `-8007` invalid-device-id, `-8008` device-not-exist, `-8013`
+  not-supported-in-container, `-8012`/`-8017` a device-state wait) expanding the
+  discriminating window. **Run this branch with the default root even when the reported
+  issue's own snapshot exports no `cann/driver`** (v0.8.4/v0.9-era, e.g. #632): the
+  return-code table is an ABI, so any other pin's export answers the name and only the
+  *holder* stays open — the miss message says so; when
+  `src/custom/lqdrv/kernel/ioctl_comm_def.h` is exported its `LQ_DCMI_*` collision is
+  printed under a `SEPARATE TABLE, do not cross-apply` heading, because that numbering
+  says `-8005 = IOCTL_FAIL` and mis-quoting it cost the #8809 run a posted correction
   (`../startup-failures/no-npu-in-container.md` §*cheapest classifier*).
 
 - `scripts/dep-range-check.sh <package> <reported-version> <tree-root>...` — one

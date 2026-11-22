@@ -125,7 +125,11 @@ looks like a setting that was ignored rather than a name that was never a knob. 
 value the gate reads is `model_config.enforce_eager` (`vllm_ascend/platform.py:151` at
 that pair), written only by `--enforce-eager` / `LLM(enforce_eager=True)`
 (`vllm/engine/arg_utils.py:339`, `:929`), and the proof it took is one line —
-`Compilation disabled, using eager mode by default` (`platform.py:163-165`). So 0
+`Compilation disabled, using eager mode by default` (`platform.py:163-165`). **The
+paste carries a cheaper proof than the grep**: the `non-default args:` dict holds
+`enforce_eager` iff `argparse` got the flag (`../first-checks/cheap-checks-by-track.md`),
+and #1456's dump carries four keys with no `enforce_eager` — say so in the answer and
+keep the binding grep as confirmation, not as the search. So 0
 bindings ⇒ answer with the CLI flag plus the doc gap that invited the guess, never with
 a gate defect. When the refusal is the `ACL Graph does not support deepseek` form, that
 same flag is lever 1 of `../feature-enable-recipes/torchair-mla-head-count-tp-gate.md`.

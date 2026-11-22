@@ -36,7 +36,8 @@ Not this lane:
   failed, error code is 561000` followed by `Nnopbase fails to invoke the
   HcclAllocComResourceByTiling … ret = 4` and `NnopbaseExecutorGetMc2Num` — with **no**
   `LoadGraph failed … ERR03005 GRAPH internal error` block and no torchair key in the
-  config → `mc2-dispatch-profile-run-hang.md` §Step 1: same refusal, different phase
+  config → `mc2-dispatch-profile-run-hang.md` **§Step 3b** (its arithmetic is §Step 1, its
+  ranked lever list is not): same refusal, different phase
   (the process's first MC2 collective, which on v0.13.0rc1 precedes the KV pool), so the
   KV budget is *not* the lever. Recorded #5947.
   **But read the plog before ranking any lever:** if that paste has no `EI0007` /
@@ -101,7 +102,8 @@ v0.10.1.1 order behind #2754. At v0.13.0rc1 (`1b5d5ab`) an EP/DP MoE start whose
 `profile_run`, in the extra `_dummy_run(mc2_tokens_capacity, with_prefill=True)` that runs
 *before* `super().profile_run()` and therefore before any KV allocation
 (`worker/model_runner_v1.py:2202-2208`; the arithmetic is
-`mc2-dispatch-profile-run-hang.md` §Step 1). Consequences for the answer: the KV pool and
+`mc2-dispatch-profile-run-hang.md` §Step 1, the lever list §Step 3b). Consequences for the
+answer: the KV pool and
 `--gpu-memory-utilization` are not the lever there, the batch that asked is
 capacity-sized (not `--max-num-batched-tokens`), and the levers are the MoE comm method,
 the derived capacity/`global_bs`, the per-card weight footprint (TP shape) and

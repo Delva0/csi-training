@@ -61,6 +61,15 @@ hypothesis, not a cause.
   gateway are retired in one sentence; what remains is persistent process/device
   state — the KV pool and its prefix-cache blocks, piecewise/ACL-graph output
   buffers, or a device fault that left state dirty without an error.
+  One thing that control does **not** retire: a *new conversation* is not a *new
+  prefix*. #3547's client is Claude Code behind litellm, so every conversation opens
+  with the same long system prompt and — with prefix caching on, which V1 defaults to
+  (Step 4a) — reuses the same cached blocks; a corrupted block is then hit by
+  "brand-new" conversations too. The control that separates pool state from
+  per-request state is a prompt whose prefix no earlier request had (different or
+  absent system prompt, or a random nonce on the first line): answers correctly ⇒
+  pooled/prefix-block reuse stays in the lane; `!` there too ⇒ cached blocks are not
+  the carrier and process state (graph buffers, a swallowed device fault) resumes.
 - **only the long-running conversation degrades** ⇒ one sequence's KV/state, not
   the pool: re-send the same short prompt in a new request before any ablation.
 - Ask for the onset in the same breath: wall-clock time, requests served, and the
@@ -134,22 +143,72 @@ Calibration from the recording: that answer ranked the pin's `triton-ascend` bui
 asked for a file comparison. The wheel delta is a legitimate row — it is one restart
 against a zero-restart check, and it was not the cause here.
 
+## Step 4a (pre-read, before the ladder) — resolve the *effective* config, then
+read the pin's Known-issue rows
+
+Two one-command reads that turn a rung from guess into lead; do them before ranking.
+Read them here and the ladder below stays a ladder; skip them and the ladder's order
+is taste.
+
+**The reporter's command line is not the effective config.** In V1, prefix caching is
+**on by default** for a non-pooling model: `_set_default_args` carries the comment
+"V1 always uses chunked prefills and prefix caching for non-pooling tasks"
+(`vllm/engine/arg_utils.py:1544-1547`) and sets `enable_chunked_prefill = True` then
+`if self.enable_prefix_caching is None: self.enable_prefix_caching = True`
+(`:1560-1561` at vllm v0.11.0rc3 `8ce5d31`). #3547 never passed
+`--enable-prefix-caching` and ran with it on. Resolve it from evidence rather than
+from the command: at that pin every V1 serve logs
+`Engine 000: … Prefix cache hit rate: X%` (`vllm/v1/metrics/loggers.py:133`), so a
+non-zero rate is the proof the cache is on **and** reusing blocks; later pins also dump
+the whole `VllmConfig` at startup (`vllm/config/vllm.py`), this one does not.
+
+**The pin's release notes may already warn about that combination.** At its pin
+(vllm-ascend `00ba0710`) `docs/source/user_guide/release_notes.md:66`, inside the
+`### Known issue` list at `:62` of the `## v0.10.2rc1` section (`:27`):
+
+> Please do not enable chunked prefill with prefix cache when running with Ascend
+> scheduler. The performance and accuracy is not good/correct. [#2943]
+
+The `## v0.11.0rc0` section (`:3-24`) has no Known-issue list, so that bullet is the
+tree's last statement on the subject — neither restated for rc0 nor retracted. All
+three of its factors hold on #3547's serve and **none of them is visible in the
+command**: chunked prefill from `--additional-config '{"ascend_scheduler_config":
+{"enabled":true,"enable_chunked_prefill":true}}'`, the Ascend scheduler forced anyway
+for a non-MLA model (`platform.py:140-150`, so the pasted `"enabled": true` says
+nothing), prefix caching by default. That promotes the prefix-cache rung from a guess
+to a lead carrying the project's own sentence — and no further: the bullet assigns the
+*combination*, not a component, and `schedule()` delegating at this pin (below) leaves
+the fork's `update_from_output` (`core/scheduler.py:567`) and `finish_requests` still
+in the path, so the mechanism stays open.
+
+**The onset is the discriminator and it is cheap**: this lane predicts degradation
+only after prefix hits exist and a block has been reused, so "hours of healthy serving,
+then every request" with a rising `Prefix cache hit rate` before the first bad answer
+is consistent, while a serve that degenerates on its *first* request belongs to Step 3.
+Command: `rg -n -i 'known issue' -A8 <pin>/docs/source/user_guide/release_notes.md`.
+
 ## Step 4 — the onset-after-hours ladder (recorded #3547)
 
-One launch per rung, same load, same request, recording minutes-to-onset; the
-cheapest *evidence* rungs come before the cheapest *changes*:
+One launch per rung, same load, same request, recording minutes-to-onset (a rung whose
+onset was not timed and not compared to the baseline tells you nothing); the cheapest
+*evidence* rungs come before the cheapest *changes*:
 
 1. the Step 1 body on the still-broken engine (logprobs, `completion_tokens`), plus
-   a direct `curl` to the engine port bypassing litellm;
-2. `--enforce-eager` — removes the piecewise/ACL-graph lane; prove it ran with
+   a direct `curl` to the engine port bypassing litellm, plus a request whose prefix
+   no earlier request had (Step 2);
+2. `--no-enable-prefix-caching` — the pool/block-reuse lane, and the rung the pin's own
+   Known-issue bullet names (Step 4a); keep `--additional-config` unchanged so one
+   factor moves;
+3. `enable_chunked_prefill: false` in the same `--additional-config` — the bullet's
+   other factor, so the pair is separated rather than jointly cleared;
+4. `--enforce-eager` — removes the piecewise/ACL-graph lane; prove it ran with
    `Compilation disabled, using eager mode by default` (`../startup-failures/
    compile-backend-banner-then-silence.md`), otherwise the row tested nothing;
-3. `--no-enable-prefix-caching` — the pool/block-reuse lane;
-4. the reporter's own non-default `--additional-config` removed, `--max-model-len`
+5. the reporter's own non-default `--additional-config` removed, `--max-model-len`
    at the tutorial value — i.e. back to the configuration the tree validates for
    that model;
-5. `ASCEND_LAUNCH_BLOCKING=1` + plog around the onset — the device-fault lane;
-6. lower `--max-num-seqs` — preemption/recompute at high concurrency.
+6. `ASCEND_LAUNCH_BLOCKING=1` + plog around the onset — the device-fault lane;
+7. lower `--max-num-seqs` — preemption/recompute at high concurrency.
 
 Read the reporter's config before ranking any of these. At `00ba0710` the pair
 `ascend_scheduler_config = {enabled: true, enable_chunked_prefill: true}` means the
@@ -173,4 +232,8 @@ broken, `usage.completion_tokens` vs the id count, the onset log window, `npu-sm
 info`, the `torch_npu` line of `collect_env`, and whether a *short unrelated* prompt
 also returns `!`. For #3547 the onset owner stayed unresolved from the paste alone
 (no log, no request body, version `0.11.0` final not in this snapshot) — say so, and
-do not dress a ranked hypothesis as a found cause.
+do not dress a ranked hypothesis as a found cause. The one rung that may lead is the
+pin's own Known-issue sentence matching the *resolved* config (Step 4a); quote both
+anchors (the bullet and the V1 default) and label it the project's documented warning,
+not a measured cause — the paste records no onset, no `Prefix cache hit rate` and no
+request body, and those three decide it.

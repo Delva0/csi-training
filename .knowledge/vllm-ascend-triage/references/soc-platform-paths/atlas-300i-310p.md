@@ -1,4 +1,4 @@
-# Atlas 300I / 310P: what the platform changes, and what the docs admit
+# Atlas 300I / 310P: startup lanes, platform gates, and what the docs admit
 
 Verified at vllm-ascend **v0.11.0rc3** (`b6d63bbd`) with vllm **v0.11.0**
 (`b8b302cd`); the `-310P` image is built from `Dockerfile.310p.openEuler`
@@ -16,6 +16,41 @@ CPU/AICPU fallback (`507018` "aicpu execution is abnormal" / `funcName=RunCpuKer
 non-fp16 KV cache (`--kv-cache-dtype fp8`) refused at the first store is
 `310p-kv-cache-dtype.md`. This page owns the gates, the docs and the startup lanes.
 
+## A 310P `拉起失败` / startup report that pastes **no log**
+
+The recorded form: a `-310p` tag will not start a VL model while an older `-310p`
+tag served the same tutorial command, and the whole evidence is the serve line.
+Rank and ask in one message:
+
+1. **The command is this pin's own tutorial tab** — diff it against the tab quoted
+   below. Verbatim means the document is the finding (that tab ships the failing
+   line while the same page's image line still names `v0.10.0rc1-310p`), not the
+   user.
+2. **The default-sized KV pool, not the tag.** That tab passes neither
+   `--max-model-len` nor `--gpu-memory-utilization`, so the pool is computed from
+   the checkpoint's maximum context at vLLM's default ratio on a card this pin calls
+   experimental. The traceback #4812 finally posted is exactly that allocation —
+   `initialize_kv_cache_tensors → _convert_torch_format → npu_format_cast`, then
+   `Memory_Allocation_Failure(EL0004)` / `207001`, `507013`, `sdma copy error`, an
+   SMMU Terminate, and **no rope or MRoPE frame anywhere**
+   (`../runtime-memory/kv-init-and-format-cast-alloc.md`, ladder
+   `--max-model-len` → `--gpu-memory-utilization` → the 300I
+   `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` line below). Whether a smaller
+   pool ends it is **not established**: no rerun was posted.
+3. **The documented status** (`faqs.md:18`, the 300I note) — one line of context,
+   not cause 1; and a missing artefact for the host is a different page
+   (`../image-dependency-faults/image-arch-and-tag-availability.md`).
+4. Ask for three artefacts in the same block: the `EngineCore failed to start`
+   block from `RuntimeError:` down, `npu-smi info` on that host while it fails, and
+   the log's `Using max model len` / `Available memory` line.
+
+Two recorded sessions of this shape shipped a ranking instead (tag regression, then
+an MRoPE/rope path, then a KV-shape guess); the later one had this page in its
+`reference-locate` 4-of-5 grade and opened a `310p-vl-*` page whose title matched the
+model. So on a 310P VL startup paste open **this** section first, and when a
+traceback does arrive match its `npu_format_cast` / `EL0004` / `507013` lines against
+the allocation page before any other lane.
+
 ## The documented status (quote it, then move on)
 
 - `docs/source/faqs.md:18`: "[Experimental] Atlas 300I inference series (Atlas
@@ -31,17 +66,6 @@ non-fp16 KV cache (`--kv-cache-dtype fp8`) refused at the first store is
   while the image line at `:17` still says `v0.10.0rc1-310p`. When a reporter
   pastes a command that is verbatim from a tutorial, say so — it removes "user
   error" from the ranking and it is a documentation finding in its own right.
-- **What #4812's traceback finally showed is *not* that tag lane.** The dump arrived
-  later in the thread and is the KV-cache format-cast allocation signature —
-  `initialize_kv_cache_tensors → _convert_torch_format → npu_format_cast`, then
-  `Memory_Allocation_Failure(EL0004)` / `207001`, `507013`, `sdma copy error` and an
-  SMMU Terminate (`../runtime-memory/kv-init-and-format-cast-alloc.md`) — with no rope
-  or MRoPE frame anywhere in it. So on a 310P VL 「拉起失败」 report that pastes **no
-  log**, the message owed is the doc verdict plus the traceback ask in one block: do not
-  spend turns deriving a rope / "the tag is broken" mechanism (recorded #4812 reached
-  its single message on turn 20 and was cut inside the ranking), and when the paste
-  arrives match its `npu_format_cast` / `EL0004` / `507013` lines against that page
-  before any other lane.
 - Environment the tutorial requires and reporters routinely omit (`:43-49`):
   `VLLM_USE_MODELSCOPE=True` and
   `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256`. That value is the project's

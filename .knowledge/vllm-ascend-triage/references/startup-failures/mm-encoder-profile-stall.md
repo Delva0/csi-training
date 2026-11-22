@@ -75,7 +75,7 @@ as the cause.
   is then no longer corrected for encoder memory.
 - `--limit-mm-per-prompt '{"video":0}'` keeps the cache and changes which modality is
   profiled (`get_modality_with_max_tokens`, `vllm/v1/worker/utils.py:76-80`) — the lever
-  the #10872 reporter used in their own next attempt.
+  one of the five axes the #10872 reporter moved at once in their own next attempt (§6).
 
 ## 4. Shrink the profiling batch to the tree's validated recipe
 
@@ -119,6 +119,30 @@ dummy forward), the two flag values read off the line, the one-flag discriminato
 recipe-backed ladder, and the artefact requests. Recorded #10872 instead spent 20
 assistant turns and ~46 K characters of reasoning in upstream source, emitted one
 215-character status note and no answer before the 16 384-token cap. Its later public
-trajectory: the reporter dropped `--async-scheduling`, set `--max-num-seqs 1` and
-`--limit-mm-per-prompt '{"video":0}'` and moved past the stall into a *different* error
-(readable only as a screenshot), so which flag moved it is **not** established.
+trajectory (reporter comment, 2026-06-24): the stall was passed and a *different* error
+followed (screenshot only). Read that launch's **delta** before ranking anything — it
+drops `--async-scheduling`, `--enforce-eager`, `--compilation-config '{"mode":0}'` **and**
+`--max-num-batched-tokens 65536`, keeps `--max-model-len 65536` /
+`--gpu-memory-utilization 0.85`, sets `--max-num-seqs 1` +
+`--limit-mm-per-prompt '{"video":0}'`, and turns decode capture on:
+`--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[1]}'`.
+The block also drops the two `source /usr/local/Ascend/.../set_env.sh` lines the first
+paste carried — in a bare shell that unsets the CANN/ATB environment, one line to restore,
+and nothing to build a theory on. Five axes at once attribute nothing, but they do say the
+encoder budget fell while rungs 3-4 ran with it — `<N>` is `max_num_batched_tokens`
+(`SchedulerConfig.DEFAULT_MAX_NUM_BATCHED_TOKENS = 2048` at vllm `v0.13.0`,
+`config/scheduler.py:44`; `max_num_encoder_input_tokens` is "overridden by
+max_num_batched_tokens", `:91-101`), so the pass is **not** a refutation of rung 1.
+
+So a **follow-up paste on this case is a capture-lane question, not an encoder one**: the
+new error arrives on the first launch of that box that captures a decode graph. Rank
+`FULL_DECODE_ONLY` at TP>1 / `cudagraph_capture_sizes` / MTP+splitfuse there
+(`../soc-platform-paths/atlas-300i-310p.md` ranked actions and
+`../soc-platform-paths/310p-mtp-graph-splitfuse-mask.md`), and re-send rungs 1-4 only if
+the new paste repeats the `Encoder cache will be initialized` + 60 s watchdog pair. The
+v0.21.0rc1 pin this case runs has **no** 310P branch on `cudagraph_mode`
+(`platform.py:469-584` accepts `FULL_DECODE_ONLY`; only `custom_ops` is 310P-gated at
+`:617`), so the mode is not silently coerced — a paste that never printed
+`FULL_DECODE_ONLY compilation enabled on NPU` nor `… falling back to NONE` means it really
+captured. Ask for the new text or its OCR anyway: without it the lane is ranked, not
+identified.

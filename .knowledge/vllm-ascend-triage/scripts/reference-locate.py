@@ -20,8 +20,10 @@ op / kernel name, numeric code, flag, or symptom phrase. The script greps
    not "no page" and a near-miss pair is what a renamed spelling looks like;
 4. a **family-word guard**: when no page carries all the tokens and the widest
    one alone hits 40+ pages, the grade cannot name the owner — it says so and
-   names the two moves that do (the shape's row in `references/dispatch/
-   classified-shapes.md`, or a `[case]` file opened by the report's own wording);
+   names the moves that do (the shape's row in `references/dispatch/
+   classified-shapes.md`, a `[case]` file opened by the report's own wording, or,
+   for a paste that is only a serve command, the shape grade plus the pin's own
+   defaults, `references/dispatch/index.md` rule 4);
 5. when no page carries two tokens, the two shortest lists, which is what has to
    be read by hand at that point.
 
@@ -235,13 +237,19 @@ def main():
     best = max(counts.values(), default=0)
     if n >= 2 and best < n and widest >= 40:
         print(f"family words, not a case: '{widest_tok}' alone hits {widest} pages and no")
-        print(f"page carries all {n}, so this grade cannot name the owner. Two moves do:")
+        print(f"page carries all {n}, so this grade cannot name the owner. These moves do:")
         print("  - take the shape's row in references/dispatch/classified-shapes.md "
               "(symptom wording, not title words);")
         print("  - open a [case] file below by the report's own wording \u2014 an entry whose")
         print("    versions, model and stack match is the case history, and its ladder is")
         print("    the answer. A report with no distinctive token at all (a benchmark-table")
         print("    or screenshot comparison) has no grade to run: go straight to these two.")
+        print("  - a paste that is only a serve command is that same shape: its flags are")
+        print("    the pin's tutorial flags, so grade the shape instead (SoC + phase + the")
+        print("    version pair + the reporter's own control, e.g. 'the older -310p tag")
+        print("    works'), or skip the grade and rank what the pin's own defaults and")
+        print("    status document fix before asking for the log \u2014 references/dispatch/")
+        print("    index.md rule 4.")
         print()
 
     lo = min(args.min_grade, n)

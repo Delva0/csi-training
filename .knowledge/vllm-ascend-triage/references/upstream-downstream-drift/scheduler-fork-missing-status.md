@@ -161,7 +161,7 @@ The natural first guess — "the reporter must have enabled the Ascend scheduler
   whenever the model is not MLA, the model is not multimodal, the guided-decoding
   backend is `"auto"` (the default), the delay-factor input is 0,
   `send_delta_data` is off and `policy == "fcfs"` (`:139-150` at `00ba0710`,
-  `:136-145` at `048bfd5`; the delay/backend spellings differ per pin — next
+  `:136-146` at `048bfd5`; the delay/backend spellings differ per pin — next
   table). The assignment is unconditional, so an explicit `"enabled": false` in
   `--additional-config` is overwritten — a config-only opt-out does not exist there;
 - `platform.py:288-293` then swaps `vllm_config.scheduler_config` for
@@ -170,7 +170,7 @@ The natural first guess — "the reporter must have enabled the Ascend scheduler
   (`core/schedule_config.py:32-33`);
 - the same block logs `Non-MLA LLMs forcibly disable the chunked prefill feature …`
   — but that INFO sits on the **outer** `not use_mla` condition
-  (`platform.py:141-144` at `00ba0710`, `:136-140` at `048bfd5`), *before* the gate
+  (`platform.py:141-144` at `00ba0710`, `:137-140` at `048bfd5`), *before* the gate
   above. It prints for every non-MLA model even when the gate fails, so **it does
   not prove the fork is in play** — and it still prints after the reporter applies
   the `backend` escape below, so its continued presence is not evidence the escape

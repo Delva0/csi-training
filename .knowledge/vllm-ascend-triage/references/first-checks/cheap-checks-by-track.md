@@ -35,6 +35,20 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   without a source read — worked rows in
   `../spec-decode-mtp/max-model-len-boundary-fia-crash.md` and
   `../hccl-and-hardware/aclgraph-full-decode-runtime-hang.md`.
+- **A "the flag did nothing" claim is settled by the engine's own `non-default
+  args:` dict, before any `rg` for an environment binding.** That line (one per
+  process) is `log_non_default_args` walking the parser's own defaults and printing
+  every field whose value differs, so a flag is in the dict **iff** `argparse`
+  received it (`vllm/entrypoints/utils.py:228-253` at vllm v0.13.0; the caller frame
+  is `cli_args.py:309` at vllm v0.9.1). Recorded #1456 pasted
+  `{'model': …, 'max_model_len': 4096, 'quantization': 'ascend',
+  'tensor_parallel_size': 16}` underneath the reporter's `export ENFORCE_EAGER=1` —
+  the absent key was the whole answer, for no source read
+  (`../startup-failures/graph-mode-not-applied.md` step 3). Two corollaries: a key the
+  reporter says they passed but that is missing was eaten by the shell, the compose
+  line or the launcher (ask for `/proc/<pid>/cmdline`), and a key whose *value*
+  differs from their script is the launcher-mismatch case above, not a second
+  mechanism.
 - **The log's own process prefixes recover the launch that ran, so a mismatched
   paste is caught for free.** `EngineCore_DP<N>` / `Worker_DP<N>_EP<N>` names exist
   only when that parallel size is > 1 (`vllm/v1/engine/utils.py:136,151` at vllm

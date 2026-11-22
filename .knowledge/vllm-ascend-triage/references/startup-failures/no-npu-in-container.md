@@ -43,7 +43,7 @@ prints the unbound ids, DVPP re-uses the same count call. Both belong to this pa
 
 | Line | Reading |
 |---|---|
-| `dcmi … the device is used. ret is -8020` | the driver's own userspace (DCMI, i.e. the `libdcmi` mounted from the host) refused to initialise the device model **before any Python**. The numeric meaning is in `cann/driver` — **decode it, don't hedge**, whenever that repo is in the snapshot's `SOURCES.json` (`bash scripts/cann-error-lookup.sh -8005 -8020`; the table is `src/custom/include/dcmi_interface_api.h`, `DCMI_ERROR_CODE_BASE (-8000)` at `:1677` with `DCMI_ERR_CODE_<NAME> (BASE - n)`, plus the vendor rows in `docs/**/DCMI_API/*/return_codes.md`). When it is *not* exported (the v0.8.4/v0.9-era snapshots) quote the text and say so |
+| `dcmi … the device is used. ret is -8020` | the driver's own userspace (DCMI, i.e. the `libdcmi` mounted from the host) refused to initialise the device model **before any Python**. `-8020` is `DCMI_ERR_CODE_RESOURCE_OCCUPIED` (`DCMI_ERROR_CODE_BASE (-8000) - 20`) and the pasted English *is* that enum's reading: the vendor's action for it is 「设备资源已被占用，请排查设备是否被其他容器、进程等占用后再重试」, i.e. **something else holds the card** — so this code, unlike `-8005`, already names a lane (ladder rung 2) while leaving the holder unnamed. Decode it with `bash scripts/cann-error-lookup.sh -8020` **against any exported `cann/driver` in the workspace, not only the reported snapshot's** (§*cheapest classifier*): the table is a return-code ABI and the 910B and 910_93 doc sets agree row for row, so the v0.8.4/v0.9-era snapshots — which export no driver tree at all — still get the name; cite the pin you read it at |
 | `halGetDeviceInfo` / `drvGetDevNum` / `rtGetDeviceCount` all `87` → `507899` | one refusal walking up the stack: device probe → device count → ACL. `507899` is the generic `[driver error:internal error]`; the **verb** names the operation, and a device-count failure before any model op means the device stack is already unusable (`../hccl-and-hardware/transport-destlink-ipc-import.md` carries the same reading for the HCCL context) |
 | `get device count of NPU failed` from `device_count` | torch_npu's own wrapper around the same call — the consequence, not a second fault |
 | `TBE … AscendCheckSoCVersion: cur soc version unknown` | downstream of the failed probe (SoC detection goes through the same driver). Inference, not proof — but it is *not* the `PlatformInfoInit … SocVersion <name>` line that `acl-init-500001-and-soc-version.md` asks you to read; in that lane the name **is** resolved and matches the card |
@@ -55,26 +55,48 @@ prints the unbound ids, DVPP re-uses the same count call. Both belong to this pa
 The whole failure therefore sits **below** vllm-ascend: DCMI + the container's
 device nodes, or the host driver state. Say that first; then rank.
 
-## The `-8xxx` code is the cheapest classifier — read it before ranking (v0.2x snapshots)
+## The `-8xxx` code is the cheapest classifier — read it before ranking, from *any* exported `cann/driver`
 
-At `cann/driver` `src/custom/include/dcmi_interface_api.h:1677-1690`
-(verified at the #8809 snapshot, pin `a7ceccf700e0`) the DCMI return codes are
-`DCMI_ERROR_CODE_BASE (-8000)` minus an offset. The rows that change a ranking:
+At `cann/driver` `src/custom/include/dcmi_interface_api.h:1677-1698` (verified at pin
+`a7ceccf700e0`; the vendor rows below are that tree's
+`docs/zh/Ascend_910B_DCMI_API/<…>/return_codes.md` and the 910_93 set, identical row for
+row) the DCMI return codes are `DCMI_ERROR_CODE_BASE (-8000)` minus an offset, so the
+offset is the whole lookup — no table memory is needed for the common ones.
+
+**Decode the number from whichever snapshot has the driver tree, not the reported one.**
+A return-code table is an ABI: it does not move between releases, and the reports that
+need it most are exactly the ones whose snapshot exports no `cann/driver`
+(v0.8.4/v0.9-era, e.g. #632 — a `SOURCES.json` row of
+`cann/driver no_verified_public_reference_by_opening` is *not* a reason to hedge the
+name, only the holder). Run one call against the whole workspace
+(`bash scripts/cann-error-lookup.sh -8020`, default root `/workspace/repos`) and cite the
+pin you read it at.
+
+The code then picks the rung: `-8008` → mapping (rung 1), `-8020` → another holder
+(rung 2), `-8002` → a non-root `-u`, `-8013` → the interface is container-limited,
+`-8012`/`-8017`/`-8006` → a device-state wait, `-8007` → the named `davinciN` is not on
+this host, `-8005`/`-8009`/`-8004` → no lane at all. The rows that change a ranking:
 
 | Code | Enum | What it rules in / out |
 |---|---|---|
+| -8020 | `DCMI_ERR_CODE_RESOURCE_OCCUPIED` (vendor: 设备资源被占用；处理：请排查设备是否被其他容器、进程等占用后再重试) | **another holder** — for a vllm-ascend container this is the code that promotes rung 2 to first, and the reporter's own text (`because the device is used`) is its translation. The vendor files it under 内部执行异常, so it names the lane but not the holder: a host process, a second container, a vNPU partition, or a device-side process the `dcmi_set_traceroute` doc says needs `param_info.reset_flag=1` to end |
 | -8002 | `DCMI_ERR_CODE_OPER_NOT_PERMITTED` | a **permission** refusal — so a non-root `-u <user>` run would print this, not -8005 |
 | -8005 | `DCMI_ERR_CODE_INNER_ERR` (vendor row: 内部错误，请提供日志) | the generic internal error: it excludes nothing, so it cannot carry a mechanism on its own |
 | -8008 | `DCMI_ERR_CODE_DEVICE_NOT_EXIST` | the node the container maps is not there (`--device` / mount list) |
 | -8009 | `DCMI_ERR_CODE_IOCTL_FAIL` | the ioctl into the driver failed |
 | -8013 | `DCMI_ERR_CODE_NOT_SUPPORT_IN_CONTAINER` (vendor: 在容器中不支持该接口) | container detection is an **explicit** DCMI contract, so "in a container" is a first-class lane, not a modifier |
+| -8007 | `DCMI_ERR_CODE_INVALID_DEVICE_ID` (vendor: 无效的device ID) | the `--device /dev/davinciN` names a card this host does not have — a mapping error, the mirror of -8008 |
+| -8006 | `DCMI_ERR_CODE_TIME_OUT` (vendor: 响应超时，请稍后重试) | a transient: retry the same command before ranking anything |
+| -8012 | `DCMI_ERR_CODE_NOT_REDAY` (vendor: 设备尚未就绪，请稍后重试) | a **wait**, not a fix: the device is still coming up (just after a reset or boot) |
+| -8017 | `DCMI_ERR_CODE_IS_UPGRADING` (vendor: 设备正在升级中，请稍后再试) | a firmware upgrade is in flight — no container or mount change helps |
+| -8022 | `DCMI_ERR_CODE_PARTITION_NOT_RIGHT` (enum only: no vendor row at that pin) | the vNPU partition config is wrong — check `npu-smi set -t create-vnpu …`/the partitioning mode before any container theory |
 
 Two traps this table settles in one call: `src/custom/lqdrv/kernel/ioctl_comm_def.h`
 carries a **separate** `LQ_DCMI_ERR_CODE_*` numbering where `-8005` *is* `IOCTL_FAIL`
 and `-8008` *is* `VERSION_IMCOMPATIBLE` — never cross-apply the two (the recorded
 #8809 run quoted the lqdrv row, shipped it, then had to correct itself mid-answer);
-and no row of the DCMI table is an HBM or capacity code, so "显存被 vllm 吃满" is
-refuted by the number itself.
+and no row of the DCMI table is an HBM or capacity code — `-8020`'s 设备资源 is the
+*device*, not HBM — so "显存被 vllm 吃满" is refuted by the number itself.
 
 ## The one command that halves the search
 
@@ -132,8 +154,11 @@ not a causal chain.
    any `/dev` node is opened, so a `/dev` list shorter than the tutorial's cannot be the
    owner of a *count* failure — when the host's own `npu-smi` is healthy, go to rung 3
    (host vs container user-space driver) before re-mapping devices.
-2. **Another holder of the same device — but co-tenancy is only a lane for a *second
-   vllm-ascend container*.** `docker ps` for a second container on those devices and
+2. **Another holder of the same device — and a `-8020` puts this rung first for a
+   vllm-ascend container, while co-tenancy is only a lane for a *second* one.** The
+   driver's own action text for `-8020` (「请排查设备是否被其他容器、进程等占用」) is the
+   vendor telling the reporter to check exactly this, so say it with the code attached.
+   `docker ps` for a second container on those devices and
    the host's process table (`npu-smi info`, `fuser -v /dev/davinci0
    /dev/davinci_manager`); the cheapest falsification is a different, idle
    `--device /dev/davinciN` — one variable. Do **not** rank it first when the failing
@@ -191,11 +216,12 @@ Headline: this is a device-visibility/driver report, not a vllm-ascend bug — n
 in the paste reaches an engine. Then the evidence table above, the host-vs-container
 split as the next single action, the ladder, and the ask (host `npu-smi info` with its
 header and process table, `driver/version.info` from both sides, `ls -l /dev/davinci*`
-inside the container). State the unverified part explicitly: the numeric meanings of
-`87` is the driver's own refusal walking up the stack and `-8020`/`-8005` are only a
-name from the enum (§above) — the enum excludes lanes, it does not name a mechanism — so
-whether *this* reporter's card was occupied, mis-mounted or driven by a mismatched
-userspace is not derivable from the paste.
+inside the container). State the unverified part explicitly: `87` is the driver's own
+refusal walking up the stack; `-8020` = `DCMI_ERR_CODE_RESOURCE_OCCUPIED` is the one name
+in this paste that *does* select a lane (someone holds the card — say so and quote the
+vendor's action text), while `-8005`/`-8009` exclude nothing; and no code on the chain
+names *which* holder, so "occupied — by whom" is what the host's process table answers,
+not the paste.
 
 ## Recorded run (#632)
 
@@ -207,6 +233,17 @@ prior-month corpus for `-8020`/`dcmi` (12 body hits, none with this text) and
 answered with the ranked ladder above. It spent its first passes in
 `acl-init-500001-and-soc-version.md` and the HCCL IPC page, both of which are the
 *later* stages — enter here instead when the paste's first failure is `npu-smi`.
+
+**Correction a later re-run forces.** That run hedged the code (「`-8020` 的枚举名与精确语义
+我只能引用这句文案，不能替你断定是占用」) because the classifier used to say *decode it
+whenever `cann/driver` is in this snapshot's `SOURCES.json`* — and this snapshot has none.
+The row above now carries the answer, read from the #8809-era export: the name is
+`RESOURCE_OCCUPIED` and the vendor's action is the co-tenancy check, so the same evidence
+supports rung 2 first with the code attached rather than a hypothesis. What the run got
+right and keeps: chain-first routing (`drvRet=87` + `507899` + `g_deviceLogicId[-1]`, not
+"which command failed first"), the verbatim-quickstart match as the mount-list
+exoneration, the `--privileged` rung placed *below* the driver readings, and the explicit
+statement that the paste names no holder.
 
 ## Recorded run (#1905)
 

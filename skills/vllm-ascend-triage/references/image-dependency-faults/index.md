@@ -90,6 +90,15 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   is absent by design while its ungated consumer still runs. Grep the log for
   `Triton not installed or not compatible`, then turn the pass off →
   `../startup-failures/missing-triton-op-in-compile-pass.md`.
+- The reporter compares **two implementations of one op in the tree** rather than
+  reporting a crash — "rotary_embedding.py 中 Triton 实现和 ascend 实现结果不一致，结果应该是一样
+  的，但是这里会有乱码", both `triton` and `triton-ascend` listed in the environment, no
+  traceback. The branch is `if HAS_TRITON:` at the call site (install state: one importable
+  `triton` **and** exactly one active backend driver), the recipe removed triton on purpose
+  and pinned triton-ascend, and the Triton kernel's own TODO names a two-model envelope —
+  answer with that boolean (`python -c "from vllm.triton_utils import HAS_TRITON; print(HAS_TRITON)"`),
+  `pip show triton triton-ascend`, and the same-tensor A/B, and keep the
+  output-garble cause a hypothesis → `triton-install-state-op-dispatch.md`.
 - `import torch` itself dies with `AttributeError: module 'triton' has no
   attribute 'language'` at `torch/_dynamo/utils.py` (`common_constant_types.add(
   triton.language.dtype)`), reached from `torch_npu/utils/_dynamo.py`, with **no
@@ -457,6 +466,14 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   lowering chain from `vec_ops.py:97-136` to `tensor::ExtractSliceOp`, the two runs
   that separate dtype from offset, the host-side workaround ladder, and the 42
   in-tree call sites that are aligned by construction today (#18345).
+- `triton-install-state-op-dispatch.md` — the reporter compares **two implementations of
+  one op** ("triton 实现和 ascend 实现结果不一致", 乱码) on a box holding both `triton` and
+  `triton-ascend`: `rope_forward_oot`'s `if HAS_TRITON:` (`ops/rotary_embedding.py:166`)
+  picks the Triton kernel or `torch_npu._npu_rotary_embedding`, `HAS_TRITON` is install
+  state (`vllm/triton_utils/importing.py:12-48`), the recipe uninstalls triton on purpose
+  (`Dockerfile:54-57`) and pins `triton-ascend==3.2.0` (`requirements.txt:39`), and the
+  kernel's own envelope is two models (`ops/triton/rope.py:23-25`) — so "they should agree"
+  needs the same-tensor A/B before any wheel is blamed (#8047, hypothesis).
 - `host-cxx-compile-header-conflict.md` — a *host* clang/gcc compile of a generated
   TU (the triton-ascend `launcher_cxx11abi{0,1}.cxx` ABI probe, or a generated
   kernel source stopping on a missing standard header, #3135) failing inside a

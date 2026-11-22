@@ -1,7 +1,10 @@
 # `aclnn<Op> … not in libopapi.so`: the op_api symbol search, not the CANN version
 
 Verified at vllm-ascend v0.26.0rc1 (`f2f74a16c3c5`) and vllm v0.26.0
-(`568afb3a1380`). Recorded for #16379: `DeepSeek-V4-Flash-0731-w8a8` on one
+(`568afb3a1380`), and — for the *dlsym mechanics only* — at vllm-ascend
+v0.15.0rc1 (`3d43ed997e71`) with vllm v0.15.0, where the lookup is by bare
+soname rather than by vendor directory (see *Version boundary* below; recorded
+#7095). Recorded for #16379: `DeepSeek-V4-Flash-0731-w8a8` on one
 Atlas 800 A3 node, CANN 9.1.0 (`innerversion V100R001C11SPC001B243`), the pinned
 doc's single-node "A3 series with DSpark" recipe (`--data-parallel-size 4
 --tensor-parallel-size 4 --enable-expert-parallel`). The reporter had already
@@ -44,6 +47,56 @@ text, no `EZ`/`ER` code. Do not route it to the collective, tiling or
 That is why "the CANN build is missing the op for this SoC" is the *last*
 candidate, not the first: the op is normally supplied by the vendored package,
 not by CANN.
+
+## Version boundary: at the v0.15-era pin the lookup is a bare `dlopen`, and its
+## root is an RPATH, not `ASCEND_CUSTOM_OPP_PATH`
+
+The vendor-directory iteration and the `config.ini load_priority` list above are
+the **newer** implementation. At v0.15.0rc1 (`3d43ed997e71`):
+
+- `csrc/aclnn_torch_adapter/op_api_common.h:140-160` — `GetOpApiLibHandler`
+  is `dlopen(libName, RTLD_LAZY)` with the bare names `"libcust_opapi.so"`
+  (`:132`) then `"libopapi.so"` (`:130`); no environment variable is read.
+- `CMakeLists.txt:141` bakes the search root into the extension itself:
+  `-Wl,-rpath,$ORIGIN:$ORIGIN/lib:$ORIGIN/_cann_ops_custom/vendors/vllm-ascend/op_api/lib`.
+  So the vendored library is found *only* when it physically exists at
+  `vllm_ascend/_cann_ops_custom/vendors/vllm-ascend/op_api/lib/` inside the
+  installed package; `ASCEND_CUSTOM_OPP_PATH` (set by
+  `vllm_ascend/platform.py:461-467`, and only when that directory already
+  exists) is not what makes the symbol visible at this pin.
+- The package is produced by `csrc/build_aclnn.sh:101-102`
+  (`./output/CANN-custom_ops*.run --install-path=$ROOT_DIR/vllm_ascend/_cann_ops_custom`)
+  and reaches the wheel only through `setup.py:396-405`.
+
+Same message, same two commands, different attribution: at this pin a **present**
+vendor package whose `op_api/lib/libcust_opapi.so` was built for another SoC
+fails exactly like an **absent** one. Do not re-derive the search mechanics —
+`ls` the directory and `nm` the library; that pair is the whole diagnosis at
+every pin.
+
+## The published wheel is built for one SoC: A2
+
+At v0.15.0rc1 the release workflow builds **one** wheel per OS/python
+(`.github/workflows/schedule_release_code_and_wheel.yml`, matrix `os` ×
+`python-version`, no SoC axis) inside
+`.github/workflows/dockerfiles/Dockerfile.buildwheel`, whose
+`ARG SOC_VERSION="ascend910b1"` is exported before `python3 setup.py
+bdist_wheel`. `bdist_wheel` runs the `build_aclnn` command (`setup.py:409`,
+`build_and_install_aclnn:187-203`), and `csrc/build_aclnn.sh` selects the
+`^ascend910b` branch (A2 op set, `SOC_ARG="ascend910b"`) for that value — the A3
+branch (`^ascend910_93`, `SOC_ARG="ascend910_93"`, `add_rms_norm_bias` in its
+`CUSTOM_OPS_ARRAY`) is never taken.
+
+Consequence for triage: `pip install vllm-ascend==<tag>` on an **A3 / 910_93**
+host carries an A2 custom-op package, while the `…-a3` image
+(`Dockerfile.a3`, `quay.io/ascend/vllm-ascend:<tag>-a3`) is built for A3. So for
+this message on an A3 host with a site-packages install, rank the SoC/packaging
+mismatch **first**, and rung 1 is the A3 image or a source build with
+`SOC_VERSION=ascend910_9391` (`setup.py:142-147` lists the A3 sub-SoCs) — not a
+serve flag, not `--compilation-config`, not `--enforce-eager`. `enable_custom_op()`
+(`vllm_ascend/utils.py:243-265` at this pin) returns `False` only on `ImportError`
+of `vllm_ascend_C`, so a wheel-built extension dispatches the fused op on any
+SoC; there is no runtime switch to fall back to `torch_npu.npu_add_rms_norm`.
 
 ## The pinned tree builds this op for A3 — check before granting the vendor table
 
@@ -92,7 +145,11 @@ nm -D "$S"/_cann_ops_custom/vendors/*/op_api/lib/libcust_opapi.so | grep -i 'hcp
 cat "$S"/_cann_ops_custom/vendors/*/config.ini            # SoC / op list actually installed
 nm -D /usr/local/Ascend/<cann>/lib64/libopapi.so | grep -i hcpre   # fallback root, second question
 grep -n "Failed to register custom ops" <server log>
+python -c "import vllm_ascend,os;p=os.path.dirname(vllm_ascend.__file__)+'/_cann_ops_custom/vendors';print(os.listdir(p))" 2>&1
 ```
+The last line is the A2/A3 question in one call: `['vllm-ascend']` plus a
+`version.info`/`config.ini` naming `ascend910b*` on a 910_93 host *is* the
+finding (see the wheel section above).
 
 Then the artefact comparison that settles image-vs-host: the same two `nm`
 commands inside the image the model's pinned tutorial names for this SoC
@@ -117,6 +174,20 @@ Do **not** rank "your CANN 9.1.0 differs from the CI CANN" or "install
 `Ascend-cann-910b-ops`" above the custom-op package: `docs/source/installation.md`
 already pins CANN 9.1.0 for v0.26.0rc1, and the missing symbol is a vllm-ascend
 custom op in the first two search roots.
+
+## Recorded #7095 (Kimi-K2.5, A3, vllm 0.15.0 + vllm-ascend 0.15.0rc1)
+
+`aclnnAddRmsNormBias … not in libopapi.so` from
+`vllm_ascend/ops/layernorm.py:55` (`npu_add_rms_norm_bias`, reached only when
+`residual is not None` **and** `enable_custom_op()`), surfaced as
+`RuntimeError: Worker failed with error …` out of
+`determine_available_memory → profile_run`: memory-profiling phase, lane B, no
+collective involved. The traceback path is `/opt/miniconda3/…/site-packages/
+vllm_ascend/`, i.e. a non-editable install, and the reported SoC is A3 — the
+shape the wheel section above ranks first. The recorded session shipped no
+message in 24 turns while reading `setup.py`, the wheel workflow and
+`Dockerfile.buildwheel` to decide *how* the package got there; that question
+does not change the two `ls`/`nm` checks or rung 1, so it is not the answer.
 
 ## Open in the recorded case
 

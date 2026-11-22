@@ -1111,3 +1111,20 @@ discrimination it never used: the body is materialised in the API server
 (`serving_embedding.py:134` → `outputs.py:225-230`) *before* the 200 is written, so a
 completed response is a transport statement and one in-pod loopback `curl` decides it.
 Page (new): `../pooling-embedding/client-hang-after-200-ok.md`.
+
+**#2318** vllm-ascend v0.9.1rc2 (`b9f715d6ce30`) + vllm v0.9.1 (`b6553be1bc75`) — the
+pin *is* the reporter's version — Qwen3-32B on 4 devices, a directory they named
+`/path/to/my/qwen32b-w8a8pertoken`, `vllm serve --quantization ascend --tensor-parallel-size 4`
+with an `ascend_scheduler_config` block: W8A8 per-token weights that answer garbage in
+vLLM while the same weights "works in Transformers". The reporter's later comment
+(2025-08-13) supplies the resolution the session never reached: the model had been
+quantized with **m4 (an improved version of SmoothQuant)**, and that conversion recipe
+is what produced the garbage. The recorded run never asked that question — it read
+`quantization/{quant_config,quantizer,w8a8_dynamic}.py`, the downstream
+`models/qwen3.py` decoder path, the fused `AddRMSNormW8A8Quant`, the quantizer dispatch
+table, the pin's W8A8 tests and the docs across ~1.0 M cumulative prompt tokens, and was
+cut by the output cap with no message text. The corrective is the ordering, not a new
+mechanism: on weights the reporter converted, provenance comes before any engine read,
+because the engine consumes numbers the converter chose and can neither validate nor
+explain them — `../accuracy-benchmarks/quantized-checkpoint-conversion.md` rule 2 (and
+its published-checkpoint split as the one-command discriminator).

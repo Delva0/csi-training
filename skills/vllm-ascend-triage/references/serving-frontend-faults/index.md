@@ -14,6 +14,16 @@ The deliverable is an ownership verdict plus the cheapest client-side A/B. The
 NPU stack cannot own a raise that never enters it — say that in the first
 sentence, then give the mechanism at the pinned upstream files.
 
+Second shape in the same topic: **the cause is a request field, and no frame from
+the failing process is in the paste at all** — the same body 500s with
+`tool_choice: "required"` (or a named function) and answers with `"auto"`, and a P/D
+proxy has already thrown the upstream body away (`raise_for_status()`), leaving an
+`httpx.HTTPStatusError`, `All 3 attempts failed` and a starlette-truncated ASGI
+traceback. The frontend is still the owner: `required`/named make it inject
+`structured_outputs` and then hard-validate the reply, which `auto` never does →
+`tool-choice-required-500.md`. Ask the node for its own 500 body, and answer the
+mechanism meanwhile.
+
 Not this topic, leave immediately:
 
 - A Python `AttributeError`/`TypeError` from an Ascend replacement of an upstream
@@ -127,3 +137,18 @@ Not this topic, leave immediately:
   `xgrammar_decoding.py:89`), why `--guided-decoding-backend outlines` cannot escape
   and `lm-format-enforcer` can (including the `json_schema`-only per-request
   default), and the two checks that place a new report.
+- `tool-choice-required-500.md` — the worked #7719 case (vllm-ascend v0.17.0rc1 ↔
+  vllm v0.17.0, GLM-5 A3 2P+1D behind the docs' load-balance proxy): `auto` fine /
+  `required` 500 with the cause already discarded by the proxy (`:608`), the
+  frontend chain that only `required`/named traverse
+  (`engine/serving.py:996-1008` → `tool_parsers/abstract_tool_parser.py:56-81` →
+  `tool_parsers/utils.py:181-215` schema selection → `structured_output/`
+  grammar+bitmask → the hard-fail `required` branch at
+  `engine/serving.py:1211-1223` / `parser/abstract_parser.py:423-435`), the lanes
+  with their one check (unconstrained grammar, reasoning split emptying
+  `content`, schema shape) plus the PD `-1` placeholder lane, and the two
+  pin facts that move the answer (`xgrammar == 0.1.29` at the vllm pin vs
+  `xgrammar>=0.1.30` at the vllm-ascend pin; guided-decoding e2e coverage is
+  single-card only). Also records the scope boundary: the
+  `WAITING_FOR_FSM` scheduler-fork route needs the pre-0.17 pins, because
+  `vllm_ascend/core/scheduler.py` no longer exists there.

@@ -681,3 +681,22 @@ message text**. The decisive pair is `qwen3_vl.py:1327-1332` (a literal
 `"language_model.lm_head."`): the key the engine asks for cannot exist in a
 mapper-rewritten description, so the fix is the model file, not the export —
 `../startup-failures/empty-prefix-quant-keyerror.md` §*The renamed-prefix variant*.
+
+**#14467** image `quay.io/ascend/vllm-ascend:qwen3.8-a5`, Ascend 950PR ×1, vllm and
+vllm-ascend 0.23.0, `Qwen/Qwen3.8-27B-FP8` served with `qwen3_5_mtp` spec decode and
+`FULL_DECODE_ONLY`: `EngineCore failed to start` in the second after `Starting to load
+model …` and `Using the vLLM Ascend fp8 Quantization now!`, deepest frame
+`vllm_ascend/quantization/methods/fp8.py:45 self.n_groups = hf_config.o_groups`.
+The reporter's own body already named the chain (detection → `AscendFp8Config` → a
+DeepSeek-V4-only `ds_linear` scheme), so the recorded run's contribution was
+verification at `5cb98ca` plus the action ladder it delivered: the registration scope
+(`fp8_config.py:68` takes over the generic name, `:137` reuses the class for
+`deepseek_v4_fp8`), the A5-only detection gate (`utils.py:132-133`, `soc_version ==
+260`), the unread `ignore` list (`:77`), and the acceptance rule that a
+`getattr(..., "o_groups", 0)` stopgap must be scored by one real request against a BF16
+serve because `process_weights_after_loading` re-blocks every linear for the DS layout.
+Its one unasked artefact is the checkpoint's `config.json` (`quantization_config.quant_method`,
+`weight_block_size`, `ignored_layers`), which decides whether that stopgap is
+numerically safe; the later public trail on the issue is a code fix (a linked PR), i.e.
+the "no serve flag fixes this" verdict held —
+`../startup-failures/native-fp8-config-scope.md`.

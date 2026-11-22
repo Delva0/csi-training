@@ -32,7 +32,9 @@ at start — `atlas-300i-310p.md` and `../runtime-memory/attention-mask-host-all
    that is the pipeline, not the engine.
 4. **Only if the reporter asks for the code owner** run
    `scripts/310p-rope-branch.py <config.json>` and §4's two readings. Keep it as
-   a candidate with one probe, not a walk.
+   a candidate with one probe, not a walk — and if the report turns out to carry a
+   rope traceback rather than garbage text, switch pages
+   (`310p-vl-rope-cos-nullptr-startup.md`).
 
 ## 1. Support is a per-model doc lookup at this ref
 
@@ -142,14 +144,17 @@ FusedMoE / Conv3d set). Which rope implementation runs is decided by the
   `update_cos_sin` returns early while `_cos is None` (`:129-146`). On 310P a VL
   model in branch (a) or (b) therefore hands the op `cos=None, sin=None`.
 
-  Two readings, and one probe decides between them — do not read a fourth file:
-  the call raises (then that branch is *not* what this reporter runs: the serve
-  would have died, so the model is in branch (c) and rope is exonerated) or the op
-  returns un-rotated q/k (then every position is wrong, and OCR text is exactly
-  the "garbled but fluent" symptom). Probe: print `get_cos_and_sin_slice()` at the
-  layer, or call `torch_npu.npu_apply_rotary_pos_emb(q, k, None, None,
-  rotary_mode="half")` on two small tensors in the reporter's container. Label the
-  answer a candidate until that output exists.
+  **One gate, two outcomes — and the paste's symptom says which one you are in,
+  so no probe is needed to choose between them.** If the engine serves and answers
+  wrong text (this page's shape), the op tolerated `cos=None` on the reporter's
+  CANN pair, every position is wrong, and "garbled but fluent" is the expected
+  symptom. If instead the paste carries a `profile_run` traceback ending
+  `call aclnnApplyRotaryPosEmbV2 failed, error code is 161001` +
+  `Check cos != nullptr failed`, that is **not** evidence for branch (c) and rope is
+  not exonerated: the op refused the `None` and the engine died — that report is
+  `310p-vl-rope-cos-nullptr-startup.md` (recorded #13522, v0.23.0rc1, MiniCPM-V-4.6,
+  branch (b) at `:158`). Keep the rope reading a candidate here only as long as the
+  serve is known to come up.
 
 Verified dead ends — each cost a recorded session turns and none is the split:
 

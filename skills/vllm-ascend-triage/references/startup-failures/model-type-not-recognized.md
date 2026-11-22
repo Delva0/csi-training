@@ -207,6 +207,99 @@ in-tree recipe — quote it as such, and treat the reporter's hardware deviation
 (the yaml is A3) as a deviation to name, not a verdict. The MTP/runtime side of
 the same family is `../spec-decode-mtp/drafter-count-copy-device-fault.md`.
 
+## The removed-architecture family: `was supported in vLLM until vX`
+
+Recorded #14855 (title: "Baichuan-7B拉起服务失败报错：Model architecture BaiChuanForCausalLM was
+supported in vLLM until v0.23.0, and is not supported anymore"), pins vllm-ascend `1f95052cb43a`
+and vllm `v0.26.0` `568afb3a1380` — the reporter's own pair. Nothing was removed by
+vllm-ascend: **upstream vLLM deleted the model**, and the sentence itself names the last release
+that had it.
+
+Read the sentence before opening any tree — `_raise_for_unsupported`
+(`vllm/model_executor/models/registry.py:1077` at v0.26.0) emits exactly four texts, and they
+have different owners:
+
+| text | meaning |
+|---|---|
+| `Model architectures [...] failed to be inspected. Please check the logs` | registered here, import crashed — the look-alike above, not this family |
+| `Model architecture X was supported in vLLM until vY, and is not supported anymore` | in `_PREVIOUSLY_SUPPORTED_MODELS` (`:724-762`; v0.26.0 rows include `BaiChuanForCausalLM`/`BaichuanForCausalLM` → `0.23.0`, `AquilaModel` → `0.24.0`, `TeleChatForCausalLM` → `0.25.0`) |
+| `Model architecture X is not supported in-tree anymore. Please install the plugin at <url>` | in `_OOT_SUPPORTED_MODELS` (`:764-769` — only `BartModel`, `BartForConditionalGeneration`, `Florence2ForConditionalGeneration`, `MBartForConditionalGeneration` at this pin) |
+| `Model architectures [...] are not supported for now. Supported architectures: [...]` | unknown architecture, the original gate above |
+
+Reporter-side one-liner (their install, not the pin):
+
+```bash
+python -c "from vllm.model_executor.models.registry import _PREVIOUSLY_SUPPORTED_MODELS as t; print(t.get('<Arch>'))"
+python -c "from vllm import ModelRegistry; print([a for a in ModelRegistry.get_supported_archs() if '<substr>' in a])"
+```
+
+A non-`None` first answer makes the removal upstream's, and the second tells the reporter whether
+any sibling in the family survived (`Baichuan-M1`/`M2` are different architectures and are not in
+the table — do not hand them over as a workaround without that check).
+
+**The message's own advice is half an answer on Ascend.** "Please use an older version of vLLM"
+is vLLM's sentence; vllm-ascend pins vllm per release, so a vllm-only downgrade breaks the
+plugin. Answer with the **pair** taken from the pinned `docs/source/community/versioning_policy.md`
+(*Release compatibility matrix*): find the row whose vLLM column is the last supporting version
+and read the vllm-ascend tag beside it (at `1f95052cb` the top row is `| v0.23.0rc1 | v0.23.0 | …`).
+Two honesty notes: that matrix describes **releases**, so a paste whose version is a dev build
+(`0.19.1rc2.dev1369+g1f95052cb`) is not a row — the `+g<sha>` suffix is the commit correspondence
+(here the pin itself) and the `.devNNNN` distance is not a release; and a release that predates
+the fix in question is invisible, so do not promise behaviour for a tag the snapshot cannot show.
+
+**Why the message says "removed" instead of naming the real reason.** `inspect_model_cls`
+(`registry.py:1218`) also tries the Transformers backend under `model_impl` `auto`/`transformers`
+via `_try_resolve_transformers` (`:1122-1192`), which reads the checkpoint's `auto_map` and
+returns `_get_transformers_backend_cls()` (`vllm/config/model.py:811-826`, i.e.
+`TransformersForCausalLM` in `_TRANSFORMERS_BACKEND_MODELS`, `registry.py:670-682`). Its two
+refusal paths return `None` **silently** under `auto` and `raise` only under
+`model_impl == "transformers"`:
+- no usable model class (transformers lacks the name **and** no `AutoModel*` entry in the
+  checkpoint's `auto_map` resolved, `:1169-1178`) → `ValueError: Cannot find model module. … is
+  not a registered model in the Transformers library … and 'AutoModel' is not present in the
+  model config's 'auto_map'`;
+- a class was found but `not model_module.is_backend_compatible()` (`:1181-1186`) →
+  `ValueError: The Transformers implementation of '<Arch>' is not compatible with vLLM.`
+
+So the removed-architecture sentence is already evidence that the fallback declined. Re-running
+the reporter's line with `--model-impl transformers --trust-remote-code` replaces that silence
+with one of the two texts above — the first means the checkpoint ships no usable `auto_map` (or
+its remote code failed to import, which `warn_on_fail=True` logs as a warning), the second means
+it loaded and vLLM refused the class. One launch, and it is the cheapest discriminating check.
+Read `config.json`'s `architectures` + `auto_map` beside it, not instead of it. Coverage caveat for this rung: at
+vllm-ascend `1f95052cb` a grep for `model_impl`/`TransformersForCausalLM` over the tree (code and
+`tests/`) is **empty**, so the backend is unvalidated on NPU — promise the diagnostic, not the
+outcome.
+
+**Keeping the newer vllm: register the architecture back.** `ModelRegistry.register_model("<Arch>",
+"<module>:<Class>")` from a `vllm.general_plugins` entry point (`vllm/plugins/__init__.py:18,77`)
+is the same mechanism vllm-ascend uses for its own models (`vllm_ascend/models/__init__.py:1-31`
+at this pin — Kimi-K3, DeepSeek-V4, MiniMax-M3, the drafter classes). `_raise_for_unsupported`
+is only reached when no class resolves, so a registration short-circuits it. But a registration
+is not a port: the removed file has to be adapted to the installed attention/linear API, and the
+acceptance is one real request compared against a known-good output — never
+`Application startup complete`.
+
+**The claim surface to check and report.** The support matrix can still claim the family while
+the paired upstream has no implementation at all: at `1f95052cb`,
+`docs/source/user_guide/support_matrix/supported_models.md:69-70` carries
+`| Baichuan | 🔵 | … | A2/A3 |` and `| Baichuan2 | 🔵 | …`, while `ls
+<vllm root>/vllm/model_executor/models/ | grep -i baichuan` is empty at `568afb3a`. A 🔵
+("experimental supported") row over a deleted architecture sends the next reporter down the same
+dead end — quote the row, name the tracking issue from the file header, and ask for it to be
+flipped with the last-supported version in the note.
+
+Pitfalls specific to this family:
+
+- Do **not** answer "upgrade transformers", and do not date transformers from the export: the
+  pinned `huggingface/transformers` is a `content_export` (`1515/5776` files) and contains no
+  `src/transformers/models/` at all (rule 3 of `../upstream-downstream-drift/index.md`).
+- Do not treat a `🔵`/`Need test` matrix cell as a capability verdict for a model whose
+  implementation is gone; the registry table at the *paired* upstream ref is the fact.
+- `--enforce-eager`, `--block-size`, `--max-model-len` and every device-side check are
+  irrelevant here: the raise is in `ModelConfig` validation, before a worker or an NPU exists,
+  so no plog is owed.
+
 ## Precedent, cheaply
 
 ```bash

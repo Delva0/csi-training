@@ -86,7 +86,12 @@ before answering "not supported".
   being loaded raises `Currently, vLLM Ascend doesn't support <type> for <layer>`
   and an unknown type raises `Currently, vLLM Ascend only supports following quant
   types: [...]` (`utils.py:107-121`) — a *later* failure, so name it before the
-  reporter converts and comes back with it.
+  reporter converts and comes back with it. From v0.15.0rc1 on, that map and both
+  messages are gone: coverage is the `@register_scheme` registry and a missing
+  pair raises `NotImplementedError: No compressed-tensors compatible scheme was
+  found for quant_type=…, layer_type=…` at model construction —
+  `compressed-tensors-scheme-gap.md`, and quote whichever message the paste's
+  frame names rather than this page's older wording.
 - Model support is a separate question: a converted checkpoint still has to be a
   registered architecture in that release
   (`model-type-not-recognized.md`, `environment-correspondence.md`).
@@ -514,6 +519,16 @@ So a reporter who first hit the config-time refusal and later meets §C's `KeyEr
 not seeing a regression introduced by the upgrade: the two messages date which method
 the engine resolved, and the verdict (that checkpoint cannot run) is the same. Say that
 before they file it as a new bug.
+
+**On A5 this whole section is out of date, and the surface changes.** At vllm-ascend
+**v0.23.0** (`5cb98ca`) the platform advertises `fp8`/`deepseek_v4_fp8`
+(`platform.py:140-145`) and `detect_quantization_method` accepts a
+`quant_method: fp8` checkpoint **only** on `AscendDeviceType.A5` (`utils.py:132-133`,
+`soc_version == 260`), where it is handed to `AscendFp8Config` — a DeepSeek-V4-only
+config registered under the generic name — so the start fails at construction with
+`AttributeError: '<Model>Config' object has no attribute 'o_groups'`, not with the two
+messages above. Do not carry this section's "that checkpoint cannot run" verdict onto a
+950PR report: `native-fp8-config-scope.md` owns it.
 
 Mechanism at the v0.11.0rc0 pin (source-verified at those two commits):
 `AscendQuantConfig.override_quantization_method` returns `ascend` whenever

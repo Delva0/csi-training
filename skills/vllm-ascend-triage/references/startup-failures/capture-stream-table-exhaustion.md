@@ -19,10 +19,17 @@ EL0006: … The resources are insufficient.
        begin capture stream failed, runtime result = 207005[FUNC:ReportCallError][FILE:log_inner.cpp:161]
 ```
 
-Recorded: **#2629** (v0.9.1, Qwen3 MoE with tp/dp/ep — `stream_id=1984` and `1985`) and
+Recorded: **#2629** (v0.9.1, Qwen3 MoE with tp/dp/ep — `stream_id=1984` and `1985`),
 **#8393** (image `v0.18.0rc1-a3`, A3, TP=4, Qwen3.5-9B, `--max-model-len 262144`,
-`--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'`). Same
-three lines both times, four releases apart.
+`--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'`) and
+**#5557** (v0.12.0rc1 `42ceaf0`, 910B4 32G cut into vNPUs with
+`npu-smi set -t create-vnpu … vir10_3c_32g`, `--task embed` on bge-m3 =
+`XLMRobertaModel`, 24 layers, TP=1, no MTP, `dtype float32`, 51 default sizes). Same
+three lines every time, five releases apart. #5557 is the plainest instance and the
+first where the budget *passed*: `Calculated maximum supported batch sizes for ACL
+graph: 72` then `No adjustment needed for ACL graph batch sizes: … with 51 sizes`, and
+the device still refused at graph **38 of 51** with `stream_id=2011` — ~53 streams per
+captured graph against the formula's `layers + 1 = 25` (§2).
 
 ## 1. What owns the failure, and the two lines that mislead
 
@@ -64,6 +71,19 @@ answer: recommend a reduced capture set for A3, and treat `HCCL_OP_EXPANSION_MOD
 as the code's lever **only after pricing both branches** (§3) — on a dense model the AIV
 branch *subtracts* `parallel_factor × resources_per_graph` from the budget.
 
+**The A2 branch under-counts too, and the failing `stream_id` prices it.** #5557 runs
+the FFTS+/A2 arithmetic (`floor((1800 - 0*40) / 25 / (1 + 0*2)) = 72`) on a 24-layer
+dense encoder with no collectives at all, and the table still ran out two-thirds of the
+way through a 51-size list — so "A3-flavoured" is a tendency, not a predicate, and a
+vNPU-partitioned card is not required for the symptom. The cheap discriminator between
+"this box's table is smaller" and "the formula's per-graph cost is wrong" is the
+refusal's own `stream_id`: a shrunk table would have stopped allocating near its size,
+while #5557 reached `2011` of the comment's ~2048, i.e. the table is full-size and the
+per-graph cost is what the formula under-states (`2048 / 53 ≈ 38` sizes fit). Both
+numbers — `stream_id` at refusal and `Capturing ACL graphs … N/M` — are readouts the
+reply needs; the 2048 itself stays an inference from the code's comment, not a device
+probe.
+
 ## 3. Reproduce the budget at the reporter's ref
 
 `vllm_ascend/utils.py:456-560` at `99e1ea0` (`update_aclgraph_sizes`, called from
@@ -103,10 +123,16 @@ asymmetry: `FULL_DECODE_ONLY`/`FULL` takes `platform.py:374-…`, which does **n
 `update_aclgraph_sizes` — a full-decode launch gets no budget rewrite at all, so ask which
 mode the log banner names (`PIECEWISE compilation enabled on NPU` vs
 `FULL_DECODE_ONLY compilation enabled on NPU`) before quoting a computed maximum.
-No stream-resource guidance is printed at this ref: `rg -n 'insufficient available
-streams|_STREAM_RESOURCE|207008' vllm_ascend/` returns nothing at `99e1ea0`, and the
-`207008`-gated hint of v0.21+ (`acl_graph.py:28-51`) does not exist yet — so "the log
-gave no advice" is expected, not a clue.
+**Whether the log carries the stream advice is ref-specific, and the interval is not
+monotone.** The block is present at v0.11.0rc0 (`model_runner_v1.py:3553-3565`) and at
+v0.12.0rc1 — `model_runner_v1.py:3143-3152` at `42ceaf0`, gated on a
+`retCode=([^,\s\.]+)` match for `0x7020023` and followed by `raise` — **absent** at
+v0.18.0rc1 (`99e1ea0`: `rg -n 'insufficient available streams|_STREAM_RESOURCE|207008'
+vllm_ascend/` returns nothing), and back `207008`-gated by v0.21+
+(`acl_graph.py:28-51`). So "the log gave no advice" is a v0.13-v0.20 statement only: at
+an earlier rc the advice block *is* in the paste, its presence says nothing about a
+fix, and at any ref it is printed for this retCode rather than for a measured stream
+budget.
 
 ## 4. Levers in order, and the one-variable rule
 
@@ -120,6 +146,17 @@ gave no advice" is expected, not a clue.
 4. Fewer captured graphs by construction: drop `--speculative-config` (removes the second
    51-graph run and the `+1` draft term) or lower `--max-num-seqs` — a sizing decision, and
    the answer should say which of the four it is testing.
+
+**On a pooling serve, the advice block's own solution 2 does not exist.** The
+`ACLgraph has insufficient available streams … Recommended solutions: 2. Utilize
+ACLgraph's full graph mode as an alternative to the piece-wise approach` text (and FAQ
+#18's second recommendation, which repeats it) is unreachable for `--task embed` /
+`score`: upstream overrides the mode — `WARNING … Pooling models do not support full
+cudagraphs. Overriding cudagraph_mode to PIECEWISE.` (`vllm/config/vllm.py:702` at vllm
+v0.13.0; the #5557 paste prints it as `[vllm.py:693]`, its vllm being v0.12.0, one line
+above `PIECEWISE compilation enabled on NPU`). So an embedding server's ladder is
+`--enforce-eager` or a reduced size set, and quoting the log's solution 2 back at the
+reporter buys a restart that changes nothing.
 
 Each lever must be tested one at a time. A "working command" that changed the capture set,
 the parallelism and `--max-model-len` together identifies none of them (the #16581 trap in

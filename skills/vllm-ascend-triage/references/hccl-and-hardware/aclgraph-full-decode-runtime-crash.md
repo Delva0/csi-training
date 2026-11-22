@@ -98,6 +98,20 @@ process (#6002, #8502) — and take the replay-time death from the other records
 block (`507011`, `fftplus aivector error`, `The DDR address of the MTE instruction is out of
 range`).
 
+**Read the paste's spelling before the header's.** #7448 prints `error code is
+587011` at `AclrtSynchronizeStreamWithTimeout(stream())`; the pin's
+`cann/runtime/include/external/acl/error_codes/rt_error_codes.h` has no `587…`
+code at all (its families are `107xxx` / `207xxx` / `507xxx`, with
+`ACL_ERROR_RT_MODEL_EXECUTE = 507011` at `:93`), so treat it as the MODEL_EXECUTE
+wrapper with a transposed digit, quote the code as reported, and do not spend a
+call looking for a definition. The same paste's `fftplus alvector error` is
+`fftsplus aivector error`. Grep the skill and the trees on the fragments (`fft`,
+`aivec`, `MTE DDR`), never on the reporter's whole phrase, or a matching row looks
+absent. Likewise the frame `compilation/acl_graph.py:281, in __call__` need not
+match the pin (`__call__` at `:100`, `current_stream().synchronize()` at `:201` at
+v0.17.0rc1): match the **function**, not the line number, and do not open the file
+to explain the offset.
+
 ## 2. The victim lines are victims
 
 `sqe_type=7(notify wait) … errType=0x20(sq sw status error)` on the model stream
@@ -107,6 +121,28 @@ second stream's copy reports the latched state. Do not read them as an HCCL,
 event or multi-stream bug — same attribution rule as
 `collective-error-chain.md`. The one structural fact worth keeping is that two
 streams were live, which §3 predicts.
+
+**A GE op-kernel-info init record is not the failing op.** The record class that
+rides along in this family reads `E29999: [InitOpInfoLib][InitOpKernel] Inconsistent
+format size [1] and data type size [1]!` → `[InitOpInfoLib] Model<Op>: failed to
+initialize unknown shape dtype and format. The input or output is input2.blockIDs`
+→ `[GraphOptLib][InitConstructOpKernelInfo] OpKernelInfo <Op> initialization
+failed. [FILE:sub_op_store.cc]`, on a `FULL_DECODE_ONLY` + `enable_npugraph_ex`
+launch (#7448 names `TransposeKvCacheByBlock` and `input2.blockIDs`). Three facts
+retire it, one call each, no source walk: (a) those strings are GE-owned
+(`op_kernel_info_constructor.cc`, `sub_op_store.cc`) and no export carries them — a
+single `rg -ln 'InitOpInfoLib'` over `/workspace/repos` returning nothing is the
+positive form of that; (b) the record's own stamp is the process's op-info init
+(#7448: `01:32:19` against the fault at `01:37:22`), i.e. GE building kernel info
+for the **whole custom-op package**, not a call site; (c) at v0.17.0rc1 the op it
+names has exactly one in-tree caller — `torch.ops._C_ascend.transpose_kv_cache_by_block`
+only from `vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py:599`
+(env gate `VLLM_ASCEND_FUSION_OP_TRANSPOSE_KV_CACHE_BY_BLOCK`, `envs.py:116`) — so
+a launch without `--kv-transfer-config` never runs it. `rg -n
+'transpose_kv_cache_by_block' vllm_ascend/ -g '*.py'` is the **entire** budget for
+that thread: do not follow it into the connector's `tp_num_need_pulls` /
+`is_deepseek_mla` algebra or the op's host tiling. The owner stays whatever killed
+the model stream (§1, §3-§7).
 
 ## 3. What FULL mode actually does per replay
 

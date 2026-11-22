@@ -164,9 +164,12 @@ after that keeps the header, not this text.
 - `scripts/310p-rope-branch.py <config.json | model dir>` — which 310P rope
   implementation a checkpoint lands in, from its own `config.json`: multimodal or
   not, `uses_mrope` (`mrope_section` in `rope_parameters`), `head_size` /
-  `rotary_dim`, the predicted `_rope_forward_oot` branch (a/b/c at
-  `_310p/ops/rotary_embedding.py:136-190`), whether that branch's cos/sin globals
-  are populated for a multimodal config, and the one probe that decides it (#11936,
+  `rotary_dim`, the predicted `_rope_forward_oot` branch (`:121-186` at v0.23.0rc1;
+  a = head 128 + full cache, b = partial rotary 64, c = no globals), whether that
+  branch's cos/sin globals are populated for a multimodal config, and which
+  recorded symptom that predicts — a `profile_run` crash with `Check cos != nullptr`
+  (#13522, `../soc-platform-paths/310p-vl-rope-cos-nullptr-startup.md`) or wrong
+  text out of a serve that came up (#11936,
   `../soc-platform-paths/310p-vl-ocr-garbage-output.md`). Exits 2 rather than
   guessing when `head_size` cannot be derived.
 - `scripts/init-none-attr-probe.py FILE [FILE ...]` — which `self.<x> = None`
@@ -250,6 +253,15 @@ after that keeps the header, not this text.
   boundary, the running-sequence count where dispatch flips to `NONE`, the
   padded size per step, and the `max_cudagraph_capture_size` A/B value with its
   truncation trap (#14440).
+- `scripts/rope-cos-sin-slice-check.sh --num-tokens N --size M [--paste <log|->]
+  [--width W | --head-size H --partial P] [--capture-sizes 1,4,8,16] [--num-spec K]
+  [--max-num-seqs S]` — the rope cos/sin reshape in one call: the row count
+  `M / width` against `num_tokens`, the two width candidates the allocation can take
+  (`head_size`, or `head_size × partial_rotary_factor` when the checkpoint carries that
+  attribute) with which one raises, the `pad_for_cudagraph` map the launch resolves to,
+  and a per-request-count table marking every count that raises and every count that
+  returns **wrong rope with no exception** — then the two next calls
+  (`rg -n 'update_cos_sin' vllm_ascend/`, the ablation ladder) (#6449 v0.14.0rc1).
 - `scripts/fia-tnd-seqlen-check.sh --query-t N --seqlen-last M [--paste <log|->]
   [--max-num-seqs S] [--num-spec K] [--capture-sizes 1,2,4,8,16,32] [--dp D]
   [--requests R] [--mode full|piecewise|eager]` — the FIA TND refusal in one

@@ -37,6 +37,12 @@ transport topology to inspect.
   a pool configured → the store segment size:
   `../pd-disaggregation/kv-pool-store-segments.md` and
   `scripts/kvpool-segment-check.sh`.
+- The request **succeeds**, nothing is stored, and there is **no error text at all** —
+  the master shows `PutStart` **0** and `PutEnd` 0 — on a launch that carries
+  `--speculative-config`: the pool was never handed a save. That is not the store and not
+  the segment size: `no-put-under-spec-decode.md` (spec decoding makes the runner defer
+  connector finalization, and the defer half of that port is what runs). The row below is
+  the *other* zero-store shape — it carries `HcclBatchPut … hccl_result = 4`.
 - The request **succeeds** but nothing is stored: prefill logs
   `Failed to invoke HcclBatchPut, hccl_result = 4` (or `HcclBatchGet`) and
   `Failed to put N keys out of N. error_codes=[-1]`, while the master shows
@@ -45,6 +51,17 @@ transport topology to inspect.
   `hccl-onesided-store-put.md` (one call: `scripts/store-put-code-check.sh
   <paste>`). `4` = `HCCL_E_INTERNAL` and `-1` = the store's unclassified
   `INTERNAL_ERROR`; an out-of-space put returns `-200`.
+- The pool **works for minutes and then one peer times out**: `Transfer timeout to:
+  <ip>:2009x, you can increase the timeout duration … ASCEND_TRANSFER_TIMEOUT` →
+  `transfer failed and disconnect to:` → `TRANSFER_FAIL (-800)` on the keys →
+  `Failed to complete transfers after 60 seconds` → `revoke … OBJECT_NOT_FOUND` →
+  `Target adxl engine: … is not connected.` for peers that never failed → optional
+  `!!! Segfault encountered !!!` in `AscendDirectTransport::processSliceList` →
+  `std::_Hashtable<unsigned long, …>::erase`, on an **aggregated** `kv_role: kv_both`
+  pool with no P/D split → `store-put-transfer-timeout-and-adxl-segfault.md`. The
+  `503900` that appears *after* the first timeout is a downstream slice status, not the
+  startup channel-prepare code, and the `ASCEND_TRANSFER_TIMEOUT=10000` the project's
+  own recipe exports equals the code default, so it changes nothing.
 - The pool **writes** fine and cross-engine keys are visible, but the read path returns
   nothing: `vllm:external_prefix_cache_hits_total` stays 0 while `…_queries_total` grows,
   `batch_is_exist` answers 1 for every queried key, and `find_longest_cache_hit` /
@@ -149,6 +166,22 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   master `PutStart`/`PutRevoke`/`PutEnd` reading that proves the control plane
   worked, which build flags pick the `ascend` transport, why the emitter is not in
   any pinned export, and the two artefacts that decide the rest.
+- `no-put-under-spec-decode.md` — the pool stays empty with **no error anywhere** and spec
+  decoding on (recorded #8002, v0.18.0rc1 `99e1ea0` / vllm v0.18.0 `bcf2be9`): upstream splits
+  the connector lifecycle into `defer_*` + `finalize_kv_connector()` (`gpu_model_runner.py:3768`,
+  `:4047`, mixin `:81-89`), the downstream copy keeps only the defer (`model_runner_v1.py:1367`,
+  `:1580-1581`) and calls no `finalize_kv_connector` anywhere, so `wait_for_save()` — the only
+  enqueue point for `pool_worker.py:329-352` — never runs. Carries the two-grep check, the
+  one-line repair, the put/hit acceptance test, the layerwise and `kv_role` exceptions, and the
+  general reading of a half-ported defer/finalize contract (absence is the evidence).
+- `store-put-transfer-timeout-and-adxl-segfault.md` — puts land, then one ADXL peer
+  times out every 10 s, `-800` on the keys, 60 s batch timeout, `OBJECT_NOT_FOUND` on
+  the revoke and a crash in `processSliceList`: which lines are downstream (all of
+  them), the recorded `mooncake.json` and why the K8s Service port remap and the
+  `20000 + phy_id*100` endpoint band are not findings, the doc's 3000 ms default vs the
+  header's 10000 ms (so the recipe's own value is a no-op), the crash frame's build
+  divergence, and the six checks in order — starting with making the failure repeatable,
+  because the recorded case closed with no confirmed cause.
 - `prompt-token-counter-negative.md` — the APIServer `Counters can only be incremented …`
   `ValueError` on a pool-attached serve: the `cached + recomputed - external` identity at
   vllm v0.18.0 (`stats.py:280-286`), why the reporter's `cached + external > prompt_len`

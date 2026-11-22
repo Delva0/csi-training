@@ -145,7 +145,10 @@ req_has_tnp="$(grep -cE '^[[:space:]]*torch-npu[=<>! ]' "$req" 2>/dev/null || tr
 setup_feeds=""
 [ -f "$asc/setup.py" ] && grep -q 'get_requirements()' "$asc/setup.py" && setup_feeds=1
 
-echo "== findings"
+echo "== findings (read every line -- do NOT pipe this section through 'head -N':"
+echo "   the cross-repo vllm<->vllm-ascend torch-line finding sits at the end, with only"
+echo "   the torchvision line after it, and it is the answer when the report names"
+echo "   vllm's own torch pin)"
 n=0
 if [ -n "$tnp_exact" ] && [ -n "$torch_floor" ] && [ "$tnp_exact" = "$torch_floor" ]; then
   n=$((n+1)); echo "$n. [build-system] pins \"$bs_tnp\" beside \"$bs_torch\": the two specs are only"
@@ -194,6 +197,7 @@ if [ -n "$a_tv" ] && [ -n "$v_tv" ] && [ "$(mm "$a_tv")" != "$(mm "$v_tv")" ]; t
   echo "   '$a_tv_op'. Each torchvision 0.2x belongs to one torch line, so this is the same split."
 fi
 [ "$n" = 0 ] && echo "no contradiction found among the pins that are present (check the loose '>=' pins by hand)."
+echo "== end of findings"
 echo
 echo "state the verdict with these labels: source-verified at <ref>, or hypothesis."
 exit 0

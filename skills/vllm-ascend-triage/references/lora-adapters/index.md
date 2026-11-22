@@ -3,7 +3,7 @@
 ## Scope
 
 The deployment was started with `--enable-lora` / `--lora-modules` and the
-complaint is one of eight shapes:
+complaint is one of nine shapes:
 
 - **It dies on a request**, after a clean startup, with an ACL/CUDA
   graph-capture error (`CUDA graph capturing detected at an inappropriate time.
@@ -62,12 +62,22 @@ complaint is one of eight shapes:
   three silent gates — the AscendC kernels' compile-time dtype branches, the exact-type
   module replacement, and only then the graph lane — have a fixed order:
   `identical-output-adapter-dropped.md`.
+- **It never starts: the engine dies during init** with
+  `RuntimeError: hidden in should be smaller than hidden out` as the only error text
+  (the container starts, the engine does not, `--enforce-eager` changes nothing), on a
+  serve whose adapter targets a **packed** module — on Qwen3.5's GDN that is
+  `in_proj_a`/`in_proj_b` (one `in_proj_ba` of `[linear_num_value_heads] * 2`) or
+  `in_proj_qkv`/`in_proj_z`. One arithmetic decides it: the AscendC expand op refuses
+  `--max-lora-rank` wider than the narrowest targeted slice, so a rank-64 adapter on a
+  32-wide part cannot start → `rank-vs-output-slice-assert.md`.
 
 Evidence that decides these: the two serve commands (with and without
 `--enable-lora`), **which phase** the failure sits in (engine init / profile run
 vs request time vs capture), the SoC and whether graph capture is possible on it, the
-adapter `r` / `target_modules` / dtype, and for the crash the **worker**
-traceback above the `Worker failed with error` wrapper. For the VL shape, the
+adapter `r` / `target_modules` / dtype, for the width shape the serve line's
+`--max-lora-rank` against the model's `linear_num_value_heads` (the rank in that
+check is the engine's *buffer* width, not the adapter's `r`), and for the crash the
+**worker** traceback above the `Worker failed with error` wrapper. For the VL shape, the
 `target_modules` list and the server's `… will be ignored` warning decide it,
 and the memory question needs the allocator line plus `npu-smi info`, not a
 shape.
@@ -175,7 +185,7 @@ Not this topic, leave immediately:
    `select_gemm_impl` reaches a CUDA-only import, so `NameError: name 'TritonExperts' is
    not defined` (`#6114`). One run splits adapter from pin: the same command with
    `--enable-lora` and **no** `--lora-modules` → `moe-base-enable-lora-gates.md`.
-8. **A serve with no error, no warning and base-identical answers is a *dropped* adapter,
+9. **A serve with no error, no warning and base-identical answers is a *dropped* adapter,
    and the dtype half of the backend contract comes before graph mode.** On everything but
    310P the adapter math is AscendC (`punica_npu.py:9-16`), whose dtype branches are
    compile-time gated with an empty `else { return; }`
@@ -184,3 +194,15 @@ Not this topic, leave immediately:
    reporter-confirmed on #3668, and `--enforce-eager` rung 2. The pin's only LoRA e2e rows
    are eager + `dtype="half"` and none compares adapter output against the base model,
    which is exactly why a dropped adapter passes CI → `identical-output-adapter-dropped.md`.
+
+10. **`hidden in should be smaller than hidden out` is a width comparison, and the two
+    widths are the whole case.** The AscendC expand refuses
+    `--max-lora-rank > slice width` (`csrc/torch_binding.cpp:476,561`, `x.size(1)` is
+    the shrink buffer, sized from `max_lora_rank`), where the slice is the packed
+    module's per-part output (`column_parallel_linear.py:196-202`). So lowering
+    `--max-lora-rank` to the adapter's `r` cures an over-provisioned flag, while an
+    adapter whose `r` exceeds `in_proj_a`/`in_proj_b` cannot start under any flag
+    value and needs those targets dropped; the `--max-lora-rank 128` torch-path
+    demotion confirms the mechanism but re-opens the compile guard
+    (`rank-vs-output-slice-assert.md`). Graph mode, dtype and version pairing are all
+    refutable here without a source walk.

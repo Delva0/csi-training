@@ -204,6 +204,18 @@ Inherit the rules in SKILL.md. Conditional routes:
   only two serve commands are pasted → this is a budget question, not a startup
   lane: `../deploy-sizing/tp-scaling-oom-at-startup.md` (one call:
   `../../scripts/oom-budget-split.sh`).
+- `Value error, Model architecture <Arch> was supported in vLLM until v0.23.0, and is not
+  supported anymore.` (or the sibling texts `…is not supported in-tree anymore. Please install
+  the plugin at <url>` / `Model architectures [...] are not supported for now`) inside a
+  `ValidationError for ModelConfig` — the architecture was **removed from upstream vLLM**, so
+  this is not a transformers gap and not a vllm-ascend bug:
+  `model-type-not-recognized.md` §*the removed-architecture family*. The sentence names the last
+  supporting vllm, which on Ascend means the **pair** from
+  `docs/source/community/versioning_policy.md`, never a vllm-only downgrade; the same section
+  carries the reporter-side one-liner (`_PREVIOUSLY_SUPPORTED_MODELS`), why the message hides an
+  already-declined Transformers-backend fallback (`--model-impl transformers` is the
+  discriminating relaunch), the `ModelRegistry.register_model` rung, and the support-matrix row
+  to report as stale. Answer the capability verdict first — nothing loads at the reporter's pin.
 - `value error, the checkpoint you are trying to load has model type '<mt>' but
   Transformers does not recognize this architecture`, `Model architectures [...]
   are not supported`, or the bare question "can version V deploy model M?" →
@@ -398,6 +410,15 @@ Inherit the rules in SKILL.md. Conditional routes:
   `.../scripts/checkpoint-key-prefix.py --dtypes <model dir>` decides it from the
   safetensors headers, and `config.json` does not (the conversion guide has converters
   delete those fields first).
+  A **fifth** form is raised by vllm-ascend's own compressed-tensors
+  reimplementation, in the worker at model construction, and it names the pair
+  instead of the method: `NotImplementedError: No compressed-tensors compatible
+  scheme was found for quant_type=W4A16, layer_type=linear` from
+  `vllm_ascend/quantization/compressed_tensors_config.py`
+  (`@register_scheme` registry, apex `get_scheme_class`) →
+  `compressed-tensors-scheme-gap.md`. It is a per-layer **support gap** at that
+  ref (W4A16 is MoE-experts-only at v0.15.0rc1, docs table + registry), not a
+  flag/image question, and no serve flag can move it.
 - A **VL-MoE** quantised serve fails at the same family in
   `vllm/model_executor/models/qwen3_vl_moe.py:279`, reached through
   `models/qwen3_vl.py:2083` → `models/utils.py:335` → `model_loader/online_quantization.py:173`
@@ -467,6 +488,18 @@ Inherit the rules in SKILL.md. Conditional routes:
 - `AttributeError: '<Model>Config' object has no attribute '<attr>'` raised inside
   `vllm_ascend/distributed/*connector*.py` from `ensure_kv_transfer_initialized`
   (typically a VL/MoE model under PD disaggregation) → `connector-config-attributes.md`.
+- Construction-phase `AttributeError: '<Model>Config' object has no attribute
+  'o_groups'` (or `o_lora_rank`), over
+  `ops/linear.py` → `fp8_config.py get_quant_method` → `create_scheme_for_layer(…,
+  "ds_linear", …)` → `methods/fp8.py`, on a checkpoint the publisher released in FP8
+  (a `…-FP8` directory whose `config.json` declares `quantization_config.quant_method:
+  "fp8"`), with `Using the vLLM Ascend fp8 Quantization now!` above it → the Ascend
+  `fp8` config **is** the owner and it implements only the DeepSeek-V4 MLA layout:
+  `native-fp8-config-scope.md`. Two facts redirect the search away from flags and
+  drift: detection hands `fp8` to this class only on A5 (`utils.py:132-133`,
+  `soc_version == 260`), and `--quantization fp8` resolves back to the same registered
+  class — so the deliverable is BF16 or a modelslim W8A8 export plus the code fix, and
+  `getattr(..., 0)` is a stopgap whose acceptance is one request, not a healthy port.
 - The startup `TypeError` is `linear(): argument 'input' (position 1) must be Tensor,
   not tuple` (or `not list`) raised in `profile_run`/`determine_num_available_blocks`,
   every failing frame inside the **pinned upstream model file** → `layers/linear.py

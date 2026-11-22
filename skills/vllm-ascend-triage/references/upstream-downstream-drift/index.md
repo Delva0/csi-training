@@ -8,7 +8,17 @@ object has no attribute '<x>'`, `TypeError: ... unexpected keyword argument`,
 `ImportError: cannot import name ...`, a signature or return-shape mismatch, or a
 forward body that no longer matches the library it mirrors.
 
-Inherit the rules in SKILL.md. This topic is the right entry when:
+Inherit the rules in SKILL.md. **Before using a pinned upstream file to rule a
+code path *out*, check the paste's frame alignment**: `SOURCES.json` often pins
+the upstream repo by guess (`basis: plugin_dockerfile_default`,
+`runtime_commit_verified: false`), so `grep -n` each pasted `<file>:<line>`.
+When the downstream frames match exactly and the upstream ones drift by a few
+lines — more, further down the file — the pin's upstream commit is not the
+reporter's, and a "this path cannot produce that argument" conclusion is the
+drift, not a finding: answer from the downstream frame
+(`../startup-failures/compressed-tensors-scheme-gap.md`, recorded #7076, where
+ten turns went into that proof and no message was sent). This topic is the right
+entry when:
 
 - the failing frame is in `vllm_ascend/ops/`, `vllm_ascend/patch/`,
   `vllm_ascend/models/` or `vllm_ascend/attention/`

@@ -54,10 +54,15 @@ version, gaps stated.
   needs `hostNetwork: true`), or KV moves and the decode node emits wrong/alternating
   output on a hybrid linear-attention model (GDN/Mamba — but a **DSA/MLA** model such
   as GLM-5.2 that repeats one phrase to the token cap is a recipe-contract question
-  first: `../pd-disaggregation/recipe-contract-diff.md`), or a KV pool is attached and the *first*
-  transfer fails (`503900` / `HcclCommPrepare ret: 0x13`, the pool's
-  `global_segment_size` the cause), or the put never lands (`HcclBatchPut,
-  hccl_result = 4`, `PutEnd` 0), or the decoder never receives the request
+  first: `../pd-disaggregation/recipe-contract-diff.md`), or a KV pool is attached and
+  the *first* transfer fails (`503900` / `HcclCommPrepare ret: 0x13`, the pool's
+  `global_segment_size` the cause), or the pool serves for minutes and then one ADXL
+  peer times out (`Transfer timeout to:`, `TRANSFER_FAIL (-800)` on the keys,
+  `is not connected` for peers that never failed, optional `processSliceList`
+  segfault — `../kv-pool-store/store-put-transfer-timeout-and-adxl-segfault.md`,
+  and note the recipe's `ASCEND_TRANSFER_TIMEOUT=10000` is the code default), or the
+  put never lands (`HcclBatchPut, hccl_result = 4`, `PutEnd` 0), or the decoder never
+  receives the request
   (`proxy通信超时`) — an endpoint-count question before any connector read; transport
   identity and rank tables are a topology question, a pool deployment a config
   question — `../pd-disaggregation/index.md`.

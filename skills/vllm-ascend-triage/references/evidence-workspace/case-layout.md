@@ -32,6 +32,19 @@ sed -n '240,300p' path/to/file.cpp
 is no divergence history, so "when was this introduced" cannot be answered from the export.
 Say that instead of guessing.
 
+**The `vllm` pin is not automatically the version the vllm-ascend pin pairs with.** Check the
+pairing before quoting upstream code as the failing version:
+`rg -n "vllm_version|pip_vllm_version|ci_vllm_version" <root>/vllm-ascend/docs/source/conf.py` and
+`requirements.txt`. Recorded #2975: `SOURCES.json` pins vllm-ascend `v0.10.2rc1` (`048bfd5`) with
+upstream `vllm v0.9.1` (`b6553be`) while `conf.py:68` says `'vllm_version': 'v0.10.2'` — the
+upstream tree is the older *working* side (the reporter's own 「0.9.1没有问题」), so its code cannot
+show the regression and `rg` for a 0.10-only string there returns nothing. In that situation the
+failing pin's evidence is the **downstream copy** of the shared machinery
+(`vllm_ascend/worker/model_runner_v1.py`, `vllm_ascend/core/scheduler.py`, `vllm_ascend/patch/**`),
+with the upstream tree as the comparison side; state the absent version as a gap instead of
+reconstructing it from memory (`../upstream-downstream-drift/patch-copy-vs-upstream.md`,
+`../multimodal-inputs/empty-message-500-encoder-cache.md`).
+
 The release's own validation record (vllm-ascend ships one per release when present):
 
 ```bash
@@ -63,10 +76,14 @@ first, so a prefix read returns the title and the environment and no symptom —
 two calls for one body (`sed -n '1,60p'`, then an inline `awk '/Describe the bug/{f=1} f'`).
 `history-body.sh` takes several ids per call, prints `<id> :: <title>` plus the body with
 the fenced dump replaced by a marker, and drops `<details>`/`<summary>` furniture so `-n`
-counts report text. Keep the dump reachable with `--env`: it is the artefact when the
-question is the torch_npu/CANN pin, the card count or host RAM, and reporters also type
-free prose into that field (#4554's whole symptom sits there). Flat layout:
-`/workspace/history/<issue>.md`.
+counts report text. Do **not** then slice the script's own output with
+`sed -n 'A,Bp'`: the default cap is 80 lines, so `history-body.sh <id> | sed -n '120,260p'`
+prints nothing at all and reads as an empty body (two such calls in the #10532 run). Pass
+`-n 0`, `-n <lines>` or `-g REGEX` instead, and read the `... (N more lines; raise -n or use
+-g REGEX)` marker the script prints. Keep the dump reachable with `--env`: it is the
+artefact when the question is the torch_npu/CANN pin, the card count or host RAM, and
+reporters also type free prose into that field (#4554's whole symptom sits there). Flat
+layout: `/workspace/history/<issue>.md`.
 
 **A `not found` id is usually newer than the corpus, not a missing precedent.** Each
 case view's corpus stops at the highest `<id>.md` it carries (at the #6533 view:

@@ -185,6 +185,20 @@ at request time. The shapes:
   vllm ≥ v0.22.1 reclassifies that half as prefill instead of asserting
   (`mixed-spec-and-plain-decode-assert.md`).
 
+- or it dies at **request time on the host, with no device frame**, in the host-side
+  reshape of the Triton rope helper — `RuntimeError: shape '[6, -1]' is invalid for
+  input of size 512` at `vllm_ascend/ops/triton/rope.py` `cos = cos.view(num_tokens, -1)`,
+  stack `mtp_proposer.py _propose` → `self.model(...)` →
+  `ops/rotary_embedding.py _rope_forward_oot` → `rope_forward_triton`, usually on a
+  serve carrying `--async-scheduling` + `--speculative-config` with
+  `num_speculative_tokens: 1` + an explicit `cudagraph_capture_sizes` list: the cos/sin
+  slice is a **process-global** that the *target* refreshes with its
+  `pad_for_cudagraph`-padded positions while the MTP proposer never refreshes it (the
+  EAGLE proposer does), so the two counts differ on any step whose token count is not a
+  capture size. One division (`cos.numel() / width`) and one grep
+  (`rg -n 'update_cos_sin' vllm_ascend/`) name it; the model's rope width is not the
+  question (`rope-cos-sin-slice-token-mismatch.md`, recorded #6449).
+
 Not this topic: a first-request fault whose only extra axis is PP > 1
 (`../pipeline-parallel/spec-decode-first-request.md`), a launch/startup failure
 (`../startup-failures/index.md`), a drafter that refuses to **load** (a load-phase
@@ -405,6 +419,21 @@ from the acceptance numbers.
   `0 < temperature < 1` branch anchor in the rejection sampler with what remains
   unverified, the ladder (async off → MTP off → token step), and the upstream fix
   shape (#8724).
+- `rope-cos-sin-slice-token-mismatch.md` — `RuntimeError: shape '[N, -1]' is invalid
+  for input of size M` at `ops/triton/rope.py`'s `cos = cos.view(num_tokens, -1)` under
+  MTP: why `cos` is a **process-global** (`set_cos_and_sin` / `update_cos_sin` /
+  `get_cos_and_sin_slice` at `ops/rotary_embedding.py:87-97,147-168`, read at `:189`,
+  Triton branch `:218-232`), the division that splits `M` into a width and a row count
+  (`scripts/rope-cos-sin-slice-check.sh`), the one bounded grep whose **absence** in
+  `mtp_proposer.py` is the finding while `eagle_proposer.py:326/506/670` refreshes it,
+  the `FULL_DECODE_ONLY` + `--async-scheduling` gate that unpads the drafter
+  (`eagle_proposer.py:138-141` → `mtp_proposer.py:245-249`) against the target's
+  `pad_for_cudagraph` (`model_runner_v1.py:587-591`, vllm
+  `config/compilation.py:1126-1138`), the crash-vs-silent-corruption table over request
+  counts, why the rope width (head size vs `partial_rotary_factor`) must not be hunted
+  through a truncated `transformers` export, the 1/2/3-request confirmation and the
+  ladder, and the recorded #6449 row (GLM-4.7 `mtp`, TP16, v0.14.0rc1; the recorded run
+  shipped no message text).
 - `draft-full-graph-metadata-unwired.md` — `AttributeError: 'ForwardContext' object
   has no attribute 'draft_attn_metadatas'` on a **dense** drafter with `FULL_DECODE_ONLY`:
   the five-site chain at v0.14.0rc1 (helper accepts the list, `acl_graph` and the

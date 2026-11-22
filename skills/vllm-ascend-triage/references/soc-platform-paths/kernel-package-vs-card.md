@@ -221,6 +221,7 @@ registered for the SoC). The phrase that separates the three is one clause:
 | `Get path and read binary_info_config.json failed … opp_kernel package is installed!` | the manifest file was **never found** | install / environment of that process |
 | `EZ1001 Get regInfo failed … does not support opType [X] … socVersion [Y]` | the manifest was read, this SoC has no entry for the op | build stamp, stale vendor package, image tag (`../custom-ops-runtime-faults/op-not-registered-for-soc.md`) |
 | `EZ9999 Parse dynamic kernel config fail` / `Op <X> does not has any binary` | the manifest was read, no kernel binary at all | image/CANN kernel package vs the live card (this page, above) |
+| plog `[<dir>/<op>.json] is invalid or does not exist` for that same op (console `EI9999`), reporter on a supported card | the manifest was read; this op's kernel-config **file** is missing/unreadable — installed OPS content, not the image line | reinstall CANN **OPS** + **NNAL** in the container (this page, the per-op file wording) |
 
 Three checks, in this order — the first is the sentence's own precondition:
 
@@ -257,3 +258,54 @@ python3 -c "import torch, torch_npu; x = torch.randn(8, 2*512, dtype=torch.float
 
 The same `EZ1001` there makes it the container, not vLLM; a pass sends the case back to the
 model path with the `profile_run` shapes.
+
+## The per-op **file** wording: `<op>.json is invalid or does not exist`
+
+Verified against vllm-ascend v0.14.0rc1 (`52d4acfa`) + vllm v0.14.1 (`d7de043d`),
+recorded for **#6370** ("The x86 image of vllm-ascend v0.14.0rc1 … `zeros_like.json` is
+invalid or does not exist"), **resolved by the original reporter**: reinstalling the CANN
+**OPS** package and **NNAL** fixed it (issue comment, 2026-01-28). No image-tag change and
+no serve flag. Container death is at worker init, on the first device `torch.zeros`
+(console `EI9999` "for the operator `aclnnInplaceZero_1_ZerosLikeAiCore`" on the console,
+plog `[<dir>//zeros_like.json] is invalid or does not exist`).
+
+This is the *per-op content* form of the same drawer as the wordings above: the op
+manifest was read, but the op's own kernel-config json is missing or unreadable — so it
+is **defective/incomplete installed ops content in that container**, i.e. the
+"incomplete / partial install on a supported card" row of "Split the two causes" above,
+not the wrong-image-line row. On a card `docs/source/faqs.md:13` lists, "reinstall OPS +
+NNAL" belongs in the first message; the two candidates #6370's investigation ranked
+ahead of it (A2 image on an A3 card; the amd64 CANN base shipping no ops) were neither
+what the reporter reported fixing.
+
+Three reading rules:
+
+- **`EI9999` is not the owner.** `scripts/cann-error-lookup.sh EI9999` finds it in no
+  exported error table ("not in the exported tables"), and the one wider grep that hits is
+  `cann/hcomm/src/pub_inc/adapter_error_manager_pub.h:18`
+  `constexpr char HCCL_RPT_CODE[] = "EI9999";` — HCCL's fixed report code, not a statement
+  that HCCL failed. The *op name* and the *json file name* name the owner
+  (`ZerosLike` → `zeros_like.json`), so quote those two names rather than the code.
+- **The path is redacted in the report** (`//zeros_like.json`), so the double slash and a
+  guessed directory are not evidence; ask for the verbatim plog block or run the probe.
+- **The file's package is in the pin's install list.** At v0.14.0rc1
+  `docs/source/installation.md:92-104` installs `Ascend-cann-toolkit_8.5.0…run --full`,
+  then `Ascend-cann-910b-ops_8.5.0…run --install`, then `Ascend-cann-nnal_8.5.0…run
+  --install`, each as `linux-"$(uname -i)"` — so on x86 the OPS and NNAL runs are the
+  `x86_64` ones and those are the two to reinstall. Package names move per release
+  (v0.7.3's list is `Ascend-cann-kernels-910b`).
+
+Ladder, in this order:
+
+1. Framework-free probe in the same container, no vLLM:
+   `python3 -c "import torch, torch_npu; print(torch.npu.get_device_name(0)); print(torch.zeros(8, device='npu:0'))"`
+   — the same failure ends the investigation on the container's CANN, not vllm-ascend.
+2. `npu-smi info` against `docs/source/faqs.md:13` (A2 / A3 / 300I kernel families): a
+   supported card keeps this in the reinstall lane; an unlisted card is the image-line row.
+3. Reinstall the OPS package **and** NNAL of the image's own CANN version, then repeat
+   step 1; ask for the install identity (`ascend_toolkit_install.info`, `npu-smi info`,
+   the `.run` versions) so "reinstalled" is checkable rather than asserted.
+
+Do not walk source for the json: `cann/ops-*` and `cann/opbase` are outside every export
+at this view — #6370's `grep -rln 'zeros_like.json'` over the pinned trees returned
+nothing, and the same grep is expected to return nothing at any pin.

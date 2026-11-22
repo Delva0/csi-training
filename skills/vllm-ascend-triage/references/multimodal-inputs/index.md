@@ -12,7 +12,11 @@ M-RoPE positions for a new request (`get_mrope_input_positions`,
 `image_grid_thw[image_index]`), with `EngineDeadError` at the API server — **or** a
 serve launched with `--mm_processor_cache_type shm` that dies on a request with
 `ValueError: Data for address:id '<addr>:<id>' has been modified or is invalid.` from
-upstream's `shm_object_storage.py` in every worker (`shm-mm-cache-invalid-object.md`), **or** a `KeyError: '<modality>'` (`audio`) raised in
+upstream's `shm_object_storage.py` in every worker (`shm-mm-cache-invalid-object.md`),
+**or** a chat completion that comes back `500` with an OpenAI-shaped body whose
+`message` is the **empty string** while the engine keeps serving the next request
+(`{"error":{"message":"","type":"Internal Server Error",…}}` — a bare `assert`
+in the V1 encoder-cache gather, `empty-message-500-encoder-cache.md`), **or** a `KeyError: '<modality>'` (`audio`) raised in
 the model file's `get_input_embeddings` on
 `attn_metadata.multi_modal_placeholder_index_maps['audio']`, usually during memory
 profiling rather than on a request (`placeholder-index-map-keyerror.md`).
@@ -108,6 +112,18 @@ Inherit the rules in SKILL.md.
   patch is `_merge_multimodal_embeddings`), and the one-flag ladder
   (`--mm_processor_cache_type` back to `lru`, then `--mm-processor-cache-gb 0`, then one
   buffer name per host).
+- `empty-message-500-encoder-cache.md` — a `500` whose body is
+  `{"error":{"message":"","type":"Internal Server Error","param":null,"code":500}}`
+  on a request that repeats the same image/video, with no traceback in the paste
+  (recorded #2975, Qwen2.5-Omni-7B video on v0.10.2rc1): `type` is
+  `HTTPStatus(500).phrase` and `message` is the exception's `str`, so an empty message
+  is a **bare `assert`** and every decoder/dependency row is out; then the pairing
+  step (`SOURCES.json` pins upstream `vllm v0.9.1` while the vllm-ascend tag's
+  `conf.py` says `v0.10.2`, so the upstream tree is the older *working* side), the
+  downstream copy that carries the failing version's evidence
+  (`vllm_ascend/worker/model_runner_v1.py:257,907,945-949`), the hash-keyed vs
+  per-request encoder cache (`free_encoder_mm_hashes` vs `free_encoder_input_ids`) and
+  the same-video / different-video ablation.
 - `placeholder-index-map-keyerror.md` — `KeyError: 'audio'` from the **V0** branch of
   the model file (#1087, Ultravox on v0.8.5rc1): the `VLLM_USE_V1` lane is the
   discriminator (the V1 branch merges by placeholder token id and never reads the map),

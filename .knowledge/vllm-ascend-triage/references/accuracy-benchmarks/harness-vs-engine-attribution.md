@@ -133,3 +133,39 @@ theory (`finish_reason` plus `usage.prompt_tokens` against the tutorial's `max_p
 *structure* regression is also invisible to both instruments CI has at that pin — an
 aggregate MMMU row and a "non-empty output" assert — so CI green is not a refutation:
 `vl-vision-tower-degeneracy.md` §*Fifth pin*.
+
+## Reading the OCR'd score table: pair nothing by row order (#10068)
+
+`ls /workspace/attachments` → `ATTACHMENTS.txt` plus `screenshot-*.ocr.txt`. The
+export is a Windows offline OCR of a **screenshot**, and its line order is not the
+table's: the header and label columns come out as one run of lines
+(`Metric`, `Model`, `qwe n 3` ×15, `P ro`, `acc`, `Subset`, `computer science`,
+`math`, …) and the numeric column as a *separate* run (`0.8683`, `0.9423`, …). So
+**row order carries no pairing**, and a per-subset delta read off it invents its own
+anomaly (a `law 0.5985` beside a `91.87`). Pair a label with a number only when an
+independent line fixes it — there the log tail printed
+`accuracy 76.9028871391076` and the label list contains `pro-weighted 76.90`, so that
+one pair is real and everything else is an unordered set.
+
+What the artefacts still settle without pairing, and in this order:
+
+- **Coverage.** evalscope's per-subset `Num` column summing to **12 032** is the full
+  MMLU-Pro test set, so `--limit`, a subset list and a partial run are retired in one
+  addition — before any cause is ranked.
+- **Which aggregate each side printed.** evalscope shows one `OVERALL` for the item
+  set; ais-bench printed `naive average 86.12`, `weighted average 86.85` *and*
+  `pro-weighted 76.90`. Quote both ais-bench columns against the one evalscope number
+  and say which comparison you made — a naive subset mean and an item-level overall are
+  different aggregates and the difference is worth ~1 point here.
+- **The direction of the gap against the vendor.** A vendor blog table OCR'd the same
+  way (column interleaving) is unusable for a precise claim, but its MMLU-Pro row is in
+  the same band as ais-bench, i.e. the reporter's *evalscope* number is the outlier —
+  that is the sentence the case needs, not a per-subset table.
+- **The spread of the number column** (`0.5985 … 0.9423`) survives as a *weak shape*
+  signal for lost-sample accounting (long-CoT subsets losing answers) versus a uniform
+  numeric drop; label it weak, because the labels are gone.
+
+Never rank a cause on a per-subset delta from an OCR table. The artefacts that end the
+argument are the ais-bench `summary_*.csv` / `summary_*.txt` paths its own log printed
+(`write summary to /…/summary/summary_….txt`) and the evalscope `reports/<model>/*.json`
+— ask for those two, and do not spend reasoning on re-pairing the blocks.

@@ -24,7 +24,11 @@ Usage:
 
 ``--scales`` switches to the quantisation census instead: which ``.scale`` /
 ``.weight_scale`` / ``.quant_bias`` tensors the checkpoint carries, grouped by module
-family, plus whether the directory declares a quantisation at all.  It answers the
+family, plus whether the directory declares a quantisation at all, and the
+``quant_model_description.json`` ``version`` / ``group_size`` pair that decides the
+W4A8 MoE scale_bias load path (``version: "1.0.0"`` + ``group_size: 0`` predicts the
+load-phase ``expanded size … must match the existing size`` crash; page
+references/startup-failures/quant-aux-param-tp-shape-mismatch.md).  It answers the
 mirror question of the prefix mode — a load-phase ``KeyError: '<param>.weight_scale'``
 means the checkpoint owns a scale the engine built no parameter for, and the census
 says whether the served directory is a quantised export (then the ``--quantization
@@ -195,6 +199,20 @@ def report_scales(names, source, path):
     print()
     print("quantisation declarations:")
     print(f"  quant_model_description.json:  {'present (modelslim/msmodelslim export)' if desc is not None else 'absent'}")
+    if desc is not None:
+        ver, gs = desc.get("version"), desc.get("group_size")
+        gs_eff = 256 if gs is None else gs
+        print(
+            f"  quant_model_description.json version={ver!r} group_size={gs!r}"
+            f"  -> new_quant_version={ver == '1.0.0'} is_per_channel_weight={gs_eff == 0}"
+        )
+        if ver == "1.0.0" and gs_eff == 0:
+            print("    W4A8 MoE per-channel + new quant version: the scale_bias params are")
+            print("    allocated with a parallel divisor (`16 // tp_size`) and stay tagged")
+            print("    CHANNEL, so any parallel size > 1 dies at load with")
+            print("    `RuntimeError: The expanded size of the tensor (16 // N) must match the")
+            print("    existing size (16)` ->")
+            print("    references/startup-failures/quant-aux-param-tp-shape-mismatch.md")
     print(f"  config.json quantization_config/compression_config: {qcfg if qcfg is not None else 'absent'}")
     if cfg is None:
         print("  config.json:                   not found next to the weights")

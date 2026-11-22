@@ -611,6 +611,20 @@ for that release even though the image is not byte-verified.
   `--no-enable-prefix-caching`; #12015's own config echo says
   `enable_prefix_caching=True`) — is outside the validated set: say so, and make
   "run the doc's row on a small model" rung 1.
+- **At this pin the doc documents graph mode, and no row passes `--enforce-eager`.**
+  `hardwares/310p.md:17-27` ("Graph Mode Notes"): "The current release supports
+  `FULL_DECODE_ONLY` graph mode on Atlas 300I DUO devices … There is no such
+  limitation when TP=1" (multi-TP caps the capturable-graph count by model depth,
+  e.g. 2 for Qwen3-32B). The three validated rows (`:114-125`, `:135-147`,
+  `:158-169`) each pass `--compilation-config '{"cudagraph_mode":
+  "FULL_DECODE_ONLY", …}'` and none carries `--enforce-eager`, and the older
+  "only supports eager mode and the float16 data type" sentence has no hit anywhere
+  under `docs/` at this ref (`rg -n 'only supports eager mode' docs/` → 0). So
+  "310P is eager-only, your graph config is invalid" is a wrong answer here: the
+  cudagraph config and `--enforce-eager` void each other
+  (`../startup-failures/graph-mode-not-applied.md`), so align the reporter's line to
+  the row — drop `--enforce-eager`, keep the row's capture sizes — and say which of
+  the two took effect.
 - **Trap: the fusion flag in those very doc commands is inert on 310P.** All three
   rows pass `--additional-config '{"ascend_compilation_config":
   {"fuse_norm_quant": false}}'`, but

@@ -53,6 +53,11 @@ Not this topic, leave immediately:
   scheduler raises `RuntimeError: Invalid request status: …` → that is downstream
   fork drift, `../upstream-downstream-drift/scheduler-fork-missing-status.md`, not
   the frontend.
+- The request carries `response_format` / `structured_outputs` and nothing raises:
+  the answer is JSON-shaped but corrupt (doubled characters, unbalanced brackets,
+  `finish_reason: "stop"`, no traceback, no plog) → the corruption is in the logits
+  row or below it, i.e. the accuracy track, not this topic:
+  `../accuracy-benchmarks/structured-output-garble.md`.
 
 ## Rules
 

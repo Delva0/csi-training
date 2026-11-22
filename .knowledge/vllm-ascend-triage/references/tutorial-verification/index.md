@@ -126,7 +126,11 @@ Conditional routes:
   `limit_mm_per_prompt` and remote-media defaults, boilerplate TP sentence vs
   sibling docs, stale baseline release, CI config as the known-good command,
   `pip install <pkg>==<ver>` against the image's own requirements pins) plus the
-  ready-made Qwen3-32B-W4A4, Qwen3.5-397B-A17B-§5.6, Qwen3.5-27B (community
+  ready-made Qwen3-32B-W4A4, Qwen3.5-397B-A17B-§5.6, Qwen3-Omni-30B-A3B-Thinking
+  (row `hjh1`: the `:177` "TP at least 1" sentence against its own two-card serve,
+  the dead `--swap-space`/`--disable-log-request` on `:288`, the `:185` serve line
+  that omits `VLLM_USE_MODELSCOPE` the page's own `:286` exports, the `:255`/`:296`
+  `v0.13.0rc1` baseline, and the `--random-input` cosmetic), Qwen3.5-27B (community
   row 15: page-name absence, DP1/TP2-only serve line, the dropped
   `max_completion_tokens`, the nightly yaml as the in-tree gate; plus the same
   page graded on a 4-card row — which findings transfer, the `--device` comment

@@ -82,8 +82,16 @@ prints nothing at all and reads as an empty body (two such calls in the #10532 r
 `-n 0`, `-n <lines>` or `-g REGEX` instead, and read the `... (N more lines; raise -n or use
 -g REGEX)` marker the script prints. Keep the dump reachable with `--env`: it is the
 artefact when the question is the torch_npu/CANN pin, the card count or host RAM, and
-reporters also type free prose into that field (#4554's whole symptom sits there). Flat
-layout: `/workspace/history/<issue>.md`.
+reporters also type free prose into that field (#4554's whole symptom sits there). Two
+layouts: flat, `/workspace/history/<issue>.md`, or one directory per case,
+`/workspace/history/<issue>/<other-id>.md` (which `ls` prints as a bare list of ids).
+**Today's issue is never in that corpus**, at either layout: its id appears only in the
+`/workspace/repos/<issue>/` and `/workspace/attachments/<issue>/` directory names, so
+`history/<issue>.md` does not exist there — do not spend the call, do not cite that id as
+a precedent ("同类形状的 #NNNN" when #NNNN is the report you are answering), and do not
+characterise its comment thread or closure, which the snapshot does not carry. Recorded
+#4148 read `history/4148.md` (empty, `No such file`), then told the reporter their own
+case "只被致谢、没有闭环" — an unobservable claim dressed as precedent.
 
 **A `not found` id is usually newer than the corpus, not a missing precedent.** Each
 case view's corpus stops at the highest `<id>.md` it carries (at the #6533 view:

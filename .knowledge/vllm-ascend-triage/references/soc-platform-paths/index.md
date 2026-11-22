@@ -36,12 +36,19 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    conversions that are no-ops on 910B allocate and copy on 310P. Read the gate
    before attributing behaviour to the reporter's flag.
 4. **A dtype or format value in the reporter's own serve line is checked against the
-   pinned doc for their SoC before any source walk.** On 310P the doc's own note —
-   `docs/source/tutorials/hardwares/310p.md:5`, "only supports eager mode and the
-   float16 data type" (the path moves by release — flat
-   `docs/source/tutorials/310p.md:5` at v0.14.0rc1, `single_node_300i.md` from v0.9.1rc1, so
-   `rg --files docs/source/tutorials | rg 310` once instead of trusting a quoted path)
-   — plus a `--kv-cache-dtype fp8` or a bf16 checkpoint *is* the verdict. Neither value
+   pinned doc for their SoC before any source walk.** Locate that doc with
+   `rg --files docs/source/tutorials | rg 310` instead of trusting a quoted path (flat
+   `docs/source/tutorials/310p.md` at v0.14.0rc1, `single_node_300i.md` at v0.9.x,
+   `tutorials/hardwares/310p.md` from v0.18 on), then quote its **validated rows**,
+   because the prose note moves and disappears: the "only supports eager mode and the
+   float16 data type" sentence exists at v0.11.0rc3 (`single_node_300i.md:3-7`) and
+   v0.12.0rc1 (`310p.md:5`) but has **no hit anywhere under `docs/` at v0.22.1rc1** —
+   there `hardwares/310p.md:5` is a triton note and `:17-27` instead states the release
+   supports `FULL_DECODE_ONLY` (no capturable-graph limit at TP=1), while all three
+   rows carry `--dtype float16` and none passes `--enforce-eager` or
+   `--kv-cache-dtype`. So a `--kv-cache-dtype fp8` or a bf16 checkpoint *is* outside
+   the envelope, and that is the verdict — but never assert an eager-only/float16-only
+   limit from memory for a v0.22+ pin. Neither value
    is refused up front: the KV dtype is not read in
    `vllm_ascend/platform.py` at all (`rg -c kv_cache_dtype` → 0 at v0.18.0rc1), and no
    310P dtype gate rejects a bf16 checkpoint (`atlas-300i-310p.md`, verified there at

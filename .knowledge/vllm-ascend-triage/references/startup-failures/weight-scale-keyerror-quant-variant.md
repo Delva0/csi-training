@@ -22,6 +22,13 @@ key: `.weight_scale` / `.scale` / `.weight_offset` (any quant **aux** tensor) �
 page; a plain `.weight` → the gate page. The `.weight_offset` family has its own
 reading rules — section below.
 
+The same family has a **shape** form with no missing key at all — a loader `copy_`
+raising `RuntimeError: The expanded size of the tensor (P) must match the existing size
+(C)` because the engine allocated the aux param with a parallel divisor the branch it
+took never shards → `quant-aux-param-tp-shape-mismatch.md` (recorded #7088, W4A8 MoE
+`w2_scale_bias`). Classify on the deepest frame (`param = params_dict[name]` vs
+`expert_data.copy_(loaded_weight)`) before opening the loader.
+
 ## What the pin does (verified at v0.23.0rc1 `f4a08bd`, one-commit snapshot)
 
 1. `vllm_ascend/models/deepseek_v4.py:1381-1382` renames every checkpoint tensor

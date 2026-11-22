@@ -46,7 +46,23 @@ missing cause, but the text looks like an ordinary Python error, so read
    DP ranks failed in a gloo `all_reduce` inside
    `_sync_metadata_across_dp` (`Connection closed by peer`) and the engine ended
    with `EngineDeadError`. Those frames are peers noticing a dead rank; the
-   dying rank's own log is the only place the cause appears.
+   dying rank's own log is the only place the cause appears. **Expect that frame
+   on a rank that had no request, and expect it on the master while the dump is
+   on the slave**: upstream runs a full dummy step on any DP rank with nothing
+   ready while its peers are serving (`vllm/v1/engine/core.py:2055` and
+   `has_unfinished_requests_dp` → `should_execute_dummy_batch` at
+   `llm_engine.py:196-203`, vllm v0.26.0 `568afb3a`), and vllm-ascend serves it
+   with `_dummy_run(uniform_decode=True)`
+   (`vllm_ascend/worker/worker.py:1079-1086` at `f2f74a16`), which reaches the
+   DP-group `all_reduce` above. So the recorded benchmark's `--parallel 1`
+   against `--data-parallel-size 4` keeps three of the four ranks in that loop,
+   and its first timestamped error (13:57:56, `DP1_TP6` on the master) is a rank
+   that is most likely dummy-stepping reporting a peer death, ~45 s before the
+   slave's own engine noticed the death — read it as the messenger, not the
+   origin. That is also the cheapest ablation on the reporter's own harness:
+   rerun at `--parallel` ≥ `--data-parallel-size` (their script already sweeps
+   `--parallel 1 4 8 16 32 48` and dies in the first stage) so no rank is left
+   dummy-stepping.
 3. **Read the dump in the right direction.** The *top* frames are the last
    native calls — `rtEventCreateExWithFlag` → `aclrtCreateEventExWithFlagImpl` →
    `c10_npu::NPUEvent::createEvent` → `NPUEvent::record` →
@@ -138,17 +154,38 @@ command on a small model — not more of the dump.
 
 ## Ranked candidates for the runtime variant (all unverified in #16079)
 
+**Send this section's ladder before working the table.** Every row's check is a
+reporter-side rerun, an ablation or a plog, so no row can be closed from the
+snapshot and the call site stays a gap — the table is the reporter's, not yours.
+Two recorded attempts at #16079 were cut exactly here (16 turns, 43.5 K
+characters of reasoning against 3.3 K of text; then 16 turns, 44.7 K against
+1.1 K) while re-checking the release-note model list and the
+`enable_reduce_sample` default (both already here) and the `torch-npu` pin —
+none of which is a row in the table below. Name the launch-shape keys as
+provenance if they are in the paste — `--async-scheduling`,
+`enable_balance_scheduling`, `enable_flashcomm1`,
+`multistream_overlap_shared_expert`, a dflash/MTP draft with
+`num_speculative_tokens`, `cudagraph_mode: FULL_DECODE_ONLY` with an explicit
+`cudagraph_capture_sizes` list, `expandable_segments:True`,
+`HCCL_OP_EXPANSION_MODE=AIV` — because no tutorial command produces them and the
+release does not validate that combination.
+
 | Candidate | Check |
 |---|---|
 | Event/stream resources exhausted at collective entry (event create is the allocating call) | count the capture sizes and replayed steps; `npu-smi`, `/proc/<pid>/fd` and thread count on the rank; retry with fewer `cudagraph_capture_sizes` / `--enforce-eager` |
 | A per-step tp-group `all_gather` inside sampling/rejection sampling | `vllm_ascend/sample/rejection_sampler.py` `greedy_sample` (`tp_group.all_gather` twice per call) and the `Using fallback (non-reduce-sample) path … enable_reduce_sample=False` line; A/B `enable_reduce_sample: true`, then MTP off |
+| An SP/flashcomm hidden-state gather at the end of every forward | the `enable_flashcomm1: true` key → `forward_context.flash_comm_v1_enabled` → `_all_gather_hidden_states` (`vllm_ascend/worker/model_runner_v1.py:2642`, once per forward plus once per Eagle3 aux state) → `tensor_model_parallel_all_gather`; A/B that one key off |
 | A DP/EP collective sized from the padded batch | `<skill_root>/scripts/batch-split-audit.sh <vllm-ascend-root>`; the `rankSize` in the failing line against DP×TP |
 | Image/CANN/torch_npu pairing (after a recent upgrade) | the release's own support table for the card and the `pip show` triple; see `../image-dependency-faults/index.md` for the abort shapes, which are different |
 
 Also state the support caveat when it is true: v0.26.0rc1's release note is a
-model-restricted release and names the validated models (`Kimi K3`,
-`GLM-5.2`, `DeepSeek V4 Flash 0731`, …), so a `kimi-k2.7-Code` report on it is
-outside the validated set — say it, and do not turn it into the root cause.
+model-restricted release (`docs/source/user_guide/release_notes.md:5`) and names
+the validated models (`Kimi K3`, `GLM-5.2`, `DeepSeek V4 Flash 0731`, `DeepSeek
+V4 Pro 0813`), so a `kimi-k2.7-Code` report on it is outside the validated set —
+say it, and do not turn it into the root cause. The pin's own stack for that
+comparison is `torch==2.10.0` / `torch-npu==2.10.0.post4` (`requirements.txt:17`,
+also `pyproject.toml:21`); quote it against the reporter's `pip show` rather than
+asking them for a version list.
 
 ## Delivery shape for this report
 

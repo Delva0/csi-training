@@ -24,12 +24,14 @@ in the band arithmetic the reporter later said was unrelated).
 It arrives as a device error record inside a Python traceback, so it inherits the
 rule-13 problem: the record keeps its own date. In #12487 the title named this port
 line, while every log line was `07-21 06:27:44` and the record itself said
-`2026-07-18-11:20:51` — three days before the reported crash — and the in-window
-first error was an AICPU `RunAicpuRpcSrvLaunchV2_reduce_scatter` /
-`execute kernel param invalid` with 204 s notify-wait timeouts on
-`chipId:4`. Run `plog-timeline.sh --since <report date>` before ranking it; when
-the record date is outside the window it is a re-print and contributes nothing to
-this incident.
+`2026-07-18-11:20:51` — three days before the reported crash — while the in-window
+device block carried four `notify wait timeout … timeout=204s` records (serials 1-4)
+and then, at serial 5, an AICPU `RunAicpuRpcSrvLaunchV2_reduce_scatter` /
+`execute kernel param invalid` on `chipId:4`. Run `plog-timeline.sh --since <report
+date>` before ranking it; when the record date is outside the window it is a re-print
+and contributes nothing to this incident. Then read the in-window block with
+`error-report-timestamps.md` §*When the expiry bound is not 1836* — its serial order and
+its 204 s bound are what the answer turns on, not the AICPU line alone.
 
 ## What the number proves
 
@@ -69,6 +71,11 @@ gives the base actually in use.
    is elsewhere.
 
 Do not build a mechanism out of this line when the paste's in-window error is a
-device fault: in #12487 the reported rank (`DP2_TP0_EP8`, `Device:0`) was not even
-the faulting chip (`device_id=8`, `chipId:4`), which is the lane-C pattern of
-`collective-error-chain.md`.
+device fault: in #12487 the in-window block was a device/collective stall (the
+`DP2_TP0_EP8` worker reporting four notify-wait expiries then an AICPU `reduce_scatter`
+`param invalid`), the lane-C pattern of `collective-error-chain.md`. Note that the two
+ids that block carries — `device_id=8` in the AICPU record and `chipId:4, dieId:0` in
+the dump header — are the **same** die, and the `Device:0` in the PTA prefix is
+torch_npu's local-device field: `device-health-checks.md` §*Which device actually
+failed*. Comparing them as "two chips" is not evidence that the fault sat on another
+rank's card.

@@ -130,12 +130,14 @@ inside `BackendCompilerFailed`, error 507057) and #12461 (A3 two-node TP16/DP2,
   sizing: "ranks allocate mismatched buffers / at different times and HCCL aborts
   (SUSPECT REMOTE ERROR 507057)", `vllm_ascend/ops/fused_moe/moe_comm_method.py:320`.
   So a rank-divergent collective is a real software candidate, alongside hardware.
-- The reporting rank is not necessarily the faulting chip: in #10829 node0 printed
-  `(Device:0) ERR00100 PTA call acl api failed` and, in the same output, `EZ9999 …
-  The error from device(chipId:4, dieId:0) … fftsplus aivector error, error code =
-  0x800000`; node1 printed only the bare `SUSPECT REMOTE ERROR`. Search every rank
-  for the `EZ9999` / `chipId:` line and the earliest plog ERROR before naming a card
-  (see `device-health-checks.md`).
+- The reporting rank is not necessarily the owner: in #10829 node0 printed `ERR00100
+  PTA call acl api failed` and, in the same output, `EZ9999 … The error from
+  device(chipId:4, dieId:0) … fftsplus aivector error, error code = 0x800000`, while
+  node1 printed only the bare `SUSPECT REMOTE ERROR`. Search every rank for the
+  `EZ9999` / `chipId:` line and the earliest plog ERROR before naming a card (see
+  `device-health-checks.md`). Do not rest that on the PTA prefix's `Device:N`, which is
+  torch_npu's `_npu_getLocalDevice()` — a different field from both `device_id=` and
+  `(chipId, dieId)` (`device-health-checks.md` §*Which device actually failed*).
 
 ## Step 2 — re-run to get attribution
 
@@ -186,8 +188,10 @@ How to read that:
 ## Step 4 — decide where the fault lives
 
 Collective failures at the very first collective of `profile_run` mean the group
-cannot communicate, which is environment-level. Take the reporting `device = N` id
-*and* the `chipId` from any `EZ9999` dump (they can differ), then go to
+cannot communicate, which is environment-level. Take the `device_id=` from the
+`[DFX_INFO]`/AICPU record and the `(chipId, dieId)` from any `EZ9999`/dump header — one
+physical device id maps to one chip+die pair, so convert them rather than compare them
+(`device-health-checks.md` §*Which device actually failed*) — then go to
 `device-health-checks.md` before proposing any model or operator patch. Also confirm
 that single-card work on each device still succeeds — HCCS link faults commonly
 break only intra-node multi-card collectives. Two cheap non-hardware checks follow

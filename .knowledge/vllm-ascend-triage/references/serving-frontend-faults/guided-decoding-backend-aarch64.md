@@ -86,8 +86,15 @@ Verified at vllm v0.7.3 (`ed6e907`) + vllm-ascend v0.7.3.post1 (`c69ceac`). The
 rewrite is version-specific: later vLLM releases raise a clear error instead of
 looping, and the reporter's v0.8.5rc1 / v0.9.0rc2 runs were clean — re-grep
 `maybe_backend_fallback` at the reported ref before reusing the chain, and answer
-inside the pinned version. Two delivery notes: the ownership sentence (upstream
-frontend, proven by the empty `rg` in `vllm_ascend/`) belongs in the first
-paragraph, and the V1 feature matrix (history `#414`) marking Guided Decoding
-"🟢 Functional" is a *doc* gap for aarch64 + `json_object` at this pin, worth one
-line rather than a section.
+inside the pinned version. Its **anchors are also version-bound**: at vllm v0.13.0
+`guided_decoding_backend` no longer exists anywhere in `vllm/`
+(`rg -ln guided_decoding_backend vllm/` is empty), the launch flag is
+`--structured-outputs-config '{"backend": …}'`, `_backend` is resolved in
+`v1/engine/input_processor.py:258-352`, and a request that selects a backend is
+rejected — so `entrypoints/openai/protocol.py:455-465` / `openai/processor.py` are
+v0.7.3 paths and a miss on them is not evidence about a newer tree
+(`../accuracy-benchmarks/structured-output-garble.md`). Two delivery notes: the
+ownership sentence (upstream frontend, proven by the empty `rg` in `vllm_ascend/`)
+belongs in the first paragraph, and the V1 feature matrix (history `#414`) marking
+Guided Decoding "🟢 Functional" is a *doc* gap for aarch64 + `json_object` at this
+pin, worth one line rather than a section.

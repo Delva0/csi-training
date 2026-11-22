@@ -20,6 +20,14 @@ RL loop over a Qwen2.5-VL/Qwen2-VL checkpoint (`vl-weight-pad-not-idempotent.md`
 weight sync that fails **inside a collective** is
 `../hccl-and-hardware/weight-sync-hccl-cascade.md` instead.
 
+A third shape has no traceback either and no flag to retire: a contributor who has
+**already written the patch** and asks whether to open the PR, where the change moves an
+initialization call so that a fixed device allocation becomes visible to the KV budget
+("ATB `TilingBufferPool` … allocated after memory profiling and not accounted for",
+#14300). Classify it as a change review and read rule 12; the mechanism, the accounting
+ledger and the acceptance identity are
+`../runtime-memory/device-allocations-outside-profiling-window.md`.
+
 Read this topic when the paste contains a **task statement about code** — with no
 symptom (a flag to remove) or with the traceback the proposed change is about (the
 disposal shape above). It is the wrong entry when an ordinary run failed (use the
@@ -134,3 +142,21 @@ page (`../tutorial-verification/index.md`).
    sufficient: the loader takes its offset from the padded destination, so check the write
    before proposing it. Anchors, arithmetic table and ladder:
    `vl-weight-pad-not-idempotent.md` (#809).
+12. **A patch that moves a call across a memory-accounting boundary is reviewed against
+   the ledger, not against the line numbers in the body.** When the issue says
+   "`<allocation>` happens after memory profiling and is not accounted for, I have a
+   patch ready" (#14300, ATB `TilingBufferPool`), the deliverable is a change plan whose
+   first item is the premise check of rule 1: the reporter quotes *their* `main`
+   (`profile_torch_peak` at `:513`, the deduction at `:542`), and at the pin those
+   anchors differ or the named branch does not exist — at v0.18.0 the Ascend
+   `determine_available_memory` has no `--kv-cache-memory-bytes` fast path (upstream
+   `gpu_worker.py:362-388` has one) and no graph-pool estimate, so a hunk for either is
+   version-conditional and one `rg -n 'kv_cache_memory|profile_cudagraph_memory'
+   vllm_ascend/` on their tree decides it. Then say **which window** the bytes land in
+   (`before_create` is the device-init snapshot, so a placement *outside* the
+   `memory_profiling` body is still charged, and one before the snapshot is silently
+   not), which probe proves the allocation is ACL-direct rather than torch-cached
+   (`memory_reserved()` unchanged), and sweep the touch-points that move with the call:
+   SoC guard, `set_random_seed` ordering, the SoC override that inherits nothing, and
+   the unit tests that assert the old call site. Mechanics, acceptance identity and the
+   lane to keep out of the PR: `../runtime-memory/device-allocations-outside-profiling-window.md`.

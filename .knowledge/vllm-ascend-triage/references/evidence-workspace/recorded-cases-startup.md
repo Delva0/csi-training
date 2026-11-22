@@ -247,7 +247,17 @@ and the v0.22.1rc1 block of `../soc-platform-paths/atlas-300i-310p.md` (the
 `max_model_len`-sized mask). Root cause stays unresolved — no plog in the paste and
 no maintainer answer in the corpus; the ranked candidates are the image/CANN/
 torch_npu pairing (#10136 family), the unvalidated model/feature combination, and
-host-memory pressure during init.
+host-memory pressure during init. **A later re-run of the same paste at the same pin
+shipped it in 7 turns / 13 tool calls** off exactly those two pages: verdict first
+(SIGSEGV in the EngineCore spawn; the CPU `torch.zeros` fill is the surfacing site,
+the eight TBE lines are messengers; the title's 14B-w8a8sc is not the served
+checkpoint), then ranked candidates with one check each and the doc's 14B row as
+rung 1. Two facts it still had to derive by hand, now written into the v0.22.1rc1
+block of `../soc-platform-paths/atlas-300i-310p.md`: that pin's doc carries no
+eager-only/float16-only note and its rows pass `FULL_DECODE_ONLY` without
+`--enforce-eager`. Its one wrong first guess was
+`../soc-platform-paths/310p-vl-rope-cos-nullptr-startup.md` (VL + 310P looked right,
+but that lane needs `Check cos != nullptr`), now excluded on that page.
 
 **#6972** vllm-ascend v0.14.0rc1 + vllm v0.14.1, 8×910, Qwen3-Omni via
 `vllm serve --omni`: `--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY",
@@ -704,3 +714,25 @@ Its one unasked artefact is the checkpoint's `config.json` (`quantization_config
 numerically safe; the later public trail on the issue is a code fix (a linked PR), i.e.
 the "no serve flag fixes this" verdict held —
 `../startup-failures/native-fp8-config-scope.md`.
+
+**#7088** vllm-ascend v0.15.0rc1 (`3d43ed997e71`) + vllm v0.15.0 (`f176443446f6`),
+4×910B3, `vllm-ascend/Qwen3-235B-A22B-W4A8` served with `--tensor-parallel-size 4
+--gpu-memory-utilization 0.95 --enable-chunked-prefill --max-num-batched-tokens 8192
+--max-num-seqs 2 --async-scheduling --compilation-config '{"cudagraph_mode":
+"FULL_DECODE_ONLY"}'`: every rank dies at `Loading safetensors checkpoint shards: 3%`
+with `RuntimeError: The expanded size of the tensor (4) must match the existing size
+(16) at non-singleton dimension 1.  Target sizes: [4096, 4].  Tensor sizes:
+[4096, 16]`, deepest frames `qwen3_moe.py:628 load_weights` → `fused_moe/layer.py:1310
+weight_loader` → `:979 _load_per_channel_weight_scale` `expert_data.copy_(loaded_weight)`.
+The reporter's own reading was half right (the `w2_scale_bias` allocation and
+`update_bias`); the missing half is the **tag**: `method_adapters.py:210` stamps every
+dynamic-quant param `CHANNEL` and re-tags `scale_bias` only when `group_size > 0`
+(`:211-226`), so a description carrying `version: "1.0.0"` **and** `group_size: 0`
+leaves the `[E, hidden, 16 // tp_size]` param (`w4a8.py:317-322`, `:202` divisor = 1
+under `--enable-expert-parallel`) on upstream's unsharded per-channel w2 copy. The
+recorded run shipped the ranked answer (the reporter's own `#3214` RFC as the format
+precedent) and flagged the gap this page fills: **the library had no route for a
+load-phase `expanded size` error**, only the DP-padding and EAGLE-hidden ones. Its one
+unasked artefact is the checkpoint's `quant_model_description.json`, i.e. the
+`version`/`group_size` pair it inferred from the error —
+`../startup-failures/quant-aux-param-tp-shape-mismatch.md` (new).

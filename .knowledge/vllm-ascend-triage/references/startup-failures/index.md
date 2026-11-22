@@ -358,6 +358,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   (ViT towers, multimodal projectors), and the message's `(`class`)` is the runtime
   CustomOp class, not evidence that the checkpoint named it →
   `weight-scale-keyerror-quant-variant.md` §the `ValueError` form (recorded #7200).
+- The loader dies **inside `copy_`**, not on a key: `RuntimeError: The expanded size of
+  the tensor (P) must match the existing size (C) at non-singleton dimension D.  Target
+  sizes: […, P].  Tensor sizes: […, C]` whose deepest frames are a `weight_loader` →
+  `_load_per_channel_weight_scale` (`expert_data.copy_(loaded_weight)`), every rank, shard
+  bar still moving → `quant-aux-param-tp-shape-mismatch.md`. `Target sizes` is the engine's
+  parameter and `Tensor sizes` the checkpoint, so read it as `P = C // N` and name `N`
+  first: a quotient equal to the parallel size means the param was allocated with a
+  TP/EP factor that the branch the loader took never shards (W4A8 MoE `w2_scale_bias`
+  `16 // tp_size` vs a bare per-channel `copy_`, recorded #7088). One read of the
+  checkpoint's `quant_model_description.json` `version` / `group_size` decides it before
+  any loader source, and the failing target's dim 0 = `hidden_size` names the w2 side.
 - The loader dies on a **file**, not on a config: `safetensors_rust.SafetensorError:
   Error while deserializing header: HeaderTooLarge` (or `HeaderTooSmall` / `invalid
   JSON`) in the same second as `Loading safetensors checkpoint shards: 0% ... 0/N`, on

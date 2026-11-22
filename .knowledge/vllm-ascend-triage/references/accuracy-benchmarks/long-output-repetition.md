@@ -25,6 +25,16 @@ That last row is the cheapest identity check and belongs in the first answer: a
 long-CoT model can loop on its own, and no engine ablation outranks it until the
 serial rerun is clean.
 
+**When the launch carries `--async-scheduling` + MTP on a hybrid GDN/Mamba family, the
+"concurrency > 1" row has a named owner at v0.23** and it is not sampling: the previous
+iteration's accepted-token counts are gathered out of mutable `InputBatch` rows that
+`add_request()`/`condense()` already rewrote, so a wrong count becomes a wrong Mamba/GDN
+state-copy offset and the request repeats or omits a fixed token run. Two greps at the pin
+decide it, the run's own `--async-scheduling`-off arm is the classification, and
+`temperature=0` changes nothing — `../spec-decode-mtp/accepted-token-row-snapshot.md`
+(recorded #13863, where the rate was 2/512 at 100 % KV: size the rerun with the N ≈ 3/p
+arithmetic below before judging any ablation).
+
 ## A reported rate is the sample size, not an anecdote
 
 Recorded #14085 (vLLM-Ascend v0.23.0rc1, GLM-5.2-w4a8c8, 8×910B PD disaggregation,

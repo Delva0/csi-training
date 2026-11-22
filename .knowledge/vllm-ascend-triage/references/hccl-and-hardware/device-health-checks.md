@@ -39,16 +39,36 @@ action depends on the product, so prefer the vendor document over inference.
 ## Which device actually failed
 
 The id in the PTA line is the **reporting** rank's device, not necessarily the faulting
-chip. In #10829 (A3, two nodes) node0 printed `ERR00100 PTA call acl api failed` for
-`Device:0` and, in the same output, an `EZ9999` dump of `The error from
-device(chipId:4, dieId:0), … there is an exception of fftsplus aivector error, … error
-code = 0x800000`; node1 printed only the bare `SUSPECT REMOTE ERROR`, with no chip
-dump at all. So the fault can sit on a card that never prints it, on either node.
+chip — but read the three id fields apart before saying so, because a paste carries all
+three and they are different kinds of id:
+
+| Field | Who mints it | What it means |
+|---|---|---|
+| `Device:N` in `(PID:…, Device:N, RankID:N)` | torch_npu's own error prefix | *this process's* device handle: `device = torch_npu._C._npu_getLocalDevice()` → `c10_npu::GetLocalDevice()` (`torch_npu/utils/_error_code.py:53-75`, `torch_npu/csrc/npu/Module.cpp:933-938`, `Ascend/pytorch` v26.0.1); `rank = dist.get_rank()` or `-1` when that raises |
+| `device_id=N` in `[DFX_INFO] …` / `PrintAicpuErrorInfo` | runtime / plog | the **physical** device |
+| `(chipId:C, dieId:D)` in a dump header | runtime | the same physical device as card+die |
+
+The last two are one device in two forms: the driver maps a physical device id to
+exactly one chip+die pair (`hal_kernel_get_chip_die_id(phy_id, &chip_id, &die_id)`,
+`cann/driver/src/sdk_driver/inc/ascend_kernel_hal.h:1218-1221`; DCMI's
+`dcmi_get_card_id_device_id_from_phyid` and `dcmi_get_device_phyid_from_logicid` in
+`cann/driver/docs/zh/Ascend_910_93_DCMI_API/`). So `device_id=8` beside
+`(chipId:4, dieId:0)` is **one** die (4×2+0 = 8 on a two-die card) and `Device:0` beside
+either contradicts nothing — that pair is not evidence that the fault sat on another
+rank's chip. Locate the die with `npu-smi info -t board -i <id>` / `asys health -d=<id>`
+or the plog file for that id, not by comparing the fields.
+
+In #10829 (A3, two nodes) node0 printed `ERR00100 PTA call acl api failed` and, in the
+same output, an `EZ9999` dump of `The error from device(chipId:4, dieId:0), … there is
+an exception of fftsplus aivector error, … error code = 0x800000`; node1 printed only
+the bare `SUSPECT REMOTE ERROR`, with no chip dump at all. That difference between
+ranks — not the `Device:0`/`chipId:4` pair — is what puts the fault on a card that may
+never print it, on either node.
 
 Order that costs one paste instead of a card swap: gather all ranks' logs, grep for the
 `EZ9999` / `chipId:` line and for the earliest ERROR in every rank's plog, then run the
 per-device health check below on **both** nodes and correlate that chip id (not the
-reporting `Device:N`). Statement to make in the answer: the reporting rank's device is
+reporting `Device:N`, which is only the process's own handle). Statement to make in the answer: the reporting rank's device is
 correlated, the faulting chip is named only by the `chipId` dump, and if no dump exists
 the faulting card is still unknown.
 

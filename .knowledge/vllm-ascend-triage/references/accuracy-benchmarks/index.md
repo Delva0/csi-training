@@ -38,6 +38,16 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 - A number printed while the checkpoint is being *converted* (per-layer
   `MSE loss`, an epoch table, a bad quantized artifact) is converter output and
   precedes any engine comparison — go to `quantized-checkpoint-conversion.md`.
+- **A *served* quantized artifact that both fails to beat BF16 and scores lower**
+  ("量化配置，没有性能收益（甚至有降低），精度同样降低", no numbers, no serve line, a
+  **dense** model) is neither a conversion-quality report nor a score comparison
+  between two runs: the accuracy half is the scheme string in the artifact's own
+  `quant_model_description.json` (`W8A8` = static per-tensor activation quant, whose
+  score is the calibration's, vs `W8A8_DYNAMIC` = per-token) and the speed half is a
+  byte ceiling — one script call plus the arithmetic, then the A/B —
+  `../performance-throughput/quantized-dense-no-gain.md`. Keep a *hybrid* model's
+  missing-quant-kernel coverage claim out of it (`../performance-throughput/
+  quantized-artifact-layer-coverage.md`).
 - **A garbled or fluent-but-wrong answer on weights the reporter converted
   themselves** (`--quantization ascend` on a `…-W8A8`/`…w8a8pertoken` directory they
   built, often with "works fine in Transformers" offered as the control) is the same
@@ -55,6 +65,15 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   重复输出: that is protocol assembly against the model's own stop, not the text
   corruption on this page — go to `../tool-call-streaming/index.md` and run its
   audit on the raw SSE first.
+- The body carries `response_format` / `guided_json` / `structured_outputs` and the
+  answer is **JSON-shaped but invalid** (doubled/interleaved characters, unbalanced
+  brackets, `finish_reason: "stop"`, token count far above the text's size) while the
+  title only says the feature misbehaves: this stays
+  in the topic but is not a score or extraction question — a mask applied to the
+  sampled row cannot emit invalid structure, so split the lanes with one body sent
+  without the field, then read `structured-output-garble.md` (the host roundtrip in
+  `vllm_ascend/worker/model_runner_v1.py`, upstream's row-index contract, and why the
+  backend A/B needs a server restart at vllm ≥ 0.13).
 - A **vision** request answered as a long run of one token (`!!!!!!!!`, 感叹号,
   `，，，`) with "and it is very slow" — **wrong from the first token**; an answer
   that reads the image correctly and only *then* collapses into one repeated word is
@@ -337,6 +356,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 - `harness-vs-engine-attribution.md` — knob-by-knob checklist (thinking, max tokens,
   sampling, extraction, aggregation), where the project's own baselines live, and the
   decisive experiment to run.
+- `structured-output-garble.md` — a `response_format` / `structured_outputs` request
+  whose answer is JSON-shaped but corrupt (#5835, v0.11.0, Qwen3-235B, no env dump):
+  why invalid structure out of a masked row is a contradiction, the one-body lane split
+  (with the field removed), the serial-request row-misalignment test, the host float32
+  mask roundtrip and upstream's `req_id_to_index` + spec-decode-offset contract, and the
+  vllm ≥ 0.13 rule that the backend is one per process and requests cannot select it.
 - `reasoning-output-routing.md` — output-routing in both directions, and the place to
   answer a pure response-contract question that pastes no score at all: (a) verified
   upstream vLLM v0.19.1 behaviour that turns truncated thinking into `content: null`,

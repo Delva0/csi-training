@@ -34,7 +34,12 @@ store` / `EZ9999 … Parse dynamic kernel config fail`
 (`atlas-300i-310p.md`, `kernel-package-vs-card.md`); `aclnn<Op> … not in
 libopapi.so` (`../custom-ops-runtime-faults/opapi-symbol-absent.md`); the MRoPE
 slices' own `RuntimeError: MRoPE cos/sin slices are not initialized` (a different
-class, `:203` at this pin).
+class, `:203` at this pin). Nor is a **signal death** this page: a VL checkpoint on
+310P whose paste shows `!!!!!!! Segfault encountered !!!!!!!` and no Python
+exception, no `aclnnApplyRotaryPosEmb` / `EZ1001 … Check cos != nullptr` line, is
+the startup worker-segfault lane
+(`../hccl-and-hardware/worker-segfault-no-python-frames.md`) — a VL + 310P paste
+whose only native frame is a trivial CPU `torch.zeros` belongs there, not here.
 
 ## The answer, from the paste alone (one message, no source walk)
 

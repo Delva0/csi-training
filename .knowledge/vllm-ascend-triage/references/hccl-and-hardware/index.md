@@ -251,8 +251,12 @@ own control-plane arithmetic — base `HOST_CONTROL_BASE_PORT = 60000`,
 `src/platform/common/externalinput.cc:213,828-853`). `control-plane-port-binding.md`
 has the levers (`HCCL_IF_BASE_PORT` + `ip_local_reserved_ports`, stale processes) and
 the rule that it is a finding only when it is in-window — in #12487 the title named
-that line while it was a three-day-old re-print and the in-window error was an AICPU
-`reduce_scatter` param-invalid on a chip the reporting rank did not own.
+that line while it was a three-day-old re-print, and the in-window device block was
+four `notify wait timeout … timeout=204s` records followed by an AICPU `reduce_scatter`
+`param invalid`, all on one die (`chipId:4` = `device_id=8`) : classify that block with
+`error-report-timestamps.md` §*When the expiry bound is not 1836*, and do not turn the
+`Device:0` in the PTA prefix into "another rank's chip"
+(`device-health-checks.md` §*Which device actually failed*).
 
 `Bind_Failed(EJ0003)` on the *normal* port `16666` is the other family: 16666 is
 `HETEROG_CCL_PORT`, the one default comm port, so the endpoint is decided by the local
@@ -356,10 +360,13 @@ is rung 1 (#459, #942 — the recorded broadcast returned silent zeros).
 encountered !!!!!!!` plus `Worker proc VllmWorker-<n> died unexpectedly (exit
 code: None)` is a rank killed by signal: no error code, no Python exception, and
 the peer ranks' gloo `all_reduce` in `_sync_metadata_across_dp` (`Connection
-closed by peer`) is only the messenger. A client-side `ConnectionRefused` from
-the benchmark harness is secondary as well. Read the dump's direction — top
-frames are the last native calls (event create inside
-`ProcessGroupHCCL::_allgather_base` in the recorded case), bottom frames are
+closed by peer`) is only the messenger — and it prints on a rank that had **no**
+request, because upstream dummy-steps an idle DP rank, so a `--parallel 1`
+benchmark against `dp=4` keeps three ranks in that loop and its first
+timestamped error can sit on the master while the dump is on the slave. A
+client-side `ConnectionRefused` from the benchmark harness is secondary as well.
+Read the dump's direction — top frames are the last native calls (event create
+inside `ProcessGroupHCCL::_allgather_base` in the recorded case), bottom frames are
 CPython's own entry — and count the `vllm_ascend/*.py` frames: zero means the
 call site is a data gap, so ask for the plog and an
 `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` rerun instead of reading an

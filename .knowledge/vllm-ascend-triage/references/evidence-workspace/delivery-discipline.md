@@ -59,7 +59,15 @@ leads were.
   50.7 K (50.6 K reasoning + **67 characters** of text), both reaching exactly 16 384. So
   a session is ~45-50 K characters, a 5 K-character reasoning block is a tenth of it, and
   the recorded cuts landed at 35-51 K characters of reasoning. A block that is still
-  planning past a few hundred tokens is spending the answer's budget.
+  planning past a few hundred tokens is spending the answer's budget. The budget belongs to
+  the whole session, not to any one block: #8944's forward wrote ten blocks of 300-2 000
+  characters and six of 3.7-8 K, reaching 44.9 K characters of reasoning against 2.7 K of
+  text over **17** assistant turns before the cap cut its ranked answer at 1 195 characters
+  — the floor is the turn count times ~1.5 K characters, so a run that keeps taking one more
+  short look arrives at the same place as one long sweep. Its cheapest lost turns were the
+  ones re-deriving an op-map page that was already in context (see step 0 of
+  `../custom-ops-runtime-faults/aclnn-error-dump-reading.md`): a page at the reported pin is
+  evidence, not something to re-verify in source before writing the answer.
 - **Reasoning is a scratchpad, a few lines per turn:** what the last result proved,
   the single next check, go. It spends the same output budget as the answer, so a
   session that reasons in 1-6K-character blocks can hit the cap with zero answer
@@ -113,6 +121,13 @@ leads were.
   (`../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`,
   `../deploy-sizing/vl-profile-run-multimodal-budget.md`). A second sizing pass means
   the ranking is owed **now**.
+  **A recomputation that *disagrees* with the first is the stronger case, not a
+  detour: it changes the verdict, so it is owed a message in the same turn.**
+  #3112 derived 2 in-flight sequences from the median ITL, then 26 from the mean
+  three turns later — the correction invalidated the KV-capacity lane it had
+  already opened — and still shipped no verdict (13 assistant turns, 763
+  characters, cut at 16 384 with the ranking in hand:
+  `../performance-throughput/prefill-queue-and-throughput.md`, second half).
 - **Every assistant turn carries message text, not only a tool call.** A gate only
   binds if the text exists to be cut. #5295 is the clean case: 16 assistant turns,
   every one of them a bare tool call, ~46 K characters of reasoning (≈12 K of a 16 K
@@ -228,7 +243,16 @@ leads were.
   version-specific. #6833's replay re-walked the whole prefix-cache gate chain at
   identical pins (config hook, `MambaModelConfig`, the model's assert, the
   downstream patch, the loggers line) — ten turns that bought nothing, and its
-  action ladder was the part that got cut.
+  action ladder was the part that got cut. The mirror case costs the same when the
+  page's pins are **older** than `SOURCES.json`: its `path:line` may no longer exist,
+  and a grep that answers `No such file or directory` is not a lane change. #5835
+  ended exactly there — 15 assistant turns, 27 tool calls, 50.3 K characters of
+  reasoning against **74** characters of message text (the opener), the ranked
+  two-lane answer already drafted in its reasoning, and the cut landed while checking
+  `vllm/entrypoints/openai/processor.py`, a path a page verified at vllm v0.7.3
+  against a v0.13.0rc1 snapshot (the fact it wanted — `guided_decoding_backend` is
+  gone, the backend is server-resolved — was one whole-tree `rg` away and is now in
+  `../accuracy-benchmarks/structured-output-garble.md`).
 - **A reasoning block that drafts the ranked answer charges it twice, and the second
   copy is what gets cut.** The #14731/#12102 pair is the measured case: 17 assistant
   turns each, 42.9 K and 39.4 K characters of reasoning against **1.3 K and 2.7 K

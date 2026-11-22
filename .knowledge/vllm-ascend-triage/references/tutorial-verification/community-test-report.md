@@ -286,6 +286,17 @@ block*, and the next turn carried a registry re-grep plus one `cat > … <<'EOF'
 the deploy script. The cap cut that heredoc mid-argument, the framework did not run
 it, and the session ended with an "I'll write the deliverables now" line.
 
+A later replay of this same row (fresh session, the worked-page table and this
+section already in the library) **completed**: 18 assistant turns, a
+10.7 K-character report file with the deploy script, the curl and bench lines,
+the result slots and the FAQ, and a complete closing message. What it still did
+wrong is the measurable part: it re-derived the defect set instead of reading
+`tutorial-command-audit.md`'s "Sixth worked page" table at turn 2, and it
+re-opened the one settled cosmetic — `--random-input 200` was written into its
+message as 基准无法运行 instead of check 2's cosmetic tier, which is exactly the
+severity slip #12562 paid for. Read the table, then spend the turns on what it
+does not have.
+
 Two lessons, both already stated above and now gated in `index.md` rule 6:
 
 - **Reasoning is the largest single charge and it is charged twice when you draft

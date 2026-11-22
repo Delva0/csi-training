@@ -75,6 +75,14 @@ the turn the shape is classified, not a second copy of it here.
    The pair also fixes the trigger that would have saved them — a **second** pass over
    the reporter's own numbers, reaching the same estimate, is the turn the ranking is
    owed (`delivery-discipline.md`, *a recomputed estimate is not new evidence*).
+   A second trigger is the library holding the case: **#16079 was cut twice against its
+   own owning page** (16 turns 43.5 K reasoning / 3.3 K text, then 16 turns 44.7 K /
+   1.1 K, the second after recognising the match and then spending six turns
+   re-checking the release-note model list and the `enable_reduce_sample` default
+   (both already on the page) plus the `torch-npu` pin — none of them a row in that
+   page's table). When a `recorded-cases-*` entry or an owning page matches the
+   report's versions, model and stack, **that entry's ladder is this turn's message**:
+   type it, and let further checks confirm or correct a named claim — or drop them.
    Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
      reporter's literal question plus the track/lane classification. A pasted
@@ -473,9 +481,13 @@ the turn the shape is classified, not a second copy of it here.
    `references/evidence-workspace/case-layout.md` (§*Search-command traps*), and the
    one-line forms follow because they recur on every case:
    `skill_view` with `file_path` also returns the whole link inventory — read pages
-   from the skill root with `sed -n 'A,Bp'`; `rg -r` is `--replace`, not "recursive"
-   (`-rn`, `-rln`, `-r ''` rewrite or dump whole lines; an empty pattern matches every
-   line), so re-run `rg -n '<pat>' <dir>` before quoting any match; a pasted message is
+   from the skill root with `sed -n 'A,Bp'`; **type a grep as `rg -n '<pat>' <one dir>` and
+   never add an `r` flag** — `rg -r` is `--replace`, not "recursive" (`-rn`, `-rln`, `-r ''`
+   rewrite or dump whole lines; an empty pattern matches every line), so a result whose matched
+   text is missing or replaced by `n` is that accident, not a finding: re-run without the flag
+   before quoting it, and never read a `self.…n == "align"` line as source (recorded #13863
+   reached for it **four times in one session** with this warning already in context, and
+   `rg -n '_update_states_after_model_execute' -r ''` printed a `self.(sampler_output…)` line); a pasted message is
    often split across adjacent literals, so grep the shortest clause (or `-A1`); a
    `--glob '!<dir>/**'` exclusion is matched against the path you passed; a piped
    `sed -n 'A,Bp' | rg -n` numbers the stream (`A + n - 1`); scope every grep to one
@@ -771,6 +783,14 @@ the turn the shape is classified, not a second copy of it here.
     v0.18.0rc1), so `"enforce_eager": true` in `--speculative-config` is a dead lever
     there — global `--enforce-eager` still works, and the plugin, not upstream, owns the
     support claim (`references/hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`).
+    Scope that erasure to the family *and* the pin before reusing it: the upstream auto-set
+    is gated on `deepseek_v32` alone (`vllm/config/speculative.py:559-563` at vllm
+    v0.23.0), and the downstream force-clear exists at v0.18.0rc1 but is **gone** by
+    v0.23.0, where `platform.py:513-527` only touches the xlite graph config and
+    `model_config.enforce_eager`. So on a GLM-5.x (`glm_moe_dsa`) v0.23 launch the
+    tutorial's `"enforce_eager": true` inside `--speculative-config` is a **live** recipe
+    key — grep the reporter's launch before calling it dead
+    (`references/spec-decode-mtp/index.md`, the GLM-5.x rule).
 
     **A workaround named in the report's own prose is the first ablation, not
     background reading.** When the narrative quotes a neighbouring issue's comments
@@ -1082,6 +1102,15 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
      fails it is the already-padded parameter of a **second** `load_weights` — an RL
      rollout's per-step weight sync, never a request, which is why the report says "step 2"
      and why plain inference cannot reproduce it (`references/code-change-requests/vl-weight-pad-not-idempotent.md`, #809).
+     The **load-phase mirror** is the same division one layer down:
+     `RuntimeError: The expanded size of the tensor (P) must match the existing size (C)`
+     out of a quant `weight_loader`'s `copy_` means `P = C // N` for a parallel size `N`,
+     i.e. the engine allocated the parameter *with* the divisor and the loader branch it
+     took never shards it — the branch is the param's own `quant_method` tag, so read the
+     allocation site and the tag together, and one read of the checkpoint's
+     `quant_model_description.json` (`version`, `group_size`) decides whether that
+     conditional applies before any loader source
+     (`references/startup-failures/quant-aux-param-tp-shape-mismatch.md`, #7088).
    - Any track, when the paste is a **serve command on a 2×N 910B box at v0.10.x** (MoE
      model, perf *or* accuracy symptom): classify the **graph lane** from the command before
      ranking mechanisms — `--enforce-eager` present ⇒ `NO_COMPILATION`

@@ -78,6 +78,14 @@ necessary to set this separately"). #9355's command deviates in four rows:
 | 3 | `num_speculative_tokens: 2` | 3 | n=2 never enters block verify (Step 7), so the `max_spec_len >= 3` kernel is out of scope here |
 | 4 | bf16 checkpoint, no `--quantization` | `w8a8-mtp` + `--quantization ascend` | the sibling is a **precedent, not a validated bf16 config**: never quote it as "the official command for your model" |
 
+**The sibling carries `--async-scheduling` too** (`…Qwen3.5-27B.md:122`), and that flag
+alone already keeps the drafter eager (`eagle_proposer.py:139` step 6b). So its
+`"enforce_eager": true` is redundant in its own right: read the sibling as *this family
+ships without a draft-side graph*, not as *`enforce_eager` is mandatory here*. Before
+quoting row 1 as the reporter's gap, grep their launch for `--async-scheduling`: with it,
+row 3 is void and the row that reaches the draft graph is *removing* that flag; without it
+(as in #9355), row 3 is live.
+
 Capture-size arithmetic (vllm v0.18.0): the default is
 `min(max_num_seqs × (1 + num_speculative_tokens) × 2, 512)` and then
 `min(max_num_batched_tokens, …)` (`vllm/config/vllm.py:1337-1347`); a batch larger
@@ -225,6 +233,12 @@ port/axes question, neither turned `disable_padded_drafter_batch: false` or
 `enforce_eager` in the spec config into a discriminating row (the 31-message run
 offered `enforce_eager` only as a copied workaround, and the 18-message run never
 opened the sibling tutorial), and neither offered `min_tokens`.
+
+The newest run (22 messages, 9 assistant turns) delivered the full ranked answer in its
+last message — `min_tokens: 1`, the token-id ask, the null-block refutation, the lane table
+and the sibling diff — and it checked `--async-scheduling` before using row 3, which is
+the Step 6b caveat working. Nothing new to add from it: the report had no
+follow-up paste, so the open items below are unchanged.
 
 Open items for this case: what the single emitted token id was; whether a restart
 reproduces it with the identical body; whether the modified body also fails when

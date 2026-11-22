@@ -54,6 +54,18 @@ device release in vllm-ascend to add
 (`../deploy-sizing/node-processes-and-device-attribution.md`, its "after the engine is
 gone" section). Do not route it to the growth page: nothing here grew.
 
+Scope, part 8: nothing failed and nothing grew — a **fixed device allocation lands
+after `determine_available_memory` has closed**, so the KV budget is computed without
+it and the instance quietly uses `gpu_memory_utilization` **plus** that delta: the ATB
+`TilingBufferPool` (~96 MiB pool / ~98 MiB observed per rank at v0.18.0, scaling with
+TP, created by `_warm_up_atb()` inside `compile_or_warm_up_model`), or an ACL-graph
+capture transient in `capture_model()`. The entry form is often an issue that *names
+the allocation and offers a patch* ("allocated after memory profiling and not
+accounted for, should I open the PR"), which is a code-change review judged against the
+accounting ledger. Recognise the delta by its shape: constant across `max_num_seqs`,
+graph buckets and model size, per worker process, invisible to
+`memory_allocated()`/`memory_reserved()` — `device-allocations-outside-profiling-window.md`.
+
 Not an accuracy or corruption report, and not a collective error even when the
 crash text names one (`HcclAllGather` in a late OOM is the allocation site); go
 to `../hccl-and-hardware/index.md` first only when a real collective failure

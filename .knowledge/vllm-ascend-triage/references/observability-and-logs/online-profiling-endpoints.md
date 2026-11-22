@@ -71,7 +71,10 @@ received the flag.
    `FlexibleArgumentParser` flattens back into one JSON value
    (`vllm/utils/argparse_utils.py:300-360`):
    `--profiler-config.profiler=torch --profiler-config.torch_profiler_dir=/abs/dir`.
-   Route appears ⇒ the original JSON was mangled by the launcher, not by vLLM.
+   Route appears ⇒ the original JSON was mangled by the launcher, not by vLLM. The
+   absolute form is here only so the two launches differ in one visible token — a
+   *relative* dir is valid and gets rewritten (next section), so never present it as
+   the repair.
 4. Confirm the installed vllm is the reported one, and that the gate file you read
    is the live one: `python -c "import vllm; print(vllm.__version__)"` and
    `python -c "import vllm.entrypoints.serve.profile.api_router as m; print(m.__file__)"`.
@@ -82,6 +85,56 @@ received the flag.
    their own `POST /start_profile` and fan it out
    (`examples/disaggregated_encoder/disagg_epd_proxy.py:676`,
    `examples/epd_disaggregated/epd_load_balance_proxy_layerwise_server_example.py:797`).
+
+## When the route answers: `torch_profiler_dir` and where the files land
+
+A 200 from `/start_profile` moves the question from the route to the directory. Three
+facts decide it at this pin:
+
+- **A relative `torch_profiler_dir` is legal and is rewritten to an absolute one.**
+  `ProfilerConfig._validate_profiler_config` (`@model_validator(mode="after")`,
+  `vllm/config/profiler.py:126-147`) raises `ValueError("torch_profiler_dir must be set
+  when profiler is 'torch'")` for an empty value (`:139-140`), then replaces every
+  non-URI value with `os.path.abspath(os.path.expanduser(...))` (`:144-145`;
+  `_is_uri_path` at `:19` exempts `gs://`-style paths from the rewrite). So
+  `./vllm_profile` is resolved against the cwd of the process that parsed
+  `--profiler-config`, and the workers are handed that absolute string through the
+  engine config — "the worker's cwd is different, so the trace landed elsewhere" is not
+  a failure mode here, and the field docstring's *"must be an absolute path"*
+  (`:43-46`) is satisfied by the rewrite, not by the reporter. Both shipped examples use
+  the relative form (vllm-ascend
+  `docs/source/developer_guide/performance_and_debug/service_profiling_guide.md:45`,
+  upstream `docs/contributing/profiling.md:46` and
+  `examples/offline_inference/simple_profiling.py:26`), so a reporter who copied the
+  guide has nothing to fix at that line. **Do not hand back "switch to an absolute
+  path"** — that was a delivered answer's mistake (recorded run below).
+- **One named subdirectory per writer, not one file at the top.** vllm-ascend names the
+  NPU trace by rank: `vllm_ascend/worker/worker.py:538-545` builds `trace_name` from
+  `get_worker_rank_suffix(global_rank=self.rank)` and passes it as
+  `torch_npu.profiler.tensorboard_trace_handler(dir, worker_name=trace_name)`
+  (`:626`), so TP/PP ranks write sibling directories instead of overwriting each
+  other. In front of them the API server's own CPU trace goes to the *same* directory
+  as `worker_name = f"{socket.gethostname()}_{pid}.async_llm"`
+  (`vllm/v1/engine/async_llm.py:186-206`), and is skipped entirely when
+  `"ignore_frontend": true` (`:186-188`). Ask for `ls -R <torch_profiler_dir>` (or
+  `find <dir> -maxdepth 2`), never for "the trace file".
+- **Nothing is written before `/stop_profile`.** The worker's `profile(is_start=False)`
+  branch only calls `self.profiler.stop()` (`worker.py:551-555`); the export happens
+  when torch/torch_npu's `tensorboard_trace_handler` reaches trace-ready, i.e. at stop,
+  and the guide says the same in prose (`…service_profiling_guide.md:70`, "stop the
+  profiling service, and the data will be automatically saved"). A listing taken
+  between start and stop is *expected* to be empty: `curl -X POST …/stop_profile`, then
+  list again. If that stop logs
+  `Profiler was not started, nothing to stop.` (`worker.py:552-554`), the start never
+  reached that worker.
+
+The two config errors in this lane are loud, not silent — both are `RuntimeError`s off
+the worker's `_create_profiler` and surface as a 500 at `/start_profile`:
+`torch_profiler_dir cannot be empty.` (`worker.py:596-597`) and
+`MSMONITOR_USE_DAEMON and torch profiler cannot be both enabled at the same time.`
+(`:598-599`, i.e. `MSMONITOR_USE_DAEMON=1` in the launch env). "Collected, but
+`kernel_details.csv` absent" is a different question — that directory has to be
+*analysed* before the CSV exists: `../performance-throughput/profiler-no-kernel-details-graph-mtp.md`.
 
 Model class, quantization, TP and NPU health cannot cause this symptom:
 `build_app` sets `state.args` and registers the serve routers before any
@@ -94,7 +147,8 @@ all.
 
 Verbatim serve command (quoting included), `pip show vllm vllm-ascend`, the first
 ~100 startup lines (the `Profiler with mode` line lives there), and the
-`openapi.json` path list.
+`openapi.json` path list. Once the route answers, add `ls -R <torch_profiler_dir>`
+taken *after* a `/stop_profile`, plus the absolute path the server logged for it.
 
 ## Recorded run: #9583 (vllm 0.18.0, vllm-ascend v0.18.0rc1, Qwen3.5, 910B2)
 
@@ -110,6 +164,14 @@ ended the session on a long *plan* block: 20 turns, 30 tool calls, a one-line
 message, **no answer**. Rows 6-7 are
 one `sed -n '247,300p' vllm/engine/arg_utils.py` away and kill that whole thread;
 `../evidence-workspace/delivery-discipline.md` has the pattern.
+
+A later rerun on this same knowledge (5 assistant turns, 13 messages) finally delivered —
+full ranked answer on its 5th assistant turn, no source archaeology — but its action
+list closed with *"`torch_profiler_dir` 文档要求绝对路径 … 你用的 `./vllm_profile` 是相对路径"*
+and told the reporter to change it. That is wrong, and it is the one thing the run got
+wrong: the value is rewritten at `config/profiler.py:144-145` and the vllm-ascend guide
+it was quoting uses `./vllm_profile` itself. The dir section above exists so the next run
+spends that line on `ls -R` / `/stop_profile` instead.
 
 Answer this shape as: (a) the symptom is route registration only, (b) the gate,
 (c) the two commands of check 1-2, (d) the ranked ways the flag can miss the

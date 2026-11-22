@@ -14,6 +14,13 @@ EE9999: [PID: ...] Not allow to synchronize captured-stream, stream_id=N.
 Trailing frames are the capture wrapper, e.g. `vllm_ascend/compilation/piecewise_backend.py:194
 __call__` → `output = entry.runnable(*args)` → `torch/fx/graph_module.py:830 call_wrapped`.
 
+**Lane B, not lane C**: every rank prints its own Python traceback, so classify it as a
+worker that raised — the `107027` inside it is the *refusal marker* for code that
+synchronised during capture, not a collective/device fault to chase in the plog. A
+recorded answer wrote both "this is not a device, link or HCCL fault" and "Classification:
+lane C (device-op fault)" in the same message; the second sentence is what a reporter
+quotes back when arguing for a hardware explanation.
+
 Sibling lanes: `rtMemcpy:ErrCode=107030` / `MemCopySync` in the same phase is the
 *device-bound* copy refusal — `acl-graph-capture.md` Step 2 (on 310P the same code
 comes from the fallback splitfuse mask under MTP + `FULL_DECODE_ONLY`:
@@ -101,9 +108,12 @@ Verified at vllm-ascend **v0.10.0rc1** (`4604882a3e2c`) with vllm **v0.10.0**
 Recorded #2473, reporter-confirmed (their own later comment, 20 min after filing):
 the unquantized `Qwen3-30B-A3B-Instruct-2507` serves clean on the same box with the
 same flags (`--quantization None`, `--enable-expert-parallel`, identical TP/context/
-batching), and only the msmodelslim W8A8 checkpoint produces 107027. One launch,
-one flag, and it splits "the quant method's dispatch syncs" from "the capture lane
-or the EP machinery syncs everywhere". Propose it explicitly in the first answer:
+batching), and only the msmodelslim W8A8 checkpoint produces 107027. That W8A8
+directory (`Qwen3-30B-A3B-W8A8-vllm`) is the reporter's own export (msmodelslim
+`f8ab35a`, per the user guide's quantization page), not a published quantized release,
+so the checkpoint itself — not only the flag — is a variable worth re-exporting. One
+launch, one flag, and it splits "the quant method's dispatch syncs" from "the capture
+lane or the EP machinery syncs everywhere". Propose it explicitly in the first answer:
 reporters often have both checkpoints on the box and will run it themselves.
 
 Ladder, cheapest first:
@@ -126,14 +136,47 @@ Ladder, cheapest first:
 `apply` has no such branch (`rg -n 'MOE_ALL2ALL_BUFFER' vllm_ascend/quantization/`
 is empty at this pin), so it changes nothing there.
 
-## 4. What to ask for
+## 4. What to ask for — and what is already on record
 
-The full `vllm serve` line (recorded #2473 filed without it; `--enable-expert-parallel`
-had to be inferred from the code path — which the later comment confirmed), the
-per-rank log from `Starting to load model` through `PIECEWISE compilation enabled on
-NPU` to the first error, `python -c "import torch_npu;
-print(hasattr(torch_npu,'npu_moe_init_routing_quant'))"` on their box, and the flags of
-any clean run they compare against (the quantization axis above).
+**The launch line is on record; do not ask for it again.** #2473 filed without one, but
+the reporter's own comments minutes later supplied both the container and the serve
+command, verbatim:
+
+```
+docker run -d --net=host --shm-size=8g --name vllm-ascend \
+  --device /dev/davinci_manager --device /dev/hisi_hdc --device /dev/devmm_svm \
+  --device /dev/davinci0 --device /dev/davinci1 --device /dev/davinci2 \
+  --device /dev/davinci3 --device /dev/davinci4 --device /dev/davinci5 \
+  --device /dev/davinci6 --device /dev/davinci7 \
+  -v /usr/local/dcmi:/usr/local/dcmi -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+  -v /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/ \
+  -v /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info \
+  -v /etc/ascend_install.info:/etc/ascend_install.info -v /root/.cache:/root/.cache \
+  -v /data:/models  vllm-ascend:v0.10.0rc
+
+vllm serve /models/Qwen3-30B-A3B-W8A8-vllm --served-model-name Qwen3-30B-A3B \
+  --load-format safetensors --quantization ascend --dtype auto --kv-cache-dtype auto \
+  --trust-remote-code --gpu-memory-utilization 0.9 --max-model-len 4096 \
+  --max-num-batched-tokens 8192 --max-num-seqs 32 --tensor-parallel-size 8 \
+  --enable-expert-parallel --enable-chunked-prefil --enable-prefix-caching
+```
+
+(the `--enable-chunked-prefil` spelling is theirs and the run reached capture with it;
+the docker tag reads `v0.10.0rc` while the environment dump reports `0.10.0rc1`, so read
+the version from `collect_env`, not from the tag.)
+That is where §2's flag list comes from — quote it, and **do not** put "the full
+`vllm serve` line" in the ask list; a recorded replay did exactly that after listing
+the same flags in its diagnosis. What is genuinely missing, and all that is worth
+asking for:
+
+- the per-rank log from `Starting to load model` through `PIECEWISE compilation enabled
+  on NPU` to the first error;
+- `python -c "import torch_npu; print(hasattr(torch_npu,'npu_moe_init_routing_quant'))"`
+  on that box (it decides which routing call ran — the pure-Python `init_routing_quant`
+  in this paste is itself the answer that the gate was False);
+- the clean run's flags, only if it differs from the recorded control above — the
+  **raw** `Qwen3-30B-A3B-Instruct-2507` with `--quantization None` and the same
+  TP/context/batching flags (§3, including why the W8A8 export is the other variable).
 
 ## 5. Version scope
 

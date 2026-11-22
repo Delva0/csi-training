@@ -17,6 +17,12 @@ model that "seems OK" — that split is the most useful thing in the report.
 Not this page: the VL request degenerates into one token repeated (`!!!!`) — that
 is `../accuracy-benchmarks/vl-vision-tower-degeneracy.md`; the box OOMs or stalls
 at start — `atlas-300i-310p.md` and `../runtime-memory/attention-mask-host-allocation.md`.
+Nor is it the **no-answer** shape: when the serve comes up and the first request that
+carries an image kills EngineCore — `507018`, `kernelName=IndexPut` in
+`libpt_kernels.so`/`RunCpuKernel`, or the upstream `ValueError: Error during index put
+operation` — the owner is upstream's merge write, not this page:
+`310p-cpu-fallback-op-fault.md` §*A VL model on 310P* (recorded #11450 opened this page
+for exactly such a PaddleOCR-VL paste and dropped it).
 
 ## Procedure (four turns)
 

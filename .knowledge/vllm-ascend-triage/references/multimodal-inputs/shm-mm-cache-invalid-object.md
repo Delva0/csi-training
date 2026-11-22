@@ -19,8 +19,9 @@ vLLM's SHM **multimodal feature cache**, not the plugin and not a device fault.
 above appears on a **request**. `--mm_processor_cache_type shm` in a serve line whose
 paste ends `WorkerProc failed to start.` (or any worker-start failure with no readable
 traceback) routes to `../startup-failures/silent-worker-exit.md` and
-`../startup-failures/weight-scale-keyerror-quant-variant.md` first: recorded #7744 ranked
-this page's "drop the flag" ladder first while the failing phase was a load-phase
+`../startup-failures/weight-scale-keyerror-quant-variant.md` first: recorded #7744
+already demoted this page's "drop the flag" rung to last (its answer led with the missing
+`--quantization ascend`) while the failing phase was a load-phase
 `KeyError: 'layers.37.mlp.experts.w2_weight_offset'`, and the reporter's resolution was
 the newer tag, not the flag.
 

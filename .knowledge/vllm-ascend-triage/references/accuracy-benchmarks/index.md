@@ -417,6 +417,17 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   still has a call site before it is ranked →
   `ep-mode-reduce-double-count.md` (§Step 0).
 
+- **An accuracy loss on a serve that carries a static expert map is a deployment-shape
+  question, and the map's own gate decides whether it is in play.** `expert_map_path`
+  applies only when the file exists and is readable (a wrong path is silently ignored),
+  the file's `moe_layer_count`/`device_count` are never compared with the deployed MoE
+  layer count and EP size, a failed apply prints one `Init expert map of mtp/eagle …`
+  warning and falls back to the default map, and a successful apply on a non-w8a8_dynamic
+  checkpoint raises `Eplb supports only w8a8_dynamic quantization.` — so on a bf16 serve
+  "static EPLB is on" means no map at all. First rung is the map ablation (the same
+  command minus `expert_map_path`, EP kept) → `eplb-static-map-deployment-shape.md`
+  (#5643, v0.11.0 `2f1aed98ccdb`).
+
 ## Pages
 
 - `harness-vs-engine-attribution.md` — knob-by-knob checklist (thinking, max tokens,
@@ -759,6 +770,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   own MTP-off control closes the other arm at that tag, and the tag's release-note bullet
   that claims the repair (`release_notes.md:80`) with the Known-Issues absence that refutes
   it for 310P.
+- `eplb-static-map-deployment-shape.md` — an accuracy loss on a serve that passes
+  `additional_config.expert_map_path` (or records one) in an RL/rollout or P/D
+  deployment: the five gates that decide whether the map is in play at v0.11.0
+  (`common_fused_moe.py:181-231`, including the w8a8_dynamic-only raise), the jq that
+  compares the map file with the deployed layer/EP shape, the unseeded `random.choice`
+  redundancy slots, and the five-rung ablation ladder (#5643).
 - `ep-mode-reduce-double-count.md` — 开启 EP 后输出乱码/胡言乱语、关掉 EP 正常 on a
   MoE serve (A2/A3), and the code-change form of the same report: the downstream
   `maybe_all_reduce_tensor_model_parallel` override and its `ALLTOALL|MC2|FUSED_MC2|sp_enabled`

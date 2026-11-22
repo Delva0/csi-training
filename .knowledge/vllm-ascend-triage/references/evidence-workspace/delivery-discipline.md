@@ -19,6 +19,16 @@ leads were.
   a couple of lines of reasoning.
 - **G3 — 12th assistant turn:** answer text only — no reasoning, no tool call, no
   "one more thing".
+- **G2b — the message addresses the reporter, not the replay.** The library's recorded
+  sessions are your ordering evidence (which rung is cheap, which is a dead end); they
+  are not the reporter's context, and a run that carries them into the answer hands over
+  a thread the person never had. Never write 「本线程」「此前排查」「上一轮」, a turn
+  count, a cap or a prior run's cost into the message. Recorded #9324's replay shipped
+  「本线程此前的排查已经在这条路径上耗掉了大半预算仍无结论」 as the reason not to rank a
+  model-numerics rung — a correct ranking delivered in the wrong voice — where the same
+  fact reads 「这条路径量级不足以解释 3.4 点,不要排在前面」. Cite a precedent as
+  `#<id>: <fact>` (an issue id is public evidence; a session history is not), and state
+  a rung's low yield as a verdict about the path, with its one number.
 - **A follow-up turn is a delta turn.** When the reporter replies and the harness sends
   the reply as another user turn, the earlier answer is already in the thread and
   the second cap is often smaller (recorded #8294: 16 384 then **8 192**). Write
@@ -355,6 +365,33 @@ leads were.
   closing scope/"what to send back" list, which is exactly what the reporter acts
   on next — so it stays 2-3 lines and the mechanism detail goes to the cause it
   belongs to.
+- **A missing or mismatched artefact is itself the finding.** An empty environment
+  block, a file absent from the pinned tree, a version the snapshot does not carry:
+  state the gap, give the one command that closes it, and stop — the gap is the
+  deliverable. **A number that "matches" is not the answer either**: re-deriving a
+  mechanism from an allocation size needs inputs the report does not carry (a
+  `config.json`, a group size, an expert count), so ask for the line that settles it
+  and send the ranked answer. #7123 died at the cap deriving DP/EP algebra for a
+  674 MiB request whose two `[EP Rank r/N] … experts` lines were never asked for
+  (`../deploy-sizing/moe-load-oom-expert-shard.md`); #7419 spent 19 tool turns
+  locating the `.unsqueeze(1)` behind a debugger-quoted `x.shape [5040, 1, 1152]`
+  and shipped **zero** text, while the two answer facts came from two greps
+  (`../lora-adapters/multimodal-vit-lora-ignored.md`).
+- **A refusal that quotes an argument value is answered by the contract, not by the
+  producing line.** When the op error names the value it rejected — a mask shape, a
+  seq-len list, a dtype, an out-of-range index — the deliverable is the contract, the
+  one call site (or the two candidates) that feeds it, the single print or repro that
+  discriminates, and the workaround; *which* line computed the value is a
+  confirmation. #6573 walked the attention dispatch before finding the mask in the
+  model file, #10757 spent most of its budget on whether the encoder gate could ever
+  be true, and #10372 shipped no revision while choosing between two producers of a
+  `numAcceptedTokens` overflow — all three held the contract by their 3rd-5th turn and
+  then shipped **zero** text
+  (`../custom-ops-runtime-faults/fa-tiling-argument-refusals.md`,
+  `../custom-ops-runtime-faults/gdn-conv1d-accepted-tokens-varlen.md`).
+  **Dead-branch variant:** a gate in the snapshot that nothing sets is a version-skew
+  fact to *ask* for — the reporter's build differs from the pin — not a mechanism to
+  derive.
 
 **A block that has already started the answer is not closer to delivery.** #16111
 wrote `Verified facts (pinned …)` and #8788 wrote `**Answer**: Yes, real.` inside

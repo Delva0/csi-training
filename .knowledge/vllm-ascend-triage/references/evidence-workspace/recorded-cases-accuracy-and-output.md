@@ -1072,12 +1072,23 @@ that pin in this review: `vllm_ascend/ops/expert_load_balancer.py` reshapes the 
 `layers_num`/`ranks_num` and never compares them with the deployed `num_moe_layers`/
 EP size, the off-rank `log2phy` fallback picks a copy with unseeded `random.choice`,
 `check_expert_map_tensor` only compares the file across ranks, and `expert_map_path`
-appears in `tests/ut/` + docs only (no e2e/nightly) — so the static-map path has no
-accuracy regression coverage. The recorded run delivered the ranked answer (map-file
+appears in `tests/ut/` + the docs only — the two nightly `*_eplb` files exercise
+**dynamic** EPLB (`dynamic_eplb: true` + `init_redundancy_expert: 16`, gsm8k gate
+baseline 95 / threshold 5, `test_deepseek_r1_w8a8_eplb.py:87`,
+`test_qwen3_235b_a22b_w8a8_eplb.py:83-85`) and no `.github/workflows/` file names eplb —
+so the static-map path has no accuracy regression coverage while the dynamic one has a
+baseline. The recorded run delivered the ranked answer (map-file
 shape vs deployment, weight re-send vs physical slots, unseeded fallback, support
 surface) with a 4-rung ladder and the screenshot gap stated; no reporter
-confirmation. Route: an RL/weight-reload accuracy report is a *deployment-shape* audit
-first, and the OCR of a screenshot is not evidence when it is garbled.
+confirmation. The map row is picked by `moe_instance_id`, a construction counter
+(`common_fused_moe.py:148-149`), so a reduced-layer export shifts every layer's entry,
+and a replay of this report pinned the gates that decide whether the map is in play at
+all — the readable-path guard (`:181-183`, silent fallback `:204-211`), the `Eplb
+supports only w8a8_dynamic quantization.` refusal (`:227-231`), the failed apply's one
+warning (`:197-199`) and the expert-count line (`:214-219`) — with the ablation ladder
+they imply: `../accuracy-benchmarks/eplb-static-map-deployment-shape.md` (new).
+Route: an RL/weight-reload accuracy report is a *deployment-shape* audit first, and the
+OCR of a screenshot is not evidence when it is garbled.
 
 **#2934** vllm-ascend v0.9.1 (`0740d10211fc`) + vllm v0.9.1 (`b6553be1bc75`), Qwen3-8B
 offline `LLM`, `SamplingParams(temperature=0.8, top_p=0.95, logprobs=20, n=2)`, body a

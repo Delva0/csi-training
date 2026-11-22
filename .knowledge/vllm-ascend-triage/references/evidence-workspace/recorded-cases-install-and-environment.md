@@ -692,6 +692,22 @@ the same answer on its 8th turn and 9 tool calls: `reference-locate` → this li
 `../feature-enable-recipes/torchair-mla-head-count-tp-gate.md`, and
 `../startup-failures/graph-mode-not-applied.md` for the no-op-env-var check.
 
+**#14502** `[TTFHW]` doc report at vllm-ascend v0.18.0 (`e18643f`) + vllm v0.18.0
+(`bcf2be9`), no log at all: "文档未强调国内用户应优先使用 ModelScope 镜像", recommending
+`VLLM_USE_MODELSCOPE=True` in the Quick Start and ModelScope defaults in the
+examples. Verified in-tree: the flag *is* documented (`quick_start.md:91,96` under
+`## Usage`, `installation.md:284-288` with the extra `pip install modelscope`) but
+after the container block, without the regional framing the image mirror gets
+(`faqs.md:32,240`), while 20 of 40 tutorial pages already export it and
+`installation.md` never links `quick_start.md`. Tier split: placement/framing
+usability, the missing `pip install` a real `ImportError` on the pip path because
+upstream imports modelscope bare under the flag
+(`weight_utils.py:184,188`) — the container already ships it
+(`Dockerfile:95-96`). The example rewrite is wrong (`history-titles.sh -i
+modelscope` → #5893/#2296, weights missing from the mirror). Track: document,
+`../tutorial-verification/missing-guidance-and-contributor-docs.md`
+§*The weights mirror is the other half*.
+
 **#11926** vllm-ascend/image `v0.22.1rc1`, DeepSeek-OCR-2 single card, the
   tutorial's own serve command plus `--async-scheduling`: `profile_run`'s dummy
   multimodal forward dies at `vllm_ascend/ops/qwen2_decoder.py:233` with
@@ -733,7 +749,13 @@ the same answer on its 8th turn and 9 tool calls: `reference-locate` → this li
   after first opening `../image-dependency-faults/triton-ascend-pair.md`, whose scope is
   the *compile* failure (the missing-module shape is the signature row instead) —
   `../startup-failures/environment-correspondence.md` carries the same per-worker install
-  for the ray case (#3098).
+  for the ray case (#3098). A replay shipped the same verdict in 8 tool calls and added
+  the follow-up the paste cannot answer: after triton-ascend is installed, this tag's own
+  release notes bound what can fail next — `release_notes.md:9` says expert parallel and
+  MTP "doesn't work with this release" for Qwen3-Next, and `:40` records higher-than-expected
+  HBM as known issue #2884 (lower `max_model_len` / `gpu_memory_utilization`). So an OOM or
+  an EP/MTP error on the *next* start is that tag's documented state, not evidence the
+  triton install was wrong.
 
 **#16379** vllm-ascend v0.26.0rc1 (`f2f74a16`) + vllm v0.26.0 (`568afb3a`), one
 Atlas 800 A3 node, `DeepSeek-V4-Flash-0731-w8a8` DP4/TP4/EP with the doc's

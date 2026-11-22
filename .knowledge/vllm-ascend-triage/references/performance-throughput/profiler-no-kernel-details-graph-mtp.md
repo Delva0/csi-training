@@ -23,6 +23,15 @@ true`), while the failure was reported for the 混部 script with them on. Ask f
 launch before attributing anything. The reporter later stated the combination had always
 worked in older versions and asked for it to be restored, then confirmed collection works
 again — i.e. the disposition was a downstream regression, not a vendor limitation.
+As filed (2026-07-17) the report carried none of that: the restore request came on
+2026-07-20 — "@saisharan0103 Could you please help restore this? This combination has
+always been supported in older versions, and clearly users will need it" — and
+"现在可以采集了" only on 2026-08-25, five weeks on. Two consequences for the first
+message: the old release **is** the control the reporter will produce on request, so ask
+for its tag rather than waiting for it; and the workaround (eager, no MTP) is a
+collection-only fallback, never the resolution — this pair is a supported combination
+somebody dropped, so say that it should be restored, and do not publish "graph mode +
+MTP cannot be profiled" as a limitation.
 
 ## Rules
 
@@ -67,7 +76,18 @@ again — i.e. the disposition was a downstream regression, not a vendor limitat
    feature lines commented out. Remove three variables at once and the graph one is not the
    flag they think: `--enforce-eager` on v0.22.1rc1 drops torch.compile **and** the
    `npugraph_ex` backend **and** the ACL graph while the MTP row is toggled in the same
-   launch (SKILL.md rule 15, `--enforce-eager` note). Their "图模式" is not
+   launch. The chain is two reads, and the first one is the easy miss — the tokens sit six
+   lines apart, so `rg 'enforce_eager' vllm/config/*.py | rg cudagraph` returns **nothing**
+   (recorded cost: three calls). Read it as
+   `rg -n -A6 'if self.model_config is not None and self.model_config.enforce_eager'
+   vllm/config/vllm.py`: vllm v0.22.1 `0decac0` `:1032-1038` sets `mode = CompilationMode.NONE`
+   and `cudagraph_mode = CUDAGraphMode.NONE` (`:1233-1238` also empties the capture sizes),
+   then vllm-ascend v0.22.1rc1 `5f6faa0` `vllm_ascend/platform.py:590-592` writes
+   `enable_npugraph_ex = False` in the `cudagraph_mode == NONE` branch — so a
+   `"enable_npugraph_ex": true` left in `--additional-config` is **inert**, and an argument
+   that treats the paste as "graphs on" is wrong. Line numbers move between pins (same
+   branch at v0.23.0rc1 `platform.py:595/622`); the per-pin gate table is
+   `../startup-failures/graph-mode-not-applied.md`. Their "图模式" is not
    `--compilation-config`: it is `ascend_compilation_config.enable_npugraph_ex`
    (`docs/source/user_guide/feature_guide/graph_mode.md:140-166`) whose compile path is
    `compilation/compiler_interface.py:283-296` → `npugraph_ex_compile` (`:149-164`, torchair

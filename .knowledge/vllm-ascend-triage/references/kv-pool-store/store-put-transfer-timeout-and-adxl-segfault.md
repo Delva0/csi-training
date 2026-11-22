@@ -148,9 +148,40 @@ with `mooncake_master --port 50051 --metrics_port 9003` and a Service whose `rpc
 Also from that config: `protocol: "ascend"` names no transport by itself (build flags do,
 see `hccl-onesided-store-put.md` §1); the `ascend_direct_transport.cpp` +
 `processSliceList` frames are what prove ADXL. `device_name: ""` is the documented
-container form. `local_hostname: "$POD_IP"` is only safe if the init container expanded
-it — ask for the mounted file (`kubectl exec … cat $MOONCAKE_CONFIG_PATH`), because a
-literal `$POD_IP` names the segment something no peer can resolve.
+container form (`rdma_devices` is passed straight through).
+
+**Which keys that file actually reaches is a grep, and three of them are not the
+story.** `MOONCAKE_CONFIG_PATH` is parsed here by vllm-ascend's own
+`MooncakeStoreConfig` (`ascend_store/backend/mooncake_backend.py:166-197` at
+v0.20.2rc1), **not** by the Mooncake wheel's `MooncakeConfig`
+(`mooncake-wheel/mooncake/mooncake_config.py:120-146`), and it reads exactly
+`metadata_server`, `global_segment_size` (env `MOONCAKE_GLOBAL_SEGMENT_SIZE` wins,
+`:182-188`), `local_buffer_size`, `protocol` (default `ascend`), `device_name`,
+`master_server_address` (env `MOONCAKE_MASTER` wins) and the two segment flags;
+**every other key in the file is dropped silently**.
+
+- `local_hostname: "$POD_IP"` is **inert on this path** — it is not one of the keys
+  read. `MooncakeBackend._setup_store` names the segment from `get_ip()`:
+  `local_seg = <pod ip>:<transfer_engine rpc port>` (`:65-71`; the fabric branch uses
+  the bare ip, `:83`). So do not send the reporter to the init container over an
+  unexpanded `$POD_IP`; ask for the mounted file only when a *read* key's value is in
+  question (`kubectl exec … cat $MOONCAKE_CONFIG_PATH`).
+- `use_ascend_direct: true` reaches no code here. It was read until the retirement
+  (`get_from_extra_config('use_ascend_direct', True)` at v0.11.0rc2,
+  `mooncake_connector.py:905-911`, default already `True` and only picking the
+  engine-name form — `../pd-disaggregation/mooncake-adxl-connect-103900.md` §4), it
+  exists nowhere in `vllm_ascend/` at v0.20.2rc1 (`rg -ni 'use_ascend_direct'
+  vllm_ascend/` empty while the tutorials and nightly yamls still carry it), and it is
+  in any case a `MooncakeConnectorV1`-family `kv_connector_extra_config` key, not a
+  field of `mooncake.json`, whose reader drops it. So it is never the lever: the
+  transport is `protocol` plus build/env (`ASCEND_ENABLE_USE_FABRIC_MEM`), and
+  `protocol == "ascend"` is *mandatory* rather than optional — anything else raises
+  `NotImplementedError: MooncakeBackend does not support protocol …` at backend
+  construction (`:28-29`).
+- **The default segment size differs between the two readers**: vllm-ascend's
+  `DEFAULT_GLOBAL_SEGMENT_SIZE` is **1 GiB** (`:20`) while the wheel's is 3.125 GiB,
+  so a file that omits the key sizes the store by whichever loader ran — read that
+  line before judging "the segment is too small/large".
 
 ## 4. Checks, cheapest first, and what each one decides
 
@@ -200,6 +231,12 @@ literal `$POD_IP` names the segment something no peer can resolve.
 - **No master-side numbers**: `PutStart`/`PutRevoke`/`PutEnd` and the memory line for the
   failing minute were never posted, nor a `mooncake_master` log, nor `hccn_tool` output,
   nor a coredump. Those four are the artefact request for any lookalike.
+- **Do not re-request the client config or the master command line.** The reporter's
+  own later comment supplied both and §3 quotes them verbatim (`mooncake.json` keys,
+  `mooncake_master --port 50051 --metrics_port 9003`, the Service port map); a replay
+  that paraphrased §3 and then asked for "the `mooncake.json` keys and the
+  `mooncake_master` command line" burned the ask on facts already in hand. Cite §3
+  instead, and add "if you now run something else, say so".
 - **A 10 s cadence proves the effective timeout, not the cause.** It matches the 10 000 ms
   default (and therefore the absent env var), nothing more.
 - Scope of the pins: vllm-ascend `v0.20.2rc1` (`367b8e6`), vLLM `v0.18.0`

@@ -241,7 +241,12 @@ three numbers — policy target 56.08 / accounting 56.98 / physical free 3.63 �
 shortfall against `requested` alone as expected on any CUDAGraph run; the growth sample
 (`hbm-growth-and-oom.md`) and the allocator's segment map
 (`allocator-expandable-segments-unmap-crash.md` §*The map direction*) are what the
-physical free figure sends you to.
+physical free figure sends you to. **Trust the log over the paste, and read the paste's later
+boots.** #16649's reporter supplied a script passing `--gpu-memory-utilization 0.90` while the
+log prints `0.92` — the v0.23.0 default (`vllm/config/cache.py:67`), so those are different
+launches, not one run; and that same log restarts the engine ~80 s after the crash and
+re-profiles to the identical `27.38 GiB` KV, the cheapest card-health control a long-run report
+can offer before anyone collects `npu-smi` samples.
 
 Conditional routes:
 

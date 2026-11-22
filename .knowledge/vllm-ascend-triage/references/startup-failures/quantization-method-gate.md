@@ -158,7 +158,13 @@ the direction is inverted: the checkpoint carries more scale tensors than the en
 has parameters, which at this family of checkpoints usually means a **full-precision
 release** was served where the tutorial lists only the quantised variant —
 `weight-scale-keyerror-quant-variant.md` (census first, `--quantization ascend`
-second). A plain `.weight` name raised from `is_layer_skipped_ascend` rather than from
+second). **An offset key is not by itself that reading**: with no quantiser selected at
+all — no flag and no `quantization_config`/`compression_config` in the model config, i.e.
+section B above — `is_layer_skipped_ascend` never runs, so no description is consulted
+and *every* aux tensor is homeless on an unquantised model; the offset form's page prices
+the two readings and carries the VL-MoE case (`weight-scale-keyerror-quant-variant.md`
+§*The `.weight_offset` variant*, item 4 of §*The VL-MoE offset form*). A plain `.weight`
+name raised from `is_layer_skipped_ascend` rather than from
 `params_dict[name]` is neither of those: it is section C, a renamed foreign format —
 **unless the quoted key starts with a dot** (`KeyError: '.weight'`, i.e. an empty
 prefix), which is not a format question at all: `empty-prefix-quant-keyerror.md` — an upstream model file that
@@ -349,6 +355,20 @@ snapshot may already declare more methods; that is the version scope. **One name
 format overrides that answer**: if the census in section E finds `F8_E4M3` weight
 tensors, the limit is the dtype the NPU executes, not the format the plugin skipped —
 same `KeyError`, different verdict, so run the census before quoting either.
+
+**The doc-side half of the verdict is one grep, and its path moves between refs.** At
+v0.9.0rc2 (`8dd686d`) the quantization guide is
+`docs/source/tutorials/multi_npu_quantization.md` and there is no
+`user_guide/feature_guide/quantization.md` yet, so hunting that later path on this line
+is four wasted calls: `:5` says "w8a8 quantization feature is supported by v0.8.4rc2 or
+higher", `:31-41` is the msit/modelslim install-and-convert block (recommended tag
+`modelslim-VLLM-8.1.RC1.b020_001`), `:76` the serve line carrying `--quantization
+ascend`, `:96` "To enable quantization for ascend, quantization method must be
+ascend". `rg -i gptq docs/source` then returns **nothing** at that pin, and that empty
+result is the capability citation a code-only answer lacks. The support matrix answers
+only for the base family — `user_guide/supported_models.md:13` is `| Qwen2.5 | ✅ |` —
+so quote it first and the format verdict second: "the model is supported, the
+`-GPTQ-Int8` variant's format is not implemented at this ref".
 
 ### C-ii. The same key from a *native* conversion whose description this ref never reads
 

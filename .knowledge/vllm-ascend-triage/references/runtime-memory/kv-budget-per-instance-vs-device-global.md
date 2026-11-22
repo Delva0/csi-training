@@ -50,11 +50,50 @@ Two texts, two owners, both on one card with several engines:
 
 | Log | Owner |
 |---|---|
-| `ValueError: Free memory on device (27.18/60.96 GiB) on startup is less than desired GPU memory utilization (0.9, 54.86 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.` | the startup check working as designed — the **sum** of the co-tenants' ratios is infeasible (`#8621`: 0.2 + 0.45 + 0.70 + 0.9, 910B, 4th start). Sizing answer: `../deploy-sizing/index.md`, sum ≤ 1.0 |
+| `ValueError: Free memory on device (27.18/60.96 GiB) on startup is less than desired GPU memory utilization (0.9, 54.86 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.` | the startup check working as designed — the **sum** of the co-tenants' ratios is infeasible (`#8621`: 0.2 + 0.45 + 0.70 + 0.9, 910B, 4th start). Sizing answer: `../deploy-sizing/index.md`, sum ≤ 1.0. With a **single** engine the same line means the die is held from outside your container — see the subsection below the table |
 | the check passed, then `Available memory: 0` / `Available KV cache memory: -1.33GB` / `… 0.09 GiB (halved for workspace)` and the KV arithmetic fails | this page: a passed check means `total × gmu ≤ free` at that moment, so the later 0/negative number is bookkeeping, not capacity |
 
 Do not conflate them: `#8621` is the first row (a correct refusal), `#14274` and
 `#7308` are the second.
+
+### The first row without a co-tenant of yours: a shared die under a device plugin
+
+Recorded #9428 (vllm-ascend `v0.17.0rc1` `e20f0b1`, vllm `v0.17.0`, 910B4 64 GB, a K8s
+pod given two **non-first** cards by the Ascend device plugin, `--tensor-parallel-size 2
+--gpu-memory-utilization 0.90`, Qwen3.5-27B):
+
+```text
+ValueError: Free memory on device (51.26/60.96 GiB) on startup is less than desired GPU
+memory utilization (0.9, 54.86 GiB). Decrease GPU memory utilization or reduce GPU
+memory used by other processes.
+```
+
+`54.86 = 60.96 × 0.9` is the same check, but there is **one** engine: the 9.7 GiB
+missing from the named card belongs to something outside this container. Read three
+things before proposing a config change:
+
+- **The `npu-smi` process table is namespace-local.** In the same paste the container's
+  `npu-smi info` listed `NPU 3 = 3202/65536` and `NPU 4 = 12824/65536` with
+  `No running processes found` — a co-tenant pod on the same die has no PID in your
+  namespace, so an empty table plus a non-zero used figure is *expected* and is not a
+  "leak". Attribute on the **host**: `npu-smi info` there, then
+  `cat /proc/<pid>/cgroup` + `tr '\0' ' ' < /proc/<pid>/cmdline` for the owner
+  (the ladder is `../deploy-sizing/node-processes-and-device-attribution.md`).
+- **The variable the plugin injects is not the one torch_npu reads.** #9428's env dump
+  carried `ASCEND_VISIBLE_DEVICES=4,3` — no alias, and descending, which
+  `_device_count_ascend_hal()` would turn into *zero* devices. The isolation that
+  actually worked is the mounted `/dev/davinci3`, `/dev/davinci4`
+  (`../deploy-sizing/card-budget-and-device-visibility.md` has the three traps), so
+  "the pod sees only NPUs 3 and 4" proves the mount, not the variable — and the torch
+  ids are then `0,1` while `npu-smi` keeps the host labels. Do not open the answer with
+  "the variable took effect".
+- **A per-container memory quota is invisible to `aclrtGetMemInfo`.** If the plugin
+  shares the die by quota, the whole-card `free ≥ total × gmu` pre-check cannot be
+  satisfied by any quota below `gmu`; lowering `gmu` (0.90 → 0.75 here) is the
+  one-run confirmation, and an exclusive allocation or a free pair of cards is the
+  durable one. Verify the reading first with the per-device loop in the pod
+  (`torch.npu.set_device(i); torch.npu.mem_get_info()`), which also separates "the card
+  is occupied" from "we are mapped to a different die".
 
 ## Finding the twin
 

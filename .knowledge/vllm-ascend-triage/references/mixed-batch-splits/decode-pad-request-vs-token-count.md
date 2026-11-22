@@ -46,7 +46,11 @@ EOF
 ```
 
 Direction matters. `rows == N × (1 + K)` is the speculative-decoding variant, whose
-owner and checks are `../spec-decode-mtp/fia-tnd-seqlen-mismatch.md`; `rows < N` means
+owner and checks are `../spec-decode-mtp/fia-tnd-seqlen-mismatch.md`; a reshape whose
+two counts are both **tokens** — `num_tokens` from `q.shape[0]` and a row count that is
+the *target's* ACL-graph pad, on a `cos = cos.view(num_tokens, -1)` in
+`ops/triton/rope.py` — is `../spec-decode-mtp/rope-cos-sin-slice-token-mismatch.md`;
+`rows < N` means
 the short side is elsewhere and this page's arithmetic has to be re-derived before it
 is quoted.
 

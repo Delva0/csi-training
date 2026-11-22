@@ -82,6 +82,15 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   `stream: false` A/B; the same page's table row carries the split, and the
   gen-side owner (which stop token ended it: MTP n, `--async-scheduling`,
   `stop_reason`) follows (`no-tool-call-in-raw-output.md`, #17391).
+- **the call arrives as assistant prose**: `tool_calls` empty and the markup itself in `content`
+  — `<parameter name="command">…</parameter>` / `</invoke>` (Anthropic's spelling, primed by a
+  Claude-Code-class client or a Responses-API converter) or `<| DSML | invoke>` with ASCII pipes where
+  DeepSeek's token is `<｜DSML｜invoke` (U+FF5C) — so the agent re-issues the turn (codex ~13 retries)
+  and the reporter calls it 卡死. The downstream V4 parser turns *any* unmatched marker into `content`
+  verbatim and silently (`patch_deepseek_v4_tool_call_parser.py:350-351,368-370,379-380` and the
+  streaming `:633-643` at v0.20.2rc1), so the one call is a byte compare of the marker in the raw body
+  against the parser's token, and the three owners (parser/registration, prompt↔converter dialect,
+  tokenizer/damaged special token) are `markup-in-content-dialect.md` (#10856).
 - **`content` null and `tool_calls: []` in the same message**, `finish_reason:
   "tool_calls"`, on a serve that *does* pass `--tool-call-parser deepseek_v3`
   (`--enable-auto-tool-choice` on), often right after the reporter added exactly
@@ -337,6 +346,14 @@ parser puts you back on rule 1.
   fenced-call regex unmatched, `tools_called=True`), the regex's three required
   pieces as the comparison that names the missing element, the `stream: true`
   witness, and the reporter's parser-free system-prompt workaround with its scope.
+- `markup-in-content-dialect.md` — the call rendered as **prose** (`tool_calls` empty, the markup in
+  `content`): the four-outcome byte compare against `<｜DSML｜tool_calls>` / `<｜DSML｜invoke name="` /
+  `<｜DSML｜parameter name="…" string="true|false">`, the downstream V4 parser's three silent
+  verbatim fallbacks plus its streaming fallthrough, the flag/registration history (`--tool-call-parser
+  deepseek_v4` did not exist before the release that registers it; `--enable-auto-tool-choice`), the
+  Anthropic-dialect lane that no server-side parser can fix, the damaged-marker/tokenizer lane for a
+  re-uploaded quantized checkpoint, and #10856's coverage facts (no DSV4 row in
+  `docs/source/user_guide/support_matrix/supported_models.md`, no DSV4 tutorial at that pin).
 - `detokenizer-text-delta.md` — the third owner, for damage **inside the text**:
   missing head plus a repeated fragment at a script boundary, `stream: false`
   clean. The two incremental-detokenizer paths at v0.23.0

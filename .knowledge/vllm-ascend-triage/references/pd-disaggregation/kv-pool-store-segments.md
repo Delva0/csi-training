@@ -47,6 +47,15 @@ A **third** shape is neither: the channel prepared, the request succeeds, and th
 `PutEnd` 0 with `PutRevoke` > 0). Segment size is then excluded (`-1`, not the
 out-of-space `-200`) and the lane is `../kv-pool-store/hccl-onesided-store-put.md`.
 
+A **fourth** shape is this page's size question seen from the other end: the segments
+mounted, puts landed for minutes, and then one peer times out
+(`Transfer timeout to: <ip>:2009x`) and the keys come back `-800`. A `status: 503900`
+that appears *after* the first timeout belongs to that chain, not to §1's
+channel-prepare line — compare the two timestamps before routing here, and read
+`../kv-pool-store/store-put-transfer-timeout-and-adxl-segfault.md`. The
+`global_segment_size` value is still worth an ablation there (§4 of that page), but
+only after the timeout discrimination: a segment that mounted is not this page's fault.
+
 Reporter-confirmed discriminator for #13439, worth asking for verbatim in any
 lookalike: **both `MooncakeConnectorV1` and `MooncakeHybridConnector` fail
 identically once the pool is attached, while PD disaggregation without the KV

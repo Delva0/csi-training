@@ -136,6 +136,20 @@ implies the forced choice: #3816's screenshot shows the `tools` array but its
 `curl` body is cut before `tool_choice`, so which one the reporter sent stays
 open and belongs in the answer's "send me this" list.
 
+**Pin boundary (#7719 set it).** This page needs a tree that still ships the
+scheduler fork. At vllm-ascend v0.17.0rc1 (`e20f0b1a0d2f`)
+`vllm_ascend/core/` holds only `recompute_scheduler.py` and
+`scheduler_dynamic_batch.py` — no `scheduler.py`, no `WAITING_FOR_FSM` raise — and
+upstream vllm v0.17.0 (`b31e9326a7d9`) instead injects the grammar at the
+**frontend**, from the same forced `tool_choice`
+(`tool_parsers/abstract_tool_parser.py:56-81` +
+`tool_parsers/utils.py:181-215`), with a hard-fail `required` parse branch after
+generation (`engine/serving.py:1211-1223`, `parser/abstract_parser.py:423-435`).
+So on ≥ v0.17.0 pins an `auto`-works / `required`-500 report is the frontend
+structured-output lane (`../serving-frontend-faults/tool-choice-required-500.md`),
+and only a `RuntimeError: Invalid request status: …` from a tree that has the fork
+is this page. Check `ls vllm_ascend/core/` before quoting either.
+
 ## Is the fork even in play? Yes by default at both recorded pins
 
 The natural first guess — "the reporter must have enabled the Ascend scheduler" — is

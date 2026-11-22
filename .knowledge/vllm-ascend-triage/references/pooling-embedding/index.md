@@ -15,7 +15,7 @@ Every branch guarded by one of those names is this topic's candidate owner, and
 and `vllm_ascend/attention/attention_v1.py` (attention routing, masks) are where
 they live.
 
-Nine symptom classes, different owners — decide which one the report is before
+Eleven symptom classes, different owners — decide which one the report is before
 reading any code:
 
 1. **The service never becomes ready**: `EngineCore failed to start` at the first
@@ -116,6 +116,19 @@ reading any code:
    the *runtime* sibling of class 8 (which dies at capture): same `--runner pooling`
    models, different phase, and eager is the control that separates them.
 
+11. **It serves, then every `/v1/embeddings` request is a 400 and the engine is dead** —
+   deepest frame `vllm_ascend/core/scheduler.py:209 blocks =
+   new_computed_blocks.blocks[0]`, `IndexError: tuple index out of range`, raised from
+   `schedule()` in EngineCore's `step`, no device frame anywhere. An **encoder-only**
+   checkpoint (bge-m3 / `BertModel` / `XLMRobertaModel`) has **zero** KV-cache groups,
+   so `create_empty_block_list()` is `KVCacheBlocks(())` and the fork indexes it — at
+   `:209` and again at `:520` — while the fork itself was force-enabled by
+   `platform.py:139-150`, so no `--additional-config` was needed. A decoder-based
+   embedding checkpoint (Qwen3-Embedding) has ≥1 group and never crashes, which is why
+   the tutorial and the e2e job are green → `../scheduler-admission/scheduler-fork-block-index.md`
+   (recorded #3462, v0.11.0rc0 + vllm v0.11.0rc3, bge-m3, k8s/`--task embed`). Not a
+   batch, mask or numeric lane: one request, before any token is computed.
+
 Not this topic: a score/MMLU gap between harnesses (`../accuracy-benchmarks/index.md`),
 garbled *text* from a generation model (`../accuracy-benchmarks/`), a device dump
 or a kernel-launch aclnn error from a custom op (`../custom-ops-runtime-faults/`),
@@ -200,6 +213,23 @@ weight-layout fault whose owner is the Python that chose the layout.
    reported N. If a sweep of that flag moves the boundary, the chunk boundary is
    the trigger and the owner is scheduling/accumulation/masking; if it does not
    move, it is length-dependent numerics.
+
+8. **Ask encoder-only or decoder-based before any KV-cache arithmetic.** The split is
+   one field — `architectures` in the checkpoint's `config.json` — and it moves the
+   whole KV story. Encoder-only checkpoints (`BertModel`, `XLMRobertaModel`, an encoder
+   `…ForSequenceClassification`) have **no** KV cache: the spec dict is empty,
+   `is_kv_cache_spec_uniform({})` returns `True` under the tree's own comment
+   `# Encoder-only models do not have KV cache`
+   (`vllm/v1/core/kv_cache_utils.py:768-771` at vllm v0.11.0rc3), the empty-spec branch
+   skips the `No available memory` `raise` (`:696-702`), and `kv_cache_groups` ends up
+   **empty** (`:744-752`) so every per-group index is an empty tuple. Decoder-based
+   embedding checkpoints (`Qwen/Qwen3-Embedding-*`, the only shape
+   `tests/e2e/singlecard/test_embedding.py` serves at v0.11.0rc0) have ≥1 group.
+   Consequences to state in an answer: a green tutorial/CI row says nothing about an
+   encoder-only crash (class 11); `num_gpu_blocks is: 1` / `GPU KV cache size` lines are
+   placeholders on this shape, not a pool; and any downstream code doing
+   `kv_cache_groups[0]`, `blocks[0]` or prefix-cache lookup is a candidate owner before
+   the attention backend is.
 
 Three scripts serve this topic's startup classes directly:
 `scripts/seq-cls-arch-check.sh <vllm-root> '<Arch>[,<Arch>]'` (class 4) and

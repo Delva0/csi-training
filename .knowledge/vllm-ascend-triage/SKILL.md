@@ -54,8 +54,10 @@ the turn the shape is classified, not a second copy of it here.
 1. **Say the answer in a message, early, and obey the delivery gates.** A long
    session can be cut off mid-sentence, so the deliverable has to survive
    truncation: what decides the outcome is not how much evidence was gathered but
-   whether the message exists. The 23 recorded runs that shipped **no answer at all**
-   each had a usable lead in hand (ids and per-run detail: `delivery-discipline.md`);
+   whether the message exists. The recorded runs that shipped **no answer at all** —
+   #1255 through #13418, #7448 among them, whose verdict this library already
+   held — each had a usable lead in hand (ids and per-run detail:
+   `delivery-discipline.md`);
    #1255/#5772 held the owning line; #2807/#15394 every fact of a ranked answer and
    spent the rest on a host detail no local file settles; #4296 answered from one
    traceback in ten turns. Thinnest, and newest: **#8301 wrote no message text at all**
@@ -579,8 +581,12 @@ the turn the shape is classified, not a second copy of it here.
     logs canned advice inside `except` blocks and re-raises, so the sentence names a
     cause the code never checked — the `ACLgraph has insufficient available streams
     … Recommended solutions` block prints for *any* capture exception
-    (`model_runner_v1.py:3553-3565` at v0.11.0rc0, gone by v0.20.2rc1: re-grep per
-    version). Before adopting a log's own explanation, `rg -n '<fragment>'
+    (`model_runner_v1.py:3553-3565` at v0.11.0rc0, `:3143-3152` retCode-gated at
+    v0.12.0rc1, absent at v0.18.0rc1, back `207008`-gated by v0.21+: re-grep per
+    version), and its "Recommended solution 2" is a lever a pooling serve refuses, so
+    price a logged recommendation against the engine's own gates before repeating it
+    (`references/startup-failures/capture-stream-table-exhaustion.md` §4). Before
+    adopting a log's own explanation, `rg -n '<fragment>'
     vllm_ascend/` — and in the upstream `vllm/` tree when that comes back empty, since
     a message naming triton/torch internals is usually upstream's: `Failed to import
     Triton kernels … please make sure your triton version is compatible` is vllm's
@@ -1056,6 +1062,25 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
      `AscendScheduler` fork for a default dense serve and overwrites an explicit
      `enabled: false`), so grep the config field in `vllm_ascend/platform.py`
      before asking which flags they passed (recorded #3979).
+   - **A host-side `RuntimeError: shape '[N, -1]' is invalid for input of size M`
+     is a division, then one grep — never a model-constant hunt.** `M` splits into a
+     row width and a row count: divide it by the paste's own widths and read the
+     result as *padded* or *real*. If the tensor is a **process-global** rather than
+     a per-call one, the count belongs to whichever forward wrote it last, so
+     `rg -n '<writer>' vllm_ascend/` over the whole package (not one file) and treat
+     an **absence** as the finding: the rope cos/sin slice
+     (`ops/rotary_embedding.py` `_cos`/`_cos_slice`, `update_cos_sin`) is refreshed by
+     the target runner and by the EAGLE proposer but **not** by `mtp_proposer.py` at
+     v0.14.0rc1, so `cos.view(num_tokens, -1)` in `ops/triton/rope.py` raises exactly
+     on the steps whose token count sits in a capture-size gap under
+     `--async-scheduling` (`references/spec-decode-mtp/rope-cos-sin-slice-token-mismatch.md`,
+     #6449; `scripts/rope-cos-sin-slice-check.sh` prints the division). The model's
+     width (`head_size` vs `partial_rotary_factor`) decides only whether the division
+     *raises* or silently strides over the wrong rows, so it changes no rung of the
+     ladder — do not spend turns deriving it from an export that may not carry the
+     model's config at all, and send the verdict as soon as the division separates the
+     two counts (the recorded #6449 run held that answer for twelve turns and shipped
+     no message text).
    - Any track, when the paste is a **serve command on a 2×N 910B box at v0.10.x** (MoE
      model, perf *or* accuracy symptom): classify the **graph lane** from the command before
      ranking mechanisms — `--enforce-eager` present ⇒ `NO_COMPILATION`
@@ -1133,6 +1158,12 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   filed in. **The cheapest next action belongs in that same first paragraph**, not
   below the evidence table: a session can be cut wherever it happens to be, and
   #7580 was cut inside its table, after the verdict and before its ablation plan.
+  **The *order* of the remaining rungs goes in the same paragraph when each ranked
+  cause already carries its one check** — compress the ladder to a single ordered line
+  there instead of leaving it to a `Ladder` section lower down, which is the block
+  truncation eats: recorded #10856 shipped the verdict plus four ranked causes with
+  their checks and was cut exactly before its ladder, evidence table and scope, so the
+  reporter could not see which of the four to run first.
 - **A decisive fact already in hand is the answer.** Once one grep has settled the
   mechanism — the pin's own class carries the attribute the paste calls missing, the
   owning branch or call site is named, the one config line that differs is identified

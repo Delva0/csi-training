@@ -501,6 +501,22 @@ build-deps command.
   rank "the arch has no artefact" **below** the `+cpu` label whenever the pin pairs an exact
   `torch-npu==` with a `torch>=` floor.
 
+- **#855** (vllm-ascend v0.8.5rc1 `ec27af3` + vllm v0.8.5.post1 `3015d563`, aarch64
+  reporter, ARMv8 + openEuler): a screenshot plus three prose lines — "vllm-ascend==0.8.5rc1
+  depends on torch-npu==2.5.1, vllm==0.8.5, torch>=2.5.1 / vllm==0.8.5 depends on
+  torch==2.6.0 / torch-npu==2.5.1 depends on torch==2.5.1" — i.e. §A0's no-pip-output shape,
+  answered in 10 turns / 20 calls / 7.6 K characters of text. The three facts that carried it:
+  the tree declares **no `vllm` requirement at all** (`setup.py:323,359` reads only
+  `requirements.txt`, which has no `vllm` line, so nothing pinned the reporter's vllm), the
+  release's own pair is `v0.8.5.post1` (`docs/source/conf.py:66`, `Dockerfile:40`), and the
+  recipe never lets pip resolve torch — `VLLM_TARGET_DEVICE="empty"` (`Dockerfile:43`,
+  `installation.md:153`) makes `get_requirements()` read `common.txt` only (`vllm/setup.py:614-617`),
+  which has no torch line. So the verdict is "do not take vllm from PyPI on this release", with
+  the release image `quay.io/ascend/vllm-ascend:v0.8.5rc1` (`installation.md:195`, `conf.py:70,73`)
+  as rung 1. **Operational:** that run invoked the script as `pip-pairing-check.sh … | head -60`
+  and the cut landed inside finding 1, dropping the cross-repo vllm↔vllm-ascend line that was the
+  answer; the script now warns in its `== findings` header — read to `== end of findings`.
+
 ## Not verified
 
 - The huaweicloud Ascend mirror was not reachable from any recorded session, so

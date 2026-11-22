@@ -38,6 +38,14 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
 - A number printed while the checkpoint is being *converted* (per-layer
   `MSE loss`, an epoch table, a bad quantized artifact) is converter output and
   precedes any engine comparison — go to `quantized-checkpoint-conversion.md`.
+- **A garbled or fluent-but-wrong answer on weights the reporter converted
+  themselves** (`--quantization ascend` on a `…-W8A8`/`…w8a8pertoken` directory they
+  built, often with "works fine in Transformers" offered as the control) is the same
+  topic one rule further out: the first ask is *which tool, and which tuning /
+  anti-outlier method* produced the artifact, not a walk of `vllm_ascend/quantization/*`.
+  Recorded #2318 closed on the recipe (m4, an improved-SmoothQuant variant) with no
+  engine defect — rule 2 and `quantized-checkpoint-conversion.md`, whose
+  published-checkpoint split is the one-command discriminator.
 - Speculative decoding / MTP owns the symptom — `Accepted: 0` with `Drafted: N > 0`
   and `Mean acceptance length: 1.00`, a stall with drafts still being produced, or a
   first response with `content: ""` and `completion_tokens: 1` — go to
@@ -402,8 +410,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (`scripts/moe-gating-topk-probe.py`), and #10892's reporter-confirmed resolution.
 - `quantized-checkpoint-conversion.md` — per-layer loss tables and bad artifacts from
   msmodelslim conversion: the two gates (engine version plus the msit branch, which
-  differs between doc pages), the published-checkpoint split test, layer-localization by
-  shape invariance, and the ownership boundary (Ascend/msit, not vllm-ascend).
+  differs between doc pages), provenance-before-engine for a self-quantized artifact
+  that answers garbage (#2318: the anti-outlier recipe, not the engine), the
+  published-checkpoint split test, layer-localization by shape invariance, and the
+  ownership boundary (Ascend/msit, not vllm-ascend).
 - `garbled-long-context-output.md` — long-input 乱码/garbage reports: grade the symptom,
   hand the reporter a feature-ablation matrix (DCP, sparse c8, dsa_cp, KV offload,
   length sweep), the `dcp_size == tp_size` / interleave constraints that make rows

@@ -218,6 +218,16 @@ Conditional routes:
   that split, document parsing is a layout → recognise pipeline (the VLM alone is
   one stage), and the 310P rope-branch map there is a single probe via
   `scripts/310p-rope-branch.py`, not a source walk.
+- The **same 310P VL/OCR family fails at engine start instead**: `profile_run` →
+  `_rope_forward_oot` → `npu_apply_rotary_pos_emb`, `call aclnnApplyRotaryPosEmbV2
+  failed, error code is 161001` + `AclNN_Parameter_Error(EZ1001): Check cos !=
+  nullptr failed`, while a text model on the box serves → `310p-vl-rope-cos-nullptr-startup.md`.
+  One gate owns it (`set_cos_and_sin` allocates `_cos`/`_sin` only for non-VL
+  configs, `ops/rotary_embedding.py:78`), the paste names the branch, and the
+  support matrix already reads `MiniCPM-V … A2/A3`: verdict + owner + repair, no
+  source walk. Do not derive it from the family or hunt the op-plugin `.cpp`
+  (not in any pinned export) — and do not confuse it with the bullet above: a
+  traceback means this page, wrong text without one means that page.
 - 310P startup dies in the **first forward** (`profile_run`) with
   `EZ3002 … Optype [TransData] of Ops kernel [AIcoreEngine] is unsupported … not found
   in this op store` + `format and dtype is not precisely equivalent … op information
@@ -243,6 +253,13 @@ Conditional routes:
   **multimodal** request path (`aclnnIsNegInf` from a vision/NaN-guard call,
   #6082, v0.10.0rc1-310p), and the Python caller is in no pinned tree, so grep
   the trees once, then probe.
+  A further wording in the same section, `[<dir>//<op>.json] is invalid or does not
+  exist` in the plog under a console line naming the op (e.g. `ZerosLike` →
+  `zeros_like.json`, `aclnnInplaceZero`, v0.14.0rc1 x86 image, #6370), is the
+  per-op **file** inside the installed OPS package: **reporter-confirmed fix is a
+  reinstall of the CANN OPS package + NNAL**, so say that first on a card
+  `faqs.md:13` lists and do not lead with an image-tag change; `EI9999` in such a
+  line is HCCL's fixed report code in the export and owns nothing.
 - An **omni / TTS / audio-out** model on 310P — "310p 使用
   quay.io/ascend/vllm-omni:vX.Y.Z 这个镜像来创建容器部署 <TTS 模型> 么?" — is a
   prebuilt-image verdict plus a build recipe, not a bug hunt: the project publishes omni

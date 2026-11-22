@@ -75,11 +75,15 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   never hold this request" from "the abort never arrived".
 - `scheduler-fork-block-index.md` — `IndexError: tuple index out of range` at
   `blocks = new_computed_blocks.blocks[0]` in `AscendScheduler.schedule()` (recorded
-  #4207, v0.11.0rc0 image): the fork's own body runs whenever chunked prefill is off,
-  which `AscendSchedulerConfig` forces (`schedule_config.py:48`), and the guard is one
-  expression because the consumer already normalises empty (`scheduler.py:512`, `:178`).
-  The pinned upstream cannot produce an empty tuple, so the producer is the reporter's
-  vllm build — print it, do not derive it.
+  #4207 and #3462, both v0.11.0rc0): the fork's own body runs whenever chunked prefill
+  is off, which `AscendSchedulerConfig` forces (`schedule_config.py:48`) *and*
+  `platform.py:139-150` force-enables for a default dense serve, so the paste says
+  nothing about the reporter's flags. The empty tuple **is** reachable at the pin: an
+  **encoder-only** pooling checkpoint has zero KV-cache groups
+  (`kv_cache_utils.py:768-771` → `num_kv_cache_groups=0` → `KVCacheBlocks(())`), and
+  the checkpoint's `architectures` splits that from the decoder-based embedding model
+  CI serves. Two index sites (`:209`, `:520`), and the fork can be left entirely with
+  `--scheduling-policy priority`.
 - `kv-block-lifetime-async-scheduling.md` — requests stay `Running` while generation
   stops, with no error and per-rank (recorded #13964, fixed by vllm-ascend #13518):
   the skip-block prune runs on `num_computed_tokens`, which async scheduling

@@ -278,6 +278,17 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   table row count you can compute (RoPE `cos_sin_cache` = the checkpoint's
   `max_position_embeddings`, the KV block table = `num_gpu_blocks`, a token
   buffer, the vocab) before any hardware theory — `gather-index-out-of-range.md`.
+- **A custom op named inside a GE op-kernel-info init record is not the failing
+  op.** `E29999: [InitOpInfoLib][InitOpKernel] Inconsistent format size [1] and data
+  type size [1]!` → `Model<Op>: failed to initialize unknown shape dtype and format.
+  The input or output is input2.blockIDs` → `[GraphOptLib] … [FILE:sub_op_store.cc]`
+  is GE building kernel info for the whole custom-op package at process start: its
+  own stamp precedes the fault, the strings live in no export, and the op may have a
+  single in-tree caller the launch never reaches (at v0.17.0rc1
+  `transpose_kv_cache_by_block` is called only from
+  `distributed/kv_transfer/kv_p2p/mooncake_connector.py:599`). One `rg -n '<op_name>'
+  vllm_ascend/ -g '*.py'` ends it — `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`
+  §2.
 - **`NonZero` is the mask, not the `nonzero` call.** A paste naming `NonZero`
   (`Kernel Run failed. opType: 59, NonZero`, `launch failed for NonZero, errno:507053`)
   with `The DDR address of the MTE instruction is out of range` / `subErrType:4` /
@@ -388,7 +399,16 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   in-tree `hc_pre_def.cpp`/`build_aclnn.sh` evidence that A3 **is** a build target (so a
   vendor table listing the op A5-only is CANN's fallback copy), the two texts that split
   "extension absent" from "vendor package without the op", and the checks that replace a
-  CANN `version.cfg` diff.
+  CANN `version.cfg` diff. Two rules added from #7095 (`aclnnAddRmsNormBias` at
+  `profile_run` on A3, pip-installed): the three-root search is the **v0.2x**
+  implementation — at v0.15.0rc1 the same macro `dlopen`s `libcust_opapi.so` /
+  `libopapi.so` by bare soname through the RPATH baked in at `CMakeLists.txt:141`,
+  so the vendor `op_api/lib` directory must physically exist in the installed
+  package; and the release **wheel is built for one SoC only**
+  (`Dockerfile.buildwheel`: `ARG SOC_VERSION="ascend910b1"`, `bdist_wheel` runs
+  `build_aclnn`), so an A3/910_93 host with `pip install vllm-ascend` ranks the
+  SoC mismatch first and rung 1 is the `…-a3` image or
+  `SOC_VERSION=ascend910_9391` from source.
 - `engine-only-op-replay.md` — the "works standalone, fails in the engine" control
   (recorded #3263, v0.7.3 `paged_attention_mask_1_mix_aic` + MTE DDR out of range,
   `runtime result 507053`): the five `_npu_paged_attention*` call sites and the argument

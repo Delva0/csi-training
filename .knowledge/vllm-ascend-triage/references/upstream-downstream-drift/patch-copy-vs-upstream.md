@@ -44,6 +44,36 @@ first, not after the mechanism is derived from proxies.
    the upstream `path:line` (`vllm/v1/worker/gpu_model_runner.py:888-897`), the
    patch `path:line` that carries the same text, and the version gate that binds
    the copy to one upstream release.
+3b. **A hunk with no added statement can still be the defect: compare the block
+   *skeleton*, not just the lines.** When the copy folds two upstream top-level `if`
+   blocks into one (or nests a sibling's body under a condition it never had), a name
+   that upstream bound and read inside a single block becomes a **cross-block read**,
+   and the failure is `UnboundLocalError: cannot access local variable '<name>' where
+   it is not associated with a value` for exactly the inputs the merged condition now
+   admits. Check by listing the top-level `if`s and what each *binds* on both sides;
+   the patch's own line numbers then name the pair (`target_model_type` bound at
+   `patch_speculative_config.py:18` inside the `deepseek_v*` tuple, read at `:21`
+   inside `deepseek_mtp`, at v0.23.0 — upstream `vllm/config/speculative.py:303-319`
+   keeps `deepseek_v4` in its **own** top-level `if`, so no local crosses a block and
+   the same input returns `deepseek_mtp` / `DeepSeekMTPModel`). Two repairs, both
+   cheap to verify against the recorded parity rows: hoist the binding above the first
+   `if`, or restore upstream's block split and delete the local. Then bound which
+   input reaches the function before writing the impact sentence — for an
+   `hf_overrides` callable that is the **draft** config build
+   (`vllm/config/speculative.py:673-693`; for `method: mtp` without an explicit draft
+   path `self.model` is the target path, `:565`, whose `config.json` is
+   `deepseek_v3*`), so the natural trigger is a `--speculative-config` `model`
+   pointing at a standalone MTP/nextn directory whose `config.json` already says
+   `deepseek_mtp` — a one-command check on the reporter's checkpoint, not a claim
+   about every MTP serve. **Before proposing either rewrite, grep the function's own
+   regression test**: the tree pins *substrings* of this function's source
+   (`tests/ut/spec_decode/test_step3p5_source_regression.py:96-102` requires
+   `step3p7`, `Step3p7ForConditionalGeneration`, `step3p5_mtp`, `Step3p5MTP` to remain
+   in `hf_config_override`), so a tidy restructure can fail CI without changing
+   behaviour — say which strings the patch must keep. Recorded #18734 (v0.23.0, a
+   CPU-only UT probe, already tracked by open PR #12707: the deliverable there is the
+   independent reproduction, the reachability bound and that constraint, not a second
+   mechanism).
 4. Check whether the added statement is even live for the reporter's command.
    Patch deltas are usually gated on a deployment shape (PD `is_kv_consumer`,
    `additional_config` key, `use_async_scheduling`); the reporter's serve command

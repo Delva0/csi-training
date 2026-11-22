@@ -283,6 +283,19 @@ output, or did no request ever reach a decode engine?**
   have named it, so the paste carries **no** transport information, and the
   request may go on to decode on partial KV → `kv-transfer-thread-masked-error.md`
   (unmask with the one-line flatten or the layerwise connector, then classify).
+- The decode node **times out the handshake and then cannot even say goodbye** —
+  `Receive failed. error=Receive timeout` ×3 → `Failed to transfer KV cache for request …:
+  Failed to receive data after 3 retries: Receive timeout` → `[scheduler.py] Failing N
+  request(s) due to KV load failure (failure_policy=fail, X tokens affected)` → `Send failed.
+  error=operation cannot be accomplished in current state` + `Unexpected error occurred in
+  socket` → nothing new is admitted while metrics read `Running: 1 reqs, waiting: 0 reqs, GPU
+  KV cache usage: 99.9%`. Two owners, not a leak: a 1.0 s × 3-attempt handshake budget against a
+  prefiller that answers `GET_META_MSG` from one serial ROUTER busy loop (32 concurrent 100 K
+  prefills can miss it), and a failure path that frees nothing (unconditional done-recv signal
+  in `_handle_request`'s `finally`). EFSM on a `REQ` send means a recv-timed-out socket was
+  reused, and this pin closes those, so their build's error path is the one check — the paste's
+  `attempts left=2` vs the pin's `attempts_left=%d` proves the tree is not the tag →
+  `mooncake-handshake-timeout-wedge.md` (#12383).
 - The same thread prints a **bare** `AttributeError` on a metadata field —
   `Error in KVCacheTransferThread: 'ReqMeta' object has no attribute 'block_ids'` —
   and the issue carries no environment block: the pin's own class has that field as a

@@ -159,6 +159,23 @@ emitted text on its first and last turns only (13 silent turns, ~30 K characters
 reasoning against 6.3 K delivered); the ranked facts were in hand by the 11th turn, so
 three more confirming reads were all the margin it had.
 
+**#9290** vllm-ascend v0.19.1rc1 image, Qwen3.5-122B-A10B W8A8 on 8 dies (TP=8 + EP),
+`--speculative-config '{"num_speculative_tokens": 13, "method": "mtp"}'` with
+`FULL_DECODE_ONLY` and `cudagraph_capture_sizes [14,28,…,112]`, complaint "acceptance
+rate remains 0 and latency is very high", body = env dump + serve command + one
+screenshot. The OCR is the metrics paste: `acceptance length: 1.00`, `Accepted: 0`,
+`Drafted: 285`, per-position `0.000…`, `Running: 1`, `Waiting: 0`, KV cache ~2 % — so
+capacity is refuted from the reporter's own numbers and K=13 is outside every validated
+MTP row (the tree's only high-K rows are `method: suffix`; the Qwen3.5 recipe and both
+nightly yamls use 3). The recorded run read `rejection_sampler.py`, `reject_sample.py`,
+`penalties.py`, `block_table.py` and `eagle_proposer.py` looking for an in-tree clamp,
+opened the OCR at block 14, and ended at the 16 384-output-token cap with **1.22 M prompt
+tokens and no message text**; the reporter's later comment supplied the discriminator the
+run should have asked for — **≥ 8 breaks (acceptance 0 + corrupt output), below 8 is
+normal, and v0.17.0 served 13 correctly while v0.19.1/v0.20.2 do not**, i.e. a threshold
+plus a version window, not a mechanism readable at the failing pin
+(`../spec-decode-mtp/acceptance-zero-at-high-k.md`).
+
 **#6549** vllm-ascend v0.14.0rc1 (`52d4acfa`) + vllm v0.14.1 (`d7de043`), report filed
 on 0.13.0: "0.13.0 Release vllm-ascend MLA interface is different form 0.13.0 vllm",
 whole body = that sentence + two `<!-- Failed to upload -->` images, no log, no version

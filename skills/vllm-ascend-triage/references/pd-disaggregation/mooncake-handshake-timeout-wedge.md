@@ -23,6 +23,21 @@ is two screenshots whose `.ocr.txt` are the log). The shape is *connected-then-t
 not the connect/handshake-`103900` family: `mooncake-adxl-connect-103900.md`,
 `adxl-connect-status-same-host.md`.
 
+**Logless form.** A report that carries no log at all and says only `d节点挂死`
+during a long-context concurrency benchmark on a 1P1D deployment (recorded #10963:
+GLM-5.1, 4×A3, 1P1D, 140K context, performance test, an unfilled `collect_env.py`
+block) cannot be routed by the strings above, and the recorded run answered it with
+the AlltoAll-deadlock and OOM lanes while this same-pin precedent was never opened.
+Ask the two artefacts that split the lanes and nothing else: (a) the
+`--kv-transfer-config` `kv_connector` class both sides run — this page needs
+`MooncakeConnector`, while a `LLMDataDistCMgrConnector` deployment has its own
+lanes in `index.md`; (b) the D-side log of the failure minute. If D wrote **no**
+line while the API server still listens, the lane is
+`../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md`; if it wrote
+`Receive timeout` or `Failing N request(s) due to KV load failure`, this page owns
+it and §*The 1-second arithmetic* (rerun at concurrency 1-4) is rung 1 — before any
+MC2/dispatch theory that needs the D-side error text you do not have.
+
 ## Two owners, ranked
 
 1. **Handshake latency against a one-second budget** — why the timeouts appear at all.

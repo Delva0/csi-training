@@ -385,6 +385,21 @@ block after it — is the startup section of that page: `-11` is SIGSEGV, a triv
 CPU `torch.zeros` at the top of the dump is where the damage surfaced, and the
 answer is the image/CANN pairing plus the release's own validated command.
 
+**Then separate the interpreter's own abort from a signal death.** A single
+`Fatal Python error: none_dealloc: deallocating None: bug likely caused by a
+refcount error in a C extension` line (also `_Py_NegativeRefcount`,
+`Fatal Python error: Segmentation fault` without the dump, `GC object already
+tracked`) after weeks of healthy serving is CPython aborting on a native
+extension's bad reference count, not a device or collective fault: plog is clean
+and there is no `EL0004`/`207001`/`hcclRet`. The naming evidence is printed by the
+interpreter itself, right below that line (`Current thread 0x… (most recent call
+first):` frames and the `Extension modules:` inventory), so the first ask is that
+block from the dying rank's own log, not plog. `cpython-fatal-error-abort.md` has
+the ≤3.11-vs-3.12 mechanism split (the project's own images are py3.11), the owner
+table, and the instrumentation ladder (core dump, `PYTHONMALLOC=debug`,
+`PYTHONFAULTHANDLER=1`, one-variable env ablations). The `expandable_segments`
+unmap crash is a *different* text at startup and does not apply.
+
 **Then separate a death reported as a plain Python traceback from a queue bug.**
 `RuntimeError: cancelled` raised at `vllm_ascend/patch/platform/patch_shm_broadcast.py:70`
 (or `shm_broadcast.py:701`), reached from `multiproc_executor.py:390`
@@ -535,6 +550,17 @@ debugging" caveat.
    task struct, the DFX ask); the plog pre-flight that keeps a 20-hour reproduction from being
    wasted; and the verified non-findings at v0.23.0rc1 (`kernel_type=5`, `flip_num`, and the
    already-fixed W4A8 MC2 aliased workspace).
+17. `cpython-fatal-error-abort.md` — an engine that served for days/weeks dies with
+   a single interpreter line, `Fatal Python error: none_dealloc: deallocating None:
+   bug likely caused by a refcount error in a C extension` (recorded #6863, plog
+   clean): why the owner is a C extension and cannot be read from the paste, the
+   block CPython prints under that line that names it (frames + `Extension
+   modules:`), the interpreter-version split that decides whether to look for a
+   missing `Py_INCREF` or for a use-after-free (the images ship py3.11), the
+   owners on the request path at that pin, and the core-dump /
+   `PYTHONMALLOC=debug` / `PYTHONFAULTHANDLER=1` / env-ablation ladder —
+   plus the env lines that are the image default (`LD_PRELOAD` jemalloc,
+   `expandable_segments`) rather than the reporter's deviation.
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server

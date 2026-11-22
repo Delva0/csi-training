@@ -95,10 +95,20 @@ Mooncake @v0.3.11.post1:
 ```
 
 Because the store and the p2p connector share one engine (`global_te`), a store
-segment the platform refuses poisons every channel that engine later dials — so the error
-surfaces on whichever connector transfers first, with the p2p connector's Python
-traceback. That is why "remove the pool" is diagnostic and "swap the p2p
+segment the platform will not honour poisons every channel that engine later dials — so
+the error surfaces on whichever connector transfers first, with the p2p connector's
+Python traceback. That is why "remove the pool" is diagnostic and "swap the p2p
 connector" is not.
+
+**The refusal is not at the allocation, so do not look for an error there.** In the
+reporter's own D-node log the segment allocates and registers *successfully* —
+`aclrtMallocHost suc, addr: 0x…` at `01:44:59.569` then
+`TransferExecutor register mem addr:0x…, length:42949672960, mem type:host, engine
+index:0` at `01:44:59.569` — and the failing lines arrive at `01:50:10`, on the first
+request: `transfer_executor_base.cpp:263 Failed to connect to target: … status: 503900`
+→ `HcclCommPrepare … ret: 0x13` → `DoConnect … fail`. So a clean registration pair is
+**not** a refutation of this cause, and a report that stops reading at "register mem
+suc" has stopped one step early. What matters is the byte count on that line.
 
 The value is in the pasted log even when `mooncake.json` is not:
 
@@ -109,8 +119,12 @@ I0805 01:44:59.569270 158386 transfer_executor_base.cpp:452] TransferExecutor re
 ```
 
 `42949672960` = 40 GiB exactly = the configured `global_segment_size`. A
-`mem type:host` registration in the tens of GiB, immediately followed by
-`HcclCommPrepare` failures, is this family. Ignore `Local buffer size is 0, skip
+`mem type:host` registration in the tens of GiB, minutes before the first request's
+`HcclCommPrepare` failures, is this family. Grep the **whole node log** for that line
+rather than one worker's prefix: in #13439 the 40 GiB registration was printed by
+`Worker_DP5_EP5 pid=158386` while the transfer failure came from
+`Worker_DP0_EP0 pid=158389`, so a per-pid read of the failing worker shows no
+registration line at all. Ignore `Local buffer size is 0, skip
 registering local memory` / `Global segment size is 0, skip mounting segment` in
 the same log: that is the scheduler-only store client
 (`contribute_memory=False`, `mooncake_backend.py:73, 171-173`), not the worker.
@@ -221,7 +235,10 @@ from `length:42949672960` in one call.
   posted `mooncake.json` nor a log from the working run, so "the 40 GiB host MR
   is the store segment" rests on the exact byte count (42949672960 = 40 GiB) and
   `ascend_is_store_memory`/`aclrtMallocHost` in the pinned sources, not on an
-  instrumented reproduction.
+  instrumented reproduction. What the 2026-08-05 D-node log *does* fix is where the
+  refusal is **not**: the allocation and the registration both succeed, so the ceiling
+  (whatever it is in HDK 25.2.3) acts at `HcclCommPrepare` for channels that carry the
+  segment, not at `set up` and not at `aclrtMallocHost`.
 - **The failing library is not readable here.** `channel.cc`,
   `channel_msg_handler.cc`, `adxl_engine_impl.cc` and `HcclCommPrepare` are
   absent from the snapshot: `cann/hixl` is listed `unavailable` in

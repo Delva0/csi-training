@@ -133,7 +133,18 @@ change reads as a consistency fix rather than a new mechanism.
 
 - A sweep repairs **module attributes** only; a factory captured as a default
   argument or in a closure before the patch is not fixed. `RoutedExperts` needs no
-  second rebind — the factory resolves it per call.
+  second rebind, and the reason is structural rather than "resolved per call": the
+  Ascend factory is a **wrapper** — `_ascend_FusedMoE` (`patch_fused_moe.py:46`)
+  returns `_original_FusedMoE(*args, runner_cls=AscendMoERunner, …)` at `:84` — so
+  the upstream factory still builds `RoutedExperts`
+  (`vllm/.../fused_moe/layer.py:363-364`) and the Ascend-ness enters through the
+  *runner*, which replaces `routed_experts.quant_method` with
+  `AscendUnquantizedFusedMoEMethod` (`vllm_ascend/ops/fused_moe/fused_moe.py:374-380`)
+  whose `is_monolithic` is a literal `return False` (`:123-125`). That replacement is
+  also the positive control for the "guaranteed crash" reading above: only the Ascend runner removes
+  the `experts_cls is None` dereference, so the stale path has no working variant.
+  (One model file does import the class — `models/transformers/moe.py:31` — but only
+  to subclass it, `:120`, so a `FusedMoE` sweep need not touch it.)
 - The exports carry one commit per repo, so "is it fixed in a later release" is
   unanswerable here; give the recheck (grep `patch_fused_moe.py` for `sys.modules`).
 - Traceback line numbers matching the pinned vllm (`moe_runner.py:564` is literally

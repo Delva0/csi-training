@@ -328,13 +328,18 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `envs.validate_environ`, warn-only because `fail_on_environ_validation` defaults
   `False`. The name really is in that process's environment, and vllm-ascend never
   merges its own registry into upstream's, so any `VLLM_ASCEND_*` warns. One
-  `env | grep -i vllm_ascend`, one owner sentence (the merge belongs in
+  `env | grep -i <flag substring>` (the legacy near-name is a second live
+  spelling), one owner sentence (the merge belongs in
   `AscendPlatform.pre_register_and_update`), and say that `collect_env.py` never
   prints `VLLM_ASCEND_*` so its absence proves nothing
-  (`../observability-and-logs/env-var-validation-warning.md`). One more call decides
-  the advice: names in the pin's *Migration Guide* table (`additional_config.md:6-24`
-  at v0.22.1rc1) are being retired, so answer with their `--additional-config` key
-  (`VLLM_ASCEND_ENABLE_NZ` → `weight_nz_mode`), never with `unset` alone.
+  (`../observability-and-logs/env-var-validation-warning.md`). When the export is
+  "commented out", `rg -n '<NAME>' docs/source/tutorials/models/<model>.md` finds
+  the copied block that exports it uncommented (#9986, Qwen3-Dense `:172`). One
+  more call decides the advice: names in the pin's *Migration Guide* table
+  (`additional_config.md:6-24` at v0.22.1rc1) are being retired, so answer with
+  their `--additional-config` key (`VLLM_ASCEND_ENABLE_NZ` → `weight_nz_mode`),
+  never with `unset` alone — and with no table at that ref (v0.18/v0.19) the `unset`
+  branch is the only one.
 - An endpoint that is missing rather than wrong (`POST /start_profile` →
   `404`, or a 500 `Profiling is not enabled`): a route-registration question
   in the serving process. Name `attach_router` (`path:line`) and its condition,

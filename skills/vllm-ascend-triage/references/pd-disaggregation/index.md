@@ -59,7 +59,10 @@ output, or did no request ever reach a decode engine?**
   for `MambaSpec` in `kv_p2p/mooncake_connector.py` before ranking the connector:
   empty at v0.18.0 (the connector then assumed one page geometry), 13 hits at
   v0.22.1rc1 (a full mamba branch), so on newer pins connector choice is a recipe
-  deviation, not the cause.
+  deviation, not the cause. A title-only `PD 分离 + MTP 精度问题` report with no
+  symptom and no family beyond `Qwen3.X` enters the same page — read its §3 first
+  (the method-string false lead), then `../accuracy-benchmarks/index.md` for the
+  deliverable shape.
 - Connected, and the decode output is **garbled on some requests only, while those same
   requests' TTFT is *shorter*** than the normal class, on a `use_layerwise: true`
   `MooncakeLayerwiseConnector` (often wrapped in a `MultiConnector`) at 40-60 K context:
@@ -299,7 +302,16 @@ output, or did no request ever reach a decode engine?**
   in `_handle_request`'s `finally`). EFSM on a `REQ` send means a recv-timed-out socket was
   reused, and this pin closes those, so their build's error path is the one check — the paste's
   `attempts left=2` vs the pin's `attempts_left=%d` proves the tree is not the tag →
-  `mooncake-handshake-timeout-wedge.md` (#12383).
+  `mooncake-handshake-timeout-wedge.md` (#12383). **The logless form of this shape is
+  routed here too**: a report that says only that the decode node 挂死 during a
+  long-context concurrency benchmark on a 1P1D deployment (recorded #10963: GLM-5.1,
+  4×A3, 1P1D, 140K context, 压测, no log in the body) sits on a pin where #12383 is the
+  same model × hardware × topology, so ask for the `--kv-transfer-config` `kv_connector`
+  class both sides run and the D-side log of the failure minute before ranking a
+  mechanism, and split it from
+  `../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md` by whether D wrote
+  **any** line at all (this lane: `Receive timeout` / `Failing N request(s) due to KV
+  load failure` / a `GPU KV cache usage` figure; that one: total silence, `AICore 0 %`).
 - The same thread prints a **bare** `AttributeError` on a metadata field —
   `Error in KVCacheTransferThread: 'ReqMeta' object has no attribute 'block_ids'` —
   and the issue carries no environment block: the pin's own class has that field as a
@@ -498,9 +510,13 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   registry listing command, the fix and its acceptance.
 - `transport-topology.md` — P/D has two Pod IPs on one node and the transport
   will not connect: how the engine id becomes HCCL's `server_id`, the plog grep
-  set and rank-table decision, `HCCL_INTRA_ROCE_ENABLE` / `HCCL_INTRA_PCIE_ENABLE`
-  semantics (source-verified in the `cann/hcomm` export), port-band collisions,
-  and what is verifiable in the snapshot when `cann/hixl` is absent.
+  set and rank-table decision, the three branches that grep picks (`server_count:
+  2` → identity/launch, `1` + `'device_ip' is not set correctly` → the
+  `HCCL_INTRA_*` env lane, `1` and clean → this lane is exonerated),
+  `HCCL_INTRA_ROCE_ENABLE` / `HCCL_INTRA_PCIE_ENABLE` semantics (source-verified
+  in the `cann/hcomm` export), why `103900` and `503900` at the same call site are
+  not one class, port-band collisions, and what is verifiable in the snapshot when
+  `cann/hixl` is absent.
 - `kv-pool-store-segments.md` — a KV pool is in the deployment and ADXL channel
   creation fails (`503900` / `E19999` / `HcclCommPrepare ret: 0x13`) with garbled
   decode output: `global_segment_size` per rank versus the HDK ceiling

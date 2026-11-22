@@ -175,7 +175,10 @@ Conditional routes:
 - The report prices KV per token from the checkpoint layout, or asks for a 512K/1M
   context on a 64 GB card → `dsv4-kv-footprint-terms.md` (the cache-kind term list,
   the A5-vs-else dtype gates, the DCP indexer replication factor, and the DSV4-Flash
-  A2 envelope 133120/135000 against 1M being an A3/950DT row).
+  A2 envelope 133120/135000 against 1M being an A3/950DT row — but answer a
+  1M-on-**A2** *report* as a known failure shape (`#9187`: A2 8-machine large-EP,
+  D instance hangs) and note that the four-node colocated engram recipe runs
+  `262144`, `../feature-enable-recipes/engram-offload.md`).
 - The OOM line is inside model construction (`get_model` → `create_weights` →
   `quantization/methods/w4a16.py:get_weight` → `torch.empty`) on a 384-512-expert
   MoE with `--enable-expert-parallel` and a `--data-parallel-size` in the launch

@@ -27,6 +27,16 @@ Steps 1-3 here — the two lanes' first checks are different artefacts (serve co
 one flag vs the plog), and only the plog evidence in Step 1 above can promote this page
 back to first.
 
+**A second competitor is decided by one line of the D-side log.** On a P/D deployment
+whose decode node is the one that stops, this page competes with the KV-transfer
+handshake lane: if D's log holds `Receive timeout` / `Failing N request(s) due to KV
+load failure` / a `GPU KV cache usage` figure, D is up and failing per request and
+`../pd-disaggregation/mooncake-handshake-timeout-wedge.md` owns it; total silence with
+no line written at all is this page. A report with no log cannot choose between them,
+so the first message asks for that log instead of ranking (recorded #10963 ranked this
+lane first for a GLM-5.1 4×A3 1P1D 140K 压测 D-side 挂死 on the pin where #12383 — the
+same model, hardware and topology — is the other candidate).
+
 ## Step 0 — `AICore 0 %` does not mean the host is stuck
 
 That inference was the recorded run's first answer: 「AICore 利用率 0 是这次最有力的

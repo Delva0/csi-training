@@ -53,7 +53,12 @@ Confirmed one ref lower at v0.11.0rc3 `b6d63bb`: the same gate is inline in
 self.mc2_tokens_capacity, with_prefill=True) == MoECommType.MC2`), and the capacity is
 built by `_init_mc2_tokens_capacity` (`:539-552`) as
 `ceil((cudagraph_capture_sizes[0] if set else min(max_num_reqs * uniform_decode_query_len,
-512)) / tp) * tp`. At that ref the *sync point* that raises can be a host index copy
+512)) / tp) * tp`. Read `cudagraph_capture_sizes[0]` there as the **largest** entry, not
+the smallest: upstream sorts the list descending (`vllm/config/compilation.py:549`
+`sort(reverse=True)` at vllm v0.11.0 `b8b302c`, and `:550` then reads `max_capture_size`
+as `[0]`), so the rc3 form and the newer `max_cudagraph_capture_size` form agree
+numerically — `[4,16,32,48,64]` + TP4 is `ceil(64/4)*4 = 64` at both refs, never `4`. At
+that ref the *sync point* that raises can be a host index copy
 rather than `aclnnInplaceCopy`: the statement after the two dummy runs is
 `hidden_states = hidden_states[logit_indices]` (`:2595`) and its index transfer reports
 `(function copy_between_host_and_device_opapi)`. So classify from the

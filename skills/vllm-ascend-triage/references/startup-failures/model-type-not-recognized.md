@@ -334,13 +334,25 @@ bash <skill_root>/scripts/history-titles.sh 'qwen3\.5|qwen3_5'   # skill_root: f
 
 Look for a `[New Model]` summary issue — it states the first supporting release
 in one line (`#7462: "Qwen3.5 is already supported in vllm-ascend v0.17.0rc1"`,
-naming the exact model repos) — plus 2-3 bug issues whose environment block names
-the release that actually ran.
+naming the exact model repos) — plus 2-3 bug issues for the same family.
+
+**A bug issue's environment block names the release that *failed*, never one that
+works**, so read the title before quoting it: in the Qwen3.5 family `#7477` is
+"Qwen3.5-27B deployment error: AllReduceOpbasePipeline ERROR" on vllm-ascend
+`0.17.0rc1` / vllm `0.17.0+empty` / torch 2.9.0 — a *failed* deploy on the release
+its own block names, useful only for the stack pairing, not as "0.17.0rc1 runs it".
+The one "it served there" datum is a bug report that presupposes a served model
+(`#7759`, "Qwen3.5-397B w8a8 + vllm ascend v0.17.0.rc1", a tool-calls streaming
+defect), and even that is one reporter's run.
 
 Distinguish a maintainer claim from a reporter-confirmed outcome. Recorded
 #8409: the summary issue claims v0.17.0rc1 support, while the reporter later
 reported (public comment, 2026-04-24) that `0.17.0rc1` failed and `0.18` worked
 on the same model — so recommend **0.18**, quote both, and label which is which.
+That is also the correction the answer owes when a "first supporting release"
+line is the only source: the recorded run led with "换到 0.17.0rc1（或 0.18）" on
+the strength of the two 0.17.0rc1 precedents above, and the release it led with
+was the one that failed.
 An earlier maintainer-authored reference issue for the same error class (#3819)
 resolves it as "upgrade transformers / wait for the vllm pin bump"; that is
 correct only when gates 2 and 3 already pass.

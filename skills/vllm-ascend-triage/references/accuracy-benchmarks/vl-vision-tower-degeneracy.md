@@ -15,6 +15,10 @@ serve whose **every** text-only request degenerates is `short-prompt-corruption.
 Step 0b (recorded #6533: `prompt_tokens: 12` on `Qwen3-VL-8B-Instruct`), where the token
 count alone excludes the tower; only a **first-call-only** degenerate answer, or the
 `is_multimodal_model` crash on a text-only launch, is `first-generate-degenerate.md`.
+A fluent answer whose *content* is right but whose bbox/keypoint **numbers** miss
+the image (checked by IoU against a `transformers` run of the same checkpoint) is the
+neighbouring shape and **not** this page: `vl-grounding-coordinate-drift.md`.
+
 It also owns the **wrong-but-not-repeated** vision answer — a document/OCR run whose
 TP=2 reply collapses to one trivial element (`[{"bbox":[0,0,307,307],"category":
 "Picture"}]`, no text) while TP=1 returns the full box+text list. Same owner (what
@@ -263,7 +267,13 @@ mechanism ranking stays open (SKILL rule 5, the rc-pin paragraph).
   `0.7.3rc2` works. Read this body — it is the mechanism, not just the symptom.
 - `#131`, `#548`, `#549` — Qwen2.5-VL-**7B** answers 感叹号 while 3B is fine, and
   `0.7.3rc2` still reproduces: a model-size-dependent, not request-dependent,
-  report shape.
+  report shape. #131's own body carries the **control**: the 3B launch it pastes runs
+  `--dtype float16 --tensor-parallel-size 4 --limit_mm_per_prompt image=5
+  --max-model-len 32768` and is clean, so dtype alone does not separate the two sizes.
+  Still run row 0 first — it is the cheap rung — but it cannot *explain* this shape:
+  ask for the 7B launch line (dtype, TP, card count) before ranking row 0 above the
+  size/TP rows, and cite #562 as the dtype lane's evidence only for its own SFT
+  checkpoint.
 - `#445` — 72B `tp 8 --max-model-len 32768`, output occasionally all 感叹号.
 - `#562` — after LLaMA-Factory SFT, 全感叹号 at v0.7.3rc2/910B4, with
   `llamafactory` inference and a V100 run both correct: **reporter-confirmed** fix was

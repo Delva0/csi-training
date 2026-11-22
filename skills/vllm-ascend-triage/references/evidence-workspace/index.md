@@ -166,6 +166,13 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   the ownership hunt and the "one more angle" source walk). Read it when a report has
   more than two plausible mechanisms or when the report is "a flag did nothing"; its
   per-session evidence table is `delivery-recorded-sessions.md`.
+- `version-contract.md` — rule 5's other half: the doc-URL/`latest` question, a
+  title/body release disagreement, a dependency's **patch** release (and the release
+  that pins the broken one), the image recipe that installs its own pairing, a mixed
+  self-built trio, the old-tag rung and its **direction**, and a capability that
+  worked on an older release (a regression, not a mechanism). Open it whenever the
+  env dump's `torch_npu==`/`transformers==` line, the image tag or the reporter's own
+  older-release control is part of the ranking.
 - `case-layout.md` — concrete commands for orientation, source reading at a pinned commit,
   and history search; what to quote in the final answer.
 - `recorded-cases/index.md` — the per-issue index behind rule 1: version, symptom,

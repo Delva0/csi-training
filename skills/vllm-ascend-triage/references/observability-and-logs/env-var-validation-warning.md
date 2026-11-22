@@ -25,9 +25,16 @@ question — **does the name still do something?** — and deliver:
 
 - **Inert, stale or typo'd name**: not the cause of any failure
   (`fail_on_environ_validation` defaults `False`). Show it with
-  `env | grep -i vllm_ascend` (running server:
-  `tr '\0' '\n' < /proc/<pid>/environ | grep -i vllm_ascend`), then `unset …` in a
-  fresh shell or stop injecting it.
+  `env | grep -i vllm_ascend` — or the name's own family substring, e.g.
+  `-i flashcomm` — (running server:
+  `tr '\0' '\n' < /proc/<pid>/environ | grep -i <same>`), then `unset …` in a
+  fresh shell or stop injecting it. Grep the **substring, not the exact printed
+  name**: the legacy near-name is a live alias, so `VLLM_ASCEND_ENABLE_FLASHCOMM`
+  (no `1`) is read straight from `os.getenv` beside the registered spelling
+  (`utils.py:780-783` at v0.18.0rc1 — it is not in the `envs.py` registry, so it
+  warns too) and the `unset` has to cover whichever spelling matched. Where the
+  reporter insists their export is commented out, name the likely source next
+  (section below) instead of leaving "some shell had it".
 - **A live knob being retired by migration**: one of the ten names in the pin's own
   *Migration Guide* (`docs/source/user_guide/configuration/additional_config.md:6-24`
   at v0.22.1rc1 — `VLLM_ASCEND_BALANCE_SCHEDULING`, `…ENABLE_FLASHCOMM1`,
@@ -45,6 +52,28 @@ question — **does the name still do something?** — and deliver:
 
 Then the project-side registry gap (below) in one sentence. Two or three calls,
 then answer.
+
+## Where the name came from when the reporter's own script has it commented out
+
+The launch block in the paste is usually copied from the model tutorial, and the
+tutorial's own block exports the flag **uncommented**: at v0.18.0rc1
+`docs/source/tutorials/models/Qwen3-Dense.md:169-174` is
+`export HCCL_OP_EXPANSION_MODE="AIV"` → `export VLLM_ASCEND_ENABLE_FLASHCOMM1=1` →
+`vllm serve … --async-scheduling --quantization ascend --distributed-executor-backend mp`,
+i.e. line for line the #9986 block, which the reporter pasted with that one export
+commented and still saw the warning. Commenting the line does not unset what an
+earlier run in that shell/container already exported.
+
+So the provenance check is one grep over the docs tree, taken before any ranking:
+
+```bash
+rg -n '<NAME>' <vllm-ascend>/docs/source/tutorials/models/<their model>.md
+```
+
+A hit whose surrounding lines match the paste names the source (label it a
+**hypothesis** — the reporter confirms with the `env` / `/proc/<pid>/environ`
+line above), and the same hit tells you the name is a documented live knob at
+their ref rather than a stale leftover.
 
 ## The mechanism at v0.18.0 / v0.18.0rc1
 
@@ -91,11 +120,16 @@ then answer.
 3. Decide the branch: check the reported name against the pin's Migration Guide
    table (`rg -n "Migration Guide" -A22
    <vllm-ascend>/docs/source/user_guide/configuration/additional_config.md`).
-   - not in it → cheap reporter action: a fresh shell, or `unset <name>` before
-     `vllm serve`. Commenting an `export` in a script does not unset a variable an
-     earlier command already exported in the same shell/container; other injection
-     paths worth one line: `docker run -e …`, a scheduler/launcher env block, an
-     image `.bashrc`.
+   - no table at all (any ref before ~v0.22 — `rg -n -i migration
+     docs/source/user_guide/configuration/additional_config.md` is empty at
+     v0.18.0rc1 **and** v0.19.1rc1) or the name not in it → cheap reporter action: a
+     fresh shell, or `unset <name>` before `vllm serve`. Do **not** hand an
+     older-pin reporter the `--additional-config` key in this case: the key is the
+     v0.22 migration's deliverable, not that release's. Commenting an `export` in a
+     script does not unset a variable an earlier command already exported in the
+     same shell/container — check the model tutorial the block was copied from
+     (section above); other injection paths worth one line: `docker run -e …`, a
+     scheduler/launcher env block, an image `.bashrc`.
    - in it → name the `additional_config` key, its default and the values, and
      keep the reporter's current value (`{"weight_nz_mode": 0}` for the NZ case).
 4. State the ownership split in one sentence: benign for the user; the registry fix
@@ -113,7 +147,11 @@ then answer.
 - **#9986** v0.18.0rc1 image, single 910 card, Qwen3-0.6B dense TP=1, FLASHCOMM1
   export commented out: the only evidence was a screenshot; its OCR line reads
   `(APIServer pid=231) … [envs.py:1717] Unknown vLLM environment variable
-  detected: …FLASHCOMM1` a few seconds after the `non-default args` dump.
+  detected: …FLASHCOMM1` a few seconds after the `non-default args` dump. The
+  paste's whole launch block is the Qwen3-Dense tutorial's, whose copy at that ref
+  exports the flag uncommented (`:172`), and the flag is a no-op on a dense tp=1
+  run — so the warning cost the reporter nothing and the answer was the provenance
+  plus the `env` check.
 - **#11624** v0.22.1rc1 + vllm 0.22.1, 2×910B3, CANN 9.0.0, `[Usage]` title: the
   reporter exports `VLLM_ASCEND_ENABLE_NZ=0` to work around a runtime error,
   gets the warning, and reports the contradiction. Both halves are true and the
@@ -127,7 +165,8 @@ then answer.
 ## Do not claim
 
 - which shell, script or image exported the variable — that is the reporter's
-  machine and the snapshot cannot show it;
+  machine and the snapshot cannot show it, so the copied tutorial block is a
+  hypothesis to name, not a finding to assert;
 - that upstream raises here, or that the run will fail because of it;
 - that "vllm-ascend sets this variable itself" for `VLLM_ASCEND_ENABLE_FLASHCOMM1`:
   at both refs the tree only *reads* it (`vllm_ascend/envs.py:74`;

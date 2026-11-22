@@ -12,7 +12,11 @@ replay can read them only as OCR, which recovers the frame lines
 _may_reorder_batch` -> `vllm/v1/attention/backends/utils.py:798`, the two
 `model_runner_v1.py` numbers matching the v0.11.0 layout exactly) but **not** the
 key printed by the `KeyError`. Everything else below is source-read at the two
-pins above.
+pins above. Grep such OCR for **symbol fragments**, not for `error` — the OCR
+mangles identifiers (`model—runner—vl 。 py`, `Traceback (most rec`) and a bare
+`-iE 'error|failed'` matches only the hundreds of repeated `ERROR` prefix lines;
+`grep -nE 'KeyE|Traceback|reorder|num.scheduled|EngineDead' *.ocr.txt` finds the
+frames in one call.
 
 Second worked case: **#5687** — vllm-ascend **v0.11.0rc3**, the same
 `Qwen3-Embedding-8B --max-num-seqs 256` shape, but through a
@@ -203,3 +207,17 @@ them for another report, re-run rule 2 of this topic's index: if
 `npu_input_batch.py` at the reporter's ref defines `condense`, the copy is
 present and the page applies; if the class only has `__init__`, the copy is gone
 and this mechanism is out of scope for that version.
+
+Where the copy goes: it is present at this page's v0.11.0 pin `2f1aed9` (`condense`
+`:558` with the `is_pooling_model` early return `:573`, `add_request` `:316`/`:320`,
+`remove_request` `:449`/`:462`, `_register_add_request` `:296` with its
+`assert request.sampling_params`) and **gone at v0.13.0rc1 `1b5d5ab`**, where the file
+is `class NPUInputBatch(InputBatch)` (`vllm_ascend/worker/npu_input_batch.py:33`) plus an
+`__init__` and no `add_request` / `remove_request` / `condense` at all. So on a 0.11.x
+report "move to v0.13.0rc1 or later" is a real rung, taken with one grep in the
+reporter's own container: `rg -n 'def (add_request|condense)'
+vllm_ascend/worker/npu_input_batch.py` returning nothing means the copy is gone and this
+mechanism cannot be their crash. Do not narrow the boundary — no v0.12 tree is pinned
+here, so which release dropped the copy is unverified — and do not present the upgrade as
+a confirmed fix for an open report: the mechanism's repair is reporter-confirmed, the
+release that removes the code is the one grep above.

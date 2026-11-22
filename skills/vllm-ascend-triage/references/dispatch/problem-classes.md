@@ -182,11 +182,13 @@ version, gaps stated.
   `../deploy-sizing/sharding-not-applied-full-model-per-card.md`.
 - **Community-test / doc-verification task** (`[Community Test]`, a 众测任务书 row
   with 蓝区镜像 / 权重链接 / 卡数 / 交付件 测试报告, or a `[Doc]` report that a
-  tutorial step does not work as written): the deliverable is a *report about a
-  document*, graded on completeness/usability/correctness without the reporter's
-  hardware. The evidence is the pinned tree — which command no longer parses, which
-  path is absent from the image, which baseline predates the image, whether the card
-  count matches the weights — `../tutorial-verification/index.md`.
+  tutorial step does not work as written — including the `[Doc]: Feedback for <url>`
+  form quoting an `…/en/latest/…` page, which may not exist at the snapshot pin at all):
+  the deliverable is a *report about a document*, graded on
+  completeness/usability/correctness without the reporter's hardware. The evidence is
+  the pinned tree — which command no longer parses, which path is absent from the
+  image, which baseline predates the image, whether the card count matches the weights
+  — `../tutorial-verification/index.md`.
   When the reported defect is an **absence** instead ("the Quick Start should
   mention a mirror / link the FAQ", "the contributor docs never state a
   prerequisite"), three greps decide it — does the content exist, does any page

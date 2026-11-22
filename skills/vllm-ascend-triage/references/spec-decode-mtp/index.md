@@ -11,7 +11,10 @@ at request time. The shapes:
 - the spec-decode metrics collapse and request throughput follows: `Accepted: 0`
   with `Drafted: N > 0`, `Per-position acceptance rate: 0.000` for every position,
   `Mean acceptance length` pinned at 1.00, "推理卡住" while requests stay
-  `Running`;
+  `Running` — and when the report also carries a **`num_speculative_tokens`
+  threshold** (a lower K works, K is above the validated 3, or the same K served on an
+  older release), the K is the classification and the sweep is rung 1:
+  `acceptance-zero-at-high-k.md` before `acceptance-collapse.md`'s code walk;
 - the **whole service** stops with no text at all — the worker log simply ends,
   no `ERROR`, no device dump, the API server still holding the port, and the process
   only dying much later ("run 1x hour, it will be Stuck"), on a launch with an MTP
@@ -259,6 +262,14 @@ from the acceptance numbers.
 
 ## Rules
 
+- **A per-K threshold in the report outranks the bookkeeping walk.** "Acceptance 0 at
+  `num_speculative_tokens` 13, normal below 8, and v0.17.0 served 13 correctly" is a
+  parameter control **plus** a version control: the failing pin holds no clamp to find
+  (its only K bound is `assert decode_threshold <= 16`, three files, so 8…15 is silently
+  legal) and a regression cannot be read off the failing tree, so the answer is the
+  boundary sweep, the validated K=3 recipe, and a dated window — not
+  `eagle_proposer.py`. Recorded #9290 spent 1.22 M prompt tokens and the whole 16 384-token
+  output budget there and shipped no text (`acceptance-zero-at-high-k.md`).
 - **The MTP-off ablation is row 1, not row 5.** Deleting `--speculative-config` is
   one launch and splits "the draft/verify path is wrong" from "everything else".
   Recorded #10495: the run ranked KV capacity and queue thrash first on the

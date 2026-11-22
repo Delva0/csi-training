@@ -21,6 +21,17 @@ me."** — i.e. the reporter applied the `cxx_abi_0` override below and the impo
 resolved. This is an environment/packaging fault that fires *before* any
 vllm-ascend code, and it is answered from the mangled symbol plus the env dump.
 
+## Not this page
+
+Only a **third-party / prebuilt** `.so` whose mangled name carries a `std::string`
+form (`…ERKSs`, `…ERKNSt7__cxx11…`) is this ABI question. When the `.so` is
+vllm-ascend's **own** `vllm_ascend_C*.so` and the unresolved name is an internal
+namespace symbol (`_ZN9pp_matmul17GetPpMatmulTilingE…`, any `vllm_ascend::` /
+`bmm_trans::` symbol), no `LD_LIBRARY_PATH` or `ATB_HOME_PATH` value can fix it: a
+build source list left the defining translation unit out for that SoC →
+`custom-op-extension-missing-from-image.md` (Step 0 / Lane B, verified on #6527 at
+v0.14.0rc1 for 310P).
+
 ## What the symbol itself proves
 
 Demangle first; two forms of `std::string` exist and they are different symbols:

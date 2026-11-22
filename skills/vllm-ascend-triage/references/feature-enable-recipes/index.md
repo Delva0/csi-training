@@ -226,6 +226,20 @@ Rules for this topic:
    never with a kernel or checkpoint theory, and never believing the title over the
    serve command → `torchair-mla-head-count-tp-gate.md`.
 
+12. A **DS-V4.x Engram / host-offload** question or failure — "如何开启 engram", an
+   `enable_engram` / `engram_storage` / `enable_engram_ple_offload` key in
+   `--additional-config`, the host-memory pair `dp_shared_memory` +
+   `enable_cpu_binding`, a load-time `ValueError: layers.N.engram.embed.weight:
+   expected BF16 source for bf16`, an A3 start that hangs **after** warm-up/graph
+   capture, or `507011` / invalid-GM at concurrency only while PLE offload is on — is
+   answered from four corpus rows, not from a source walk (no local pin carries the
+   engram code): the reporter-confirmed missing-key fix, the NUMA/`migratepages`
+   startup block, the PLE-offload A/B with its measured memory gain, and the field
+   launcher for 4×8 A2 colocated at 262144 → `engram-offload.md`. Two hand-offs: its
+   row 1 is a `[Doc]` defect on the DS-V4.1-Flash tutorial page, and the row-2 log
+   line is *also* `../startup-failures/mm-encoder-profile-stall.md`'s signature, so
+   discriminate on the launch (engram keys, phase past graph capture), not the line.
+
 Pages:
 
 - `weight-nz-layout-by-soc.md` — "910B3 是否支持权重 ND→NZ 转换提升 matmul 性能？0.11.0
@@ -308,3 +322,15 @@ Pages:
   ACL-graph-deepseek refusal, the single graph e2e row (TP=4, mp, no PP), the
   FAQ-only documentation of the rule, and the fact that the Python assert is
   **deleted by v0.10.0rc1** while the FAQ and the kernel check remain.
+- `engram-offload.md` — DS-V4.x Engram host offload as four recorded rows: #17236's
+  load-time `layers.N.engram.embed.weight: expected BF16 source for bf16`, fixed
+  reporter-confirmed by adding `{"enable_engram":true,"engram_storage":"int8"}` to a
+  tutorial serve line that omits it (a `[Doc]` defect, no environment block in the
+  issue); #17286's A3 block after warm-up and graph capture, `migratepages` helpers
+  alive >15 min on a ~206 GiB HOST_UVA table registered under `dp_shared_memory` +
+  `enable_cpu_binding` (workaround: the key off); #16828's controlled A/B for
+  `enable_engram_ple_offload=true` — ≈12.87 GiB/rank less weight memory and ≈1.97× KV,
+  then `507011` at concurrency 24-32, with the PR-force-push caveat; and #16877's
+  4×8 A2 colocated launcher (`--max-model-len 262144`, dspark 5,
+  `tokenizer-mode`/`reasoning-parser deepseek_v41`) whose own defect is the output
+  shape, not the offload.

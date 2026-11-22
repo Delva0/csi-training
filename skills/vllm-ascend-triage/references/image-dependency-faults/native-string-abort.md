@@ -55,7 +55,15 @@ do not chase `wait_for_ready`, the balance patch or `--model-loader-extra-config
   `transformers_version`, `_attn_implementation` `magi`→`sdpa`, `_name_or_path`,
   V0 vs V1). Do not rank "the architecture is unregistered" or "the model config
   is malformed" for this text: registration and config already succeeded — that
-  is why the config printed at all.
+  is why the config printed at all. **The reporter's own "a null/missing config
+  field is passed to `std::string`" theory does not survive the frame boundary**:
+  a Python `None` handed to a bound native `std::string` parameter fails at the
+  pybind11 conversion (a Python `TypeError`) or is rejected before the call, so a
+  throw that reached `terminate` has a *native* source — `getenv`, a device/SoC
+  name, a path, an ATB/GE attribute set from one of those. That is why cleaning
+  `rope_scaling`/`template`/`transformers_version` in `config.json` could not move
+  the crash, and why the `transformers.AutoModel` success is not a control on this
+  throw: it exercises no vLLM engine-init input.
 - Phase: the abort sits between that config log (`vllm/v1/engine/core.py:108-113`)
   and the model load, i.e. inside worker creation `executor_class(vllm_config)`,
   which at v0.20.2rc1 reaches `vllm_ascend/worker/worker.py:108`

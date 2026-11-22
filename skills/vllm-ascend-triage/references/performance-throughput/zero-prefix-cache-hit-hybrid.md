@@ -76,7 +76,47 @@ setting `../spec-decode-mtp/acceptance-collapse.md` and
 `../accuracy-benchmarks/hybrid-block-size-corruption.md` rank first. Check which
 regime the paste is in before reusing the v0.14 reasoning.
 
-## A documented model under PD: the model's own tutorial carries the verdict
+## A documented model whose zero-hit was fixed in a later release: DSV4-Flash
+
+**A flat `0.0 %` on a 64 K prompt is not what a granularity note predicts.** The DSV4 tutorial
+says *"we support 4K prefix cache hit in an experimental manner"* — that bounds how much of a
+long prefix is *reusable*, and a 4 K quantum over 64 K still reuses most of it, so the documented
+limit gives a **reduced, nonzero** rate. An exact `0.0 %` means the lookup returned nothing, i.e.
+a code path, not an envelope. Two recorded cases at the same pin show why the version rung comes
+first: #12093 (below) and **#12041** — same `5f6faa0cb883`, **colocated** TP8 (`--data-parallel-size
+1 --tensor-parallel-size 8 --enable-expert-parallel`, `FULL_DECODE_ONLY` + MTP n=1 +
+`--async-scheduling`, `enable_dsa_cp: true`, `multistream_overlap_shared_expert: true`), 64 K
+prompts at `repeat_rate 0.9`, `--block-size 128`, `Prefix cache hit rate 0` and TTFT doubling
+6799.6 → 14955.1 ms against its own v0.20.2rc1 baseline. Its reporter's resolution (2026-07-30) was
+**「v0.23.0测试已修复」**, and the next release's notes name the repair:
+`docs/source/user_guide/release_notes.md:23` at v0.23.0rc1 — *"Improved the DeepSeek V4
+prefix-cache hit rate. [#11107]"*.
+
+So the repair stream is the discriminator at `≤ v0.22.1rc1`, and quoting it is cheap:
+
+| release | DSV4 prefix-cache work in its own notes |
+|---|---|
+| v0.20.2rc1 | introduced DSV4 end-to-end (the reporter's 0.9 baseline predates the compressed-KV rewrite) |
+| v0.21.0rc1 | `Added DeepSeek-V4 compressor block size [32,64,128] support to improve automatic prefix cache hit rate` (#10354), plus #9903 and #10297 "compress attention groups prefix caching hit" fixes |
+| v0.23.0rc1 | `Improved the DeepSeek V4 prefix-cache hit rate` (**#11107**) — reporter-confirmed fix for #12041 |
+
+When the pin's own notes show the same subsystem repaired in each of the last two releases, a
+current-release regression in it is pre-fix by construction: **say "the upgrade is the first test,
+#11107 is the PR to watch" before asking for a knob re-run.** At `--block-size 128` the colocated
+case also matched the tutorial's single-machine recipe verbatim except one line —
+`--no-enable-prefix-caching` (`DeepSeek-V4-Flash.md:175`) replaced by `--enable-prefix-caching` —
+so the recipe-diff answer still holds for "is this a validated recipe" (no), just not for "is this
+the documented limit" (also no).
+
+Two non-causes at that pin, worth one line each so they are not re-derived: the only in-tree
+force-disable on the DSV4 attention layer is backend-gated (`vllm_ascend/models/layer/attention/
+layer.py:115-119`: `TRITON_MLA` / `FLASHINFER` ⇒ `enable_prefix_caching = False`) and never fires
+under `AscendDSABackend`, so caching was not silently switched off; and
+`VLLM_ASCEND_APPLY_DSV4_PATCH` has **no reference anywhere in the v0.22.1rc1 tree**, so that env
+var in the reporter's export block is inert — neither a lever nor an explanation. The doubled TTFT
+is the same symptom (a full re-prefill per request), not a second regression.
+
+### The PD shape: the model's own tutorial also decides which side may cache
 
 Recorded #12093: vllm-ascend v0.22.1rc1 (`5f6faa0cb883`) + vllm v0.22.1
 (`0decac0d96c4`), DeepSeek-V4-Flash-w8a8-mtp, A2 4-machine PD (`1*2P` + `1*2D`),
@@ -93,14 +133,16 @@ in one read, and the recipe diff is the first check:
 
 The first message owes, in this order: (a) **the metric is per instance** — the D
 (`kv_consumer`) side never prefills, so its line is structurally 0 and the recipe
-disables caching there; read the **P** node's block; (b) 0 % on P at
-`--block-size 128` is the §9.1 note — DSV4 prefix caching at this pin is
-experimental and documented for ~4 K prefixes, switched on with
-`--block-size 32`, so the recipe copy was run outside its validated setting;
-(c) a 27 K-token shared prefix does not rescue (b) — that is an envelope
-statement, not a workload one; (d) MTP on/off changing nothing is consistent with
-both, so it is not an ablation. The discriminator is one re-run: `--block-size 32`
-on the P node only, then read P's `Prefix cache hit rate`.
+disables caching there; read the **P** node's block; (b) **the version rung** — at
+`≤ v0.22.1rc1` this subsystem is being repaired release by release (table above,
+`#11107` the last), and a flat 0 on a long shared prefix is a lookup returning
+nothing rather than the ~4 K envelope, so name the PR and one image to test;
+(c) then `--block-size 32` on the P node only — the §9.1 switch, and the way to get
+hits on *this* pin today (a 27 K-token shared prefix does not rescue it; that is an
+envelope statement, not a workload one); (d) MTP on/off changing nothing is
+consistent with both, so it is not an ablation. If the reporter can only run one
+row, run (b); if they must stay on the pin, run (c) and read P's
+`Prefix cache hit rate`.
 
 Do not start from the coordinator/manager or `patch_mamba_config` walk: recorded
 #12093 held both tutorial lines and the `CompressAttentionManager` source around

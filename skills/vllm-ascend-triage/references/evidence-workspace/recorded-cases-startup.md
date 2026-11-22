@@ -119,7 +119,18 @@ reporter's later comment quotes exactly that tutorial page with that JSON, so th
 document as the source is confirmed (whether deleting the key then started the
 service is not reported). Lane worth copying: classify from the pydantic error *type* plus the
 missing `WorkerProc`/`Starting to load model` lines, then one grep for the key's
-owning class (`../startup-failures/additional-config-schema.md`).
+owning class (`../startup-failures/additional-config-schema.md`). **Replayed with
+that page present it took 7 assistant turns**, verdict + corrected JSON shipped on
+the last one: the run grepped the key, found the owning page and the case entry, re-grepped
+only the page's version-marked anchors (tutorial `:310,369`, `extra="forbid"`), and
+spent its one extra call enumerating `AscendConfig`'s top-level vs nested fields to
+grade the *rest* of the tutorial line — the pay-off now folded into
+`scripts/additional-config-key-audit.py` (that enumeration is what separates the
+fatal `fuse_muls_add` from the warning-only `enable_balance_scheduling` /
+`enable_flashcomm1`). The reporter's later comment quotes the **rendered v0.27.1rc1
+docs page** (`docs.vllm.ai/projects/ascend/zh-cn/v0.27.1rc1/tutorials/models/GLM5.3.html`)
+with the same flat JSON, so the doc-drift claim covers the published version docs,
+not only the source tree.
 
 **#1895** vllm-ascend `v0.9.2rc1` (`b5b7e0e`) + vllm `v0.9.2` (`a5dd03c1`), 4×910B3,
 Qwen2.5-32B, TP=4: v1 graph mode dies at startup with

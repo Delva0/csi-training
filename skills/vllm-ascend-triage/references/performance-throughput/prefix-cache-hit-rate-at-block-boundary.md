@@ -31,7 +31,9 @@ Reporter-confirmed on #7965 (Qwen3.5-9B, `--enable-prefix-caching`, 1024·n leng
 「正常现象，因为 prefill 需要至少计算一个 token，最后一个 block 不会进行命中」. Nothing to
 fix — not a vllm-ascend defect, not a kernel, not a config mistake.
 
-Four "bad hit rate" readings, four owners — grade before answering:
+Four "bad hit rate" readings plus one null-field reading, five owners — grade before
+answering (the last row is not a rate at all: the flag worked and the request's own hit
+was `0`):
 
 | reading | owner |
 |---|---|
@@ -39,6 +41,40 @@ Four "bad hit rate" readings, four owners — grade before answering:
 | nonzero, steps with `L`, minima at multiples of one size | this page |
 | `External prefix cache hit rate: 0.0%` beside a healthy local rate | the pool — `../kv-pool-store/pp-topology-pool-init-and-zero-hits.md` |
 | a cache *hit* that returns the wrong numbers (embeddings) | `../pooling-embedding/prefix-cache-hit-embedding-drift.md` |
+| `usage.prompt_tokens_details` is `null` although `--enable-prompt-tokens-details` is on and the log reads `Prefix cache hit rate: 99.0%` | the section below — a per-request hit of `0` is *skipped by a truthiness gate*, and the 99 % is an interval average |
+
+## The null field, on a short prompt (the "the flag did nothing" reading)
+
+`prompt_tokens_details` is emitted by a **truthiness** test, not by the flag alone:
+`if self.enable_prompt_tokens_details and num_cached_tokens:` at
+`vllm/entrypoints/openai/chat_completion/serving.py:1218` (stream) and `:1605` (full
+response), and the same test on the completion route
+(`vllm/entrypoints/openai/completion/serving.py:426`, `:552`) at vllm v0.18.0. So a
+request whose own `num_cached_tokens` is `0` — every prompt with `L ≤ B`, i.e. anything
+shorter than one block, and every cold first pass — returns `prompt_tokens_details:
+null`, and `cached_tokens: 0` is **never** emitted by any route. Meanwhile the serve log's
+`Prefix cache hit rate: 99.0%` is `prefix_caching_metrics.hit_rate`, an interval average
+over the logging window (`vllm/v1/metrics/loggers.py:234-245`) that includes the other
+requests. A correctly working flag therefore looks identical to a dead flag, and
+"null means prefix caching is off" is not a valid inference anywhere.
+
+Recorded **#9030** (vllm / vllm-ascend v0.18.0, MiniMax-M2.7, `--enable-prefix-caching
+--enable-prompt-tokens-details`): the paste carries `prompt_tokens: 25` beside a 99.0 %
+line, so the only missing artefact is a two-block prompt. Answer with the arithmetic and
+the one re-run; do not walk the scheduler for a field the request itself never earned.
+
+On a **MiniMax chat serve at v0.18.0 the usage object is not upstream's**:
+`vllm_ascend/patch/platform/patch_minimax_usage_accounting.py` (imported at
+`patch/platform/__init__.py:31`) rebinds `OpenAIServingChat._make_usage_info`
+(`:95-118`, copying the same truthiness gate at `:112`) and
+`chat_completion_full_generator` (`:249`), rebuilding the whole usage from tracked state
+(`_make_full_response_usage`, `:184,235`) that **latches the first engine result's count**
+(`:152-153`, `if state.num_cached_tokens is None`). That gives a second, patch-side owner
+for a null field on a long prompt: a first chunk reporting `0` is frozen for the whole
+response. Discriminate with the same body on `/v1/completions`: that route carries the
+same truthiness gate but none of this patch, so a hit there with null on chat isolates the
+latch, while null on both keeps it at "this request's own hit was 0". Do not rewrite the
+patch's arithmetic before that test.
 
 ## Why `B` can be tens of times 128 (the amplifier)
 

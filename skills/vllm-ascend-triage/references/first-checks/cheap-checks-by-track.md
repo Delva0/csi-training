@@ -268,7 +268,8 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   (`grep -n "ascend_scheduler_config.enabled = True" …/platform.py`) says whether
   the fork was force-enabled for a default serve (rc0) or is opt-in — that decides
   between a gate-input flag and dropping the key, and whether the three-site patch
-  is even needed
+  is even needed. Skip the second grep when the paste's own frame is
+  `vllm_ascend/core/scheduler.py`: the fork ran, so only the escape spelling is open
   (`../upstream-downstream-drift/scheduler-fork-missing-status.md`, #3979).
 - PD / EPD transport complaint: **first ask whether a KV pool is configured**
   (`AscendStoreConnector` in a `MultiConnector`, `MOONCAKE_CONFIG_PATH`). A pool

@@ -91,9 +91,13 @@ Inherit the rules in SKILL.md, plus these:
 Conditional routes:
 
 - The task shape, the deliverable skeleton and the staged-emission protocol for
-  a community-test report, and the recurring 已知问题 "容器内无法使用 postman"
+  a community-test report, the recurring 已知问题 "容器内无法使用 postman"
   (host-side `--net=host` postman, python `requests` as the guaranteed in-image
-  client, `curl` absent from the Dockerfile) → `community-test-report.md`.
+  client, `curl` absent from the Dockerfile), and the 已知问题/任务问题 field that
+  names a **version gate or a stale tag** — compare its tag with the row's own
+  蓝区镜像 (and with the page's `first supported in` line) before grading
+  anything, and open the deploy script from `docker load` when the row ships a
+  `.tar.gz` → `community-test-report.md`.
 - The report's own failing item is a **sample request** — `vllm bench serve` or a
   curl body answering 404 (`The model X does not exist`) while the service is
   healthy — or its slow item is a first start that "loads for hours": the
@@ -135,7 +139,10 @@ Conditional routes:
   `max_completion_tokens`, the nightly yaml as the in-tree gate; plus the same
   page graded on a 4-card row — which findings transfer, the `--device` comment
   that re-tiers the device-list defect, the TP2-vs-TP4 choice, the unmounted
-  weights cache) and
+  weights cache), InternVL3.5 (row `hjh4`: the w8a8 checkpoint the page never
+  serves — no `--quantization ascend` on its `:123-127` serve block — the missing
+  2-card container recipe, `require 1 Atlas 800I A2 (64G × 8) node` against its
+  own TP2 serve, an empty CI list) and
   Qwen3-VL-30B-A3B (row 6: the `requires 1 Atlas … node` sentence against the
   page's own two-device map, and a sample body carrying a request-side
   `reasoning_content`) defect tables, check 12 (the printed sample body against

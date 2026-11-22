@@ -221,6 +221,12 @@ Aicpu kernel execute failed, device_id=8, stream_id=91, so_name=libccl_kernel.so
   `reduce_scatter` RPC launch never signalled, so the AllGather waits expired after their
   bound — the AICPU record owns the case (CANN/HCCL, `soName=libccl_kernel.so`); (b) the
   peer had already stopped and the AICPU record is a later symptom on a poisoned stream.
+- **Read the descriptor before the serials.** Here the AICPU record *names* a kernel
+  (`RunAicpuRpcSrvLaunchV2_reduce_scatter` in `libccl_kernel.so`), which is what makes it
+  HCCL's launch and not a compute kernel. When the same `msg:execute kernel param invalid`
+  arrives with `soName=`/`funcName=`/`kernelName=` **empty**, this page's serial arithmetic
+  is not enough — decode `0x2a`/`errcode` and read the cascade in
+  `aicpu-task-exception-empty-kernel.md` (#12776).
 - `timeout=204s` is that Notify Wait task's **armed bound**, and it expired, so
   `stall start ≈ print time − 204 s` (⇒ ≈`06:24:20` for a `06:27:44` block) — the same
   arithmetic as the 1836 s block above. What it is *not*: 204 ≠

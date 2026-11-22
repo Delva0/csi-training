@@ -139,9 +139,13 @@ splits between engine and delta assembly. #8122 v0.14.0rc1 Qwen3-Next-80B-A3B
 `stream: true` + `--async-scheduling`, "流式 function call 大概率截断、小概率格式
 错误、重复输出": answered late but in full, ranked on the reporter-confirmed #5683
 precedent (async scheduling on → only CoT, no `tool_calls`) plus the CI gap that
-`async_scheduling` never appears in `tests/e2e/multicard/4-cards/test_qwen3_next.py`;
-the same audit on its 97-chunk paste returns valid JSON, so the posted sample was
-not the failing request and the answer had to say so.
+`async_scheduling` never appears in `tests/e2e/multicard/4-cards/test_qwen3_next.py`.
+The audit of its 97-chunk paste returns valid JSON (268 chars, braces 1/1, 40 quotes)
+**and the sample is failing anyway**: the last value is `guest_phone: "138123"`
+against the request's `13812345678`, a value cut inside complete punctuation. The
+recorded answer said "the posted sample is not the failing request", and a repeat
+session (2026-08) repeated "11 位数字全部到齐" to the reporter — a balanced audit is
+not a healthy sample (`../tool-call-streaming/streamed-arguments-audit.md` §Step 3A).
 
 **#12658** vllm-ascend v0.21.0rc1 (`80610e44`) + vllm v0.21.0 (`ad7125a4`), Atlas
 800I A2, DeepSeek-V4-Flash-w8a8-mtp TP8+EP with `--tool-call-parser deepseek_v4
@@ -601,7 +605,8 @@ bookkeeping family (`../tool-call-streaming/suffix-only-arguments.md`, new):
 column 1 (char 0)`, and the assembly is a strict suffix of the non-streaming
 arguments. The reporter restated the same A/B in a follow-up minutes after filing
 (2026-03-26T08:29Z, `#issuecomment-4132650891`), so the paste is a genuine failing
-request (unlike #8122). Coverage gap at this pin: the case view exports vllm **v0.13.0**
+request — as is #8122's, whose cut sits inside a value rather than at the head.
+Coverage gap at this pin: the case view exports vllm **v0.13.0**
 (`72506c9`), whose tool/reasoning registries hold `glm45` only — a deployment
 running `--tool-call-parser glm47` cannot be serving that tree, so the parser code
 under the export is not the code that ran. Delivery: the recorded run called the

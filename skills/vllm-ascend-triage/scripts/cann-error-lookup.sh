@@ -20,6 +20,20 @@
 #               These are runtime/device codes, not HcclResult enums: 5070xx is the TS,
 #               aicore or device lane (507010 lost heartbeat, 507014-507016 aicore
 #               timeout/exception/trap), so the name decides the lane, not a source read.
+#   hex TS code 0x2A, 0x90B                      -> the task-scheduler (TS) error enum:
+#               `TS_ERROR_AICPU_EXCEPTION = 0x2A   /**< aicpu exception */` from
+#               <root>/*/cann/driver/src/sdk_driver/ts_agent/inc/tsch/task_scheduler_error.h
+#               (`typedef enum tag_ts_error`, mirrored under cann/hcomm). This is the family
+#               of a plog's `retCode=0x2a, [aicpu exception]`: the bracketed name IS that
+#               enum's comment, and no ACL_ERROR_RT_* carries the value.
+#   errcode N   the `errcode:N, msg:<text>` field of an AICPU exception record -> an
+#               `enum rtAICPUErrorType` name from
+#               <root>/*/cann/runtime/src/runtime/feature/inc/device/device_error_info.hpp
+#               (1 = KERNEL_EXECUTE_PARAM_INVLID "kernel execute param invalid",
+#                3 = KERNEL_EXECUTE_TIMEOUT, 7 = AE_STATUS_SILENT_FAULT,
+#                21001 = AICPU_PARAMETER_NOT_VALID, ...). Every decimal argument also gets
+#               this lookup, as its own heading: these small numbers collide with the
+#               HcclResult enum, and only the surrounding line says which family applies.
 #   dcmi -8xxx  e.g. -8005, -8020                 -> the DCMI return code the host's
 #               `npu-smi` prints (`dcmi module initialize failed. ret is -8005`): the
 #               enum name from <root>/*/cann/driver/src/custom/include/dcmi_interface_api.h
@@ -40,7 +54,11 @@
 # runtime branch from #11171, where `runtime result = 507010` answered as
 # "no HCCL_E_* = 507010" and the reporter's own case ended as a hardware fault
 # (references/hccl-and-hardware/device-health-checks.md); the dcmi branch from #8809
-# (references/startup-failures/no-npu-in-container.md).
+# (references/startup-failures/no-npu-in-container.md); the TS and rtAICPUErrorType
+# branches from #12776 (`retCode=0x2a, [aicpu exception]` + `errcode:1, msg:execute kernel
+# param invalid` on a v0.23.0rc1 DeepSeek-V4 MTP graph launch), where the ACL tables said
+# "not in the exported tables" and the two answers were one find away
+# (references/hccl-and-hardware/aicpu-task-exception-empty-kernel.md).
 set -uo pipefail
 
 root="${CANN_ERROR_LOOKUP_ROOT:-/workspace/repos}"
@@ -81,12 +99,18 @@ while IFS= read -r f; do dcmi_headers+=("$f"); done < <(
 dcmi_docs=()
 while IFS= read -r f; do dcmi_docs+=("$f"); done < <(
   find "$root" -maxdepth 12 -type f -name 'return_codes.md' 2>/dev/null | sort)
+ts_headers=()
+while IFS= read -r f; do ts_headers+=("$f"); done < <(
+  find "$root" -maxdepth 12 -type f -name 'task_scheduler_error.h' 2>/dev/null | sort)
+aicpu_headers=()
+while IFS= read -r f; do aicpu_headers+=("$f"); done < <(
+  find "$root" -maxdepth 12 -type f -name 'device_error_info.hpp' 2>/dev/null | sort)
 lq_headers=()
 while IFS= read -r f; do lq_headers+=("$f"); done < <(
   find "$root" -maxdepth 14 -type f -name 'ioctl_comm_def.h' 2>/dev/null | sort)
 
 echo "root: $root"
-echo "tables: ${#err_tables[@]}   enum headers: ${#enum_headers[@]}   rt headers: ${#rt_headers[@]}   rt doc tables: ${#rt_docs[@]}   dcmi headers: ${#dcmi_headers[@]}"
+echo "tables: ${#err_tables[@]}   enum headers: ${#enum_headers[@]}   rt headers: ${#rt_headers[@]}   rt doc tables: ${#rt_docs[@]}   dcmi headers: ${#dcmi_headers[@]}   ts tables: ${#ts_headers[@]}   aicpu type tables: ${#aicpu_headers[@]}"
 if [ ${#err_tables[@]} -eq 0 ]; then
   echo "  (no CANN error table exported in this snapshot — quote the code from the paste"
   echo "   and look the enum up separately; e.g. the v0.9.1-era cann/ export holds only catlass)"
@@ -132,6 +156,25 @@ for code in "${args[@]}"; do
       echo "  (quote the code as text; the driver tree may not be in this snapshot)"
       status=1
     fi
+  elif [[ "$code" =~ ^0[xX][0-9a-fA-F]+$ ]]; then
+    for h in "${ts_headers[@]}"; do
+      hit=$(rg -n --no-heading -i "TS_[A-Z0-9_]+[[:space:]]*=[[:space:]]*${code}([^0-9a-fA-F]|$)" \
+              "$h" 2>/dev/null | head -3)
+      [ -z "$hit" ] && continue
+      found=1
+      echo "  task-scheduler (TS) error code — $h"
+      while IFS= read -r line; do echo "    $line"; done <<< "$hit"
+      echo "  (a TS code belongs to the driver/task-scheduler lane; the bracketed text a"
+      echo "   plog prints beside retCode= is this enum's comment, so it adds no mechanism"
+      echo "   beyond the name — references/hccl-and-hardware/device-health-checks.md)"
+      break   # three copies of this header ride along in the exports; one is enough
+    done
+    if [ "$found" -eq 0 ]; then
+      echo "  no TS_* = $code in any exported task_scheduler_error.h"
+      echo "  (that header ships with cann/driver; a snapshot without the driver tree"
+      echo "   cannot resolve a TS code — quote it as text)"
+      status=1
+    fi
   elif [[ "$code" =~ ^[0-9]+$ ]]; then
     for h in "${enum_headers[@]}"; do
       hit=$(rg -n "HCCL_E_[A-Z_]+\s*=\s*${code}\s*," "$h" 2>/dev/null | head -3)
@@ -162,9 +205,23 @@ for code in "${args[@]}"; do
       found=1
       while IFS= read -r line; do echo "  $d:$line"; done <<< "$hit"
     done
+    for h in "${aicpu_headers[@]}"; do
+      body=$(awk '/enum rtAICPUErrorType/{f=1} f{print NR": "$0} f&&/};/{exit}' "$h" 2>/dev/null)
+      [ -z "$body" ] && continue
+      hit=$(printf '%s\n' "$body" | rg "=[[:space:]]*${code}([^0-9]|$)" | head -3)
+      [ -z "$hit" ] && continue
+      found=1
+      echo "  AICPU error type (the errcode: of an \`AICPU exception\` record) — $h"
+      while IFS= read -r line; do echo "    $line"; done <<< "$hit"
+      echo "  (separate namespace from HcclResult: 1 = KERNEL_EXECUTE_PARAM_INVLID, i.e. an"
+      echo "   AICPU-executed kernel rejected its own execution params; 21001+ are the aicpu"
+      echo "   scheduler/model/tool layers — references/hccl-and-hardware/"
+      echo "   aicpu-task-exception-empty-kernel.md)"
+    done
     if [ -z "$rthit" ] && [ "$found" -eq 0 ]; then
-      echo "  no HCCL_E_* = $code in any exported hccl_types.h, and no"
-      echo "  ACL_ERROR_RT_* = $code in any exported rt_error_codes.h"
+      echo "  no HCCL_E_* = $code in any exported hccl_types.h, no"
+      echo "  ACL_ERROR_RT_* = $code in any exported rt_error_codes.h, and no"
+      echo "  rtAICPUErrorType member = $code in any exported device_error_info.hpp"
     fi
   else
     for t in "${err_tables[@]}"; do

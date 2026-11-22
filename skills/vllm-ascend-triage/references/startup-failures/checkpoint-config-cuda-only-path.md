@@ -63,6 +63,17 @@ aborts the engine.
   it is run: the forward path is portable but the 5×-wide query has no consumer, so
   the expected next failure is a reshape/`view` error or silently wrong numbers.
 
+**The same `-1M` family has a second, unrelated recorded failure — do not let the
+family match pull the answer.** A `history/` search for `dual_chunk|Instruct-1M`
+returns two hits, of which only **#1716** (Qwen2.5-14B-Instruct-1M on vllm-ascend
+v0.7.3.post1) is this checkpoint family: it starts and serves fine, then dies at
+*request* time on `AttributeError: 'Tensor' object has no attribute 'mask_fill_'` at
+`vllm_ascend/attention/attention.py:140` — a downstream typo for `masked_fill_`
+(`../upstream-downstream-drift/library-method-typo.md`), a different phase and a
+different owner. Cite it as distinct if the reporter raises it; it is not evidence
+about the startup abort and must not make attention, `--max-num-batched-tokens` or
+CANN suspects here.
+
 ## Answer shape for this class
 
 1. **Verdict first:** yes, the model cannot be served as-is on this pin; the owner is

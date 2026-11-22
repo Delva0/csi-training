@@ -1,11 +1,13 @@
 # Dispatch: from a classified shape to the topic entry
 
 Scope: the routing decision that follows *Classify the evidence* in SKILL.md — given
-the pasted symptom, which `references/<topic>/index.md` owns it. The one content page,
-`classified-shapes.md`, is the table: one row per routing decision (a topic entry,
-or one page inside it), written in the reporter's own symptom wording, each carrying
-the owner and the page to open. Inherit every rule in SKILL.md; these three decide
-how the table is used.
+the pasted symptom, which `references/<topic>/index.md` owns it, plus the install
+track's classification when no engine exists yet. `classified-shapes.md` is the table:
+one row per routing decision (a topic entry, or one page inside it), written in the
+reporter's own symptom wording, each carrying the owner and the page to open.
+`no-frame-install-shapes.md` is the install track's entry, including the reports with
+no failing frame. Inherit every rule in SKILL.md; these three decide how the table is
+used.
 
 1. **Classify first, then match the wording.** The table is a matcher, not a
    classifier: a row is selected by what the paste *says* (an error string, a flag
@@ -22,6 +24,13 @@ how the table is used.
 
 ## Routes
 
+- `no-frame-install-shapes.md` — the **install track**: an `[Installation]` / 安装
+  report that fails before any engine exists, and above all the shapes that carry no
+  failing frame (a pairing story, the `+cpu`/build-isolation conflict, a Python-floor
+  annotation error, a dangling build path, the pybind11 `--cmake` rename). It also
+  states the rule that decides the track — the paste's last frames name the failing
+  *stage*, the stage names the owner, and the cheapest working install is rung 1. Open
+  it at the classification step when the paste is an install report.
 - `problem-classes.md` — the skill's coverage statement: the ten entry shapes
   (issue report, install/pip, deployment failure, support/version, feature-enable,
   PD/EPD, sizing, community-test/doc review, release bulletin, code-change) with the

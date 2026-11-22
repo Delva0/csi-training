@@ -166,6 +166,19 @@ for i in sorted(acc):
     if ok:
         print("  json.loads(assembled): OK")
         verdicts.append("balanced")
+        # A balanced assembly only clears the PUNCTUATION. Print the parsed
+        # values so a cut *inside* a value is visible without recounting
+        # fragments by hand -- recorded #8122 is exactly that trap.
+        try:
+            parsed_obj = json.loads(s)
+        except Exception:
+            parsed_obj = None
+        if isinstance(parsed_obj, dict) and parsed_obj:
+            print("  parsed values (the brace/quote check cannot see a cut "
+                  "inside one of these -- compare each against the request):")
+            for k, v in parsed_obj.items():
+                line = f"{k} = {v!r}"
+                print("    " + (line if len(line) <= 200 else line[:197] + "..."))
     else:
         print(f"  json.loads(assembled): FAIL -> {err}")
         # Five outcomes, not two (tool-call-streaming/index.md rule 1). An open
@@ -244,10 +257,21 @@ if silent:
           f"parser emits exactly this while it walks the model's XML")
 
 if all(v == "balanced" for v in verdicts):
-    print("\nVERDICT: every assembled tool call is valid JSON. The failure is in the "
-          "client's own accumulation/framing (or it parsed a single chunk instead of "
-          "the concatenation). Ask for the client version and its parser; the server "
-          "stream is not the owner.")
+    print("\nVERDICT: every assembled tool call is valid JSON -- the PUNCTUATION lanes "
+          "are clear, and that is all it says: nothing yet shows the server emitted a "
+          "complete *value*. Compare the parsed values above against the request's own "
+          "constants (a phone/date/id/count whose length the prompt fixes) before "
+          "calling the sample healthy. Recorded #8122 is the trap: 268 chars, braces "
+          "1/1, 40 quotes, json.loads OK, and the last value is "
+          "`guest_phone: \"138123\"` where the request gave `13812345678` -- a value "
+          "cut under complete punctuation, which an earlier reading of that row called "
+          "'not one of the failing requests' and a later session repeated to the "
+          "reporter. Values all plausible -> the failure is the client's own "
+          "accumulation/framing (or it parsed a single chunk instead of the "
+          "concatenation): ask for the client version and its parser. A value is short "
+          "-> `return_token_ids: true` on the same body splits an engine-side early "
+          "stop from a parse/delta cut, and a `stream: false` A/B shows whether the "
+          "non-streamed arguments carry the whole value.")
 elif "head-lost" in verdicts:
     print("\nVERDICT: at least one assembled tool call starts INSIDE the object (more")
     print("closing braces than opening ones): the client received only a suffix of the")

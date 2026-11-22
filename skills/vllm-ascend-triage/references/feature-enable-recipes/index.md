@@ -26,7 +26,19 @@ Inherit the rules in SKILL.md. Three parts, in this order; part 1 is the answer.
    asking for; a launcher script synthesized from the constraints the code
    enforces is not, and it invites the follow-up "has anyone ever actually run
    this?" (recorded #8984: the answer ranked config causes, the reporter's next
-   public comment was exactly that question).
+   public comment was exactly that question — and a day after a later,
+   verdict-first answer the same reporter asked 「有人在 A2 机器上成功跑通过
+   DeepSeek-V3.2-w8a8-mtp-QuaRot 开启 PCP 特性吗?」). So the verdict part also
+   carries the **precedent census**, produced in the same step by
+   `scripts/history-titles.sh -i '<feature>|<alias>|...'`: how many issues mention
+   the feature, how they split (RFC vs failure), and whether any reports success
+   for *this* weight set and SoC — plus the coverage limit of the snapshot
+   (titles/bodies, no comments or PRs), so the claim reads "nobody in the
+   searchable corpus reports success" rather than "impossible". Read `-n` bodies
+   only for the hits you quote. Any launcher you still hand back must then fit the
+   reporter's cards per the model tutorial's own node requirement for that weight
+   set (`context-parallel-pcp-dcp.md` §5 is the worked case: the community w8a8 set
+   needs 2×A2, so a "single A2 node" rung is only real for the w4a8 set).
 2. **Each enforced constraint with the error text it produces**, so the reporter
    maps their own two errors onto the list instead of testing the recipe blind.
    Prefer constraints the code enforces (`rg -n` the flag in `vllm_ascend/`) over

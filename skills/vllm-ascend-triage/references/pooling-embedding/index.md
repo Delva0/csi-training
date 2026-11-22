@@ -311,11 +311,16 @@ Three scripts serve this topic's startup classes directly:
 - `fp32-head-nz-format-crash.md` — class 5. Worked case vllm-ascend #4679
   (v0.11.0rc3, Qwen3-Reranker-8B, 910B): the fp32 score head built by upstream
   `adapters.py`, the `is_enable_nz` gate that excluded only fp16/bf16, the NZ cast
-  in `AscendUnquantizedLinearMethod.process_weights_after_loading`, the
-  `VLLM_ASCEND_ENABLE_NZ=0` escape, its `EZ1001` dtype x layout text (the shape
-  sibling is `../startup-failures/nz-weight-format-refusal.md`), and the
-  v0.23.0 gate rewrite (`_should_trans_nz`, "FP32 cannot use NZ") that makes the
-  verdict ref-specific.
+  in `AscendUnquantizedLinearMethod.process_weights_after_loading`, the escape
+  under both spellings (`VLLM_ASCEND_ENABLE_NZ=0` at v0.11, `weight_nz_mode: 0`
+  from the v0.20 mode refactor, and only the env var where the key is absent),
+  its `EZ1001` dtype x layout text (the shape sibling is
+  `../startup-failures/nz-weight-format-refusal.md`), and the v0.23.0 gate rewrite
+  (`_should_trans_nz`, "FP32 cannot use NZ") that makes the verdict ref-specific.
+  Two traps recorded there: at v0.23.0 the unquantised method **still** casts, so
+  it is the gate's fp32 first rule (not the cast site's absence) that protects the
+  head, and that ref's `_should_keep_nd_for_310p_weight` shape guard is 310P-only,
+  so a 910B/A2/A3 shape-family paste of the same vintage is not fixed by it.
 - `../custom-ops-runtime-faults/fa-tiling-argument-refusals.md` — class 10, member B:
   `aclnnFlashAttentionVarLenScore` / `FlashAttentionScore launch kernel failed` +
   `… should be 0 in EOD scenario, but got (15) and (15)` under graph mode with eager

@@ -13,9 +13,11 @@
 #      gate converts is the owner);
 #   2. what the NZ gate does with a float32 weight at the checked-out ref, which
 #      is the difference between the fp32 pooling head crashing and surviving;
-#   3. at a three-valued ref, how `weight_nz_mode` resolves and whether the gate
-#      tests the weight's shape at all (it does not at v0.20.2rc1, so a bf16
-#      MoE shared-expert gate `[1, hidden]` crashes at mode 2).
+#   3. at a three-valued ref, how `weight_nz_mode` resolves and whether anything
+#      tests the weight's shape: `_should_trans_nz` never does (so a bf16 MoE
+#      shared-expert gate `[1, hidden]` crashes at mode 2 from v0.20.2rc1 on),
+#      while from v0.23.0 the *caller* in `ops/linear.py` keeps `n == 1` / `k == 1`
+#      weights ND on 310P only — so the SoC decides whether the case is fixed.
 #
 # The root argument is optional: without it the paste is still classified, and
 # the gate is described by signature only.
@@ -110,6 +112,10 @@ if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
     v0.22.1rc1+:  same names, "FP32 cannot use NZ" is the first rule
       (utils.py:209-236; mode 0 -> ND, bf16/fp16 -> NZ only at mode 2); the cast
       sites are the quantised methods and ops/linear.py:78-89
+    v0.23.0:      same gate (utils.py:261-287, mode read from ascend_config) with
+      still no shape test inside it, but ops/linear.py:79-80,88,97-98 keeps
+      n == 1 / k == 1 weights ND on 310P ONLY (is_310p()), so at that ref the
+      shape family is fixed on 310P and open on 910B/A2/A3
   Re-run with the reporter's vllm-ascend root, or grep:
     rg -n "def is_enable_nz|_should_trans_nz|maybe_trans_nz" vllm_ascend/utils.py
 TXT
@@ -136,8 +142,25 @@ if [ -f "$UT" ]; then
       echo "  SHAPE GUARD: present in _should_trans_nz at this ref — a one-dimension"
       echo "               weight is left ND, so the shape family is already fixed here."
     else
-      echo "  SHAPE GUARD: absent in _should_trans_nz at this ref — every converted"
-      echo "               weight with a 1-length dimension reaches aclnn and fails."
+      echo "  SHAPE GUARD: none inside _should_trans_nz at this ref."
+      # The caller may keep narrow weights ND; its SoC scope, not its presence,
+      # decides whether the reporter's crash is already fixed at this ref.
+      GUARD=$(grep -nE 'def _should_keep_nd_for_310p_weight|keep_nd_weight|shape\[-[12]\] == 1' \
+        "$ROOT/vllm_ascend/ops/linear.py" 2>/dev/null | head -4)
+      if [ -n "$GUARD" ]; then
+        printf '%s\n' "$GUARD" | sed 's/^/    ops\/linear.py:/'
+        if printf '%s\n' "$GUARD" | grep -q 'def _should_keep_nd_for_310p_weight'; then
+          echo "               caller-side guard PRESENT, 310P-only (is_310p()): a 310P"
+          echo "               [1, N] / [N, 1] weight stays ND, on 910B/A2/A3 it is still"
+          echo "               converted — read the reporter's SoC before answering."
+        else
+          echo "               caller-side guard present with another scope: read it at"
+          echo "               ops/linear.py before saying where the shape family stands."
+        fi
+      else
+        echo "               no caller-side keep-ND guard either — every converted weight"
+        echo "               with a 1-length dimension reaches aclnn and fails."
+      fi
     fi
   else
     echo "  NO NZ GATE FUNCTION at this ref (no is_enable_nz / _should_trans_nz /"
@@ -157,13 +180,28 @@ if [ -f "$EN" ]; then
   grep -q 'VLLM_ASCEND_ENABLE_NZ' "$EN" && MODE_AT_REF=1
 fi
 AC="$ROOT/vllm_ascend/ascend_config.py"
+HAVE_MODE_KEY=0
 if [ -f "$AC" ]; then
   grep -nB2 -A6 'weight_nz_mode' "$AC" | head -18 | sed 's/^/  ascend_config.py:/'
-  grep -q 'weight_nz_mode' "$AC" && MODE_AT_REF=1
+  if grep -q 'weight_nz_mode' "$AC"; then
+    MODE_AT_REF=1
+    HAVE_MODE_KEY=1
+  fi
 fi
-if [ "$MODE_AT_REF" = "1" ]; then
-  echo "  escape for the reporter: weight_nz_mode 0 (or VLLM_ASCEND_ENABLE_NZ=0);"
-  echo "  1 also works when the failing weight is bf16/fp16; 2 makes it certain."
+if [ "$MODE_AT_REF" = "1" ] && [ "$HAVE_MODE_KEY" = "1" ]; then
+  echo "  escape for the reporter: weight_nz_mode 0 via --additional-config (or"
+  echo "  VLLM_ASCEND_ENABLE_NZ=0); 1 also works when the failing weight is bf16/fp16;"
+  echo "  2 makes it certain."
+elif [ "$MODE_AT_REF" = "1" ]; then
+  echo "  escape for the reporter: VLLM_ASCEND_ENABLE_NZ=0 ONLY — this ref has no"
+  echo "  weight_nz_mode key, so --additional-config {\"weight_nz_mode\": 0} is inert"
+  echo "  here. The flag is boolean at this ref and the dtype gate skips fp16/bf16, so"
+  echo "  0 turns off the only conversions that exist (fp32 and every non-half dtype)."
+  if sed -n '/def _should_trans_nz/,/^def /p' "$UT" 2>/dev/null | grep -q 'is_310p()'; then
+    echo "  caveat: the gate returns True on 310P BEFORE the mode is read, so on a 310P"
+    echo "  host this switch is inert — do not offer mode 0 there (the 310P path keeps"
+    echo "  n == 1 / k == 1 weights ND instead; ../soc-platform-paths/atlas-300i-310p.md)."
+  fi
 else
   echo "  NO weight_nz_mode / VLLM_ASCEND_ENABLE_NZ at this ref — the layout is not a"
   echo "  flag here, so 'set weight_nz_mode' is advice that does nothing. The answer is"
@@ -171,4 +209,4 @@ else
   echo "  not a switch: references/feature-enable-recipes/weight-nz-layout-by-soc.md"
 fi
 LIN="$ROOT/vllm_ascend/ops/linear.py"
-[ -f "$LIN" ] && grep -nE 'npu_format_cast|FRACTAL_NZ|is_enable_nz|maybe_trans_nz' "$LIN" | head -6 | sed 's/^/  ops\/linear.py:/'
+[ -f "$LIN" ] && grep -nE 'npu_format_cast|FRACTAL_NZ|is_enable_nz|maybe_trans_nz|keep_nd_weight|_should_keep_nd_for_310p_weight' "$LIN" | head -8 | sed 's/^/  ops\/linear.py:/'

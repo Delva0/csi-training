@@ -533,6 +533,26 @@ CANN custom-op build's `run.sh`. Also landed on the self-build variant
 `-DSOC_VERSION=`). Page: `../soc-platform-paths/atlas-300i-310p.md`, its `bin package`
 section.
 
+**#5599** the same SIG wording five months on, and the reporter's later public
+comments (2026-01 → 2026-05) close the loop that #2725 left open. Reported at
+vllm 0.9.1 / vllm-ascend **0.9.1 from pip on a 310P3 host** (no image,
+`ASCEND_SOC_VERSION=Ascend310P3` already exported, host CANN 8.2.RC2, Qwen2.5-0.5B
+offline example) — so rung 1 of the #2725 answer ("pull the `-310p` tag") did not
+exist for them. What the reporter then established: (a) raising CANN 8.2.RC2 →
+8.3.RC2 removed the `socversion … does not match` line and replaced it with a
+missing-`tbe` error (the `[tbe-custom] … not found in this op store` family), i.e.
+the CANN version relocates the failure instead of fixing it; (b) on CANN 9.0.0 with
+vllm 0.19.1 / vllm-ascend 0.19.1rc1, setting the SoC and **source compiling both
+vllm and vllm-ascend** was what made it work; (c) their own hypothesis is that the
+official wheel is built for an A3/910 SoC — the snapshot's verified fact is the **A2**
+base wheel (`../soc-platform-paths/device-type-build-vs-runtime.md` step 4). The
+recorded run reached the right build-vs-artifact verdict and even the correct fix
+(`SOC_VERSION=ascend310p1`), but spent 14 assistant turns / ~746 K cumulative prompt
+tokens and its single 2.6 K-character answer was `output_truncated` at ranked cause 3
+of 3 — no ladder, no recommended build command — after a call grepping
+`/workspace/repos` for a string that is in no pinned tree. Page: its `bin package`
+section, which now carries the install-mode discriminator and the CANN-upgrade decoy.
+
 **#12856** image `vllm-ascend:v0.18.0-310p-openeuler` (tree `e18643f8`), Atlas 300I Duo ×8,
 Qwen3.6-35B-A3B (`Qwen3_5MoeForConditionalGeneration`) TP4+EP, BF16 with `--dtype half`,
 `--enforce-eager`: weights load, then `profile_run` raises

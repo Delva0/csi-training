@@ -93,17 +93,49 @@ it, and do not treat it as the task's root cause.
 
 ### When the 已知问题 field is a version gate, not a doc gap
 
-#11753's row says 「官方文档没有 vllm-ascend:v0.18.0 部署指导」. The page's own
-Introduction answers it: "The `InternVL3.5` model is first supported in
-`vllm-ascend:v0.20.2`" (`InternVL3.5.md:7` at v0.22.1rc1). A task image older
-than the page's first-supported release cannot deploy the model, and no missing
-section would fix that — so this is **not** a document defect and must not be
-graded as one (完整性 unchanged). The headline is the task book's 蓝区镜像 being
-below the gate: state the minimum tag, audit the page at the pin, and ask the task
-book to be corrected. One grep decides which reading applies —
+Two rows carry the sentence 「官方文档没有 vllm-ascend:v0.18.0 部署指导」, and
+comparing it with the row's **own** 蓝区镜像 decides whether anything is gradeable:
+
+- `#11753`'s 蓝区镜像 *is* `quay.io/ascend/vllm-ascend:v0.18.0`, and the page's
+  Introduction answers it: "The `InternVL3.5` model is first supported in
+  `vllm-ascend:v0.20.2`" (`InternVL3.5.md:7` at v0.22.1rc1). An image older than
+  the page's first-supported release cannot deploy the model, and no missing
+  section would fix that — so this is **not** a document defect and must not be
+  graded as one (完整性 unchanged). The headline is the task book's 蓝区镜像 being
+  below the gate: state the minimum tag, audit the page at the pin, and ask the
+  task book to be corrected.
+- `#11742` — the **same row `hjh4`** — repeats the sentence verbatim while its
+  蓝区镜像 is
+  `vllm-ascend:dev-26.1.0.B050-cann9.0.0-800I-A2-py311-Ubuntu24.04-lts-aarch64`,
+  an internal dev build *above* that gate and neither the tag the field names nor
+  the tag the page prints. Nothing here is a doc defect either: the page's gate
+  plus the build-time substitution answer the question, and carrying the "蓝区镜像
+  below the gate" headline onto this row would be a scoring error. Read the two
+  tags side by side before choosing a headline — the field is routinely stale
+  relative to the row it sits in.
+
+One grep decides the page side in every variant —
 `rg -n 'first supported in' docs/source/tutorials/models/<page>.md` — and the
 version-space page supplies the drift rules when the page's own tag is the defect
 (`docs-version-space-and-image-tag.md` §5).
+
+**The delivered tag is a version the snapshot cannot pin, so the audit answers for
+the page's substituted tag, not the tester's build.** At v0.22.1rc1 the
+substitution is `docs/source/conf.py:81` `vllm_ascend_version: v0.22.1rc1`
+(`cann_image_tag` `9.0.0-910b-ubuntu22.04-py3.12` at `:87`; `mkdocs.yml extra.*`
+on later trees — `docs-version-space-and-image-tag.md` §2). Write "checked at
+`<pin>`" beside every dead flag, and hand the tester the one command that closes
+the gap on their own image — `vllm --version` and `pip show vllm-ascend` inside
+it — instead of declaring a flag broken on a build nobody verified.
+
+**A `.tar.gz` 蓝区 image is a deploy-script defect of its own.** When the 任务书
+reads 「把 vllm-ascend:…-aarch64.tar.gz 传到蓝区」, the tester's image arrives as a
+local tarball (`docker load -i <file>.tar.gz`), while the page offers only
+`export IMAGE=quay.io/ascend/vllm-ascend:|vllm_ascend_version|` followed by
+`docker run … $IMAGE bash` (`InternVL3.5.md:41`, `:69`) — an implicit pull of the
+public `quay.io` tag, which is not the route the row hands them. Grade it
+完整性, and open the deploy script with the `docker load` line plus the tag it
+loads.
 
 ## Staged emission protocol
 

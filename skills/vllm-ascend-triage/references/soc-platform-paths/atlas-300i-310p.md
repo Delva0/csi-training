@@ -344,25 +344,70 @@ refuses because the package was built for `Ascend910B1` while the live card is
 `device-type-build-vs-runtime.md`'s Python-side assertion, and the two SoC strings keep
 the same direction rule: the **first** is the build, the **second** is the card.
 
-Navigation cost to avoid: **the message is in no pinned tree.** `rg -n "of bin
-package|socverison" /workspace/repos` returns nothing (checked at v0.9.1rc3
-`763ed69`), and the history titles do not carry it either — its own wording names a
-`run.sh` with a `socversion` parameter, i.e. the CANN custom-op build script that
-ships with the ops package. One grep at most, then stop: the owner is the artifact
-choice.
+Navigation cost to avoid: **the message is in no pinned tree, so grep the library
+first, not the repositories.** `rg -n "of bin package|socverison" /workspace/repos`
+returns nothing (checked at v0.9.1rc3 `763ed69`), and the history titles do not carry
+it either — its own wording names a `run.sh` with a `socversion` parameter, i.e. the
+CANN custom-op build script that ships with the ops package. Recorded #5599 spent one
+call on that empty `repos/` grep before one
+`rg -n 'bin package|does not match the current device' <skill_root>/references/`
+landed here on its 5th assistant turn. One grep at most, then stop: the owner is the
+artifact choice.
 
-Two owners, cheapest first:
+**The install mode picks the rung, so ask it before ranking**: an *image* report
+(`quay.io/ascend/vllm-ascend:<tag>`, no `pip`) or a *wheel/source* install on the
+host (`pip show vllm-ascend`, CANN under `/usr/local/Ascend/ascend-toolkit/<ver>`,
+host `npu-smi`). #5599 was the second kind, and its title names only the card: the
+reporter ran vllm/vllm-ascend **0.9.1 from pip on a 310P3 host** (`ASCEND_SOC_VERSION=Ascend310P3`,
+CANN 8.2.RC2) with no image and no `-310p` tag to switch to.
 
-1. **Wrong image variant.** The generic and `openEuler` images are both the 910B line
-   — `Dockerfile.openEuler:19` is `FROM quay.io/ascend/cann:8.2.rc1-910b-openeuler22.03-py3.11`
-   — and `-310p` tags are separate builds. Fix: pull the `-310p` tag for the reported
-   version (`docker manifest inspect` first, and pick `--platform` explicitly on an
-   arm64 host), then confirm `npu-smi info` in the same container. #1905 runs 300I Duo
+Two owners:
+
+1. **Wrong image variant** (image reports). The generic and `openEuler` images are both
+   the 910B line — `Dockerfile.openEuler:19` is
+   `FROM quay.io/ascend/cann:8.2.rc1-910b-openeuler22.03-py3.11` — and `-310p` tags are
+   separate builds. Fix: pull the `-310p` tag for the reported version
+   (`docker manifest inspect` first, and pick `--platform` explicitly on an arm64
+   host), then confirm `npu-smi info` in the same container. #1905 runs 300I Duo
    on `v0.9.2rc1-310p`; #1684 / #1812 show `-310p` tags exist for other rcs.
-2. **Self-built package with the default SoC.** `vllm_ascend/envs.py:58-61` defaults
-   `SOC_VERSION` to `"ASCEND910B1"` and `setup.py:168` passes it as `-DSOC_VERSION=`,
-   so a wheel or custom-op build made without `SOC_VERSION` is stamped 910B1 no matter
-   which card builds it (`device-type-build-vs-runtime.md` step 3 for the stamp).
+2. **A generic wheel, or a build made without `SOC_VERSION`** (pip/source reports —
+   the common case). `vllm_ascend/envs.py:58-61` defaults `SOC_VERSION` to
+   `"ASCEND910B1"` and `setup.py:168` passes it as `-DSOC_VERSION=`, so a wheel or
+   custom-op build made without `SOC_VERSION` is stamped 910B1 no matter which card
+   builds it (`device-type-build-vs-runtime.md` step 3 for the stamp). PyPI serves the
+   **A2** base wheel only (one `twine upload`, `SOC_VERSION: ascend910b1`; the a3/310p
+   builds are OBS wheel *variants*, step 4 there), which is exactly the `Ascend910B1`
+   in the message. **Reporter-confirmed route, #5599 (2026-05):** on a 310P3 host with
+   host-installed CANN 9.0.0 and vllm 0.19.1 / vllm-ascend 0.19.1rc1, setting the SoC
+   and **source compiling both vllm and vllm-ascend** (`export SOC_VERSION=…` with the
+   value `npu-smi info -t board` reports; `ascend310p1` / `ASCEND310P3` per the pin's
+   `installation.md` / `Dockerfile.310p`) and running that build made the error go
+   away; the variant wheel is the cheaper sibling of the same move. Their own guess
+   was "the official wheel is compiled with the A3 soc-version", while the verified
+   fact is the A2 base wheel — either way the wheel's SoC is not a code bug.
+   **The runtime env var cannot substitute.** The reporter's dump carries
+   `ASCEND_SOC_VERSION=Ascend310P3`, which is torch_npu/ATB's variable: vllm-ascend
+   reads no such name at v0.9.1 (`rg -n ASCEND_SOC_VERSION vllm_ascend/` → no hit,
+   #5599 verified it on the pin), so "I already exported the SoC" is not a
+   counter-argument — the stamp is baked at build time.
+
+**Do not rank "upgrade CANN", and do not inventory the toolkit's `tbe`.** The same
+reporter raised CANN 8.2.RC2 → 8.3.RC2 and the `socversion … does not match` line
+disappeared — replaced by a **missing-`tbe`** error ("there's no package of tbe"),
+i.e. the op-store family whose in-tree wording is
+`[tbe-custom]:op type … is not found in this op store` (the `TransData`/`EZ3002`
+section below, #1383). The build stamp has not changed, so this is the same artifact
+mismatch surfacing one stage later under a new wording: one `python -c "import
+vllm_ascend._build_info as b; print(b.__soc_version__)"` (or `pip show`/a
+`0.9.1`-era wheel's missing `_build_info`) decides it, and a CANN package inventory
+answers nothing. The reporter could not downgrade afterwards, which is why the
+build-side answer ships together with that wording change named.
+
+Version scope: this is not a pre-lane-only story. The reporter's last run is
+**0.19.1rc1**, and they cite the project's own v0.13.0 quick-start still calling
+310P3 support experimental — so "v0.9.1 has no 310P lane at all" (rule 6 of
+`index.md`) closes the *code* question for that pin but not this one: a wheel report
+is answered by the stamp and the build, whatever else the pin's tree carries.
 
 Quote the pinned support statement in the same answer: `docs/source/faqs.md:18` at
 v0.9.1rc3 lists `Atlas 300I Duo、Atlas 300I Pro (Ascend-cann-kernels-310p)` under

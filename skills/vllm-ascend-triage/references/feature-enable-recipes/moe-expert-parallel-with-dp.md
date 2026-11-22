@@ -40,6 +40,15 @@ session shipped **no answer**: 16 assistant turns, every one a tool call, ~46 K
 characters of reasoning — it had the selector predicate, the "MC2 shares
 `All2All.finalize`" correction and the capacity arithmetic by turn 10.
 
+A **second** recorded session on this same report and pin (this page in context from
+turn 2) repeated it: the verdict paragraph went out on turn 11, then ten more calls
+re-opened `prepare_finalize.py`, the selector and upstream `parallel_state.py`, and
+the 16 384-token output budget ran out **inside rung 2 of the ladder** — the
+reporter got the verdict and no actions. So the gate here is explicit: once Step 1's
+selector row and Step 2's capacity number are in hand, write Step 5. *What not to
+re-derive* below now settles the two theories that consumed that budget (the
+`tp_group` world size and the DP-wide token count), so neither costs a file read.
+
 ## Step 1 — read the selector, one call, before any theory
 
 `vllm_ascend/worker/model_runner_v1.py:1373-1432` (`_select_moe_comm_method`,
@@ -137,8 +146,11 @@ Consequences to state in the answer:
   `ALLGATHER`/`ALLTOALL` in prefill. A traceback inside ACL-graph capture is
   therefore an MC2-path traceback even when the prefill run of the same process is
   on `ALLGATHER`.
-- **The choice is per rank too, so one step can mix two methods and hang.** The
-  `num_tokens` in the predicate is that rank's own batch, so a DP rank whose
+- **The choice is per rank too, so one step can mix two methods and hang** — in the
+  refs where the DP all-reduce is skipped. On a **colocated** DP serve at
+  v0.12.0rc1 it is not skipped, so every rank selects on the same DP maximum and
+  this lane belongs to the PD decode node (last bullet of *What not to re-derive*).
+  The `num_tokens` in the predicate is that rank's own batch, so a DP rank whose
   MTP/decode batch grows past `capacity` takes the fallback dispatcher while its
   peers stay on MC2; the fallback branch's own collective — the `int32` all-gather
   of the per-expert token histogram over `ep_group` in `_preprocess` — then has no
@@ -281,7 +293,9 @@ scheduler reports, it is `padded_num_tokens / tp`:
   `_sync_metadata_across_dp` returns the rank's own count when
   `dp_size == 1 or enforce_eager` (`model_runner_v1.py:596-599`, and `:1101` feeds that
   same value to the selector), so under `--enforce-eager` with DP>1 each rank selects on
-  and dispatches its own count;
+  and dispatches its own count — **v0.10.1rc1 code**: by v0.12.0rc1 that term is
+  dropped (`model_runner_v1.py:456-458` FIXME), so re-check the predicate before
+  reusing this bullet at another pin;
 - at this pin `global_bs` is hard-coded `0` and `x_active_mask`/`group_tp`/`tp_world_size`
   are passed only when `is_ascend_a3` (`moe_comm_method.py:315`, `:396`, `:405-414`), so
   on A2 the op is always told "uniform tokens, no mask": it can be told neither that rows
@@ -357,9 +371,33 @@ and the gather still ran.
   `padded_num_tokens = ceil(max_tokens_across_dp / tp_world_size) * tp_world_size`
   (`ascend_forward_context.py:147-148`), i.e. **always a TP multiple**: every
   rank's `tensor_split` slice is the same size, so an "uneven/zero-row
-  `tensor_split` makes `all_gather` fail" theory is refuted arithmetically. #5295's
-  session was opening the one file that settles this when it was cut — start from
-  the arithmetic instead.
+  `tensor_split` makes `all_gather` fail" theory is refuted arithmetically. Both
+  #5295 sessions were cut while opening the file that settles this — start from the
+  arithmetic instead.
+- **`self.moe_config.tp_group` is the real TP group, so the shared finalize gathers
+  over `TP`, not `TP × DP`.** vllm-ascend overwrites the upstream field right after
+  the layer is built (`self.moe_config.tp_group = get_tp_group()`,
+  `ops/fused_moe/fused_moe.py:164`), and vLLM builds that group from
+  `all_ranks.view(-1, tensor_model_parallel_size)`
+  (`vllm/distributed/parallel_state.py:1331-1339` at vllm v0.12.0) — one group of
+  size `TP` per DP rank, so at DP2 × TP8 the `dist.all_gather(list(split_hidden_states),
+  …)` at `:191` is 8 ranks × 8 tensors. Upstream's `FusedMoEParallelConfig` "TP and DP
+  are flattened" note describes *that config's own* `tp_size` field, not this group;
+  do not derive "the gather expects 16 slices" from it (the recorded session spent
+  four calls on exactly that and refuted itself).
+- **The selector sees a DP-wide number at this pin, so "one DP rank on MC2 while its
+  peers took ALLGATHER" is not available on a colocated serve.**
+  `_sync_metadata_across_dp` (`worker/model_runner_v1.py:450-497`) all-reduces
+  `num_tokens` over `get_dp_group().cpu_group` (`:483`) and returns
+  `max_tokens_across_dp` (`:488`), which is what `:1490` hands the selector; the only
+  skip is
+  `_skip_all_reduce_acorss_dp_group` (`:431-448`) = MoE model **and** `is_kv_consumer`
+  **and** not a profile run **and** `recompute_scheduler_enable` **and** the
+  capacity-point selection is MC2, and the `enforce_eager` term is deliberately gone
+  there (FIXME `:456-458`). So a DP2 colocated serve cannot disagree at v0.12.0rc1;
+  the #9887 asymmetry lane needs the PD decode node (or a ref that restored that
+  term). One read of the predicate settles it; every further call spent on this
+  theory is wasted.
 - `PrepareAndFinalizeWithAll2All.prepare` pads only when `num_tokens < tp_size`
   (`pad_size = tp_size - num_tokens`, `:148-155`); that is the ALLTOALL path's
   business, not MC2's.

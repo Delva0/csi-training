@@ -133,8 +133,8 @@ The docs answer it in three lines at the pinned ref (all v0.7.3):
 
 | Fact | Location |
 |---|---|
-| image base is the **910b** CANN | `Dockerfile:16` → `FROM quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10`; `docs/source/conf.py:78` `'cann_image_tag': "8.1.rc1-910b-ubuntu22.04-py3.10"` |
-| supported hardware at this release is A2/910b only | `docs/source/faqs.md:14-17` — "Currently, **ONLY Atlas A2 series** (Ascend-cann-kernels-910b) are supported"; `docs/source/quick_start.md:6-7` lists the same A2 families |
+| image base is the **910b** CANN | `Dockerfile:18` → `FROM quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10` (re-counted in the v0.7.3 tree `779eebb8`: `:16` is a `#` comment line, so an earlier `:16` here was off by two); `docs/source/conf.py:78` `'cann_image_tag': "8.1.rc1-910b-ubuntu22.04-py3.10"` |
+| supported hardware at this release is A2/910b only | `docs/source/faqs.md:14` — "Currently, **ONLY Atlas A2 series** (Ascend-cann-kernels-910b) are supported", with the two A2 families at `:16-17`; `docs/source/quick_start.md:6-7` lists the same A2 families. The "NOT supported yet" list at `:19-22` names Atlas 300I Duo/Pro, 200I A2 and 910/910 Pro B — it does **not** mention 910C/A3, so the 310P/910C/`910C1` substitution rests on the `:14` sentence alone; quote `:14` rather than implying the list rules A3 out |
 | the manual path installs the same single kernel package | `docs/source/installation.md:87-89` → `Ascend-cann-kernels-910b_8.1.RC1_*.run` |
 
 **The container's CANN is the image's, not the host's.** The documented

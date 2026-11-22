@@ -139,7 +139,7 @@ later wiring, so do not read that door list onto these rows.
 | upstream `vllm/config/vllm.py:1805-1830` | `min_token_num < max_num_batched_tokens and min_token_num > 1` ⇒ append endpoint `min_token_num - 1` to `compile_ranges_split_points` | with the MoE value `1` no split point is added, so SP applies to the whole compile range | — |
 | `vllm_ascend/ascend_config.py:260-264` (read via `utils.py:843-844 enable_sp_by_pass()`) | `model_config is not None and not enforce_eager and pass_config.enable_sp` | the pass-side switch as other code sees it; `--enforce-eager` turns it off regardless of config | `utils.py:759-760`, same predicate |
 | `vllm_ascend/utils.py:847-873` `enable_sp()` | `additional_config["enable_flashcomm1"]`, else `get_ascend_config().enable_flashcomm1`, else env `VLLM_ASCEND_ENABLE_FLASHCOMM1`; **and `enable_shared_expert_dp` forces it True** (`:869-871`, logs `shared_expert_dp requires enable_sp=True. enable_sp has been set to True.`) | the runtime FC1 half — a *different* feature from `pass_config.enable_sp` | `utils.py:763-781` + `envs.py:74` |
-| `vllm_ascend/platform.py:648-650` | `if not vllm_config.compilation_config.pass_config.enable_sp: parallel_config.all2all_backend = "flashinfer_all2allv"` (comment: "this is a tricky way to disable `use_sequence_parallel_moe` in vllm") | **the key also selects the MoE all2all backend**, so "silently ignore this key" would change behaviour for existing users instead of removing it | not recorded |
+| `vllm_ascend/platform.py:648-650` | `if not vllm_config.compilation_config.pass_config.enable_sp: parallel_config.all2all_backend = "flashinfer_all2allv"` (comment: "this is a tricky way to disable `use_sequence_parallel_moe` in vllm") | **the key also selects the MoE all2all backend**, so "silently ignore this key" would change behaviour for existing users instead of removing it | **not this row**: at v0.17.0rc1 `platform.py:352-353` sets `all2all_backend` unconditionally (no `enable_sp` gate), so the coupling — and the "silently dropping it changes someone else's behaviour" risk — is v0.22-only and must not be carried back to an older report |
 
 Two consequences to hand a reporter who proposes the fix: `--enforce-eager` or TP=1
 makes the whole pass half inert (so "another node does not reproduce" has a cheap
@@ -316,3 +316,13 @@ Delivery note for #12253: this run is the calibration row for the shape — 14 a
 `/workspace/scratch/findings.md` was written one turn earlier, which is how an
 answer survives to the end. It still led with the unverified half-gate mechanism; leading
 with the doc matrix would have been one call cheaper and true at the pinned commit.
+
+**A second run of the same issue at the next pin repeated the shape exactly**: 12
+assistant turns, 17 tool calls, 74 characters of message text before the final turn,
+and this page opened only on the sixth turn — after a full-corpus `search_files`
+listing, an `enable_sp` source sweep and a FLASHCOMM1 sweep that the step-2 table
+below already answers. Two recordings is enough to make the trigger mechanical: on
+this shape, **type the opening answer (lane + rung 1 + the two greps) in the same
+message that opens this page**, then spend later turns only on pin line numbers for
+the body. `findings.md` is what carried both runs to a non-empty final message, so
+write it at the same turn rather than one before the end.

@@ -238,7 +238,10 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   time from the published wheel, or inside a deployed image when adding an extra
   (`ImportError: Please install vllm[bench] …` then `pip install pandas` → `No matching
   distribution found`) → `pip-index-visibility.md` first, **before** any version
-  survey: `bash scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` prints the
+  survey (the track decision and its no-failing-frame variants — a pairing story, the
+  `[build-system] requires` conflict, the Python floor, a dangling build path, the
+  pybind11 rename — are `../dispatch/no-frame-install-shapes.md`):
+  `bash scripts/pip-pairing-check.sh <vllm-ascend-root> [vllm-root]` prints the
   `torch` / `torch-npu` / `torchvision` pins of both sides and the contradictions, and
   the page carries the three-way split (mirror-only metadata pin vs unsatisfiable pin
   set vs unreachable index) plus both answer shapes (#1796, #4737) and the **paraphrase**

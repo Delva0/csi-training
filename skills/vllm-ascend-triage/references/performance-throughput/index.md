@@ -192,10 +192,15 @@ Not this topic, leave immediately:
   decides before any source: which side the recipe enables caching on (DSV4-Flash
   at v0.22.1rc1: P yes, D `--no-enable-prefix-caching`) and its tuning note
   (§9.1: "4K prefix cache hit in an experimental manner … change `--block-size`
-  from 128 to 32"), so a 0 % read off the decode instance is structural and a
-  0 % on P is the recipe run outside its envelope. Diff the reporter's two launch
-  scripts against that recipe in the same turn (#12093 burned 60 turns on the
-  coordinators instead).
+  from 128 to 32"), so a 0 % read off the decode instance is structural. **On a
+  prefilling instance a flat 0 % is *not* the envelope**: a ~4 K granularity still
+  reuses most of a 64 K shared prefix, so zero means the lookup returned nothing —
+  rank the version rung first, because DSV4 prefix-cache hit rate was rewritten in
+  v0.21.0rc1 (#10354/#9903/#10297) and improved again by #11107 in v0.23.0rc1,
+  which the #12041 reporter confirmed fixed the colocated case (「v0.23.0测试已修复」).
+  Then `--block-size 32` on the P node as the on-pin workaround. Diff the reporter's
+  two launch scripts against that recipe in the same turn (#12093 burned 60 turns on
+  the coordinators instead).
 - **A rate that is *nonzero* but low, or that steps with the prompt length, is
   arithmetic and not a defect.** The lookup asks for `num_tokens − 1` tokens and
   every group rounds the hit down to a block multiple, so the ceiling is
@@ -481,7 +486,12 @@ Not this topic, leave immediately:
   branch is reachable at all, and the two-line closure (the `Setting attention block
   size to` log line, then `usage.prompt_tokens_details.cached_tokens` against the
   formula). The reporter's own comment is the verdict: prefill must compute at least
-  one token, so the last block never hits.
+  one token, so the last block never hits. The page also owns the mirror shape in
+  which the **field itself is `null`** under `--enable-prompt-tokens-details` while
+  the log prints 99.0 %: the writer's truthiness gate (`num_cached_tokens == 0` ⇒ no
+  `prompt_tokens_details`, and `cached_tokens: 0` is never emitted, recorded #9030 on
+  a 25-token prompt), plus the MiniMax chat usage rebuild whose first-value latch is
+  the only patch-side second owner.
 - `zero-prefix-cache-hit-hybrid.md` — a hybrid GDN model (Qwen3-Next) reporting
   `Prefix cache hit rate: 0.0%`: the `SupportsMambaPrefixCaching` gate that
   disables prefix caching in `MambaModelConfig` at vllm v0.14.1, the model's own
@@ -491,7 +501,10 @@ Not this topic, leave immediately:
   PD branch (recorded #12093, DeepSeek-V4-Flash on A2 under PD): the model
   tutorial's own `--block-size 32` / 4K-experimental note, the recipe's P-yes /
   D-`--no-enable-prefix-caching` asymmetry that makes a decode-side 0 % structural,
-  and the per-cache-kind block sizes that quantise the hit.
+  and the per-cache-kind block sizes that quantise the hit. The colocated sibling
+  (#12041, same pin, TP8, 64 K prompts, TTFT 6.8 → 15.0 s) is the version verdict:
+  a flat 0 is a lookup failure, not the envelope, and the fix named in the next
+  release's notes (`#11107`, v0.23.0rc1) is what the reporter confirmed.
 - `pre-graph-mode-eager-era.md` — the v0.8.x/v0.9.x sibling of these rules (#1138,
   v0.8.5rc1, DeepSeek-R1-Distill-Qwen-32B TP4 on 4×910B, "AICore < 15 %, 57 tok/s"): how
   `Swapped`/`Pending` date the paste to the V0 logger, why `Pending: 0` + `KV 0.2 %` retires

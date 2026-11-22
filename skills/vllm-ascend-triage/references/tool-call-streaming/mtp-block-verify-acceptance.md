@@ -112,8 +112,10 @@ would have produced a confident wrong lead
 
 #8122 (vllm-ascend v0.14.0rc1, Qwen3-Next-80B-A3B-Instruct, `stream: true`,
 `--async-scheduling`): "大概率截断，小概率格式错误，重复输出", no MTP. The pasted
-97-chunk stream assembles to valid JSON, so that sample is not the failing one;
-the recorded answer's ranked lead was `--async-scheduling` + streaming tool parser
+97-chunk stream assembles to valid JSON but its last value is `guest_phone:
+"138123"` against the request's `13812345678`, so it *is* a failing sample and the
+cut is inside a value (earlier rows called it healthy; `streamed-arguments-audit.md`
+§Step 3A). The recorded answer's ranked lead was `--async-scheduling` + streaming tool parser
 on the strength of #5683 (v0.13.0rc1, Qwen3-8B: async scheduling on → only CoT, no
 `tool_calls`; off → correct, reported A/B) and the CI gap
 (`async_scheduling` absent from `tests/e2e/multicard/4-cards/test_qwen3_next.py`

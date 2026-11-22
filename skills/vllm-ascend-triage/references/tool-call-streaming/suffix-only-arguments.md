@@ -127,8 +127,10 @@ prefill, `--max-num-seqs 8`; the non-streaming call is complete and the streamin
 call carries `"arguments":"\"}"`. The reporter restated the same A/B in a
 follow-up minutes after filing (2026-03-26T08:29Z,
 `#issuecomment-4132650891`: 非流式 `{"todos": "- [x] …"}` = 完整正常, 流式 =
-`"\"}"` → 严重截断/错误), so unlike #8122 this paste **is** a failing
-request and the non-streaming string is the suffix-test target.
+`"\"}"` → 严重截断/错误), so this paste is the **head-lost** form and the
+non-streaming string is the suffix-test target. Its contrast with #8122 is where the
+cut sits, not failing-versus-healthy: #8122 keeps the head and the punctuation and
+loses digits inside the last value, which no brace/quote balance can see.
 
 How the recorded run went: the shape was called correctly on turn 3 ("this is
 not the model — the streamed call emits only its last two characters"), then ~8

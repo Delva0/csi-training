@@ -23,7 +23,11 @@ from `MultiModalBudget` → `get_dummy_mm_inputs` → `_apply_prompt_updates`
 (`prompt-replacement-assertion-at-budget-init.md`) — same topic, different phase, and
 the owner there is the checkpoint directory plus the HF processor version, not the
 request.
-Not this topic: an engine start that stalls **after** `Encoder cache will be initialized
+Not this topic: a VL serve that is merely **slow** with correct answers and sane
+counts, especially on a pre-v0.8 pin whose baseline is transformers
+(`../performance-throughput/pre-0.8-vl-vs-transformers.md` — the vision-tower patch
+gap is priced there, not here, and the placeholder rules below do not apply);
+an engine start that stalls **after** `Encoder cache will be initialized
 with a budget of N tokens` with no traceback (→ `../startup-failures/mm-encoder-profile-stall.md`);
 a start that **dies** while building `MultiModalBudget` / the dummy mm inputs with an
 `AttributeError` from a `transformers` processor (→

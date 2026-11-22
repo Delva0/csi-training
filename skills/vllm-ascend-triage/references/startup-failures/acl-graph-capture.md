@@ -137,6 +137,17 @@ init, the report surfaces 27 min (v0.21.0rc1) or 101 min (v0.22.1rc1) later at
 #6002 attributes it to a framework-side blocking copy and
 proposes a capture-mode switch; that is the reporter's reading with no confirmed
 fix in the record, so the cheap test stays `--enforce-eager` on the same traffic.
+**But when the last frame is the task-update *end* itself, the copy line is not
+the owner until the begin/end pairing has been read.** A paste ending in
+`graph_task_update_end … AclmdlRICaptureTaskUpdateEnd(stream), error code is
+107033` / `EE1001 … Unable to end update tasks because the stream is busy` /
+`rtsStreamEndTaskUpdate … [task group status error]` points at
+`update_mla_attn_params`'s two branches: at v0.11.0rc1 (recorded #4208, DS-V3.1-w8a8
+with `deepseek_mtp` and 整图) `torch.npu.graph_task_update_begin` sits only in the
+non-MTP `else` (`:280-283`) while `torch.npu.graph_task_update_end` runs
+unconditionally (`:305`) — one read, and the line number in the paste says which
+branch ran (`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §3,
+which also carries the two-term ablation and the CI-coverage caveat).
 Two guards before you use it: it must belong to **this process** (`../hccl-and-hardware/error-report-timestamps.md` —
 at #9183 the identical block was the previous day's crash, 36 h older than the
 failure; at #10700 an equally old-looking block was this process's own init

@@ -322,6 +322,14 @@ answer is not "downstream drift".
    (`qwen2_decoder.py:90-95`) while the copy can index a `sliding_attention` key
    (`:207-223`), so the "fixed" index may still be the wrong mask. Worked case, the
    reporter's two comments and the body-diff probe: `patched-forward-api-drift.md`.
+   The copy can also be **inside the tree**: a `# Copied from vllm_ascend/…` header whose
+   source renamed the flag reads a field the config no longer has
+   (`'AscendConfig' object has no attribute 'use_sfa'` at
+   `distributed/cpu_offload_connector.py:440`, live form `model_runner_v1.py:315-316`
+   `self.use_sparse = hasattr(hf_config, "index_topk")`; #4891, v0.11.0rc3). There the
+   whole answer is two greps — the field, then the source function the header names — and
+   no version rung is owed; the connector copy is unexercised code (no test, no doc), so
+   say the next failure is likely inside it: `stale-copy-vs-live-source.md`.
 
 15. **A branch selected by `vllm_version_is('<X.Y.Z>')` is chosen by exact PEP 440
    equality, so an rc/dev/post build of that very release takes the *other*
@@ -434,6 +442,15 @@ answer is not "downstream drift".
   (`scripts/qwen2-body-drift-probe.py`) that no truncated export can replace. It also
   answers the reporter's "the docs say 0.16.0 supports it" with the pinned tutorial's
   own first-support line, the tutorial-command diff and the missing e2e coverage.
+- `stale-copy-vs-live-source.md` — `AttributeError: '<X>Config' object has no attribute
+  '<field>'` raised inside a function whose header is `# Copied from <path in the same tree>`:
+  recorded #4891 (v0.11.0rc3) `'AscendConfig' object has no attribute 'use_sfa'` from
+  `distributed/cpu_offload_connector.py:440` under a `CPUOffloadingConnector` serve, where the
+  live source (`model_runner_v1.py:315-316,:3343`) reads `self.use_sparse`. Carries the two
+  greps, why the config object is correct and no version pairing applies, the honest repair
+  (take the runner's own specs, a `getattr` guard is start-only), the no-test/no-doc coverage
+  fact that predicts the next failure, and how it differs from the v0.17 upstream
+  `offloading_connector.py` `KeyError` shape.
 - `attention-class-from-checkpoint-config.md` — worked case vllm-ascend #881
   (reported on v0.8.5rc1, snapshot pin v0.7.3): `TypeError: DeepseekV2Attention.forward()
   got an unexpected keyword argument 'kv_cache'` at the first `profile_run` forward on a

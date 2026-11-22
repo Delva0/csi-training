@@ -429,7 +429,12 @@ debugging" caveat.
    (#4296) before asking for device health.
 7. `device-health-checks.md` — check every device's health, correlate the
    failing device id, then decide hardware vs software. In the recorded case the
-   answer was a physical HCCS link fault on 6 of 8 cards.
+   answer was a physical HCCS link fault on 6 of 8 cards. Its device-lost section is
+   the entry for 「设备失联 / Device Lost / Heartbeat Lost」 and a bare `507010`
+   (`ACL_ERROR_RT_LOST_HEARTBEAT`): read the host `dmesg` `ts exception message from
+   device(N)` line, treat the shm_broadcast watchdog as the consequence, and rank the
+   device fault above the driver/CANN pairing and the tag rung (#7477, #11171 —
+   目前定位为硬件问题).
 8. `aclgraph-full-decode-runtime-hang.md` — the graph mode's banner printed, its
    capture finished on every rank, and the **first request** then stalls into the
    watchdog: which two lanes the paste already closes, the two coverage checks to run

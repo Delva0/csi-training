@@ -7,7 +7,8 @@ Routes: `../pd-disaggregation/index.md`, `../kv-pool-store/index.md`,
 `../feature-enable-recipes/index.md`, `../observability-and-logs/index.md`,
 `../code-change-requests/index.md`, `../upstream-downstream-drift/index.md`.
 
-Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
+Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
+family carries one line
 per case in this file.
 
 **#15402** vllm-ascend v0.23.0rc1 (`f4a08bd`) + vllm `0.23.0+empty`, torch_npu

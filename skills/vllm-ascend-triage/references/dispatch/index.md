@@ -22,6 +22,12 @@ how the table is used.
 
 ## Routes
 
+- `problem-classes.md` — the skill's coverage statement: the ten entry shapes
+  (issue report, install/pip, deployment failure, support/version, feature-enable,
+  PD/EPD, sizing, community-test/doc review, release bulletin, code-change) with the
+  applicability, the exclusions that keep a neighbouring shape out and each one's
+  route. It was `SKILL.md`'s §*Problem class this covers*; read its entry when the
+  shape is not yet clear, then route with the table below.
 - `classified-shapes.md` — the table. Read the row whose wording matches the paste,
   then open the topic entry its last cell names. Rows are grouped by topic (accuracy
   and output, startup and load, runtime device/memory/custom-op, HCCL/cluster, PD and

@@ -399,7 +399,11 @@ after that keeps the header, not this text.
   matching for a `Cannot install X and Y … conflicting dependencies` paste: prints which concrete
   versions satisfy every spec, so `==2.9.0` vs `==2.9.0+cpu` is read as compatible (a missing
   index) instead of unsatisfiable. Falls back to `pip._vendor.packaging` when `packaging` is
-  absent and the network is closed (#7089, #4621).
+  absent and the network is closed (#7089, #4621). Prereleases follow packaging's own
+  policy — a specifier that names a prerelease admits them — so a dev-vs-`rc` **build
+  floor** reads right (`torch_npu >= 2.5.1rc1` rejects `2.5.1.dev20250320`, #446);
+  `--prereleases` / `--no-prereleases` force the policy either way and the header prints
+  which one was used.
 - `scripts/abi-symbol-check.sh <paste|->` — the `std::string`-ABI split in a
   bundled wheel (#1144).
 - `scripts/image-arch-matrix.sh <vllm-ascend-root> [--soc 310p|a2|a3|a5]` — which
@@ -504,7 +508,17 @@ after that keeps the header, not this text.
   `cann/hcomm/src/common/error_code/error_code.cc` — with `errClass`, `errTitle`,
   `ErrMessage` and the **`Possible Cause` / `Solution` text**; a number prints the
   `HcclResult` enum name from any exported `hccl_types.h` (`7` → `HCCL_E_UNAVAIL
-  resource unavailable`). `--root` defaults to `/workspace/repos`; scope it to
+  resource unavailable`). A 6-digit **runtime** code, which no `HcclResult` enum holds,
+  now prints the `ACL_ERROR_RT_*` define with the header's own comment (one canonical
+  copy, not the five that ride along in the exports) plus the vendor row:
+  `507010` → `ACL_ERROR_RT_LOST_HEARTBEAT // ts lost heartbeat` with 「task scheduler
+  丢失心跳」 and the vendor's 联系技术支持 action, `107030` →
+  `ACL_ERROR_RT_CAPTURE_MODE_NOT_SUPPORT` (`cann/runtime/include/external/acl/
+  error_codes/rt_error_codes.h`, `cann/runtime/docs/api_docs/aclError.md`). 5070xx names
+  the TS/aicore/device owner, i.e. below vllm-ascend
+  (`../hccl-and-hardware/device-health-checks.md`); 107030 points back into graph-mode
+  code. Until this branch existed the script answered a `507010` report with
+  "no HCCL_E_* = 507010" (#11171). `--root` defaults to `/workspace/repos`; scope it to
   `/workspace/repos/<issue>`. Exit 0 when every argument resolved, 1 otherwise, 2 on bad
   usage. When no table is exported it says so instead of implying absence (the
   v0.9.1-era `cann/` export holds only `catlass` — #3172). Quote the printed Solution as

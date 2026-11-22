@@ -13,6 +13,11 @@ Checked at vllm `v0.17.0` @`b31e9326`, vllm-ascend `v0.17.0rc1` @`e20f0b1a` (cas
 #7971); the reporter's own traceback already proves the crash, so answer it in the
 first paragraph and spend the rest on scope.
 
+A **pre-v0.17 downstream `vllm_ascend/distributed/cpu_offload_connector.py`** crash is not
+this page: `AttributeError: 'AscendConfig' object has no attribute 'use_sfa'` (or another
+config field) raised in its `# Copied from vllm_ascend/worker/model_runner_v1.py` block is a stale
+duplicate, not an upstream filter or a layout contract — `stale-copy-vs-live-source.md` (#4891).
+
 ## Mechanism (3 reads, in this order)
 
 1. `register_kv_caches` (`offloading_connector.py:594-604`) calls

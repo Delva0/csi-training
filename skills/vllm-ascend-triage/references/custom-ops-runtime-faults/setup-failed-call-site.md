@@ -36,6 +36,10 @@ All of them mean the same phase. What differs is *who assembled the pack*, and t
 paste answers that: read the deepest `vllm_ascend` frame, then read the size
 arguments it passes.
 
+A **`CreateOperation failed!`** message is not in this table and is not a pack question at
+all: it fires before any tensor is described, so the owner is the ATB build × SoC —
+`atb-create-operation-failed.md` (recorded #5170, 310P).
+
 ## The recorded mechanism at `f025df05f614` (source-verified sizes)
 
 `vllm_ascend/attention.py:866-876` is reached only when `attn_metadata.block_tables`

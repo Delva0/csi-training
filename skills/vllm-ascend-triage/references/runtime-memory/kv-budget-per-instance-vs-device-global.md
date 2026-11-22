@@ -29,6 +29,15 @@ cache config is simply wrong.
    instance an `Available memory` far above its 0.05 share — the giveaway: the
    number tracks **what is free**, not the requested share.
 
+   The oldest recorded ref is `#5917` (v0.12.0rc1 `42ceaf08a1ef`, 910B2C, one pod, two
+   `vllm server --gpu-memory-utilization 0.4` on the same die): instance 1 logs
+   `[worker_v1.py:270] Available memory: 23106324992, total memory: 65452113920` and
+   reaches capture, instance 2 on the same card logs `Available memory: 0` and dies in
+   `check_enough_kv_cache_memory` with `No available memory for the cache blocks` while
+   `npu-smi` shows `VLLMEngineCor` at 25,515 MB and ~36 GiB free. Note the **file name**:
+   `vllm_ascend/worker/worker_v1.py:261-271` before the rename to `worker.py` — the
+   paste's own `[worker_v1.py:NNN]` prefix dates the ref.
+
 Both are the same answer, owed immediately: the device had the HBM, and the
 worker charged the co-tenant's usage to this instance a second time. It is not
 `kv-init-and-format-cast-alloc.md` (there the KV-init *allocation* fails with
@@ -129,6 +138,22 @@ Cross-instance feasibility is the separate sum rule — the sum of
 `gpu_memory_utilization` over processes sharing a device ≤ 1.0
 (`../deploy-sizing/index.md`) — never a reason to inflate one instance.
 
+What to offer instead, in the order that does not break the contract: **size the
+co-tenant you control.** The failing instance's own log line is an equation —
+`available₂ = total × gmu₂ − (own peak + co-tenant footprint)` — so the co-tenant has to
+stay under `total × gmu₂ − own_peak`. On #5917's numbers (`total` 60.96 GiB, `gmu₂` 0.4 →
+24.38 GiB, own peak 2.86 GiB from instance 1's own subtraction) that bound is ≈ 21.5 GiB,
+i.e. instance 1 at `gmu₁ ≈ 0.32-0.35`, with `0.35 + 0.4 = 0.75` still inside the sum rule.
+Give the inequality, the one-line change, and the check that proves it worked — instance 2
+printing a **non-zero** `Available memory:` — rather than a ratio to set on the starving
+instance. There is no startup guard to bound the alternative at the older refs: the Ascend
+worker overrides `init_device` (`worker_v1.py:225-231` at v0.12.0rc1) and never runs
+upstream's `Free memory on device … is less than desired GPU memory utilization` check
+(`vllm/v1/worker/gpu_worker.py:240-243` at vllm v0.12.0), which is also why such a paste
+carries no such line. Report the fix as **absent** at these refs and say so plainly: #5917's
+reporter answered a "solved?" follow-up on 2026-01-22 with 「没有解决」, so the number is
+still wrong a week later, and only the workaround is actionable.
+
 ## Patch, and the traps around it
 
 ```python
@@ -156,7 +181,9 @@ self.available_kv_cache_memory_bytes = (
    as a separate gap, since it deletes the manual escape hatch on the SoC where
    co-tenancy makes it most useful.
    The gap is not 310P-only at older refs: the **generic** Ascend worker also has no
-   fast path at v0.13.0rc1 (#6299) and v0.18.0rc1 (#9372) — upstream reads the key
+   fast path at v0.12.0rc1 (`rg -n 'kv_cache_memory' vllm_ascend/` returns only the
+   profiling locals at `worker_v1.py:266,269` — #5917), v0.13.0rc1 (#6299) and
+   v0.18.0rc1 (#9372) — upstream reads the key
    only inside `vllm/v1/worker/gpu_worker.py` (`:362-380` at v0.18.0), which the
    Ascend `determine_available_memory` override replaces, and
    `rg -n 'kv_cache_memory' vllm_ascend/` returns only the profiling variable. Grep

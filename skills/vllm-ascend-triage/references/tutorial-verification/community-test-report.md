@@ -269,6 +269,36 @@ Its new reusable species, beyond the version gate above: the page's own
 marks the family row ❌ (`supported_models.md:116`), while the tutorial exists and
 the 8B sibling is CI-gated — check 8's failing form, one `rg -n -i '<family>'`.
 
+## #11750, the seventh run: neither the file nor the message
+
+Row `hjh1-Qwen3-Omni-30B-A3B-Thinking` (v0.18.0 image, 2×Atlas 800I A2, 1 T RAM, HDK
+25.5.0.B078, page `docs/source/tutorials/models/Qwen3-Omni-30B-A3B-Thinking.md`,
+324 lines). Fourteen assistant turns, `output_truncated`, **no report file and no
+closing message** — the first run of this shape to deliver neither. Its verified
+defect set is tabulated in `tutorial-command-audit.md` ("Sixth worked page"), so a
+future run on this row writes §1 on turn 2.
+
+What the budget went to: **40.8 K characters of reasoning (~80 % of the 16 384-token
+cap)**, 8.2 K of tool-call arguments, 3.3 K of message text. The audit itself was
+sound — the defect set was complete by turn 13 of 14 — but the
+end sequence was the failure: the full report was composed *inside a reasoning
+block*, and the next turn carried a registry re-grep plus one `cat > … <<'EOF'` for
+the deploy script. The cap cut that heredoc mid-argument, the framework did not run
+it, and the session ended with an "I'll write the deliverables now" line.
+
+Two lessons, both already stated above and now gated in `index.md` rule 6:
+
+- **Reasoning is the largest single charge and it is charged twice when you draft
+  there.** The report text drafted in a reasoning block is paid for again when the
+  heredoc repeats it; #11771 was the first recorded instance and this run repeats it
+  at roughly double the size. Convert a draft into the file in the turn that produces
+  it, and keep 2-4 lines per turn once a finding is in the file.
+- **This page was read to line 110 of 279** — `sed -n '1,110p'` stopped on the
+  `## Staged emission protocol` heading, so the budget arithmetic (§ above) and the
+  "last ~2.5 K is the message" rule were never seen; the file write was attempted
+  once, on the last turn, and never executed. When a page is the protocol you are about to follow, read it
+  whole; its heading is not its rule.
+
 ## What the report must not do
 
 - Present doc numbers as measurements of this environment, or fill a slot with

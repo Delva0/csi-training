@@ -107,6 +107,46 @@ a live hazard and `--async-scheduling False` is a real ablation; at v0.13+ the
 `:189-196` synchronize is the repair and the same ablation tests something else.
 Re-grep the two symbols before reusing this either way.
 
+**On that same ref the MLA update function is asymmetric between its two branches
+— read the pairing before any stream or blocking-copy theory.** `update_mla_attn_params`
+(`compilation/acl_graph.py:252-307`) calls `torch.npu.graph_task_update_begin(
+update_stream, handle)` only inside the **non-MTP** `else` (`:280-283`), while
+`torch.npu.graph_task_update_end(update_stream)` is unconditional (`:305`) — so a
+`deepseek_mtp` launch (`:270`) reaches end-without-begin, and the reporter's last
+frame is that very line: `RuntimeError: graph_task_update_end … AclmdlRICaptureTaskUpdateEnd(stream),
+error code is 107033` / `EE1001 … Unable to end update tasks because the stream is
+busy` / `rtsStreamEndTaskUpdate … [task group status error]`. Recorded #4208
+(v0.11.0rc1 `c5fe179`, 910C single node, DS-V3.1-w8a8 + MTP + 整图/`FULL_DECODE_ONLY`,
+dying at startup in `execute_dummy_batch` → `_generate_dummy_run_hidden_states`,
+`worker/model_runner_v1.py:2325`; the serving path calls the same function at
+`:1558-1564`, so skipping the dummy batch only moves the crash to the first decode).
+The handle is not the missing piece — the capture side runs `graph_task_group_begin/end`
+and appends to `graph_params.handles` for spec decoding too
+(`attention/mla_v1.py:1062-1071`), so the MTP branch *can* begin. Do not discard the
+sibling reading: the same paste carries `rtMemcpy … kind = 1 … 107030` *inside*
+`rtsStreamEndTaskUpdate`, and a Python list where the op wants a tensor
+(`actual_seq_lengths = [spec_multiple * (i + 1) …]`, `:276-279`) is exactly what
+mints a blocking host→device copy in that window. So rank the pairing first (one
+read, and the paste's line number says which branch ran), the capture-window copy
+second, and split them with two ablations on the same traffic: drop the full-graph
+flag (MTP kept, PIECEWISE), then drop `--speculative-config` (full graph, no MTP).
+Neither is a fix — each removes one term of the intersection.
+
+**That intersection has no CI coverage, and the test names say otherwise.** At the
+same ref `tests/e2e/singlecard/spec_decode_v1/test_v1_mtp_correctness.py:99-110`
+defines `test_mtp{1,2}_correctness_full_graph` passing `CUDAGraphMode.FULL`, and the
+file *is* wired (`.github/workflows/_e2e_test.yaml:107`) — but the plugin's selector
+branches on `NONE` / `PIECEWISE` / `FULL_DECODE_ONLY` (`FULL_AND_PIECEWISE` is
+rewritten to `PIECEWISE` first) and sends everything else to its `else`:
+`… cudagraph_mode is not support on NPU. falling back to NONE` (`platform.py:205-242`),
+so those two cases run eager. A green run there says nothing about
+`FULL_DECODE_ONLY` × MTP. The rest of that ref's graph coverage is the same shape:
+the wired ACL-graph runs were `PIECEWISE` at `max_model_len=1024` on
+Qwen3-0.6B / DeepSeek-V2-Lite / Qwen3-30B-A3B, so no VL, 72B or 16 K case ran
+under any full mode. That `else` also dates the config: a paste which reached this
+update ran `FULL_DECODE_ONLY`, not `FULL`, because `cudagraph_runtime_mode ==
+CUDAGraphMode.FULL` comes only from that mode's decode half.
+
 ## 4. Two discriminators, both read off the config
 
 - **Bucket.** `cudagraph_capture_sizes` against the concurrency at first

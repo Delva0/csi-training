@@ -29,7 +29,8 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    answer inside it. #4812 got "310P is unsupported, downgrade to v0.10.0rc1" as
    cause 1 while the traceback it later posted was a device allocation failure at
    KV-cache initialisation — a memory budget question
-   (`../runtime-memory/kv-init-and-format-cast-alloc.md`).
+   (`../runtime-memory/kv-init-and-format-cast-alloc.md`). The limit is a tag that
+   *has* the lane: when it does not, rule 6 applies and the version is the answer.
 3. **SoC gates flip behaviour silently.** The same flag can be honoured on A2 and
    ignored/overwritten on 310P (`compilation_config.custom_ops`), and format
    conversions that are no-ops on 910B allocate and copy on 310P. Read the gate
@@ -58,7 +59,29 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    and the precedents together (`../runtime-memory/kv-budget-per-instance-vs-device-global.md`
    is the recorded case — `#7372` kept a formula `#7427` had dropped).
 
+6. **Separate "the lane is absent at this tag" from "the lane is experimental".**
+   Rule 2 forbids stopping at "the platform is experimental" when the tree *has* the
+   310P path and the traceback carries a cheaper answer. When the tag has no 310P lane
+   at all the version *is* the answer and no mechanism is testable: at v0.7.3 and on a
+   generic `v0.9.1` tag `rg -c -i '310' vllm_ascend/` is empty, there is no
+   `Dockerfile.310p`, `docs/source/tutorials/` has no 300I page, and
+   `faqs.md:14-20` says the series is "NOT supported yet". One grep plus `ls
+   Dockerfile*` decides which rule applies; both #1500 (`setup failed!` in
+   `_npu_rotary_embedding`) and #2809 (`_C.rotary_embedding … no Meta kernel`) were
+   answered by a maintainer in one sentence naming the `-310p` image, while the
+   recorded runs ranked a mechanism first and the image last
+   (`atlas-300i-310p.md` §*The first official release has no 310P lane either*).
+
 Conditional routes:
+
+- A 300I/310P box on a **tag that carries no 310P lane** (`v0.7.3`, a generic
+  `v0.9.1`; no `-310p` suffix and no `_310p/` in the tree) with any
+  `profile_run`-phase crash — `setup failed!` out of `_npu_rotary_embedding`, a
+  fake-tensor/Meta-kernel error, an op-store refusal: the `<version>-310p` image from
+  the 300I tutorial is rung 1 and the dtype/op probe sits below it; the next paste
+  after that move is the `TransData`/`EZ3002` block arriving from `npu_format_cast`
+  in the attention builder, with `dtype=torch.bfloat16` in the engine line
+  (`atlas-300i-310p.md`).
 
 - 310P / Atlas 300I deployments: the documented support status, the seven
   platform gates that change behaviour, the NZ (FRACTAL_NZ) format path, and the
@@ -117,6 +140,12 @@ Conditional routes:
   `kernelName=` and the timestamps) and the **VL/OCR model** case, where no
   `_310p/ops/fla/` indexed write is reachable and the sampler's Triton-absent penalty
   fallback explains an `aclnnInplaceSub` but contains no `index_put_`.
+- The **create-time** sibling — `RuntimeError: LinearOperation CreateOperation failed!`
+  (or `GroupTopkOperation …`) out of a `torch_npu._npu_*` call, typically the first ATB
+  call inside `_warm_up_atb` — is **not** this route and not a pack question: no tensor was
+  described, so the owner is the ATB/NNAL build × SoC (the pin's own 310P recipe is based on
+  `cann:8.3.rc2-310p` and sources `nnal/atb/set_env.sh`) →
+  `../custom-ops-runtime-faults/atb-create-operation-failed.md` (recorded #5170).
 - A 310P serve that ran fine then dies **under load** with
   `[Error]: Event resources are insufficient.` / `Event id alloc error …
   retCode=0x7020019` / `rtEventRecord … no event resource` / `207007`, the Python

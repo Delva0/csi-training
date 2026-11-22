@@ -27,6 +27,15 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   region carried no `<arg_key>/<arg_value>` pair, and the `stream: false` A/B
   splits a lost payload from an argument-format mismatch from a zero-argument
   call — `empty-arguments-object.md` (#14731);
+- the same GLM region on an **older vllm** does not print `{}` — it raises:
+  `ERROR … [glm4_moe_tool_parser.py:122] Failed to extract tool call spec` +
+  `TypeError: expected string or buffer` at `pairs =
+  self.func_arg_regex.findall(tc_args)`, then `WARNING … Failed to extract any
+  tool calls.` and an empty assistant turn. The frame is the base class's
+  `extract_tool_calls`, but the `None` comes from the **subclass's** regex (vllm
+  v0.14.1 `glm47_moe_tool_parser.py:17-19`, group 2 optional) — the same root
+  situation one version earlier, so read the pin's regex instead of the file in
+  the frame: `empty-arguments-object.md` §*Before v0.23* (#6765);
 - the assembled `arguments` are **only the closing punctuation** — `"}` with no
   `{`, no key — while the same body with `stream: false` returns the complete
   string, and every other chunk is `delta: {}` (#7682, GLM-5-w4a8,
@@ -305,6 +314,9 @@ parser puts you back on rule 1.
   non-streaming instead, the four-row `stream: false` discriminator, the
   downstream patch 7b that makes zero-argument calls surface as `{}`, and the
   #8130 / #8478 precedents, with #7682 as the neighbouring *suffix-only* row.
+  Also carries the *earlier* ref's form of the same region — at vllm v0.14.1 it
+  raises `TypeError: expected string or buffer` and drops every call in the
+  reply, with the exception type as the parser-name discriminator (#6765).
 - `streamed-arguments-audit.md` — the audit procedure: how to obtain the raw SSE,
   how to read the script's output and the outcomes (A, B, C, D1, D2), the ordered
   ablations

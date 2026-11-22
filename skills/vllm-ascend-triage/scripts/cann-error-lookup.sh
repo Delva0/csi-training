@@ -12,15 +12,26 @@
 #               <root>/*/cann/hcomm/src/common/error_code/error_code.cc
 #   number  0..21                               -> the HcclResult enum name, e.g.
 #               7 = HCCL_E_UNAVAIL, from <root>/*/Ascend/pytorch/.../hccl_types.h
+#   runtime 6-digit 507xxx / 107xxx / 207xxx     -> the ACL_ERROR_RT_* define with the
+#               header's own comment, plus the vendor table row (meaning + action):
+#                 ACL_ERROR_RT_LOST_HEARTBEAT    507010 // ts lost heartbeat
+#                 ... from <root>/*/cann/runtime/include/external/acl/error_codes/
+#                     rt_error_codes.h  and  <root>/*/cann/runtime/docs/api_docs/aclError.md
+#               These are runtime/device codes, not HcclResult enums: 5070xx is the TS,
+#               aicore or device lane (507010 lost heartbeat, 507014-507016 aicore
+#               timeout/exception/trap), so the name decides the lane, not a source read.
 #
 # --root defaults to /workspace/repos; pass /workspace/repos/<issue> to scope it.
 # Read the printed Solution as the vendor's statement (citable), not as a diagnosis:
 # the code still has to be matched to the line that produced it (SKILL.md rule 6).
 # Exit 0 when every argument found something, 1 otherwise; 2 on bad usage.
 #
-# Originating case: #3172 `hcclCommInitRootInfoConfig ... error code is 7` beside
+# Originating cases: #3172 `hcclCommInitRootInfoConfig ... error code is 7` beside
 # `EJ0001 Failed to initialize the HCCP process. Reason: Maybe the last training
-# process is running.` (references/runtime-memory/sleep-mode-multi-instance.md).
+# process is running.` (references/runtime-memory/sleep-mode-multi-instance.md); the
+# runtime branch from #11171, where `runtime result = 507010` answered as
+# "no HCCL_E_* = 507010" and the reporter's own case ended as a hardware fault
+# (references/hccl-and-hardware/device-health-checks.md).
 set -uo pipefail
 
 root="${CANN_ERROR_LOOKUP_ROOT:-/workspace/repos}"
@@ -28,7 +39,7 @@ args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) root="${2:?--root needs a directory}"; shift 2 ;;
-    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -49,9 +60,15 @@ while IFS= read -r f; do err_tables+=("$f"); done < <(
     2>/dev/null | sort)
 while IFS= read -r f; do enum_headers+=("$f"); done < <(
   find "$root" -maxdepth 9 -type f -name 'hccl_types.h' 2>/dev/null | sort)
+rt_headers=()
+while IFS= read -r f; do rt_headers+=("$f"); done < <(
+  find "$root" -maxdepth 10 -type f -name 'rt_error_codes.h' 2>/dev/null | sort)
+rt_docs=()
+while IFS= read -r f; do rt_docs+=("$f"); done < <(
+  find "$root" -maxdepth 10 -type f -name 'aclError.md' 2>/dev/null | sort)
 
 echo "root: $root"
-echo "tables: ${#err_tables[@]}   enum headers: ${#enum_headers[@]}"
+echo "tables: ${#err_tables[@]}   enum headers: ${#enum_headers[@]}   rt headers: ${#rt_headers[@]}   rt doc tables: ${#rt_docs[@]}"
 if [ ${#err_tables[@]} -eq 0 ]; then
   echo "  (no CANN error table exported in this snapshot — quote the code from the paste"
   echo "   and look the enum up separately; e.g. the v0.9.1-era cann/ export holds only catlass)"
@@ -70,8 +87,32 @@ for code in "${args[@]}"; do
         found=1
       fi
     done
-    [ "$found" -eq 0 ] && echo "  no HCCL_E_* = $code in any exported hccl_types.h"
-    [ "$found" -eq 1 ] && echo "  (hccl_types.h gives the enum name; the printed message names the precondition)"
+    # runtime codes: many copies of rt_error_codes.h ride along in the exports, so print
+    # the canonical cann/runtime copy once (else the first copy) instead of all of them.
+    rthit=""
+    for h in "${rt_headers[@]}"; do
+      hit=$(rg -n --no-heading "^#define[[:space:]]+ACL_ERROR_RT_[A-Z0-9_]+[[:space:]]+${code}\b" "$h" 2>/dev/null | head -1)
+      [ -z "$hit" ] && continue
+      rthit="$h:$hit"
+      case "$h" in */cann/runtime/*) break ;; esac
+    done
+    if [ -n "$rthit" ]; then
+      found=1
+      echo "  $rthit"
+      echo "  (runtime/device code: the header comment names the owner — 5070xx is TS/aicore/"
+      echo "   device, i.e. below vllm-ascend; match the number to the op that printed it,"
+      echo "   SKILL.md rule 13)"
+    fi
+    for d in "${rt_docs[@]}"; do
+      hit=$(rg -n "= ${code}; \|" "$d" 2>/dev/null | head -2)
+      [ -z "$hit" ] && continue
+      found=1
+      while IFS= read -r line; do echo "  $d:$line"; done <<< "$hit"
+    done
+    if [ -z "$rthit" ] && [ "$found" -eq 0 ]; then
+      echo "  no HCCL_E_* = $code in any exported hccl_types.h, and no"
+      echo "  ACL_ERROR_RT_* = $code in any exported rt_error_codes.h"
+    fi
   else
     for t in "${err_tables[@]}"; do
       if [[ "$t" == *.json ]]; then

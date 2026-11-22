@@ -16,6 +16,18 @@ Rules printed and exercised:
     ==X accepts X+cpu;
   * a specifier with a local label requires it, so ==X+cpu rejects plain X.
 
+The prerelease case is the other verdict a *build floor* turns on: `torch_npu >= 2.5.1rc1`
+does **not** admit the `2.5.1.dev20250320` wheel the same release documents (a dev build
+sorts below rc1), which pushes a build env onto the released `2.5.1rc1` and its `+cpu`
+torch pin (#446):
+
+    uv run --no-project python <skill_root>/scripts/pep440-local-check.py \
+        '>=2.5.1rc1' '>=2.5.1' --candidates 2.5.1.dev20250320,2.5.1rc1,2.5.1,2.5.1+cpu
+
+Prereleases are judged by packaging's own policy unless forced, because a specifier that
+names a prerelease admits prereleases — a bare `contains(v, False)` would report
+`2.5.1rc1` as failing `>=2.5.1rc1`, which pip does not.
+
 `packaging` is usually absent from the no-project environment and installing it
 needs network, so fall back to pip's / setuptools' vendored copy (verified
 present: `python -c "import pip._vendor.packaging"` under uv 26.2 pip).
@@ -54,8 +66,11 @@ def main(argv=None):
     ap.add_argument("specifiers", nargs="+", help="version specifiers from the paste, e.g. '==2.9.0'")
     ap.add_argument("--candidates", default=None,
                     help="comma list of concrete versions to test (default: the versions the specs name)")
-    ap.add_argument("--prereleases", action="store_true",
-                    help="allow prerelease candidates (pip does for an exact == pin)")
+    ap.add_argument("--prereleases", action="store_true", default=None,
+                    help="force prerelease candidates on")
+    ap.add_argument("--no-prereleases", dest="prereleases", action="store_false",
+                    default=argparse.SUPPRESS,
+                    help="force them off (what a spec naming no prerelease does)")
     a = ap.parse_args(argv)
 
     Specifier, Version, source = _api()
@@ -66,7 +81,11 @@ def main(argv=None):
 
     raw = [c.strip() for c in (a.candidates or "").split(",") if c.strip()]
     cands = raw or public_parts(a.specifiers)
+    policy = ("forced on" if a.prereleases
+              else "forced off" if a.prereleases is False
+              else "packaging default: a specifier that itself names a prerelease admits prereleases")
     print(f"# packaging implementation: {source}")
+    print(f"# prereleases: {policy}")
     print("rules: ==X accepts X+<local>;  ==X+<local> rejects plain X\n")
 
     header = "candidate".ljust(18) + "".join(s.ljust(16) for s in a.specifiers)

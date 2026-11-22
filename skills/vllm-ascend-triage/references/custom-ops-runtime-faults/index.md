@@ -15,7 +15,13 @@ A Triton-Ascend kernel that fails to *compile* — `MLIRCompilationError`,
 exit status 1` with `vllm_ascend/ops/triton/**` frames — is **not** this lane even when
 the reporter words it as "failed to compile custom operators": nothing here touches
 the AscendC extension, and the owner is the installed wheel/compiler pair
-(`../image-dependency-faults/triton-ascend-pair.md`). A Triton-Ascend kernel that
+(`../image-dependency-faults/triton-ascend-pair.md`). **One detail line under that same
+banner is this topic, not the pair**: `ub overflow, requires N bits while M bits
+available` is the vector-core UB budget refusing the kernel's own `tl.constexpr` tile, so
+the owner is the kernel's tile constants × the model's shape and the fix is a smaller
+tile or a path with no compile step — `triton-ub-overflow-tiling-budget.md`. It sits here
+because it is the same tiling-budget family as `fa-tiling-argument-refusals.md` and
+`tiling-attribute-rejection.md`, only refused at compile time instead of at launch. A Triton-Ascend kernel that
 *compiles and runs but returns the wrong values* (a bf16 `extract_slice`/
 `insert_slice` at an unaligned start, a hand-written extension-op kernel) is not this
 lane either: no `csrc/` operator is involved, so the owner is the wheel and the audit
@@ -132,6 +138,10 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   caller across vllm-ascend, torch_npu and op-plugin for the rest of the session. None of
   the seven got a kernel to run in the recorded cases, so `561000` / `ERR00100` / `EZ9999` /
   a bare `EZ1001` is a wrapper and a grep on it alone lands in the MC2/HCCL rows.
+  The **create-time** wording is not in that list: `RuntimeError: <Op>Operation
+  CreateOperation failed!` out of a `torch_npu._npu_*` call means ATB refused to *build* the
+  op (no tensor described yet), so the owner is the installed ATB/NNAL build × SoC and the
+  caller's shapes are irrelevant — `atb-create-operation-failed.md` (#5170, 310P `_warm_up_atb`).
 - **A garbled MoE output or an AI-Core invalid-GM-address under
   `enable_fused_mc2=1` is a workspace/stride question inside one of three op variants,
   and the variant is the lever.** `csrc/mc2/dispatch_ffn_combine{,_bf16,_w4_a8}/` share a
@@ -252,6 +262,18 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   table row count you can compute (RoPE `cos_sin_cache` = the checkpoint's
   `max_position_embeddings`, the KV block table = `num_gpu_blocks`, a token
   buffer, the vocab) before any hardware theory — `gather-index-out-of-range.md`.
+- **`NonZero` is the mask, not the `nonzero` call.** A paste naming `NonZero`
+  (`Kernel Run failed. opType: 59, NonZero`, `launch failed for NonZero, errno:507053`)
+  with `The DDR address of the MTE instruction is out of range` / `subErrType:4` /
+  `retCode=0x31` is a built-in kernel launched by a **boolean-mask advanced index**
+  (`x[~mask] = 0`), so `rg 'nonzero'` returns host numpy and EPLB noise while
+  `rg '\[~' vllm_ascend/` returns three sites at v0.17.0rc1. On a hybrid
+  linear-attention model (Qwen3-Next, Qwen3.5-A3B) the owner is the GDN/KDA SSM-state
+  clear, it runs on **prefill steps only** (so the fault arrives hours in and tracks
+  request arrivals), `507053`/`507899` are the sync report and the UCE query rather
+  than causes, and the version lane is the answer — reporter-confirmed on 0.19.1rc1
+  (#7774). The sites per pin, the rank check and the stop rules:
+  `hybrid-ssm-mask-nonzero-fault.md`.
 - **A built-in KV store that faults (`fault kernel_name=reshape_and_cache_…`, MTE GM
   address / `The DDR address of the MTE instruction is out of range`) on a hybrid
   GDN/Mamba model is not a KV-group contamination question.** On Qwen3-Next at
@@ -357,6 +379,14 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   construction chain), the four-rung ablation (penalties at defaults first), the
   recorded #10522 case with its reporter-confirmed post-pin fix, and the three
   skipped nightly tests that make "the op test passes" unavailable here.
+- `triton-ub-overflow-tiling-budget.md` — `error: ub overflow, requires N bits while
+  … available` under `Failed to run BiShengHIR pipeline` (recorded #18354 at v0.20.2rc1,
+  custom model, 9.9× over the 1572864-bit budget; precedent #8037 at v0.17.0rc1, 1.17×):
+  the two numbers are the finding, the `available` half is a per-SoC constant, the tiled
+  `_triton_rope` versus un-tiled `_triton_rope_siso` split is read from the tile constants
+  and the traceback's line number, the tree's own validated shape envelope is the Triton
+  test's parameter list, and the levers are the tile constant or the `torch_npu` path —
+  with no env switch that forces it at v0.20.2 (`HAS_TRITON` is driver detection only).
 - `moe-init-routing-tiling.md` — `aclnnMoeInitRoutingV3 … 561103` (and the
   `MoeInitRoutingV2` tiling wording): the decoded EZ9999 `CheckTokenCount` check,
   which caller parameters the tiling compares, the dispatcher arithmetic that
@@ -472,8 +502,28 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   topic does **not** own: `Not support mat2 n = 1 or k = 1 when format is FRACTAL_NZ`
   is a shape refusal by an op that is registered, so the answer is the NZ mode
   (`weight_nz_mode` 0/1/2), not a package or SoC question (#10014, v0.20.2rc1).
+- `atb-create-operation-failed.md` — `RuntimeError: LinearOperation CreateOperation failed!`
+  (or `GroupTopkOperation …`) out of a `torch_npu._npu_*` call at start-up (#5170, v0.11.0,
+  310P3): the create-vs-setup split, why the wording lives in no export (one grep, then stop),
+  the prior corpus's resolutions for the family (#19 FAQ #8 = CANN `8.1.RC1.alpha001` + the next
+  rc; #206; the link-time #117/#750), the unconditional `_warm_up_atb`
+  (`worker_v1.py:332,337-341`) that makes the box unable to start at that ref, the dead levers
+  (`--enforce-eager` when the paste already disabled cudagraph, `ATB_*` vars), the three checks
+  (one-op repro, `nnal/atb` identity, `_build_info.__soc_version__`/`is_310p()`) and the
+  `Dockerfile.310p:18,47-53` + `single_node_300i.md:4-9,21` rungs.
 - `op-not-registered-for-soc.md` — the opposite class for the same op: `EZ1001 Get
   regInfo failed … does not support opType [AddRmsNormBias]` for `ascend910_93`
   (#11519, v0.18.0). Where `SOC_VERSION`, the per-SoC `build_aclnn.sh` branches,
   `vllm_ascend/_cann_ops_custom` + `ASCEND_CUSTOM_OPP_PATH`, and the `-a3` image tags
   decide which binaries exist, with the checks to send the reporter.
+- `hybrid-ssm-mask-nonzero-fault.md` — `NonZero` (`opType: 59`) + MTE DDR out of range
+  hours into a healthy hybrid-model serve (#7774, v0.17.0rc1 Qwen3.5-35B-A3B TP8 with
+  `FULL_DECODE_ONLY` + prefix caching + `--async-scheduling`): the recorded field
+  breakdown, the masked-assign sites at that pin (`patch_qwen3_5.py:180`,
+  `patch_qwen3_next.py:239`, upstream `qwen3_next.py:776`/`kda.py:406`, mask from
+  `gdn_attn.py:295`), the three other producers to rule out from the serve line
+  (EPLB, PCP, host numpy), the prefill-only placement that explains the latency to
+  fault, the coverage statement the pin forces (no Qwen3.5 row in the support matrix;
+  e2e covers tp4 / `max_model_len 4096`), and the two stop rules — no MTE address
+  arithmetic inside an unexported CANN kernel, no `ASCEND_LAUNCH_BLOCKING` when the
+  kernel is already named.

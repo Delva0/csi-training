@@ -45,7 +45,14 @@ What follows it does:
   `OSError` first and the `MLIRCompilationError` only as the re-raise in
   `During handling of the above exception`). Reinstalling or upgrading the pair fixes
   nothing there.
-- Any other detail — read it as the exception class it is; no shape here implies a pair.
+- **`loc("…kernel.ttadapter.mlir":2:3): error: ub overflow, requires N bits while M bits
+  available!`** (also `Failed to run BiShengHIR pipeline`) → **not this page**: a budget
+  refusal of the kernel's own tile, so reinstalling or moving the pair changes nothing —
+  `../custom-ops-runtime-faults/triton-ub-overflow-tiling-budget.md`. It is the one detail
+  line under this banner where the kernel's shapes *are* the owner, which is why the
+  blanket "do not compute tiling here" below carries this exception.
+- Any other detail — read it as the exception class it is; the pair is implied by an IR
+  diagnostic or `operation's operand is unlinked`, never by a budget number.
 
 ## Reading the report correctly
 
@@ -64,7 +71,9 @@ What follows it does:
 - Which kernel is chosen (`chunk_scaled_dot_kkt_fwd`, `chunk_gated_delta_rule`,
   `layer_norm_fwd_kernel`, …) dates the release but does not identify the defect: it
   is release code that the release's own pair is exercised with, so a per-kernel MLIR
-  rejection says nothing about its shapes. Do not compute tiling or shapes here.
+  rejection says nothing about its shapes. Do not compute tiling or shapes here — unless
+  the detail line is `ub overflow, requires N bits …`, which is the one case where the
+  tile *is* the finding (`../custom-ops-runtime-faults/triton-ub-overflow-tiling-budget.md`).
 
 ## The install axis (what the pair is supposed to be)
 

@@ -7,7 +7,8 @@ overhead. Routes: `../runtime-memory/index.md`, `../performance-throughput/index
 `../scheduler-admission/index.md`, `../deploy-sizing/index.md`,
 `../lora-adapters/index.md`.
 
-Inherits the scope and rules of `recorded-cases.md`, whose index carries one line
+Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
+family carries one line
 per case in this file.
 
 **#6862** vllm 0.14.1 + vllm-ascend v0.14.0rc1 (`d7de043` / `52d4acfa`), 910B3 x8
@@ -236,6 +237,21 @@ cap and its #40863 comment (`vllm_ascend/core/single_type_kv_cache_manager.py:27
 and then spent its whole remaining budget reasoning, so it shipped **no** answer and was
 cut at the output cap on its 20th turn. Route:
 `../scheduler-admission/waiting-queue-wedge.md`.
+
+**#17953** vllm-ascend v0.18.0rc1 (`99e1ea0fe685`) + vllm v0.18.0 (`bcf2be961200`), one
+910B3 aarch64, Qwen3-0.6B bf16 TP1/DP1 eager: `VLLM_ASCEND_BALANCE_SCHEDULING=1` with
+`--max-num-seqs 1` starts and admits nothing (health 200, zero computed tokens), with the
+env-off and capacity-2 controls serving; filed as a pin-scoped report whose fix was
+already merged, asking for a capacity-one regression test. The run delivered at its 7th
+turn and then spent two more turns on correspondence: the guard is real at the pin
+(`patch_balance_schedule.py:269` over a zeros queue `:49-52`), and the two facts that
+made the answer better than the report were the *writer* gate — `balance_gather` runs
+only from `BalanceDPEngineCoreProc.run_busy_loop` (`:631`), which `run_engine_core`
+instantiates only for `data_parallel_size > 1 or dp_rank > 0` (`:673-681`), so on DP=1
+the queue never leaves zeros and the guard is inert above capacity 1 — and upstream's
+`max_num_running_reqs = max_num_seqs` (`vllm/v1/core/sched/scheduler.py:105`), which
+widens the wedge to any DP size. Route:
+`../scheduler-admission/balance-scheduler-admission-stall.md`.
 
 **#4766** vllm-ascend `v0.11.0rc3` (`b6d63bb`) / vllm `v0.11.0` (`b8b302c`), 2×910B4-64G,
 Qwen3-VL-32B under an ais-bench textvqa loop: "显存一直异常增长，最后 OOM" with no serve
@@ -666,3 +682,27 @@ that `--disable-log-stats` leaves `/metrics` usable — the route survives, the 
 freezes** (`vllm/v1/core/sched/scheduler.py:1910-1911` returns no stats, and the gauge is
 set only from them, `vllm/v1/metrics/loggers.py:1045`). Page (new):
 `../observability-and-logs/kv-cache-capacity-and-usage-metrics.md`.
+
+**#1427** vllm-ascend `v0.7.3rc1` (`f025df05f614`) + vllm `v0.7.3` (`ed6e9075d31e`),
+torch/npu 2.5.1, CANN 8.1.T18, Qwen2.5-VL-3B on two 910B4 (`ASCEND_VISIBLE_DEVICES=3,6`):
+`--dtype bfloat16 --max-num-seqs 16 --max_model_len 32768 --gpu_memory_utilization 0.8
+--enable-prefix-caching --multi-step-stream-outputs True -tp 2`, body = env dump plus the
+client's latency table at concurrency 1 (200 req / 135.42 s, mean 677 ms, max 12 780 ms)
+and 4 (200 / 74.16 s, mean 1 483 ms) and "even worse than transformers based inferring"
+with **no transformers numbers**. Sendable at once: 1.48 and 2.70 req/s, Little's law
+reproducing in-flight 1.0 and 4.0, 4× concurrency buying 1.82× throughput at ×2.19
+per-request latency — the engine batches, something serialises per request. Two flags in
+that command are inert at the pin (`--enable-prefix-caching` force-disabled for a
+multimodal model under V0, `arg_utils.py:1129-1134`; `--multi-step-stream-outputs`
+already default, `:162`) and chunked prefill is off for MM in V0 (`:1170-1173`). The one
+pinned up/downstream gap is the vision tower: only `Qwen2VLForConditionalGeneration` is
+registered (`vllm_ascend/models/__init__.py:5-9`) and its override calls
+`torch_npu._npu_flash_attention_unpad` (`qwen2_vl.py:87-101`), while Qwen2.5-VL keeps
+`get_vit_attn_backend` → TORCH_SDPA with one SDPA per image in a Python loop
+(`qwen2_5_vl.py:227,304-320`) and both paths pay a TP all-gather per vision block
+(`:238-239`). No graph key, no `enforce_eager` override and no V1 worker exist at that
+ref, so the v0.8/v0.9 lever lists must not be carried back. Recorded run: loaded the
+0.8.x-scoped pages, read the ViT backend, the vision attention and the registry, and
+shipped **no message text after its second turn** — 20 assistant turns / ~875 K
+cumulative prompt tokens, cut at the output cap with the ranked answer unsent. Page
+`../performance-throughput/pre-0.8-vl-vs-transformers.md` (new).

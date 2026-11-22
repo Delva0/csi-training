@@ -70,7 +70,10 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    wrong from the start), growth (reserved or requested HBM rises while the
    workload is steady), or a dead configuration key (the feature the reporter
    thinks is on never engaged). Each has a different owner and a different
-   one-command check; the report's narrative rarely says which it is.
+   one-command check; the report's narrative rarely says which it is. Inside
+   growth, a benchmark-loop report needs the second axis too — **per-batch
+   high-water vs per-request retention** — and one concurrency sweep decides it
+   (`hbm-growth-and-oom.md` Step 3b).
 2. **The crash text is an allocation site, not a cause.** An async OOM names the
    *current* operator (`current working operator name is SelfAttentionOperation`,
    `HcclAllGather` failure) — the same sync-point trap as SKILL.md rule 11. The
@@ -211,8 +214,9 @@ physical free figure sends you to.
 Conditional routes:
 
 - Any memory-growth report, or "VRAM not released then crash" where the process is
-  still running → `hbm-growth-and-oom.md` (the split, the allocator environment gate,
-  the KV / profile-peak arithmetic, the dead-key check, the precedent family).
+  still running → `hbm-growth-and-oom.md` (the split, the concurrency sweep for a
+  benchmark loop, the allocator environment gate, the KV / profile-peak arithmetic,
+  the dead-key check, the precedent family).
 - The service is **already dead** and `npu-smi` still shows HBM, so the next serve cannot
   start (or the reporter proposes a SIGTERM handler to "release ACL resources") →
   `../deploy-sizing/node-processes-and-device-attribution.md` §"After the engine is gone

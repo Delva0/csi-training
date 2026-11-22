@@ -200,6 +200,64 @@ ls build/temp*/vllm_ascend_kernels_host_dir/objects-Release/host_bisheng_obj/  #
 
 When `build/` is already gone, the paste is the record and the shape above is enough.
 
+## Step 2b — the build *finished*, and `csrc/build/compat/liboptiling.so` 指向无效
+
+Verified at vllm-ascend **v0.19.1rc1** (`da421afad7`) — the tree recorded **#10792**
+(aarch64 source build, `VLLM_ASCEND_PATH` + `pip install -v -e .` after `sed`-ing the
+`torch-npu` pin, vllm `0.19.1` / vllm-ascend `0.19.1rc1`). This section's line numbers are
+that pin's, not v0.7.3.post1's.
+
+Report shape: `[Installation]` whose **whole body is one dangling path** plus the install
+transcript — no failing frame, no exit code, no engine. There is no stage to diagnose:
+read the two `ln -sf` sites and the two `install()` destinations below and answer. The
+page's other sections do not apply (`COMPILE_CUSTOM_KERNELS` is not even involved).
+
+`csrc/CMakeLists.txt` creates **two** links to the same library, in different forms:
+
+| Link | Site | Command | Target | Resolves in the build tree? |
+|---|---|---|---|---|
+| `custom/op_impl/ai_core/tbe/op_tiling/liboptiling.so` | `:186-189`, POST_BUILD on `optiling` (`TILING_CUSTOM_FILE`, `csrc/cmake/config.cmake:135-136`) | `ln -sf $<TARGET_FILE:optiling> …` | **absolute** | yes |
+| `compat/liboptiling.so` | `:195-209`, its own `add_custom_target(optiling_compat ALL)` | `ln -sf lib/linux/${CMAKE_SYSTEM_PROCESSOR}/$<TARGET_FILE_NAME:optiling> …` (`:205`) | **relative** | **no** |
+
+The relative spelling belongs to the **installed** layout, not the build tree:
+`install(TARGETS optiling LIBRARY DESTINATION packages/vendors/${VENDOR_NAME}/op_impl/ai_core/tbe/op_tiling/lib/linux/${CMAKE_SYSTEM_PROCESSOR})` (`:191-193`) puts
+`libcust_opmaster_rt2.0.so` in `op_tiling/lib/linux/<arch>/`, and
+`install(FILES ${compat_optiling_file} DESTINATION …/op_impl/ai_core/tbe/op_tiling)` (`:208-210`)
+puts the link beside it — so the packaged copy resolves by construction while only the
+`csrc/build/compat/` copy dangles. The reporter's own second path proves it: their working
+`libcust_opmaster_rt2.0.so` sits under
+`_CPack_Packages/Linux/External/CANN-custom_ops--linux.aarch64.run/packages/vendors/vllm-ascend/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64/`,
+which is the CPack staging root of `install()` (`CPACK_PACKAGE_FILE_NAME`/
+`CPACK_EXTERNAL_BUILT_PACKAGES`, `:638-643`).
+
+**Answer, first sentence: 这不是安装失败。** `compat/` is a build-tree-only artefact and the
+installed link resolves; nothing needs `ln`, a rebuild or a wheel change. The reporter's
+own question ("should it be `./build/libcust_opmaster_rt2.0.so`?") is right about the
+build tree: `optiling` sets only `OUTPUT_NAME cust_opmaster_rt2.0` (`:183-185`) and no
+`*_OUTPUT_DIRECTORY`, so the library is `${CMAKE_CURRENT_BINARY_DIR}/libcust_opmaster_rt2.0.so`
+(`csrc/build/…`, because `csrc/build.sh:14` sets `BUILD_DIR=${CURRENT_DIR}/build` with `csrc/` as the project root). An upstream
+patch is `$<TARGET_FILE:optiling>` (like `:189`) or `../libcust_opmaster_rt2.0.so`.
+
+Two commands settle it on the reporter's box, and only the second one can turn this into a
+real defect:
+
+```bash
+ls -l <repo>/csrc/build/libcust_opmaster_rt2.0.so                      # build-tree library
+readlink -f "$(find <repo> -path '*op_tiling/liboptiling.so' | head -1)"  # installed copy -> lib/linux/<arch>/libcust_opmaster_rt2.0.so
+```
+
+Installed copy dangling too → packaging defect; one-line repair
+`ln -sfn lib/linux/$(uname -i)/libcust_opmaster_rt2.0.so <that dir>/liboptiling.so`, and say
+the next `build_aclnn.sh` run will recreate it.
+
+Do not escalate into a wheel question. The runtime
+`liboptiling.so: cannot open shared object file` line is a *separate*, non-fatal report
+(`../soc-platform-paths/device-type-build-vs-runtime.md`), and that page's explanation is
+version-scoped: it cites `.github/workflows/scripts/wheel/auto_exclude.py` with
+`liboptiling.so` in `BASE_EXCLUDES`, but at v0.19.1rc1 that directory holds only
+`config.json`, `make_variant.py`, `pyproject.toml` — re-grep the exclusion mechanism at the
+reported ref before quoting it.
+
 ## Step 3 — the ladder (a working install first, the mechanism second)
 
 1. **Skip the custom-op build** — one command, and the rung that ended #1774 — but
@@ -235,6 +293,15 @@ When `build/` is already gone, the paste is the record and the shape above is en
    `setup.py:250` traceback in the first place.
 
 ## Delivery
+
+**A report whose body is a path and a symlink has no diagnosis to earn: the verdict is the
+answer.** #10792's recorded run spent 60 tool calls and 1.65 M prompt tokens (16 K
+completion tokens, the cap) walking `csrc/CMakeLists.txt`, `setup.py`, `csrc/build_aclnn.sh`
+and the wheel scripts, and shipped **no message text at all** — while step 2b's verdict is
+four reads and the reporter's own paste already contained the resolved path. When the paste
+carries no failing frame, say what the artefact is (`compat/` is build-tree-only), say
+whether the packaged copy resolves, and give the two-command check; the source walk after
+that is optional.
 
 A build report is answerable from the paste plus one docs grep: stage, owner, version
 envelope and rung 1 need no local source read, so the ranked answer is owed by the

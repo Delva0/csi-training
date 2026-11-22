@@ -50,7 +50,19 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   same vLLM version cannot differ in the gate itself — the differing variable is
   pool size or per-request demand.
 - Never propose `--max-num-seqs` or a memory bump before the pool number is known:
-  admission failure is a per-request demand question first.
+  admission failure is a per-request demand question first — **unless a downstream
+  scheduling patch is enabled**, because there the flag itself can be the decision. Read
+  the launch line for `VLLM_ASCEND_BALANCE_SCHEDULING` (and any other env that swaps
+  `vllm.v1.core.sched.scheduler.Scheduler`) before reading the pool:
+  `balance-scheduler-admission-stall.md` wedges *every* request at
+  `--max-num-seqs 1`, and there `--max-num-seqs 2` is the answer.
+- **A guard that reads shared state needs its writer checked first.** For any fork's
+  admission condition over a cross-rank or process-level structure, prove the writer is
+  reached in the configured topology (`data_parallel_size`/`dp_rank` gates a whole
+  engine-core class in the balance patch) and that the initial value does not already
+  satisfy the break. A zeros-initialised field plus a `>=` threshold is a
+  capacity-one deadlock and an inert feature everywhere else, and the reporter's
+  `balance_queue: [0]`-style capture is the confirmation, not a sampling artefact.
 
 ## Pages
 
@@ -72,3 +84,10 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   under an in-flight step. The pinned anchors, the `--async-scheduling` /
   `--speculative-config` ablations, why a self-recovering hours-long stall is a
   lifetime story, and the two collective/graph-sync theories the counters refute.
+- `balance-scheduler-admission-stall.md` — `VLLM_ASCEND_BALANCE_SCHEDULING=1`
+  admits nothing at `--max-num-seqs 1` (recorded #17953, v0.18.0rc1 `99e1ea0fe685`):
+  the patch's waiting-loop guard `max(balance_queue) >= max_num_running_reqs - 1` over a
+  zeros-initialised queue, the `data_parallel_size > 1 or dp_rank > 0` gate that keeps it
+  from ever being refreshed on a DP=1 serve, the inertness above capacity 1 that explains
+  the control arm, the per-rank widening at any DP size, the reported `== ` repair and its
+  unverified cross-DP trade, and the nightly-config-only coverage.

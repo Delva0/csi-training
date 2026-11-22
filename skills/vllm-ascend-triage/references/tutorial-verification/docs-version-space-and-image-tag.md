@@ -46,6 +46,28 @@ branch URL, a flag that no release carries, or a **second, literal tag on the sa
 page** (§6). Different → the built revision's substitution is stale, which is the
 defect to report, with §3's correction site.
 
+**The substitution has two homes, and which one exists is a property of the tree.**
+Older releases build the same docs with **Sphinx + myst**: there is no
+`mkdocs.yml` at all, the keys live in `docs/source/conf.py` → `myst_substitutions`,
+and a page writes the pipe form `export IMAGE=…/vllm-ascend:|vllm_ascend_version|`
+(verified at v0.11.0rc0 where the value is `v0.11.0rc0`, and at v0.18.0). At v0.18.0
+the dict carries six keys (`vllm_version` `:68`, `vllm_ascend_version` `:72`,
+`pip_vllm_ascend_version` `:75`, `pip_vllm_version` `:77`, `cann_image_tag` `:79`,
+`ci_vllm_version` `:80`); the `{{ … }}` form and `mkdocs.yml extra` belong to the
+mkdocs era (§2's v0.26/v0.27 pins), and neither syntax renders in the other build. So name both
+files in the one grep — `rg -n 'vllm_ascend_version|pip_vllm_ascend_version'
+mkdocs.yml docs/source/conf.py` — and treat an empty result as "this tree uses the
+other build", not as "the page prints a literal".
+
+At v0.18.0 (`e18643f8a4d5`) that grep is itself a finding: `conf.py:72`
+`vllm_ascend_version` and `:75` `pip_vllm_ascend_version` are both **`v0.17.0rc1`**,
+`:68` `vllm_version` is `v0.17.0`, while `:80` `ci_vllm_version` is `v0.18.0` — so
+the docs built from the v0.18.0 tag tell a reader to pull the previous release's
+image and `pip install` its pair. Grade it as a version/正确性 defect (the command
+runs, on the wrong release), quote both keys, and note that the release-cut
+comment above the dict (`# Change this when cut down release`, `:63`) is the
+correction site. Recorded #11750, whose Qwen3-Omni page prints that pull at `:37`.
+
 **`extra` carries three version keys that differ by several rcs — quote the right one.**
 At v0.27.1rc1 (`3b31886`) `mkdocs.yml:167-173` holds `vllm_version: v0.27.1`,
 `vllm_ascend_version: v0.27.1rc1`, `stable_vllm_ascend_version: v0.23.0`,

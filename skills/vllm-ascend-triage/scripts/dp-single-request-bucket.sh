@@ -3,9 +3,15 @@
 # symptom "one request at a time hangs at replay / RPC timeout, concurrency is
 # fine" (recorded #3128).
 #
-#   scripts/dp-single-request-bucket.sh --capture-sizes 8,1 --dp 8 --tp 2
-#   scripts/dp-single-request-bucket.sh --capture-sizes 8,1 --dp 8 --tp 2 \
+#   bash <skill_root>/scripts/dp-single-request-bucket.sh \
+#       --capture-sizes 8,1 --dp 8 --tp 2
+#   bash <skill_root>/scripts/dp-single-request-bucket.sh \
+#       --capture-sizes '{"cudagraph_capture_sizes": [8,1]}' --dp 8 --tp 2 \
 #       --max-num-seqs 8 --report 1,2,8
+#
+# Run it with `bash`, never `uv run --no-project python <this file>`: the file is
+# a bash wrapper around an embedded Python program, so Python reads line 1 as
+# source and dies with a SyntaxError.
 #
 # What it does NOT do: it does not choose the owner. It prints the pad map and
 # the per-step branch so the ablation ladder (drop the 1-token bucket,
@@ -32,12 +38,16 @@ set -u
 
 uv run --no-project python - "$@" <<'PY'
 import argparse
+import re
 
-ap = argparse.ArgumentParser(description='graph bucket chosen for N running sequences per DP rank')
-ap.add_argument('--capture-sizes', required=True,
-                help='the --compilation-config cudagraph_capture_sizes list, e.g. 8,1 '
-                     '(defaults are release-specific: print them with '
-                     'scripts/fia-tnd-seqlen-check.sh --capture-sizes)')
+ap = argparse.ArgumentParser(
+    prog='dp-single-request-bucket.sh',
+    description='graph bucket chosen for N running sequences per DP rank')
+ap.add_argument('--capture-sizes', default=None,
+                help='the --compilation-config cudagraph_capture_sizes list, e.g. 8,1; a '
+                     'pasted --compilation-config value such as \'{"cudagraph_capture_sizes": '
+                     '[8,1]}\' is accepted as-is (defaults are release-specific: print them '
+                     'with scripts/fia-tnd-seqlen-check.sh --capture-sizes)')
 ap.add_argument('--dp', type=int, default=None, help='--data-parallel-size')
 ap.add_argument('--tp', type=int, default=None, help='--tensor-parallel-size')
 ap.add_argument('--max-num-seqs', type=int, default=None,
@@ -46,15 +56,56 @@ ap.add_argument('--report', default='1,2,8',
                 help="comma list of sequences per DP rank to tabulate (default '1,2,8')")
 ap.add_argument('--num-spec', type=int, default=0,
                 help='num_speculative_tokens: decode_query_len = 1 + this')
+ap.add_argument('positional', nargs='*',
+                help='bare fallback, same order as the flags: the capture-size list (or the '
+                     'pasted --compilation-config value), then dp, tp, max-num-seqs')
 a = ap.parse_args()
 
-try:
-    sizes = sorted({int(x) for x in a.capture_sizes.replace('[', ' ').replace(']', ' ')
-                    .replace('"', ' ').split(',') if x.strip()}, reverse=True)
-except ValueError:
-    raise SystemExit('error: --capture-sizes takes integers, e.g. 8,1')
+
+def _as_sizes(text: str):
+    """Take the bracketed integer list out of a pasted config value, else the
+    bare comma list. Recorded failure this absorbs: the #3128 launch line's
+    '{"cudagraph_capture_sizes": [8,1]}' was passed verbatim, first as the
+    --capture-sizes value ('takes integers'), then as a bare positional
+    (argparse 'required: --capture-sizes'), and the map was then re-derived
+    by hand from vllm/config.py — what this script exists to avoid."""
+    if not any(ch.isdigit() for ch in text):
+        raise SystemExit('error: no capture sizes in that value: a launch without '
+                         '--compilation-config has a release-specific default list, so '
+                         'print it with scripts/fia-tnd-seqlen-check.sh and pass it here '
+                         '(no default is assumed)')
+    m = re.search(r'\[\s*([0-9][0-9,\s]*)\]', text)
+    body = m.group(1) if m else text
+    try:
+        return sorted({int(x) for x in body.replace(' ', '').split(',') if x},
+                      reverse=True)
+    except ValueError:
+        raise SystemExit('error: --capture-sizes takes integers, e.g. 8,1 '
+                         '(a pasted --compilation-config dict is fine too)')
+
+
+_raw = a.capture_sizes if a.capture_sizes is not None else (
+    a.positional[0] if a.positional else None)
+if _raw is None:
+    raise SystemExit('error: --capture-sizes is required: --capture-sizes 8,1 --dp 8 --tp 2 '
+                     '(or paste the launch\'s --compilation-config value as the first '
+                     'positional); -h lists the flags')
+sizes = _as_sizes(_raw)
 if not sizes or sizes[-1] < 1:
     raise SystemExit('error: --capture-sizes must be >= 1')
+
+# Positional fill-in for the flags, printed so a reader sees what was assumed.
+# The first bare positional is the size list only when --capture-sizes is absent.
+_rest = a.positional[1:] if a.capture_sizes is None else a.positional
+for _name, _val in zip(('dp', 'tp', 'max-num-seqs'), _rest):
+    _attr = _name.replace('-', '_')
+    if getattr(a, _attr) is None:
+        try:
+            setattr(a, _attr, int(_val))
+        except ValueError:
+            raise SystemExit(f'error: positional {_val!r} is not an integer '
+                             f'(positional order is sizes, dp, tp, max-num-seqs)')
+        print(f'note: positional {_val!r} read as --{_name}')
 
 max_cap = sizes[0]
 pad = [0] * (max_cap + 1)

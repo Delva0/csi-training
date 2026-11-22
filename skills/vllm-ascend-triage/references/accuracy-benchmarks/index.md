@@ -224,9 +224,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   then re-serve with `--dtype bfloat16` — reporter-confirmed #562 at v0.7.3rc2/910B4
   (「已解决，将精度改为 bfloat16 就可以了」), whose own VL tutorial already spells
   `--dtype bfloat16` (`docs/source/tutorials/single_npu_multimodal.md:147`). The
-  `INF_NAN_MODE_*` variables are isolation levers with an **era-dependent name**
-  (`INF_NAN_MODE_ENABLE=0` on torch_npu 2.5.x; it aborts on 2.8.x and names
-  `INF_NAN_MODE_FORCE_DISABLE=1`) → `precision-dtype-degeneracy.md`.
+  `INF_NAN_MODE_*` variables are isolation levers whose accepted name depends on the
+  **installed build's source, not the `torch_npu==` version**: the 2024-era 2.5.1 tree
+  reads only `INF_NAN_MODE_ENABLE=0`, while guarded builds (verified at 2.7.1, reported
+  at 2.8.x, and already live on #562's 2.5.1.dev build per the maintainer who corrected
+  that advice) abort on it with a message that names `INF_NAN_MODE_FORCE_DISABLE=1`
+  → `precision-dtype-degeneracy.md`.
 - A **first-call-only** degenerate answer — a constant token id repeated to
   `finish_reason: "length"`, an immediate `<|im_end|>` after `<think>`, or an
   `AttributeError: 'NoneType' object has no attribute 'size'` raised through
@@ -566,9 +569,9 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (`config.json:torch_dtype`, the log's `dtype=`), the one-restart `--dtype bfloat16`
   row with its reporter-confirmed case (#562, v0.7.3rc2/910B4, LLaMA-Factory SFT
   checkpoint, llamafactory and V100 controls both clean), why bf16 is never
-  unavailable on 910B, and the `INF_NAN_MODE_ENABLE` (torch_npu 2.5.x) vs
-  `INF_NAN_MODE_FORCE_DISABLE` (2.8.x, whose abort text the stale advice produces)
-  era split.
+  unavailable on 910B, and the `INF_NAN_MODE_ENABLE` vs `INF_NAN_MODE_FORCE_DISABLE`
+  split, decided by the installed build rather than the version string: the guarded
+  builds abort on the stale MindIE advice, and that abort text names the switch.
 - `vl-grounding-coordinate-drift.md` — bbox/keypoint numbers wrong while the text is
   fluent and the JSON valid, with the transformers run as the control (IoU): the
   three sentences the report's own matrix already settles, the `image_grid_thw` /

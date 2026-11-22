@@ -578,8 +578,9 @@ exception]`, `EngineCore encountered a fatal error`. The engine's own
 (`qwen2_5_vl_without_padding.py:122`) — so the launch needed
 `ASCEND_LAUNCH_BLOCKING=1` or the plog's `origin_op_name`, not a source walk.
 Reporter-confirmed afterwards: the same serve answered `The information in this
-picture is` (a collapsed answer), `0.12.0` still had the problem, and the
-**v0.13.0rc0 image answers the same request correctly** — a post-pin fix, so the release is part of the verdict, with
+picture is` (a collapsed answer) to a base64 data-URL image, `0.12.0` still had the
+problem in a **`uv` venv inside a `gpustack 0.7.2` image** (a pip install, not an
+ascend image tag), and the **v0.13.0rc0 image answers the same request correctly** — a post-pin fix, so the release is part of the verdict, with
 `--max-num-batched-tokens` / `--no-enable-prefix-caching` as the interim
 ablations. The recorded run opened `attention_v1.py`, `platform.py`,
 `qwen2_5_vl_without_padding.py` and the `max_num_batched_tokens` arithmetic for

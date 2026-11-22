@@ -288,7 +288,15 @@ broken — although it had the decisive finding at hand: `level: 1` maps to
 snapshot (`--omni` has no hit in vllm v0.14.1, so the CLI→stage merge is unreadable)
 and that the Qwen2.5-Omni tutorial's `--compilation-config '{"full_cuda_graph": 1}'`
 names a key this ref's `CompilationConfig` (`extra="forbid"`) does not define. Page
-`../startup-failures/graph-mode-not-applied.md`.
+`../startup-failures/graph-mode-not-applied.md`. **Replay: answered.** The same paste
+came back after that page existed and closed in 6 assistant turns / 8 tool calls /
+7.4 K completion tokens: `sources-summary.sh` + one `reference-locate` call (`FULL_DECODE_ONLY`,
+`cudagraph_mode`, `--compilation-config`, `omni`), the page's Step 0, then the
+`compilation.py:748-761` and `platform.py:241-245` greps — verdict plus rung 1 in the
+first paragraph, yaml route source-verified, CLI route shipped as a hypothesis with the
+one log line that decides it. Two harness defects that run paid for, both since fixed:
+`reference-locate.py` rejected the `--compilation-config` token as an unknown option,
+and its all-token grade capped at 8 lines, which hid the owning page in `+5 more`.
 
 **#698** image `vllm-ascend:v0.8.4rc1` (pin `086423d`), vllm v0.8.4 (`dc1b4a6f`),
 910B4, DeepSeek-R1-Distill-Qwen-1.5B, `--max-model-len 10000 --dtype float16

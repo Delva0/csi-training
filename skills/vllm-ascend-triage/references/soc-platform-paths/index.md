@@ -198,6 +198,23 @@ Conditional routes:
   described, so the owner is the ATB/NNAL build × SoC (the pin's own 310P recipe is based on
   `cann:8.3.rc2-310p` and sources `nnal/atb/set_env.sh`) →
   `../custom-ops-runtime-faults/atb-create-operation-failed.md` (recorded #5170).
+- A **startup stall** on a 310P/300I Duo box whose only text is EngineCore's repeated
+  `[shm_broadcast.py:…] No available shared memory broadcast block found in 60 seconds`,
+  with **no worker log in the paste** (screenshots only) and the reporter's own
+  comparison "2 卡能部署、4 卡不行" — recorded #12985: 4×300I Duo = 8 dies,
+  Qwen3.5-35B-A3B at TP8 / 100 K / `FULL_DECODE_ONLY` + `enable_npugraph_ex`, while a
+  TP4 / 60 K / 0.4 run with `--enforce-eager` served that same box. The line is
+  upstream's watchdog: EngineCore waiting on a worker busy inside `profile_run` or
+  capture — **not** HCCL, **not** the card. One 300I Duo card is **2 dies**, so
+  "2 → 4 cards" also moved TP 4→8 and dropped `--enforce-eager`: diff the reporter's
+  two commands instead of theorising a collective. Ladder: `--enforce-eager` +
+  `cudagraph_capture_sizes: [1]`, then the 100 K-context mask/KV budget, then
+  co-tenancy (their own `ps` may show another engine on dies 2-3); the vision-tower
+  dummy forward is this shape only when the worker line reads `Encoder cache will be
+  initialized with a budget of …` (`../startup-failures/mm-encoder-profile-stall.md`,
+  scope variant). Ask for the per-rank stop line and `npu-smi info` *during* the stall;
+  a **broken die is the last row**, and a second VL checkpoint stalling the same way
+  (Qwen3-VL-32B, "是硬件的问题么") retires it → `atlas-300i-310p.md`, ranked actions 2-3.
 - A 310P serve that ran fine then dies **under load** with
   `[Error]: Event resources are insufficient.` / `Event id alloc error …
   retCode=0x7020019` / `rtEventRecord … no event resource` / `207007`, the Python

@@ -496,9 +496,20 @@ HCCL. The recorded run read the OCR first (upstream's watchdog text, the reporte
 own working script, and a co-tenant `mindie_llm_backend --npu_device_id 2`/`3` beside
 `Worker_TP0..3`), then answered with the `O(max_model_len²)` mask cost at the
 configured context, the documented TP>1 graph-capture budget, and a three-axis ladder;
-the reporter later reported the same stall on Qwen3-VL-32B and asked "是硬件的问题么".
+a second commenter on the same issue reported the same stall on Qwen3-VL-32B and asked
+"是硬件的问题么" (a different author, so it is a second box, not a rerun of the first).
 That second checkpoint retires every model lane, so the answer stays the documented
-platform limits plus co-tenancy — a broken card is the last row. Route:
+platform limits plus co-tenancy — a broken card is the last row. **Second session on
+the same report**: `reference-locate.py` on the watchdog sentence put this very entry
+first on the all-token grade (`recorded-cases-install-and-environment.md`, here), the
+run opened no case file, never ran the `#12985` grep, and spent 28 tool calls inside
+upstream `vllm/model_executor/models/qwen3_5*.py`, `registry.py` and `arg_utils.py`
+deciding whether the checkpoint is multimodal — a question this entry had already
+answered, and one only the reporter's `config.json` / `Encoder cache …` line settles.
+It shipped **zero** message text, `output_truncated` at the 16 384-token cap. The two
+closures are mechanical: the locate grade now prints the entry's id and line
+(`→ #12985:488`), and the paste-less variant routes from
+`../soc-platform-paths/index.md` and `../startup-failures/index.md`. Route:
 `../soc-platform-paths/atlas-300i-310p.md` (ranked actions, items 2-3).
 
 **#5571** vllm-ascend v0.13.0rc1 (`1b5d5ab`) + vllm v0.13.0 (`72506c9`, matched by the
@@ -938,3 +949,21 @@ first paragraph, which is what made the truncated message usable. It also over-c
 the 300I tutorial is `docs/source/tutorials/single_node_300i.md` (and the Qwen3-MoE
 recipe it copied is the A2-scoped `multi_npu_qwen3_moe.md:44`). Route:
 `../soc-platform-paths/310p-moe-expert-parallel-shape.md`.
+
+**#11238** vllm-ascend v0.22.1rc1 (`5f6faa0cb883`) + vllm v0.22.1
+(`0decac0d96c4`), Atlas 800I A3, Qwen3-30B-A3B tutorial §4.1:
+「部署指引 … 4.1 Docker Image Installation → Atlas 800I A3 →
+`export IMAGE=quay.io/ascend/vllm-ascend:v0.22.1rc1` 此处镜像提供错误」, no log and no
+`collect_env` body. The substitution matches the printed tag (`conf.py:81`), so
+the build is not stale: the *tab* runs the A2 image. `:66` is byte-identical to
+the page's A2 tab at `:119`, the same template dropped the suffix at
+`Qwen3-Coder-30B-A3B.md:66` and `Qwen3-Omni-30B-A3B-Thinking.md:67` while 17 of
+40 tutorial pages carry `|vllm_ascend_version|-a3`, and the pin's own
+`installation.md:257-262` + `schedule_image_build_and_push.yaml:73-88` name `-a3`
+for Atlas A3 (bare = 910b/A2 via `conf.py:87` `cann_image_tag`). Delivered as
+three correction lines plus the registry split — a pullable `-a3` makes it a text
+defect, `manifest unknown` makes it a release gap. Residue to read before
+answering the same shape: the run also ranked `installation.md`'s inline
+`{{ vllm_ascend_version }}` as a possibly unrendered literal; at a Sphinx+myst pin
+that is myst's live inline form, so it is not a finding without a docs build —
+`../tutorial-verification/docs-version-space-and-image-tag.md` §§2, 7.

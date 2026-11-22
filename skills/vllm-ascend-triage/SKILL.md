@@ -87,7 +87,12 @@ the turn the shape is classified, not a second copy of it here.
    page**, the second time re-reading three facts that page already stated. When a
    `recorded-cases-*` entry or an owning page matches the report's versions, model
    and stack, **that entry's ladder is this turn's message**: type it, and let
-   further checks confirm or correct a named claim — or drop them.
+   further checks confirm or correct a named claim — or drop them. The recorded
+   undoing is *verification as a precondition*: **#5605 was cut twice**, the second
+   run holding its ladder by turn six before source-verifying citations from another
+   pin in 8-12 K-character blocks and shipping no text. A page whose Scope names
+   another ref is still the case: send the ladder with its confidence labels, then
+   append each recheck as a two-line correction.
    Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
      reporter's literal question plus the track/lane classification; a pasted
@@ -719,12 +724,16 @@ the turn the shape is classified, not a second copy of it here.
     diffing it against the failing launch line — one that also drops other flags is
     a multi-flag change, not an ablation (#17797's "fixed" line moved three); a
     tested-configuration matrix in the body is one verdict line per row, with the rows
-    that work as the controls; and a control the reporter only *asserts* — another
-    platform, a healthy node, a direct `curl`, a repro over lower-level primitives —
+    that work as the controls; a **ranked diagnosis the report pastes** (a
+    问题分析报告 / 根因分析 block with a 建议排查 list) is a hypothesis table: grade each
+    named lever against the pin (`scripts/env-knob-liveness.py`; `ABSENT` ends it) and
+    each cited log line's emit site first (#10700: a name no tree defines, and a
+    `warning_once` on the default config); and a control the reporter only *asserts* —
+    another platform, a healthy node, a direct `curl`, a repro over lower-level primitives —
     is a premise, not a finding, so build the ranking so it holds if the premise is
-    false. `references/dispatch/controls-and-ablation.md` carries the six forms, the
+    false. `references/dispatch/controls-and-ablation.md` carries the seven forms, the
     pin splits that make an ablation inert, and the recorded cost of each (#2763,
-    #13964, #10910, #9447, #15527, #13688).
+    #13964, #10910, #9447, #15527, #13688, #10700).
 16. **A release candidate's experimental mode is a version question before it is a
     mechanism question.** When the mode printed its own banner
     (`FULL_DECODE_ONLY compilation enabled on NPU`, `PIECEWISE …`), every rank finished
@@ -766,10 +775,15 @@ frames name the failing *stage* and the stage names the owner
 reporter's CANN/torch/torch-npu trio is checked against the pin's own requirements
 table before any version advice, and the cheapest working install is rung 1. The
 **no-frame** variants of that track — a pairing story, the `+cpu`/build-isolation
-conflict, a Python-floor annotation error, a dangling build path, a `multiple
-definition`, the pybind11 `--cmake` rename — are written up in
+conflict, a Python-floor annotation error, a dangling build path, the pybind11
+`--cmake` rename — are written up in
 `references/dispatch/no-frame-install-shapes.md`, each with its rung and the recorded
-run that spent its budget there. Open that page when no failing frame names a stage.
+run that spent its budget there. Open that page when no failing frame names a stage. A paste that **does** carry compiler/linker frames (`multiple
+definition`, `ccec_compiler`/`ascendc_pack_kernel`, `recompile_binary.py`, `collect2:
+error: ld returned 1`, `setup.py:<n>` `cmake --build` error 2) goes straight to
+`references/image-dependency-faults/custom-op-build-stage.md` (Step 1 stage → Step 2
+two-prefix relink → Step 3 rung 1); the no-frame page holds only a one-line route
+(#1774 read it whole).
 Then, when the signature is specific — a log fragment, an error string, a flag that did
 nothing, a title that names a mechanism — the exact row in
 `references/first-checks/signature-routes/index.md` (six pages split by the shape's home
@@ -902,7 +916,13 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    paragraph: the library is keyed on the reporter's own wording, so this is the call
    that finds the page — or the case — already holding it, and a plain `rg -l` loop is
    its fallback rather than the first move. **Put the task's own issue id in the same
-   tool block**: a page that records a case carries the id in its heading (`# Device fault
+   tool block — when the body carries one.** A paste that is only the issue text has
+   no cheap id route: listing `history/` (flat `<id>.md`) returns every other case
+   (#6972 got 20 unrelated names), and the id appears only if the layout exposes
+   `/workspace/repos/<id>/` or `/workspace/attachments/<id>/`. Skip the id grep then:
+   the string locate reaches the page (that is how #6972 reached
+   `startup-failures/graph-mode-not-applied.md`, whose body reads `recorded #6972`).
+   With the id in hand: a page that records a case carries the id in its heading (`# Device fault
    under MTP + a captured decode graph (#10700)`), so `rg -n '#<id>'
    <skill_root>/references/` answers "has this very issue been worked, and which page
    owns it" in one call — open the page whose **heading** carries the id and start
@@ -925,16 +945,21 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    page**: `uv run --no-project python <skill_root>/scripts/reference-locate.py '<op>'
    '<env var>' '<numeric code>' '<symptom phrase>'` prints each token's file count,
    then every page carrying **all** tokens with that page's own `# heading` beside the
-   path, then the near-miss grades. The page on every list is the owning page while a
-   page on one list is its periphery: membership in one list means the page shares a
-   word with the paste, membership in all of them means it shares the case (rule 8),
-   and the heading is what lets you choose between four candidates without opening
-   any of them. Two recorded sessions ran this by hand and paid for the eyeball: #6509's
-   four-token loop returned 3.4 KB and left five pages on all four lists, #9003's
-   five-token loop returned 19.8 KB — the script prints the same grades in ~1-2 KB,
-   counts the file **name** as a hit (the owning page rarely repeats its own slug,
-   while every sibling links to it as a path) and ranks `[case]` pages first, `[index]`
-   route pages last. Recorded #18315 — `MoeDistributeDispatch`,
+   path, then the near-miss grades. **Read that all-token list to its last line**: the
+   all-token grade prints every member when it has at most 25, while near-miss grades
+   cap at 8, and `[case]` aggregates sort first, so the owner is often the tail (#6972:
+   13 members; the owning page was in the five a capped list hid). A flag is a token as
+   written (`'--compilation-config'`). The page on every list is the
+   owning page; one list is periphery (membership in all = the case, rule 8), and the
+   heading chooses between four candidates without opening them. Two hand-run
+   sessions paid 3.4-19.8 KB for what the script prints in ~1-3 KB (#6509, #9003);
+   it counts the file **name** as a hit and orders `[case]` first, `[index]` last.
+   A `[case]` line ends with the entry sharing most tokens — `→ #12985:488 (3/3)`:
+   `sed -n '488,528p'` on that path is the case history, and its ladder is the
+   message. #12985's second session saw the `[case]` file first but opened no entry,
+   skipped the `#<id>` grep, and spent 28 calls deciding from upstream source whether
+   the checkpoint was multimodal — the entry had already named it a 310P
+   platform-limit case — shipping no text. Recorded #18315 — `MoeDistributeDispatch`,
    `HCCL_OP_EXPANSION_MODE`, `PYTORCH_NPU_ALLOC_CONF`, `107020`, lists of 13-20 pages
    each — left `hccl-and-hardware/aiv-mc2-env-ablation.md` as the only page on all four:
    owning page read on turn 3, answer delivered on turn 7. Recorded #13699
@@ -943,10 +968,16 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    both. Fall back to the bare loop (`for t in '<op>' '<code>'; do echo "== $t"; rg -l
    "$t" <skill_root>/references/; done`) when no token is distinctive — all lists
    longer than ~20 pages means the tokens are family words, so shorten them to the
-   attribute, flag or code the paste names. An **empty** grade is not "no page": one
-   token is spelled differently in the library — an op-name suffix (a paste's
-   `aclnnMoeDistributeDispatchV4` against the pin's `npu_moe_distribute_dispatch_v2`)
-   or a Chinese phrasing — so read the shortest list by hand. **A hit in
+   attribute, flag or code the paste names; the script now prints a family-word
+   guard and names the two moves that work. **A paste with no distinctive token has
+   no grade to run** (two tables, two screenshots, "X is slower than Y"): take the
+   shape's row in `references/dispatch/classified-shapes.md` and open the `[case]`
+   file by the report's own wording (#5605's five family tokens graded `4-of-5: none`,
+   widest 183 pages, and never listed the owner). An
+   **empty** grade is not "no page": one token is spelled differently in the
+   library — an op-name suffix (a paste's `aclnnMoeDistributeDispatchV4` against the
+   pin's `npu_moe_distribute_dispatch_v2`) or a Chinese phrasing — so read the
+   shortest list by hand. **A hit in
    `references/evidence-workspace/recorded-cases*` is opened first** — but that glob
    spans **two or more files per family**, `recorded-cases/<family>.md` (the condensed
    index line) and its `recorded-cases-<family>.md` detail page(s) — the startup
@@ -1188,7 +1219,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   (`references/evidence-workspace/delivery-discipline.md`, *Truncation eats the tail*).
   #8926 shipped the verdict and rung 1 in its first paragraph, spent the rest of the
   16 384-token output budget in the table, and lost every later rung; keep the table to
-  the rows the verdict needs and move the rest into "what to send back".
+  the rows the verdict needs and move the rest into "what to send back". #3468 lost the
+  same cap with its ranked causes as a two-column table and truncation inside row 2:
+  write causes as a numbered list, one line and one check each, and let only the
+  `path:line`/precedent table follow the ladder.
 - Version and hardware scope of the conclusion, plus what to send back (full
   per-rank log, plog, tiling I-line, raw request/response dumps, `npu-smi info`,
   `asys health` output, `dmesg` OOM lines, both PD serve commands). **The ask list is
@@ -1244,7 +1278,10 @@ ops** (`hccl-and-hardware`, `runtime-memory`, `custom-ops-runtime-faults`,
 
 Scripts are re-runnable; `<skill_root>` is the path `skill_view` reports and each
 header carries its flags. Run `.sh` with `bash` and `.py` with
-`uv run --no-project python` — the executable bit is not durable. Their arguments, output and originating issue are in
+`uv run --no-project python` — the executable bit is not durable, and
+`uv run --no-project python <script>.sh` is a SyntaxError on line 1 (a bash wrapper
+around an embedded program); when a page names a script without flags,
+`bash <script> -h` is the one call. Their arguments, output and originating issue are in
 `references/first-checks/scripts-catalogue.md`; open it rather than guessing a name,
 and the topical pages name the ones they use. `templates/` holds starter files to copy
 and edit rather than retell — currently `templates/omni-310p-deploy-config.yaml` (a

@@ -177,8 +177,20 @@ The gain model is a bandwidth/dispatch argument, not a measured profile — say 
 - **Ask**: both serve commands (P and D), the EvalScope **summary text** (the tool
   prints `Save the summary to: outputs/…`, so that file beats a screenshot), and one
   `SpecDecoding metrics:` line per K.
-- **Recorded cost**: that session shipped **no message text at all** — three reasoning
-  blocks of 10.4 K, 10.6 K and 7.6 K characters went into reconstructing the percentile
-  rows (and into a `tokens per step` the pastes could not support), and it was cut at
-  the 16 384-token cap with the summary fields it needed sitting in the first two files
-  it had already read.
+- **Recorded cost — this shape has been cut twice, and both got the mechanism right**:
+  neither run shipped **any message text**, and neither failed for want of evidence.
+  Run 1: 33 messages, three reasoning blocks of 10.4 K / 10.6 K / 7.6 K characters
+  reconstructing the percentile rows (and a `tokens per step` the paste could not
+  support). Run 2 (replay of the same report): it reached this page and the #5605 entry
+  by assistant turn 6, quoted the recorded-case rule to itself — then spent 12.2 K
+  characters hand-decoding the OCR digits **before** the page was in hand, and 8.2 K +
+  10.4 K characters source-verifying this page's own citations (the PD recipes' K=1,
+  `_use_aclgraph`, `mtp_proposer.py:110`) because its scope names v0.19.1rc1 while the
+  reporter is on v0.13.0rc1. Its last block was 8.4 K characters laying out the answer
+  and was cut mid-sentence at the cap.
+  So the two levers, in order: **(1) the deliverable is the three rungs below plus the
+  ask, never a number from the screenshot** — the reporter can paste the EvalScope
+  `Save the summary to: outputs/…` file, and `scripts/benchmark-table-normalize.py`
+  prints the only figures worth quoting when five labels line up; **(2) verifying a
+  citation against another pin is not a reason to defer the message** — send the ladder
+  with `source-verified at <commit>` / `hypothesis` labels and append the recheck.

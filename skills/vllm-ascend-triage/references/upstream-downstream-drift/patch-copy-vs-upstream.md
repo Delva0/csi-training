@@ -57,7 +57,12 @@ first, not after the mechanism is derived from proxies.
    keeps `deepseek_v4` in its **own** top-level `if`, so no local crosses a block and
    the same input returns `deepseek_mtp` / `DeepSeekMTPModel`). Two repairs, both
    cheap to verify against the recorded parity rows: hoist the binding above the first
-   `if`, or restore upstream's block split and delete the local. Then bound which
+   `if`, or restore upstream's block split and delete the local — and whichever is
+   written, the `deepseek_v4` row must still return `DeepSeekV4MTPModel`: upstream
+   reaches that through its own standalone `if` (`vllm/config/speculative.py:314-319`),
+   which is the behaviour the merged condition replaced, so a hand-written repair that
+   drops the block swaps the `UnboundLocalError` for a silent v4 architecture change on
+   a path the probe covers only by that one sensitivity row. Then bound which
    input reaches the function before writing the impact sentence — for an
    `hf_overrides` callable that is the **draft** config build
    (`vllm/config/speculative.py:673-693`; for `method: mtp` without an explicit draft

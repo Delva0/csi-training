@@ -581,7 +581,9 @@ Not this topic, leave immediately:
   `Mean acceptance length` line and the D-node graph mode; the pin's every PD/multi-node
   DeepSeek MTP recipe is K=1 (`pd_disaggregation_mooncake_multi_node.md:255,315,…`,
   `DeepSeek-R1-W8A8-A2.yaml:33,55`), and #3097 prices the PD MTP gain at +8.6 % and the
-  eager step at 4× — worked #5605, which shipped no message text.
+  eager step at 4× — worked #5605, which shipped no message text in **either** of its
+  two recorded runs (the second identified the case at turn 6 and then deferred to
+  re-verify the page's citations at another pin).
 - `graph-mode-from-the-serve-line.md` — a 2×N 910B MoE serve at v0.10.x whose *command*
   has `--enforce-eager` (or the `torchair_graph_config` key, or a ray backend) and whose
   complaint is a 300-500 ms/token decode: read the compiled level off the command

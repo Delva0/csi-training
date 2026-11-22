@@ -32,7 +32,7 @@ set by shape; match the **reporter's own wording**, not the title's category wor
 | a sample request or `vllm bench serve` answering 404, or a first start that "加载 3 小时 / 高并发读取" | `serve-contract-and-weight-predownload.md` |
 | asking for *added* guidance, a cross-link, the contributor path, or a mirror/registry | `missing-guidance-and-contributor-docs.md` |
 | a flag, path, count, install pin or printed request body that is wrong as written | `tutorial-command-audit.md` (its worked pages first) |
-| a printed image tag, a `…/en/latest/…` URL, or any version disagreement | `docs-version-space-and-image-tag.md` |
+| a printed image tag, a `…/en/latest/…` URL, any version disagreement, or a hardware tab printing another generation's tag (「此处镜像提供错误」 on the `Atlas 800I A3` tab) | `docs-version-space-and-image-tag.md` (§7 for the tab/suffix shape) |
 | the doc's log/flag claims against the code | `../observability-and-logs/request-output-logging-flags.md` |
 | a doc accuracy/performance number that looks anomalous | `../accuracy-benchmarks/index.md` |
 | an actual failure log whose owner may be the reporter's box | leave the topic — the closing paragraph of *First call* ("Leave this topic when …") names the index to open |
@@ -41,8 +41,9 @@ set by shape; match the **reporter's own wording**, not the title's category wor
 
 `rg -n '<model family or row id>' <skill_root>/references/tutorial-verification/` —
 the worked-page tables in `tutorial-command-audit.md` record verified defect sets by
-page name (`Qwen3-32B-W4A4` `:315-328`, `Qwen3.5-27B`, `Qwen3-Omni-30B-A3B`,
-`Qwen3-VL-30B-A3B`, `InternVL3.5`, `Qwen3.5-397B-A17B` §5.6), reached from the
+page name (`Qwen3-32B-W4A4`, `Qwen3.5-27B`, `Qwen3-Omni-30B-A3B`,
+`Qwen3-VL-30B-A3B`, `Qwen-VL-Dense` — row `hjh2`, the Qwen3-VL-8B row —
+`InternVL3.5`, `Qwen3.5-397B-A17B` §5.6, `Qwen3-Coder-30B-A3B`), reached from the
 `tutorial-command-audit.md` bullet under *Conditional routes* below. A hit means the
 report's `资料验证` §1 is writable on turn 2 from the table; spend the rest of the
 budget on what the table does not have. The table is not exhaustive — it is the floor,
@@ -70,7 +71,14 @@ only context. A `[Doc]` report whose pasted traceback *is* the documented comman
 failing on argument arithmetic stays here: there is nothing wrong with the
 reporter's box, the finding is the command block plus the invariant it omits, and
 `../startup-failures/arg-validation-errors.md` (third raise site, #2973) supplies
-the mechanism to cite. Grade the doc even when the paste looks like a lane-B
+the mechanism to cite. A documented serve block that dies at *request* time on its own
+flag combination is the same shape one layer down: the v0.14.0rc1 GLM-4.x block
+(`docs/source/tutorials/GLM4.x.md:81-102` — `--async-scheduling` + mtp `K=1` +
+`cudagraph_capture_sizes [1,2,4,8,16,32]`) crashes in the MTP drafter's
+`cos.view(num_tokens, -1)` at every concurrency except `1, 2, 4, 8, 16` and above 16, so
+the finding is the capture list and the pin's own recipe
+(`../spec-decode-mtp/rope-cos-sin-slice-token-mismatch.md` carries the division and the
+corrected list). Grade the doc even when the paste looks like a lane-B
 startup failure.
 
 Inherit the rules in SKILL.md, plus these:
@@ -230,6 +238,14 @@ Conditional routes:
   literal model-branded tag in prose, the substitution is not the defect and
   `extra.*` must not be touched: §6 of that page has the discriminating grep, the
   frozen-image precedent and the release-claim scope gate (recorded #18041).
+  When the tag is the wrong **generation** rather than stale — a tutorial's
+  `Atlas 800I A3` tab printing the bare A2 tag, reported as 「此处镜像提供错误」
+  with no log at all — §7 has the one-call per-tab read
+  (`scripts/recipe-tab-diff.py --page <page>`, identical `IMAGE=` lines in the A3
+  and A2 tabs), the `installation.md` image table as the suffix authority, and the
+  registry split (pullable `-a3` ⇒ text fix; `manifest unknown` ⇒ release gap).
+  Recorded #11238; the dropped suffix in #9988's page (the two-container row above) is
+  that §7 defect, not a second-container one.
 - The doc's log/flag claims override the doc rather than the code:
   `../observability-and-logs/request-output-logging-flags.md`.
 - The doc's accuracy or performance numbers look anomalous: check the precedent

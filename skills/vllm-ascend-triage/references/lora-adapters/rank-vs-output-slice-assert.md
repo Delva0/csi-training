@@ -131,7 +131,15 @@ is one **TP=1 vs TP=4** run of the same adapter, base-vs-adapter compared — no
 `--dtype`, not `--enforce-eager`.
 
 **No flag rung exists at TP>1 for a column-parallel target** (row-parallel wrappers do
-not gather, so `o_proj`/`down_proj` adapters are unaffected). The `--max-lora-rank 128`
+not gather, so `o_proj`/`down_proj` adapters are unaffected), and the floor of the left
+side is `TP × r`, not `TP × 1`: `max_lora_rank >= r` is enforced when the adapter loads
+(`LoRA rank {r} is greater than max_lora_rank {…}`, `vllm/lora/peft_helper.py:120-123`)
+while the flag accepts only `MaxLoRARanks = Literal[1, 8, 16, 32, 64, 128, 256, 320, 512]`
+(`vllm/config/lora.py:26` at vllm v0.23.0), so the smallest reachable operand is
+`TP × r` — `4 × 8 = 32 > 12` on the recorded TP=4 serve, and `8 × 1 = 8 > 6` on a 6-wide
+partition at TP=8. Quote that arithmetic when a reporter argues from the step list
+("`--max-lora-rank` has no 4, so TP=8 cannot be fixed"): the missing step is not the
+binding constraint, `TP × r > slice` is. The `--max-lora-rank 128`
 demotion in *Rungs, cheapest first* below does **not** rescue it: that path is
 `torch.einsum("bi,boi->bo", inputs, selected_loras)`
 (`vllm/lora/ops/torch_ops/lora_ops.py:123`), which needs the input width to equal the
@@ -147,7 +155,11 @@ rank, so the gathered buffer raises a size mismatch instead of a `TORCH_CHECK` �
    contiguous (silent garbage), which is the reported decode hang's mechanism. Make it
    an assert rather than a silent `if` (`assert x_i.shape[-1] % w.shape[-1] == 0`) so a
    future change to the gather fails loudly; it costs nothing at TP=1, where the widths
-   are equal and no copy happens.
+   are equal and no copy happens. Then the acceptance run needs a **non-zero `lora_B`**
+   adapter: recorded #16586 verified with `lora_B = 0` (zero-output smoke test), which
+   proves only that nothing crashes — it cannot separate correct numerics from the wrong
+   `lora_rank` that a narrowed-but-unmatching width still produces (the width-vs-rank
+   paragraph above), so compare a real adapter's answers at TP=1 and TP>1.
 3. **Drop the packed/column targets or `merge_and_unload`** when `r` itself exceeds the
    per-rank slice (the TP=1 rung 2 arithmetic, with the slice divided by TP).
 4. **File the structural repair** where it belongs: narrow before the gather (upstream),

@@ -50,18 +50,30 @@ reason to stay in fp16; the only real cost is a weight cast at load.
 These are **isolation** levers, not recommendations: they change overflow semantics
 (`inf`/`nan` versus saturation) and therefore move or hide the overflowing op, while
 the dtype change removes its cause. Never spend a restart on them before `--dtype
-bfloat16`, and never repeat the advice without checking the torch_npu era — the
-accepted variable name changed:
+bfloat16`. Two variable names exist in the wild, and the fact that decides which one
+the reporter's install reads is the **build's own source**, not the `torch_npu==`
+version in the dump:
 
-| torch_npu | Fact |
+| build (source-verified) | Fact |
 |---|---|
-| `2.5.x` (Ascend/pytorch `v6.0.0.alpha001-pytorch2.5.1`) | `INF_NAN_MODE_ENABLE` is the only variable: parsed with default **1** and rejected unless 0/1 (`torch_npu/csrc/core/npu/register/OptionsManager.cpp:56-65`). Setting it to `0` makes `IsSupportInfNan()` false (`NpuVariables.cpp:62-66`), and stream creation then enables the overflow switch, `AclrtSetStreamOverflowSwitch(stream, 1)` (`torch_npu/csrc/core/npu/interface/AclInterface.cpp:151-153`). |
-| `2.8.x` (Ascend/pytorch `v7.2.0.1-pytorch2.8.0`) | `INF_NAN_MODE_ENABLE=0` **aborts**: `AT_ERROR("INF_NAN_MODE_ENABLE shouldn't be set to 0 on the current device. If you want to disable inf-nan mode, please export INF_NAN_MODE_FORCE_DISABLE=1")` (`NpuVariables.cpp:72-84`, guard on `CheckInfNanModeForceDisable()`). The supported switch is `INF_NAN_MODE_FORCE_DISABLE=1`. |
+| Ascend/pytorch `v6.0.0.alpha001-pytorch2.5.1` (`a3b75fc0`, 2024-11) | `INF_NAN_MODE_ENABLE` is the only variable in the tree: parsed with default **1**, rejected unless 0/1 (`torch_npu/csrc/core/npu/register/OptionsManager.cpp:56-65`). Setting it to `0` makes `IsSupportInfNan()` false (`NpuVariables.cpp:62-72`), and stream creation then enables the overflow switch, `AclrtSetStreamOverflowSwitch(stream, 1)` (`torch_npu/csrc/core/npu/interface/AclInterface.cpp:151-153`). `INF_NAN_MODE_FORCE_DISABLE` has no reader anywhere. |
+| Ascend/pytorch `v7.1.RC1.alpha002-pytorch2.7.1` (`d33df559`) — the first tree in this snapshot that carries both — and the 2.8.x tree a later note cited (`v7.2.0.1-pytorch2.8.0`) | Both names are parsed, and on any device whose **default** is inf/nan-capable — every 910B SKU is (`>= Ascend910B1 && < Ascend310B1`, `NpuVariables.cpp:69-71`) — `INF_NAN_MODE_ENABLE=0` **aborts**: `AT_ERROR("INF_NAN_MODE_ENABLE shouldn't be set to 0 on the current device. If you want to disable inf-nan mode, please export INF_NAN_MODE_FORCE_DISABLE=1")` (`NpuVariables.cpp:67-77`, gated on `CheckInfNanModeForceDisable()`); `INF_NAN_MODE_FORCE_DISABLE=1` on its own returns false (`:78-80`, parsed at `OptionsManager.cpp:82-93`). |
 
-So a reporter who says "someone told me to export `INF_NAN_MODE_ENABLE=0`" is quoting
-advice that only works on the older stack; on a 2.8-era install it is exactly the
-error text above. Read the `torch_npu==` line of the env dump before repeating either
-name, and give the pair as "your era's variable, verified at `<ref>`".
+So the split is a **build** split, not a version-number split, and the version line of
+the env dump does not decide it: #562's reporter ran `torch-npu 2.5.1.dev20250320` — a
+2025 dev build of the `2.5.1` line, which the table above would put on the "old" side —
+and in that thread (2025-04-22) a maintainer answered a MindIE-derived
+`export INF_NAN_MODE_ENABLE=0` suggestion with "INF_NAN_MODE_ENABLE shouldn't be set to
+0 on the current device … please export INF_NAN_MODE_FORCE_DISABLE=1", reported as a
+correction of the advice. Their exact dev build is not in the snapshot, so read that as
+the maintainer's statement about the build in front of them, not as a pinned line: what
+it settles is that a dev build of an older minor can already carry the guard a later
+minor is credited with. Before naming either variable, grep the reporter's install
+(`torch_npu/csrc/core/npu/{NpuVariables,register/OptionsManager}.cpp`) or read the
+paste — the abort text **is** the discriminator. If it appears, the lever is
+`INF_NAN_MODE_FORCE_DISABLE=1`; if the process starts normally with `ENABLE=0`, that
+build has no guard and there is no second switch. Give the one you verified with its
+`<ref>`, not the pair as "either one".
 
 ## Recorded case — #562 (reporter-confirmed)
 
@@ -69,6 +81,15 @@ vllm-ascend `v0.7.3rc2` ↔ vllm `v0.7.3`, 8×910B4, torch-npu `2.5.1.dev2025032
 CANN 8.0.0; Qwen2.5-VL-7B after a LLaMA-Factory SFT answers **全是感叹号**, while
 "使用llamafactory推理是正常的，在v100上也是正常的". Resolution, posted by the reporter
 (2025-04-23): 「已解决，将精度改为 bfloat16 就可以了」.
+
+The SFT checkpoint was **never shared**: asked for the post-SFT weight on 2025-04-21 the
+reporter answered "Sorry, this model weight is not open to the public". The two clean
+controls therefore exist only as the reporter's own statement — quote them as the
+report's controls, not as something a re-run here can confirm, and keep "the weight" off
+the send-back list. The same thread also shows the order the levers were tried in: on
+2025-04-22 the reporter was handed `INF_NAN_MODE_ENABLE=0` and answered "Okay, thanks.
+I'll try it", the maintainer corrected that variable name the same day (Step 2), and the
+one that closed the issue a day later was still the dtype.
 
 Two facts from that session are worth carrying into the next one:
 

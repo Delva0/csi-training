@@ -4,8 +4,8 @@
 
 Rule 15 of `SKILL.md` in full. The rule is short — a working sibling path in the
 reporter's own evidence constrains the cause, and a mechanism that also predicts the
-working path failing is not yet the answer. This page carries the six forms that
-recurs, each with the recorded cost of getting it wrong, and the reasoning each one
+working path failing is not yet the answer. This page carries the seven forms that
+recur, each with the recorded cost of getting it wrong, and the reasoning each one
 licenses:
 
 | Form | What it decides | Section |
@@ -14,6 +14,7 @@ licenses:
 | the **same** server answers request 1 and dies on request 2 | the two requests' *scheduler input state* is the variable, and the dumped `SchedulerOutput` names it | *A first request that works* |
 | your own ablation (`--enforce-eager`, a spec/async toggle) | which *phase* was removed, and whether the paste proves it ran | *Your own ablations* |
 | a workaround named in the report's prose | which rung is first | *A named workaround* |
+| a ranked diagnosis the report pasted (a 根因分析 / 建议排查 block) | each named lever is a hypothesis: grade its existence at the pin and its cited log line's emit site | *A ranked analysis the reporter pasted* |
 | a tested-configuration matrix in the body | one verdict line per row, and which rows are the controls | *A matrix* |
 | a control the reporter asserts, or built from a lower-level API | a premise, not a finding | last two |
 
@@ -128,6 +129,53 @@ everything else constant; the cheaper knob first). The same request applies when
 working side is a different session, image or "earlier version": ask which of the
 changed flags the answer rests on before shipping a mechanism
 (`../pooling-embedding/chunked-prefill-vector-corruption.md`).
+
+## A ranked analysis the reporter pasted is a hypothesis table
+
+Some reports arrive with their own root-cause write-up — a `问题分析报告` / `根因分析`
+block carrying a 可能原因 ranking and a 建议排查/修复方案 list, often machine-drafted. It
+is the reporter's hypothesis set, not evidence, and it is also the list they will run
+next, so every named lever is graded before it reaches your ladder. One call grades the
+environment side:
+
+```bash
+uv run --no-project python <skill_root>/scripts/env-knob-liveness.py \
+    --root /workspace/repos/<issue>/vllm-project/vllm-ascend <NAME> [<NAME> …]
+```
+
+It prints `LIVE` / `SET-ONLY` / `CONSTANT` / `COMMENTED` / `ABSENT` per name, and `ABSENT`
+ends that lever. Then three readings decide the rest.
+
+- **Does the knob exist at the pin?** Recorded #10700 (the reporter's 2026-07-01
+  comment): the pasted analysis led with `VLLM_ASCEND_ENABLE_ACL_GRAPH=0`, which no tree
+  defines — `vllm_ascend/envs.py` has no `*GRAPH*` key at v0.21.0rc1 (`80610e4`) or
+  v0.18.0rc1 (`99e1ea0`). Graph mode there is the `--compilation-config` field
+  `cudagraph_mode` plus global `--enforce-eager` (`vllm_ascend/platform.py:483-489`), and
+  the *spec-scoped* `enforce_eager` the reporter had already run is a third, different
+  knob (`../spec-decode-mtp/draft-graph-capture-device-fault.md`).
+- **Is the cited log line an error at all?** Read its emit site before ranking it. The
+  same analysis ranked the `[sample/rejection_sampler] Using fallback (non-reduce-sample)
+  path … enable_reduce_sample=False, has_target_indices=False` line fourth and proposed
+  `enable_reduce_sample: true` for it; that line comes from a `logger.warning_once` on
+  the branch taken whenever the sampler receives a plain logits tensor instead of
+  `(logits, target_indices)`, and `enable_reduce_sample` defaults `False`
+  (`vllm_ascend/sample/rejection_sampler.py:586-592`, `vllm_ascend/ascend_config.py:270`
+  at `80610e4`) — so it prints on every default MTP launch. It is a *lane* clue about
+  which sampling path ran (`../hccl-and-hardware/worker-segfault-no-python-frames.md`
+  uses it that way and A/Bs `enable_reduce_sample`), never a cause on its own.
+- **Capacity guesses are refuted by the report's own startup numbers.** "降低
+  `max_model_len` / `gpu_memory_utilization` 以避免 DDR 地址越界" is not a description of
+  a device address fault on a graph replay: the same paste's startup lines size the KV
+  pool (`Available KV cache memory: 21.26 GiB`) and finish capture (`Graph capturing
+  finished in 34 secs`), while a lower ratio only shrinks the pool
+  (`../deploy-sizing/index.md`).
+
+What the answer owes is one line per lever — exists / does not exist at your pin; a mode
+notice, not a fault — plus credit for the part the analysis got right, because the
+reporter already knows it. #10700's write-up correctly read the ~101-minute gap between
+the device record (`01:19:08`) and the traceback that surfaced it (`03:00:17`)
+(`../hccl-and-hardware/error-report-timestamps.md`), and that reading is what keeps the
+crash from being pinned on whichever request happened to be live.
 
 ## A tested-configuration matrix in the body is the strongest form
 

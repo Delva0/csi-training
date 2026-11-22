@@ -690,13 +690,18 @@ the evidence can carry: the decode axis (K changes only the D node), the pin's m
 `docs/source/tutorials/pd_disaggregation_mooncake_multi_node.md:255,315,375,435,504,564,624,684`,
 `tests/e2e/nightly/multi_node/config/models/DeepSeek-R1-W8A8-A2.yaml:33,55` — while the
 colocated page uses K=3), and #3097's pricing (+8.6 % output throughput on the D node with
-MTP on, 9.78 TPS/NPU under single-op dispatch against 42.67). The recorded run shipped
-**no message text**: 33 messages, three reasoning blocks of 10.4 K / 10.6 K / 7.6 K
-characters spent reconstructing the OCR'd percentile rows and re-deriving `tokens per
-step` from `ITL_p50 / TPOT_p50` that the paste did not contain, cut at the cap — while the
-summary fields (wall time, output tok/s, request count, concurrency) were in the first two
-files it opened. Ask for the EvalScope summary text and one `SpecDecoding metrics:` line
-per K instead of decoding a screenshot —
+MTP on, 9.78 TPS/NPU under single-op dispatch against 42.67). **Both** recorded runs
+shipped **no message text**. The first: 33 messages, three reasoning blocks of 10.4 K /
+10.6 K / 7.6 K characters reconstructing the OCR'd percentile rows and re-deriving `tokens
+per step` from `ITL_p50 / TPOT_p50` that the paste did not contain, cut at the cap — while
+the summary fields (wall time, output tok/s, request count, concurrency) were in the first
+two files it opened. The second (a replay of this same report): reached this entry at
+assistant turn 6 and still spent 8.2 K + 10.4 K characters re-verifying the owning page's
+citations at the reported pin before writing anything, then lost the remaining budget to
+an 8.4 K-character answer skeleton cut mid-sentence — i.e. the ledger here is right that
+the ladder is the message, and the failure is deferring it for verification. Ask for the
+EvalScope summary text and one `SpecDecoding metrics:` line per K instead of decoding a
+screenshot —
 `../performance-throughput/spec-decode-gain-accounting.md` §Worked case.
 
 **#8285** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`), 8×910B3-64G,

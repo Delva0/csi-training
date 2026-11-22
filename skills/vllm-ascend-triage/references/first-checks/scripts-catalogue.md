@@ -168,13 +168,30 @@ after that keeps the header, not this text.
   per argument, taken from the paste: the error sentence, the attribute/function/op/
   kernel name, a numeric code, a flag, a symptom phrase. Prints each token's file count
   (rarest first), then every page carrying **all** tokens with that page's own
-  `# heading` beside the path, then the `N-1`/`N-2` grades capped at `--max` (default 8)
-  lines each, and the two shortest lists when no page carries two tokens. A token also
+  `# heading` beside the path — that grade uncapped while it is a decision list
+  (≤ 25 members), because `[case]` pages sort first and the topical owner is often
+  its last line (recorded #6972 lost
+  `startup-failures/graph-mode-not-applied.md` into `+5 more` of a capped 8 of 13) —
+  then the `N-1`/`N-2` grades capped at `--max` (default 8) lines each, and the two shortest
+  lists when no page carries two tokens. Pass a **flag as it stands**
+  (`'--compilation-config'`): a dashed token is accepted instead of rejected as an
+  unknown option, and searched with and without its leading dashes. A token also
   matches a file **name** — the owning page rarely repeats its own slug while every
   sibling links to it as a path, so a content-only grep ranks the owner below the pages
-  that point at it. `[case]` = a `recorded-cases*` page (open it first), `[index]` = a
-  topic index (a route, not an owner), `[dispatch]` = a wording table. Default matching
-  is case-insensitive fixed-string: `--regex` for an alternation
+  that point at it. `[case]` = a `recorded-cases*` page (open it first), and its line
+  names the entries inside that file that share most of the query tokens —
+  `→ #12985:488 (3/3)` is id, record-heading line and matched-token count — so a hit
+  names the case to read, not just the file; when no entry matches, the line carries the
+  file's number of `**#<id>**` entries instead, so a 30-80-case page is greped for the
+  report's id rather than read whole. `[index]` = a topic index (a route, not an owner),
+  `[dispatch]` = a wording table. **A family-word guard prints before the grades** when
+  no page carries all tokens and the widest token alone hits 40+ pages: the grade then
+  cannot name the owner, and the two moves that do are the shape's row in
+  `references/dispatch/classified-shapes.md` and the `[case]` file opened by the report's
+  own wording — a token-less paste (two benchmark tables, two screenshots, "X is slower
+  than Y") is that case by construction (recorded #5605's five family tokens graded
+  `4-of-5: none` with `mtp` on 183 pages and never listed the owning page). Default
+  matching is case-insensitive fixed-string: `--regex` for an alternation
   (`preprocess_mamba|get_temporal_copy_spec`), `--case` to disable `-i`. Exit 0 always —
   a thin or empty grade means the tokens are family words (shorten them to the
   attribute, flag or code the paste names) or spelled differently in the library, not
@@ -402,7 +419,11 @@ after that keeps the header, not this text.
   single-request lane: the `bs_to_padded_graph_size` map for the launch's own
   capture list, which bucket a one-request step replays versus a full step, the
   idle ranks' `execute_dummy_batch()→_dummy_run(1)` (eager, still joins the DP
-  all_reduce), and the four-row ablation (#3128).
+  all_reduce), and the four-row ablation (#3128). `--capture-sizes` also takes the
+  launch's pasted `--compilation-config` value, `'{"cudagraph_capture_sizes":
+  [8,1]}'`, or the bare list as a positional; a launch with no
+  `--compilation-config` has no default list to assume and the script says so
+  instead of inventing one. Invoke `bash <skill_root>/scripts/dp-single-request-bucket.sh …`.
 - `scripts/mc2-capacity-asymmetry.sh --capture-a LIST|default --capture-b LIST|default
   --tp N [--dp --pp --experts --max-num-seqs --num-spec
   --max-num-batched-tokens]` — the cross-node MC2 symmetry check (#8294): each

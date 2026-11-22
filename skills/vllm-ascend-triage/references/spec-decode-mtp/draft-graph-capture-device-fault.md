@@ -47,6 +47,16 @@ GLM-5.1, DP2 × TP8 + EP, `--max-num-seqs 8 --max-model-len 200000`,
 `FULL_DECODE_ONLY`, `enable_npugraph_ex` (passed flat, i.e. inert — the default is
 already `True`). It recurred unchanged on v0.22.1rc1, so do not answer "upgrade".
 
+The 2026-07-01 comment on this issue is the **reporter's own ranked analysis**
+(`问题分析报告`: ACL-graph compile defect first, then capacity, CANN pairing, then the
+`rejection_sampler` fallback warning). It moves no rung — grade it before quoting it
+(`../dispatch/controls-and-ablation.md`, *A ranked analysis the reporter pasted*): its
+top lever `VLLM_ASCEND_ENABLE_ACL_GRAPH` is defined by no tree at either pin, its
+"lower `gpu_memory_utilization` / `max_model_len`" rows describe no device address fault,
+and the fallback line it ranks fourth is a `warning_once` on the default config. What it
+does read correctly is the record-to-report timestamp gap below, which is why the crash
+must not be pinned on whichever request was live.
+
 ## The non-MTP variant: `suffix` / `ngram` (#9278, v0.19.1rc1)
 
 Same capture-mode family, different method and a **request-time** frame. Recorded

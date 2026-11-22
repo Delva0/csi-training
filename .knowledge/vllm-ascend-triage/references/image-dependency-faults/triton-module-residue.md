@@ -110,6 +110,27 @@ distribution and re-check.
    `No matching distribution found for triton-ascend==3.2.1`). If the reporter
    needs Triton kernels, the answer is a non-310P card/image, not a wheel.
 
+**Nor is a bypass a fix.** `TORCH_DEVICE_BACKEND_AUTOLOAD=0` is documented to skip
+importing out-of-tree backends (`pytorch/pytorch` snapshot `v2.12.1`,
+`docs/source/miscellaneous_environment_variables.md:10`), which removes the
+exception by removing `torch_npu` from the session — vllm-ascend then has no NPU
+backend at all; monkeypatching `getattr` on `triton` only defers the failure into
+unvalidated Triton branches. Acceptance is one real request answering normally.
+
+## Ask back (the paste cannot carry these)
+
+- The probe output above verbatim (`sys.executable`, `triton.__file__`,
+  `triton.__path__`, version), plus `pip list | grep -i triton` and
+  `find <site-packages>/triton -maxdepth 2` (absence of `language/`, `runtime/`
+  is the residue signature).
+- **Every `pip install` run inside the container.** That is the usual origin: the
+  `-310p` recipe uninstalls triton *after* each install step (`Dockerfile.310p:45-48`
+  and `:63`, no reinstall) precisely because vllm's own metadata pulls it in, so any
+  later `pip install vllm…` / `pip install -e .` / `pip install triton-ascend`
+  inside the running container reinstates it.
+- Which image tag and platform (`uname -m`): `triton` present is normal on A2/A3
+  images and abnormal on `-310p` (the contrast above).
+
 ## Labels and gaps
 
 - The traceback shape, the uninstall/keep split and the two `__init__` lines are

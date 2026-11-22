@@ -15,9 +15,10 @@ The same ownership test covers the **Triton-Ascend compiler pair**: a kernel tha
 fails to *compile* (`MLIRCompilationError`, `bishengir-compile … returned non-zero
 exit status 1`) belongs to the wheel/compiler that was installed into the image,
 not to vllm-ascend Python or the kernel's shapes. The same wheel's **runtime**
-behaviour is here too: a Triton-Ascend extension op (`extract_slice`) that runs and
-returns wrong values is owned by the wheel and its test coverage, with the tree's own
-kernels audited separately (`triton-extension-op-silent-miscompute.md`).
+behaviour is here too: a Triton-Ascend extension op (`extract_slice`) or a compiled
+kernel (a per-head reduction whose scalar scale becomes 0) that runs and returns wrong
+values is owned by the wheel and its test coverage, with the tree's own kernels audited
+separately (`triton-extension-op-silent-miscompute.md`).
 It also covers the **host C++ compile of a generated translation unit** that fails
 inside a *torch_npu* or *CANN* header (`use of undeclared identifier
 'aclOpExecutor'` at `AclOpCompileInterface.h`, `fatal error: 'cstdint' file not
@@ -76,8 +77,10 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   「d2000只支持armv8 … torch.2.10默认使用armv8.2的指令集编译的」). One host-side
   `dmesg -T | grep -i 'trap invalid opcode'` names the `.so`, `/proc/cpuinfo`
   `Features` (or `LD_SHOW_AUXV=1`) names the missing extension, and the rung is the
-  last image line before the 2.10 bump (`release_notes.md:316`, v0.20.2rc1) — never
-  `pip install torch==2.9.0` under the newer `torch_npu`. The device-side aicore
+  last **release** line before the 2.10 bump (`release_notes.md:316`, v0.20.2rc1) — never
+  `pip install torch==2.9.0` under the newer `torch_npu`; a nightly or `-openeuler` tag
+  of one release re-dispatches that branch's own `requirements.txt`, so a newer/nightly
+  tag is not an alternative rung. The device-side aicore
   `Illegal instruction, which is usually caused by unaligned UUB addresses`
   (`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`) shares the words and
   nothing else.
@@ -307,9 +310,11 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   or "should it be `./build/libcust_opmaster_rt2.0.so`?" — no failing frame, no exit
   code. `compat/` is a **build-tree-only** relative link whose layout exists only after
   `install()` (`csrc/CMakeLists.txt:195-209` vs the absolute `$<TARGET_FILE:optiling>`
-  link at `:186-189`), so the packaged copy resolves and nothing needs `ln` or a rebuild:
-  answer that first, then the two-command check on the reporter's box →
-  `custom-op-build-stage.md` §Step 2b (v0.19.1rc1, #10792).
+  link at `:186-189`), so the staged copy resolves and nothing needs `ln` or a rebuild:
+  answer that first, and map the `_CPack_Packages/…/op_tiling/lib/linux/<arch>/` copy the
+  body names onto the staged link rather than asking for it back — the one escalation is
+  whether that staged link and the `.run` exist (a `cat` on the build-tree link must fail).
+  → `custom-op-build-stage.md` §Step 2b (v0.19.1rc1, #10792).
 - A **compiler or linker** error in that same source build, with no engine start:
   `ld: … multiple definition of '<symbol>'` / `first defined here`, `collect2: error:
   ld returned 1 exit status`, `ccec_compiler`/`ascendc_pack_kernel` frames, then
@@ -362,13 +367,21 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   wheel its docs name is required, a final pin (v0.14.0rc1 `==3.2.0`) means the image
   already has it and the manual install is the damage — so read the pin before
   offering "remove the install", and put the release move first.
-- A Triton-Ascend **extension op returns wrong values** although the engine is
-  healthy — bf16 `extract_slice` at a non-32-byte-aligned start yielding foreign
-  values and zeros, `insert_slice`/`extract_slice` pairs in a hand-written kernel,
-  fp16 "works" but bf16 does not → `triton-extension-op-silent-miscompute.md`. Owner
-  is the pinned wheel (`triton-ascend==3.2.1` at v0.23.0rc1), not vllm-ascend Python;
-  the page carries the doc-versus-UT coverage gap, the print-path-versus-data-path
-  check, the dtype-versus-offset discriminator and the in-tree exposure grep.
+- A Triton-Ascend **extension op or compiled kernel returns wrong values** although
+  the engine is healthy, in either of two forms → `triton-extension-op-silent-miscompute.md`.
+  **(a) slicing**: bf16 `extract_slice` at a non-32-byte-aligned start yielding foreign
+  values and zeros, `insert_slice`/`extract_slice` pairs in a hand-written kernel, fp16
+  "works" but bf16 does not. **(b) a zeroed reduction**: `squares` and
+  `tl.sum(…, axis=1)` are correct in the reporter's own dump, a non-identity scalar
+  scale of that result (`/ head_size`, `* 2.0`, `* 0.5`) comes back `0` while `* 1.0`
+  is fine, it only happens while a later `extract_slice(<that tile>) * cos` consumer
+  exists, and only at one head count (kv heads 4 wrong, 2 right) — the reporter often
+  arrives with a working temporary-store patch and the wrong owner named. Owner is the
+  pinned wheel (`triton-ascend==3.2.1` at v0.23.0rc1, `==3.2.2` at v0.23.0), not
+  vllm-ascend Python; the page carries the doc-versus-UT coverage gap, the
+  print-path-versus-data-path check, the dtype-versus-offset discriminator, the
+  shape × consumer bisect, the in-tree exposure grep and
+  `scripts/qknorm-mrope-exposure.sh` (exposure + CI coverage in one call).
 - A **host C++ compile of a generated TU** fails inside torch_npu's or CANN's own
   headers: `RuntimeError: Worker failed with error 'Failed to compile
   /tmp/tmpXXXX/launcher_cxx11abi1.cxx …'`, an include chain
@@ -481,13 +494,17 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   at vllm-ascend v0.11.0), and the maintainer-confirmed answer on #5750 — do not add
   triton-ascend to these images, and move the release (v0.14.0rc1 needs none)
   rather than the compiler.
-- `triton-extension-op-silent-miscompute.md` — a Triton-Ascend extension op that runs
-  and computes the wrong values (`extract_slice` of a bf16 sub-tile at an unaligned
-  start): the wheel pin (`requirements.txt:20`), the doc claim (bf16 supported,
-  无特殊限制) against a UT that only slices 1-D fp32 at 2048-byte-aligned starts, the
-  lowering chain from `vec_ops.py:97-136` to `tensor::ExtractSliceOp`, the two runs
-  that separate dtype from offset, the host-side workaround ladder, and the 42
-  in-tree call sites that are aligned by construction today (#18345).
+- `triton-extension-op-silent-miscompute.md` — a Triton-Ascend-compiled kernel that runs
+  and computes the wrong values, in two forms: (a) `extract_slice` of a bf16 sub-tile
+  at an unaligned start — the wheel pin (`requirements.txt:20`), the doc claim (bf16
+  supported, 无特殊限制) against a UT that only slices 1-D fp32 at 2048-byte-aligned
+  starts, the lowering chain from `vec_ops.py:97-136` to `tensor::ExtractSliceOp`, the
+  two runs that separate dtype from offset (#18345); (b) a per-head reduction whose
+  non-identity scalar scale becomes 0 under a later slice × cos consumer at one head
+  count — the five-row ladder, the `patch/worker/` callers that skip the FX pass's
+  `head_size != 128` gate, the nightly test's kv-head tuples, the "break the data
+  chain" fix and why a temporary store is a dead store (#12642). Both keep the
+  host-side workaround ladder and `scripts/qknorm-mrope-exposure.sh`.
 - `triton-install-state-op-dispatch.md` — the reporter compares **two implementations of
   one op** ("triton 实现和 ascend 实现结果不一致", 乱码) on a box holding both `triton` and
   `triton-ascend`: `rope_forward_oot`'s `if HAS_TRITON:` (`ops/rotary_embedding.py:166`)

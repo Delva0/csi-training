@@ -801,9 +801,12 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   static per-tensor vs `W8A8_DYNAMIC` per-token vs `FLOAT`-skipped layers) and, with
   the checkpoint's `config.json`, the `R = 2/(1+u)` decode ceiling; the score belongs
   to the scheme and its calibration, the rate to that ceiling plus the graph lane and
-  `VLLM_ASCEND_ENABLE_NZ` (`../performance-throughput/quantized-dense-no-gain.md`,
-  #10604). Do not walk `vllm_ascend/quantization/*` for either half, and check the
-  same-family *published* artifact as the control before believing a conversion fault.
+  the pin's own weight-layout switch — `--additional-config
+  '{"enable_weight_nz_layout": true}'` on a v0.9-line tree, where it defaults **off**,
+  versus `VLLM_ASCEND_ENABLE_NZ`/`weight_nz_mode` later
+  (`../performance-throughput/quantized-dense-no-gain.md`, #10604, #2514). Do not walk
+  `vllm_ascend/quantization/*` for either half, and check the same-family *published*
+  artifact as the control before believing a conversion fault.
 - Accuracy/corruption: establish whether both numbers came from the same
   server, weights and serve flags before choosing a culprit
   (`../accuracy-benchmarks/index.md`); for a garbled prompt, get the

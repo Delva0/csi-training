@@ -163,6 +163,25 @@ after that keeps the header, not this text.
   not the script, is the evidence — cite the `path:line` it prints. Exit 0 even when
   no tab matches (that is the finding); 2 for a missing page/command file. Step 0 of
   `../image-dependency-faults/native-string-abort.md` uses it on a startup abort.
+- `scripts/reference-locate.py TOKEN [TOKEN …] [--root DIR] [--max N] [--min-grade N]
+  [--regex] [--case] [--quiet]` — step 2b's page-location grade in one call. One token
+  per argument, taken from the paste: the error sentence, the attribute/function/op/
+  kernel name, a numeric code, a flag, a symptom phrase. Prints each token's file count
+  (rarest first), then every page carrying **all** tokens with that page's own
+  `# heading` beside the path, then the `N-1`/`N-2` grades capped at `--max` (default 8)
+  lines each, and the two shortest lists when no page carries two tokens. A token also
+  matches a file **name** — the owning page rarely repeats its own slug while every
+  sibling links to it as a path, so a content-only grep ranks the owner below the pages
+  that point at it. `[case]` = a `recorded-cases*` page (open it first), `[index]` = a
+  topic index (a route, not an owner), `[dispatch]` = a wording table. Default matching
+  is case-insensitive fixed-string: `--regex` for an alternation
+  (`preprocess_mamba|get_temporal_copy_spec`), `--case` to disable `-i`. Exit 0 always —
+  a thin or empty grade means the tokens are family words (shorten them to the
+  attribute, flag or code the paste names) or spelled differently in the library, not
+  that no page exists. The two recorded sessions that ran the loop by hand (#6509 four
+  tokens → 3.4 KB, #9003 five tokens → 19.8 KB of `rg -l` output, the intersection
+  picked by eye across four lists) resolve to the same one or two pages this prints as
+  the all-token grade, with the heading that makes the choice without opening them.
 - `scripts/history-titles.sh [-i] [-b] '<regex>' [root] [limit]` — precedent index,
   one `<file> :: <title>` line per matching history issue (rule 8: titles first).
   **Title-only is the default**: `-b` adds whole-body matching, and a title-only
@@ -301,6 +320,17 @@ after that keeps the header, not this text.
   and a per-request-count table marking every count that raises and every count that
   returns **wrong rope with no exception** — then the two next calls
   (`rg -n 'update_cos_sin' vllm_ascend/`, the ablation ladder) (#6449 v0.14.0rc1).
+- `scripts/qknorm-mrope-exposure.sh <vllm-ascend-root> [--kv-heads N]` — the fused
+  qkv-split + RMSNorm + RoPE kernels in one call: the commit and the `triton-ascend`
+  pin (`==3.2.1` at v0.23.0rc1, `==3.2.2` at v0.23.0 — read it, the kernel source does
+  not move), every per-head `tl.sum(…, axis=1)` reduction site, which kernel hands a
+  slice of the *normalized* tile to a cos/sin multiply (the consumer shape the
+  zeroed-scale miscompile needs), every caller of the op with the FX pass's
+  `head_size != 128` / bf16-only gates that a direct `torch.ops` call skips, whether
+  any env switch could turn the fused op off, and the nightly tests' parameter tuples
+  with the kv-head counts CI runs (`--kv-heads 4` answers whether the reported model's
+  count is covered) plus the K variance chain to quote (#12642; the alignment sibling
+  is `rope-cos-sin-slice-check.sh` for the rope reshape, not this).
 - `scripts/fia-tnd-seqlen-check.sh --query-t N --seqlen-last M [--paste <log|->]
   [--max-num-seqs S] [--num-spec K] [--capture-sizes 1,2,4,8,16,32] [--dp D]
   [--requests R] [--mode full|piecewise|eager]` — the FIA TND refusal in one
@@ -327,7 +357,9 @@ after that keeps the header, not this text.
   maps `hccl_result = N` / `error_codes=[…]` to `hcclResult_t` and Mooncake's
   `ErrorCode` (`4` = generic INTERNAL, `-1` = generic store error, `-200` = out of
   space), reads the master's `PutStart`/`PutEnd`/`PutRevoke` as control-plane vs
-  data-plane, and flags the canned `Check memory and store capacity` text (#11454).
+  data-plane, flags the canned `Check memory and store capacity` text, and reads the
+  master's `SSD Storage: X / Y` as its DFS/file layer (`--root_fs_dir` +
+  `--global_file_segment_size`) rather than a client offload switch (#11454).
 - `scripts/ranktable-check.sh <rank_table.json|log> [...] | -` — `server_count` /
   `server_id` / duplicate `device_ip`, i.e. multi-server vs local HCCS (#14506).
 - `scripts/hccl-link-pair-audit.sh <log|-> [--visible 0-3]` — the distinct failed
@@ -553,12 +585,15 @@ after that keeps the header, not this text.
   `weight_nz_mode` resolves there (`0` off / `1` quantised-only default / `2`
   bf16+fp16) — i.e. whether an fp32 pooling head (#4679) or a bf16 MoE
   shared-expert gate (#10014) is being cast to `FRACTAL_NZ`, and which mode is the
-  escape. Two version boundaries it now reports instead of guessing: when **no** gate
-  function exists at the root (v0.11-line trees decide the layout inline) it prints the
-  cast-site and `is_310p()` greps and routes to
-  `../feature-enable-recipes/weight-nz-layout-by-soc.md`, and when neither
-  `weight_nz_mode` nor `VLLM_ASCEND_ENABLE_NZ` is in the tree it says the layout is not
-  a flag there instead of printing the mode escape.
+  escape. Three version boundaries it now reports instead of guessing: when **no**
+  gate function exists at the root it prints the cast-site and `is_310p()` greps and
+  routes to `../feature-enable-recipes/weight-nz-layout-by-soc.md`; when neither
+  `weight_nz_mode` nor `VLLM_ASCEND_ENABLE_NZ` is in the tree it checks
+  `ascend_config.py` for the pre-v0.10 spelling and, if present, names
+  `--additional-config '{"enable_weight_nz_layout": true}'` with its **`False` default**
+  (v0.9.1rc2 `b9f715d6`, where int8 weights therefore run ND) — the speed-direction
+  lever on that line; and only when none of the three exists does it say the layout is
+  not a flag there at all.
 - `scripts/toolcall-raw-output-audit.py <dir-or-file> [...] [--markers '<a>,<b>']`
   — read a case's request / rendered-prompt / tokenized-request / completion
   dumps and print the lane: no tool-call marker in the engine's own completion

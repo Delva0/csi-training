@@ -909,10 +909,13 @@ asks only for that ("gemma4 mtp 910B 上的支持计划是什么样的"). Page:
   metadata pasted). The recorded run answered in 21 messages — every turn carried draft text, the
   verdict moved into the message at turn 3 — and shipped the full ranked answer at the cap of its
   own budget rather than the harness's: `max_completion_tokens` outranks `max_tokens`
-  (`chat_completion/serving.py:307-311`), no loop brake exists, `thinking_token_budget` is a no-op on
-  NPU (`npu_input_batch.py:56-59`), and `reasoning_effort: high` on DeepSeek-V4 is a prompt prefix
-  (`patch_deepseek_v4_thinking.py:25-48,85-86`) that *asks* for the enumerated-rejection loop. Page:
-  `../accuracy-benchmarks/reasoning-output-routing.md`, last section.
+  (`chat_completion/serving.py:307-311`), no loop brake exists, `thinking_token_budget` 400s without
+  an enabled reasoning config or off the V1 runner (`input_processor.py:102-117`) and no-ops on NPU
+  once admitted (`npu_input_batch.py:56-59`), and `reasoning_effort` on DeepSeek-V4 is a prompt
+  prefix (`patch_deepseek_v4_thinking.py:25-48,85-86`) that *asks* for the enumerated-rejection loop
+  — but only the string the checkpoint's branch maps to it does (the replay's "`high` reaches the
+  high prefix in both mappings" was wrong: under the preview mapping `high` is the empty prefix).
+  Page: `../accuracy-benchmarks/reasoning-output-routing.md`, last section.
 
 **#17391** image vllm-ascend 0.23.0, GLM-5.2-w4a8c8 / GLM-5.3-w8a8c8, 8×A2 P/D,
   `--tool-call-parser glm47` + `--reasoning-parser glm45`, MTP n=1 (P) / n=4 (D):

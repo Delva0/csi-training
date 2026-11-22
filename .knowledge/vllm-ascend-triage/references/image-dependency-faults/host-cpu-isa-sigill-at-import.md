@@ -72,14 +72,40 @@ Pinned at v0.23.0rc1 (`f4a08bd`, the reported image's release):
 | The 2.10 bump is **v0.20.2rc1** (2026.06.03): "Upgraded PyTorch and torch-npu to 2.10.0. #9128" | `release_notes.md:316` (section heading `:273`) |
 | v0.21.0rc1 is unchanged, i.e. every later line is 2.10 too | `release_notes.md:246` |
 | The **2.9** line immediately before it is v0.19.1rc1 (2026.04.30): `torch-npu` 2.9.0.post1+git4c901a4 | `release_notes.md:658` (heading `:458`); v0.18.0 at `:403`/`:337` |
-| Both 310P recipes build on an aarch64 CANN base that carries the pair — the pin is the **image**, not a pip line | `Dockerfile.310p:18` and `Dockerfile.310p.openEuler:18` (`quay.io/ascend/cann:9.1.0-beta.1-310p-…`) |
+| Both 310P recipes install the pair from the **branch's own `requirements.txt`** at build time (`pip install -e /vllm-workspace/vllm-ascend/`); the `FROM` base is the CANN toolkit image and carries no torch of its own | `Dockerfile.310p:62` / `Dockerfile.310p.openEuler:60`, base at `:18` (`quay.io/ascend/cann:9.1.0-beta.1-310p-…`) |
+| The repo copy stays in the image, so the tag's torch pin is readable **without importing torch** (on a SIGILL box nothing may import it) | `COPY . /vllm-workspace/vllm-ascend/` at `Dockerfile.310p:57` / `Dockerfile.310p.openEuler:55` → in-container `grep -E '^torch' /vllm-workspace/vllm-ascend/requirements.txt`, or `pip show torch torch_npu` |
 
-So the rung is **the last `-310p` image tag published before v0.20.2rc1** (the
-v0.19.1rc1 line), confirmed to exist for 310P first —
+So the rung is **the last `-310p` release tag published before v0.20.2rc1** (the
+v0.19.1rc1 line; a nightly rebuild of v0.23.0 is not it, next section), confirmed to
+exist for 310P first —
 `docker buildx imagetools inspect quay.io/ascend/vllm-ascend:v0.19.1rc1-310p`, or the
 tag inventory from `scripts/image-arch-matrix.sh <root> --soc 310p`
 (`image-arch-and-tag-availability.md`). If no such tag was built, say so and stop
 recommending it: a missing tag is an artefact gap, not a reason to hand-patch torch.
+
+## Which tags are *not* a different torch line
+
+The image decides the torch only because it rebuilds a **branch**, and that branch's
+`requirements.txt` is the pin. At v0.23.0rc1 the published 310P tags come from two
+dispatch modes of `.github/workflows/_schedule_image_build.yaml` (suffixes from
+`schedule_image_build_and_push.yaml:75-90`, `310p` and `310p-openeuler`):
+
+| Tag | Derived from | Torch it carries |
+|---|---|---|
+| `v0.23.0rc1-310p`, `…-310p-openeuler` (also an rc rebuilt by hand: `type=raw,value=<tag>`) | that release tag (`type=pep440`, `:366`; raw at `:368`) | that release's `requirements.txt` |
+| `nightly-releases-v0.23.0-310p` | a dispatch with `branch: releases/v0.23.0`: `type=raw,value=${{ inputs.branch_ref }},prefix=nightly-` (`:369`), branch list `schedule_image_build_and_push.yaml:43-49`, `/`→`-` inside the docker tag | the **same** v0.23.0 branch, i.e. `torch==2.10.0` — a rebuild cadence, not a different torch |
+
+So the reporter's follow-up on #13936 — quoting `nightly-releases-v0.23.0-310p` and
+asking 「这个torch兼容armv8么」 — is answered **no, and that tag changes nothing**: it
+is `releases/v0.23.0` built again, carrying `requirements.txt:16-17` and the same
+ARMv8.2 baseline. Answer the compatibility question literally (torch 2.10's aarch64
+build needs ARMv8.2; an ARMv8.0 core cannot run it) and keep the rung on the pre-2.10
+**release** tag. Refute a "newer/nightly tag must be better" suggestion with one
+in-container read — `grep -E '^torch' /vllm-workspace/vllm-ascend/requirements.txt`
+or `pip show torch torch_npu`, neither of which imports torch — and only treat a
+variant tag as a rung if that read shows the branch moved off 2.10 (at this pin it has
+not). Do not answer it by hunting tags in a registry, and do not call the nightly
+image "a newer torch": the tag name carries no version at all.
 
 ## Never pip-downgrade torch inside the newer image
 
@@ -145,3 +171,10 @@ evidence, and the warning that the `Illegal instruction` hits elsewhere in this 
 are the aicore's own message. The session's own guess list (`LSE` / `dotprod` / `FP16`
 / `PAuth`) was correct but unordered; the reporter's confirmed mechanism is the
 **armv8.2 baseline**, so lead with that and keep PAuth as a footnote.
+
+The reporter's later public comment on the same thread both confirms the mechanism
+(`d2000只支持armv8，鲲鹏920和D3000可以支持armv8.2，而torch.2.10默认使用armv8.2的指令集编译的`)
+and shows what the next question is: it quotes the **`nightly-releases-v0.23.0-310p`**
+tag and asks whether that torch is armv8-compatible. That is a branch-pin question,
+answered in one in-container read by the section above — a replay that only re-derives
+the ISA table and leaves the tag question open invites the same follow-up.

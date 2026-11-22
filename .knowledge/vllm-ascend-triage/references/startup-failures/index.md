@@ -488,12 +488,15 @@ Inherit the rules in SKILL.md. Conditional routes:
   nothing declaring a quantisation mean a full-precision release served instead of
   the documented quantised variant (recorded #12675), not a per-layer code bug.
   The **static-W8A8** spelling `…gate_up_proj.deq_scale` is neither of those: only
-  the static `W8A8` linear method allocates `deq_scale`, so a `-W8A8` directory that
-  *does* ship `quant_model_description.json` is the variant the release validates and
-  the engine was never quantised at all — then check that `--quantization ascend`
-  reached the **running** command (`docker inspect … .Config.Cmd`; a folded compose
-  `command: >` with an inline `#` silently drops every later flag), §B-i/§B-ii of
-  `quantization-method-gate.md` (recorded #5812).
+  the static `W8A8` linear method allocates `deq_scale` (the dynamic one allocates
+  `weight_scale`/`weight_offset` only), so a `-W8A8` directory that *does* ship
+  `quant_model_description.json` is the variant the release validates and the method
+  built for that layer is not static — never quantised at all, or described as
+  `W8A8_DYNAMIC`/`FLOAT`. One grep splits them (`Using the vLLM Ascend modelslim
+  Quantization now!` absent/present in the full startup log); then check that
+  `--quantization ascend` reached the **running** command (`docker inspect …
+  .Config.Cmd`; a folded compose `command: >` with an inline `#` silently drops every
+  later flag), §B-i/§B-ii of `quantization-method-gate.md` (recorded #5812).
 - The quant-method lookup dies before any shard bar with `KeyError: '.weight'` — the
   quoted key **starts with a dot** — deepest frames
   `vllm_ascend/ops/vocab_parallel_embedding.py` → `quant_config.get_quant_method` →

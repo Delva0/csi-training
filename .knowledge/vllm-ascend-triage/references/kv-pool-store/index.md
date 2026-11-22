@@ -174,7 +174,10 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   `error_codes=[-1]` (the store's generic code, not `-200` out-of-space), the
   master `PutStart`/`PutRevoke`/`PutEnd` reading that proves the control plane
   worked, which build flags pick the `ascend` transport, why the emitter is not in
-  any pinned export, and the two artefacts that decide the rest.
+  any pinned export, and the two artefacts that decide the rest. It also decodes the
+  master's `SSD Storage: X / Y` line: a master started with `--root_fs_dir` prints a
+  non-zero denominator there while every client has offload off, so that line is not
+  the offload flag and does not route the report to the offload/size families.
 - `no-put-under-spec-decode.md` — the pool stays empty with **no error anywhere** and spec
   decoding on (recorded #8002, v0.18.0rc1 `99e1ea0` / vllm v0.18.0 `bcf2be9`): upstream splits
   the connector lifecycle into `defer_*` + `finalize_kv_connector()` (`gpu_model_runner.py:3768`,

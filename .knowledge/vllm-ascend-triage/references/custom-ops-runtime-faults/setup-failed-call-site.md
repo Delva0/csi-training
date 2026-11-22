@@ -29,7 +29,7 @@ consistent-with, not proof).
 | `SelfAttentionOperation setup failed!` + `op_plugin_atb` frames at a proposer line, spec decode on | ATB at the drafter (join point; the Python line is a victim) | `../spec-decode-mtp/atb-op-setup-failure-at-proposer.md` |
 | `ReshapeAndCacheOperation setup failed!` on a `-310p` image with `--kv-cache-dtype fp8`/`bfloat16` | 310P has no non-fp16 KV path | `../soc-platform-paths/310p-kv-cache-dtype.md` |
 | `<Op>Operation setup failed!` beside `507018` / `RunCpuKernel` | the op ran on the CPU/AICPU fallback kernel | `../soc-platform-paths/310p-cpu-fallback-op-fault.md` |
-| `SelfAttentionOperation setup failed!` with **no** `--speculative-config` at all, a dense model and one **long** prompt (12 732 tokens on `--max-num-batched-tokens 14336`) | the dense V1 one-shot prefill branch handing ATB a `[prompt, prompt]` mask — branch first, kernel contract not derivable (§ below) | this page, second section |
+| `SelfAttentionOperation setup failed!` with **no** `--speculative-config` at all, a dense model and one **long** prompt (12 732 tokens on `--max-num-batched-tokens 14336`), the dump printing `num_computed_tokens=0` and `prefix_cache_stats(…, hits=0)` | the dense V1 `PrefillNoCache` branch — chunk 1 of **any** fresh prompt — handing ATB a `[chunk, chunk]` mask the size of `min(prompt, budget)`; branch first, kernel contract not derivable (§ below) | this page, second section |
 | `SelfAttentionOperation setup failed!` **plus** an ATB log line `tensor dimNum 0 is invalid … inTensor [N] CheckTensorShape failed` | the caller passed a `None`/empty tensor into the pack — find the never-bound attribute, do not read the op's shape contract | `atb-input-dim0-none.md` (recorded #2779) |
 | `PagedAttentionOperation setup failed!` beside `atb::OperationSetup` / `libop_plugin_atb.so` frames, on a V1 serve that started cleanly, at the **second** request (or any request whose prompt shares a cached prefix), the dumped config showing `enforce_eager=True`, `chunked_prefill_enabled=True`, `enable_prefix_caching=True` | the state decided by the dumped `SchedulerOutput` picks the branch: `ChunkedPrefill` ⇒ `_npu_paged_attention_splitfuse`, whose mask is the only argument that changed. Both flags are **V1 defaults**, so no flag was misused and `--enforce-eager` is spent | this page, section `PagedAttentionOperation` |
 | `RopeOperation setup failed!` (ATB **Rope**) at the first forward inside a `torch.compile` warm-up, `op_plugin_atb` frames only, **no** Python frame in the paste, on a VL / M-RoPE model (GLM-4.1V) that starts on A2 and dies on an `-a3` image | the rope call site in `vllm_ascend/ops/rotary_embedding.py` `_rope_forward_oot`: three routes, and which one ran is the question. No export carries the ATB Rope source, so the answer is a one-launch route flip, not a source walk | this page, section `#3706` |
@@ -225,19 +225,29 @@ below settle.
 
 Derived at vllm-ascend `v0.9.2rc1` for #2239 (Qwen2.5-7B bf16 on a 910B4/32 GB,
 `torch-npu 2.5.1.post1.dev20250619`, CANN 8.1.RC1, `--max-model-len 14336`,
-`--max-num-batched-tokens 14336`, one 12 732-token prompt, cause left open). The
-named op appears with no drafter anywhere, so read the **branch** before the ATB
-contract — the same message has three different owners in the table above.
+`--max-num-batched-tokens 14336`, one 12 732-token prompt). The named op appears
+with no drafter anywhere, so read the **branch** before the ATB contract — the same
+message has three different owners in the table above. A replay read that branch off
+the reporter's own dumped `SchedulerOutput` (bullets below); the ATB side stays open.
 
 - Backend: V1, non-MLA, non-torchair → `AscendAttentionBackend`
   (`platform.py:228-229`) → `attention/attention_v1.py`.
-- Branch: `model_runner_v1.py` selects `PrefillNoCache` when
-  `seq_lens == num_scheduled_tokens`, i.e. **the whole prompt fit in one step**
-  because `--max-num-batched-tokens` ≥ prompt length. That branch calls
-  `torch_npu._npu_flash_attention` (`attention_v1.py:346`) with
-  `mask = AttentionMaskBuilder.get_attn_mask(max(seq_lens))` — a dense
-  `[12732, 12732]` bf16 tensor. A prompt that does **not** fit one step takes the
-  splitfuse branch instead (`_npu_paged_attention_splitfuse`, `:420`).
+- Branch: `model_runner_v1.py:971-972` selects `PrefillNoCache` when
+  `np.array_equal(seq_lens, num_scheduled_tokens)`, and `seq_lens` is
+  `num_computed_tokens + num_scheduled_tokens` (`:955-956`) — so the equality holds
+  whenever the dump prints `num_computed_tokens=0`, i.e. on **chunk 1 of a fresh
+  prompt at any `--max-num-batched-tokens`**, not only when the whole prompt fits one
+  step. That branch calls `torch_npu._npu_flash_attention` (`attention_v1.py:346`)
+  with `mask = attn_mask_builder.get_attn_mask(max(seq_lens))` (`:704-707`), a dense
+  `[12732, 12732]` bf16 tensor here (≈309 MiB) and a `[budget, budget]` one under a
+  smaller token budget; the literal `128` at `:709-711` belongs to
+  `PrefillCacheHit`, the *other* state. Only a nonzero computed prefix (chunk 2, a
+  cache hit) reaches `ChunkedPrefill` → `_npu_paged_attention_splitfuse` (`:420`).
+- Read the state off the reporter's own dump before choosing a lever, and read the
+  right two fields: `num_computed_tokens=0` plus `prefix_cache_stats(queries=N,
+  hits=0)` is PrefillNoCache — the `num_common_prefix_blocks=[100]` and
+  hundred-number `block_ids` list printed on the same line are *allocations*, not
+  hits, so the #393 `[128, 128]` PrefillCacheHit story does not apply to it.
 - `PAGED_ATTENTION_MASK_LEN` is **not** a mask cap: the builder is seeded with
   `min(max_model_len, int(os.getenv("PAGED_ATTENTION_MASK_LEN", 10000)))`
   (`model_runner_v1.py:213-215`) and `get_attn_mask`/`_update_attn_cache` grow the
@@ -246,17 +256,28 @@ contract — the same message has three different owners in the table above.
 - The version lane was clean and proves nothing: `requirements.txt:27` pins
   `torch-npu==2.5.1.post1.dev20250619`, exactly the reporter's pta, and that
   release raises CANN to 8.1.RC1 *to enable* chunked prefill/APC — which they had.
-- Discriminators, cheapest first: does a **short** prompt serve (branch vs op)?
-  then `--max-num-batched-tokens 8192` (forces chunked → splitfuse) and, if it
-  still dies, `VLLM_USE_V1=0` (the V0 `attention.py` path uses
-  `npu_fused_infer_attention_score`). Unlike #393 above, the batched-token knob is
-  the lever here, precisely because it changes the branch.
+- Discriminators, cheapest first: does a **short** prompt serve (size-dependent
+  mask vs the op/build)? Then `--max-num-batched-tokens` **below the prompt length**
+  — but price the flag correctly: it does **not** leave the branch, since that run's
+  own dump still prints `num_computed_tokens=0` and chunk 1 is still PrefillNoCache.
+  It shrinks chunk 1's mask (`prompt²` → `budget²`, 12 732² → 8 192², ≈309 → 128 MiB)
+  and hands chunk 2 to splitfuse, so it moves a size threshold rather than removing
+  the state: a prediction that the flag alone ends the crash holds only if the
+  rejection is size-dependent. `VLLM_USE_V1=0` (the V0 `attention.py` path, with its
+  own mask maxima and `npu_fused_infer_attention_score`) is the only lever that
+  leaves the branch; `--enforce-eager` does not (the ATB call is on the eager path
+  too).
 - What cannot be settled: no exported tree carries ATB's `SelfAttention` contract
   (`Ascend/op-plugin` exports no `atb/` sources; `Ascend/pytorch` and
   `Ascend/torchair` contain no `SelfAttention` string). Ship the branch, the mask
   size and the two ablations; do not derive the kernel's limit.
 
-## Ladder
+## Ladder (the #393 V0 rollout engine only)
+
+This ladder belongs to the `f025df05f614` V0 GRPO case directly above. The
+`SelfAttentionOperation` no-spec-decode section has its own discriminators, and its
+`--max-num-batched-tokens` is **not** the inert flag it is here — it resizes that
+branch's mask.
 
 1. `enable_prefix_caching=False` on the rollout engine (ms-swift exposes the vLLM
    engine kwargs; the exact arg name is not in this snapshot — ask for the launch
@@ -270,11 +291,11 @@ contract — the same message has three different owners in the table above.
    `:615-617` (build the mask from the branch's own maxima) — say so as the patch
    proposal, not as the first action.
 
-Not useful: `--max-num-batched-tokens`, `--max-model-len`, capture sizes and
-`HCCL_*` (nothing was launched); `--enforce-eager` alone (the ATB call is on the
-eager path too).
+Not useful on that V0 shape: `--max-num-batched-tokens`, `--max-model-len`,
+capture sizes and `HCCL_*` (nothing was launched); `--enforce-eager` alone (the ATB
+call is on the eager path too).
 
-## What this snapshot cannot settle
+## What this snapshot cannot settle (#393)
 
 - ATB (`cann/ascend-transformer-boost`) and op-plugin sources are unavailable and
   `_npu_flash_attention_qlens` is in neither exported tree (the pytorch export is
@@ -287,7 +308,7 @@ eager path too).
 - Precedent: `scripts/history-titles.sh -i 'setup failed|qlens|atb'` returns 0 hits;
   the prior-month corpus has no equivalent (it is not evidence of absence).
 
-## Deliver
+## Deliver (#393: V0 rollout engine)
 
 Verdict first (a real vllm-ascend prefill-path crash, host-side op setup, no
 hardware involvement; the two-flag combination is what reaches it), then the one

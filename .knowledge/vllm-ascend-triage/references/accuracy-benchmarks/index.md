@@ -260,6 +260,16 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   not reliably carry. A bf16 run of the same prompt does **not** control for it (the
   NaN is scoped to the quantization scenario); take it after the build row,
   `qwen3-next-gdn-numeric-path.md` §*triton-ascend build*.
+- A model-level accuracy complaint that arrives **with a hand-written Triton repro**
+  whose dumps are right until one operation: `squares` and `tl.sum(…, axis=1)` correct,
+  a non-identity scalar scale of that result 0 (`/ head_size`, `* 2.0`, `* 0.5`) while
+  `* 1.0` is fine, only when a later `extract_slice(<that tile>) * cos` consumer exists,
+  and only at one head count — typically the fused qkv-split + RMSNorm + RoPE kernel on
+  a Qwen3.5/Qwen3-VL family (kv heads 4) or a hand-written custom kernel. That is the
+  wheel's codegen, not a model/quant/sampler row; before any ablation read
+  `../image-dependency-faults/triton-extension-op-silent-miscompute.md` (rules 7-11,
+  `scripts/qknorm-mrope-exposure.sh <root> --kv-heads N`) — the tree's own math is
+  correct at the pin and its nightly never runs that kv-head count (#12642).
 - A **tiny** prompt (a handful of tokens) answered as *one token repeated* to
   `finish_reason: length` at `temperature: 0` on a DeepSeek-V2-Lite serve (MLA,
   `q_lora_rank: null`) is the model-scoped shape: the recorded #894 pairing bump
@@ -461,9 +471,11 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   discriminator against routing. (f) A **thinking stream that never
   closes** — every chunk `delta.reasoning`, zero `delta.content`, `output_token ==
   max_completion_tokens` — at vllm v0.26.0: `max_completion_tokens` outranks `max_tokens`
-  by design, no loop brake exists, `thinking_token_budget` is accepted and **ignored** on NPU
-  (`npu_input_batch.py:56-59`), and DeepSeek-V4's `reasoning_effort` is a prompt prefix that
-  amplifies deliberation rather than capping it; the ordered ladder is the #16116 section.
+  by design, no loop brake exists, `thinking_token_budget` **400s** without an enabled
+  `--reasoning-parser` or off the V1 runner (`input_processor.py:102-117`) and is **ignored** on
+  NPU once admitted (`npu_input_batch.py:56-59`), and DeepSeek-V4's `reasoning_effort` is a prompt
+  prefix that amplifies deliberation rather than capping it — which string reaches the prefix
+  depends on the checkpoint's `dspark_*` config key; the ordered ladder is the #16116 section.
   (g) **"think 混乱" plus "关闭思考就返回空 list" on a Qwen3.5 serve with no
   `--reasoning-parser`** (#8350): the answer is two serve flags, reporter-confirmed —
   `--reasoning-parser qwen3` to split, `--default-chat-template-kwargs

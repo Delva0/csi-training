@@ -452,7 +452,10 @@ Verified at vllm v0.26.0 (`568afb3a`) + vllm-ascend v0.26.0rc1 (`f2f74a16`): Dee
 `chat_template_kwargs: {"thinking": true, "reasoning_effort": "high"}`, every SSE chunk
 `delta.reasoning` and **zero** `delta.content`, `output_token == max_completion_tokens == 77817`.
 Three questions, three answers — this is a request-contract and model-degeneration report, not a
-device fault and not a broken parser:
+device fault and not a broken parser. Which branch the reported checkpoint takes for
+`reasoning_effort` was not checked in that replay (one `config.json` read decides it, see the
+mapping condition below), so "the effort prefix produced the loop" is a ranked cause there, not an
+established one:
 
 1. **The budget was legal.** `chat_completion/serving.py:307-311` takes
    `request.max_completion_tokens if … is not None else request.max_tokens`, so a body carrying both
@@ -464,27 +467,42 @@ device fault and not a broken parser:
    shaping, and no `no_repeat_ngram_size` anywhere in the sampling params. An exact n-gram cycle the
    model prefers survives all of them; forced termination exists only as a token count. Say so
    rather than recommending a flag.
-3. **A separate thinking cap exists upstream and is dead on NPU.** `thinking_token_budget` is a chat
-   field (`chat_completion/protocol.py:241`) and a sampling param (`sampling_params.py:344`),
-   enforced by forcing the end-of-thinking token (`v1/sample/thinking_budget_state.py`,
-   `maybe_create_thinking_budget_state_holder`, built in `v1/worker/gpu_input_batch.py:111`).
-   Downstream sets `self.thinking_budget_state_holder = None` with the comment *"NPU does not use
-   thinking budget, so the holder is always None"* (`vllm_ascend/worker/npu_input_batch.py:56-59`),
-   so the field parses, returns 200 and does nothing. Upstream has its own gate (Model Runner V2
-   warns once, `config/vllm.py:2227-2231`). One request (`"thinking_token_budget": 512`, reasoning
-   does not stop near 512) is the evidence for a separate downstream issue.
+3. **A separate thinking cap exists upstream and is dead on NPU — but only one of three arms
+   answers 200.** `thinking_token_budget` is a chat field (`chat_completion/protocol.py:241`) and a
+   sampling param (`sampling_params.py:344`), enforced by forcing the end-of-thinking token
+   (`v1/sample/thinking_budget_state.py`, `maybe_create_thinking_budget_state_holder`, built in
+   `v1/worker/gpu_input_batch.py:111`). The **request-time** admission gate decides which arm runs
+   (`v1/engine/input_processor.py:102-117`): with no enabled `reasoning_config` it raises
+   *"thinking_token_budget is set but reasoning_config is not configured. Please set
+   --reasoning-parser and/or --reasoning-config …"*, and on the V2 model runner it raises
+   *"… not yet supported by the V2 model runner. Run vLLM with VLLM_USE_V2_MODEL_RUNNER=0 …"* — both
+   surface as a 400. So **read the serve line before promising a silent no-op**: a 400 here is
+   expected behaviour, and only the V1-runner-plus-reasoning-config arm reaches the no-op, where
+   downstream sets `self.thinking_budget_state_holder = None` with the comment *"NPU does not use
+   thinking budget, so the holder is always None"* (`vllm_ascend/worker/npu_input_batch.py:56-59`).
+   The config-time counterpart is the V2 `logger.warning_once` at `config/vllm.py:2227-2231` — a
+   warning, not the gate. One request (`"thinking_token_budget": 512` on the V1 runner with
+   `--reasoning-parser`, reasoning not stopping near 512) is the evidence for a separate downstream
+   issue; a 400 instead means nothing is broken.
 
 **The amplifier is a prompt, not a budget.** On DeepSeek-V4 vllm-ascend maps `reasoning_effort` to
 a **prompt prefix** (`vllm_ascend/patch/platform/patch_deepseek_v4_thinking.py`):
 `REASONING_EFFORT_PROMPTS = {"low": "", "high": "…Absolute maximum with no shortcuts permitted…
 Explicitly write out your entire deliberation process, documenting every intermediate step,
 considered alternative, and rejected hypothesis…", "max": …}` (`:25-48`), prepended only when
-`index == 0 and thinking_mode == "thinking"` (`:85-86`). Absent effort with thinking on gives
-`"low"` under the preview mapping and `"high"` otherwise (`:120-127`); `"none"` switches
-`thinking_mode` to `"chat"` (`:128-129`); `"medium"`/`"minimal"` collapse to the empty `low` prefix.
-So `high` cannot bound thinking — it asks for exactly the "enumerate every rejected hypothesis and
-do not stop" behaviour the captured loop shows, and the loop text (`我决定…但…不准确。` ×10) is that
-shape.
+`index == 0 and thinking_mode == "thinking"` (`:85-86`), and **which string reaches which prefix
+depends on the checkpoint**: `_uses_preview_reasoning_effort_mapping` (`:56-62`) returns `True`
+unless the checkpoint's `config.json` carries a `dspark_*` key. Under that preview mapping — every
+non-DSpark DSv4 checkpoint — an explicit `"high"` collapses to the **empty** `low` prefix and only
+`"max"`/`"xhigh"` reach the high prefix, so a caller's `"high"` asks for nothing and a `low` vs
+`high` pair separates nothing; a `dspark_*` config takes the other branch (`"max"` → the "…Beyond
+maximum…" prefix at `:44-48`, `"high"` or any other string → the high prefix,
+`low|minimal|medium` → empty). Unset effort with thinking on gives `"low"` under the preview
+mapping and `"high"` otherwise (`:120-127`); `"none"` switches `thinking_mode` to `"chat"`
+(`:128-129`). Where the prefix is reached it cannot bound thinking — it asks for exactly the
+"enumerate every rejected hypothesis and do not stop" behaviour the captured loop shows, and the
+loop text (`我决定…但…不准确。` ×10) is that shape; where it is not reached, the loop is the model's
+own and the effort field is not the amplifier.
 
 **On a model with no downstream mapping, the field is the checkpoint's template.**
 vllm v0.26.0 injects `reasoning_effort` into the chat-template kwargs and derives
@@ -503,9 +521,12 @@ Deliverable order: (1) classify, and say the empty `content` proves routing work
 the `content`-only shape above); (2) close the underspecified field in the caller's schema (a
 prose enum with no none-value, e.g. `"executeType": "执行动作：新增、更新删除"`, is the prompt-side
 root cause); (3) one budget field only, re-run at 8192 and expect `finish_reason: "length"`;
-(4) `reasoning_effort: "low"` or `thinking: false` on the same body separates effort-prompt
-amplification from model behaviour; (5) identity run ×3 at `--max-num-seqs 1` / `temperature: 0`
-(`long-output-repetition.md`'s row); (6) `thinking_token_budget` as the no-op demonstration;
+(4) the amplifier arm is the one the checkpoint's branch above maps to a prefix — `max`/`xhigh`
+on a preview-mapping checkpoint, `high`/`max` on a `dspark_*` one — so ablate that value against
+`low` (or `thinking: false`) on the same body; on a preview-mapping checkpoint a `low` vs `high`
+pair is two empty prefixes and proves nothing; (5) identity run ×3 at `--max-num-seqs 1` / `temperature: 0`
+(`long-output-repetition.md`'s row); (6) `thinking_token_budget` as the arm test — a 400 means the gate fired (no enabled reasoning
+config, or a V2 runner), a 200 with reasoning running past the value is the NPU no-op;
 (7) until a server brake exists, the only working loop brake is client/gateway-side abort on a
 repeated n-gram. Trap: a `finish_reason`/`usage`/`[DONE]`-less capture is a gateway truncation
 artefact when `bytes_sent` far exceeds the captured window and the window starts and ends

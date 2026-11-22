@@ -47,11 +47,18 @@ tree's own test and CI wiring, not the bulletin procedure: route to
    unrelated scenarios. One `rg -n '<code>'` over the release's own §3 table and
    the named model's tutorial decides whether the code is model-specific — at
    v0.26.0rc1 the same `507034` is attached in §3 to an unrelated Ascend 950
-   C16 + `dsa_cp` start hang, so the code alone localizes nothing.
+   C16 + `dsa_cp` start hang, so the code alone localizes nothing. Grep the **code**,
+   not the id — that table cites #15268 in two rows (a perf regression, then the
+   `507034` hang), so an id search reads the first hit as a contradiction. Read the
+   whole table (`sed -n '53,80p'`), never a window around its head: at v0.26.0rc1 the
+   row that supports a D-node sync-timeout report (#14911, `AclrtSynchronizeStreamWithTimeout`
+   507001) is row 16 at its tail.
 4. **Tracked ids are usually newer than the history corpus.** `/workspace/history`
    holds earlier-month issues only, so a `MISSING` for the ids the notice cites
    is expected coverage, not a failed search (rule 8) — say that, then map each
-   signature onto this library's topic pages instead of hunting the issue.
+   signature onto this library's topic pages instead of hunting the issue. One direct
+   `/repos/vllm-project/vllm-ascend/issues/<id>` read turns that from an assumption
+   into a citation: a newer id answers 404 `snapshot_unavailable`.
 5. **Say which axes the notice leaves out**: the two serve commands, per-agent
    node roles, env (`HCCL_BUFFSIZE`, `mc2_comm_alg`, spec config), and the plog
    `[AIC_INFO] fault kernel_name=` block. Those are the reply template; the

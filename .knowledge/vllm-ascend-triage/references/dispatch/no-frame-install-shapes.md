@@ -50,9 +50,11 @@ is an interpreter question: the string is in no tree, pip was told `>=3.9` by
 `X | None` annotation evaluated at import in `vllm/` — recreate the env on 3.10/3.11
 (`../image-dependency-faults/python-floor-import-error.md`, #3657). A body that is
 nothing but one dangling build path (`csrc/build/compat/liboptiling.so 指向无效`) is a
-build-tree artefact answered in two commands, not a stage to walk
-(`../image-dependency-faults/custom-op-build-stage.md` §Step 2b, #10792: 60 tool
-calls, 1.65 M prompt tokens, no message emitted). A `multiple
+build-tree artefact answered from the paste — the `_CPack_Packages/…/op_tiling/lib/linux/<arch>/`
+copy such a body usually names is that link's own resolution target — not a stage to walk
+(`../image-dependency-faults/custom-op-build-stage.md` §Step 2b, #10792: one run spent 60
+tool calls, 1.65 M prompt tokens and emitted no message; the next spent 14 calls and
+answered). A `multiple
 definition` at the AscendC kernel relink is one source under two path spellings, not a
 kernel defect: `../image-dependency-faults/custom-op-build-stage.md`. A build that dies
 **before** any CMake work with `__main__.py: error: unrecognized arguments: --cmake` is pybind11

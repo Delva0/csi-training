@@ -223,32 +223,67 @@ The relative spelling belongs to the **installed** layout, not the build tree:
 `install(TARGETS optiling LIBRARY DESTINATION packages/vendors/${VENDOR_NAME}/op_impl/ai_core/tbe/op_tiling/lib/linux/${CMAKE_SYSTEM_PROCESSOR})` (`:191-193`) puts
 `libcust_opmaster_rt2.0.so` in `op_tiling/lib/linux/<arch>/`, and
 `install(FILES ${compat_optiling_file} DESTINATION …/op_impl/ai_core/tbe/op_tiling)` (`:208-210`)
-puts the link beside it — so the packaged copy resolves by construction while only the
-`csrc/build/compat/` copy dangles. The reporter's own second path proves it: their working
-`libcust_opmaster_rt2.0.so` sits under
-`_CPack_Packages/Linux/External/CANN-custom_ops--linux.aarch64.run/packages/vendors/vllm-ascend/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64/`,
-which is the CPack staging root of `install()` (`CPACK_PACKAGE_FILE_NAME`/
-`CPACK_EXTERNAL_BUILT_PACKAGES`, `:638-643`).
+puts the link beside it — so the staged copy resolves once that layout is in place, while
+only the `csrc/build/compat/` copy dangles.
+
+That staging tree is a normal product of the reporter's own command, not a release step:
+`pip install -e .` runs `build_aclnn` (`setup.py:224,439`) → `csrc/build_aclnn.sh:81`
+(`bash build.sh -n … -c …`) → `csrc/build.sh:187-189`, which ends with
+`cmake --build . --target package` (`build_package`, `:117-119`) inside `csrc/build` (`:14`);
+`CPACK_EXTERNAL_ENABLE_STAGING TRUE` with
+`CPACK_PACKAGE_DIRECTORY ${CMAKE_BINARY_DIR}` / `CPACK_PACKAGE_FILE_NAME` (`:637-641`,
+`CPACK_EXTERNAL_BUILT_PACKAGES` `:643`) stage it at
+`csrc/build/_CPack_Packages/Linux/External/<CPACK_PACKAGE_FILE_NAME>/packages/vendors/${VENDOR_NAME}/…`.
+The reporter's `CANN-custom_ops--linux.aarch64.run` (the doubled `--` is an empty
+`${CANN_VERSION}` at that build) is that name, so the copy they found under
+`…/packages/vendors/vllm-ascend/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64/` is the
+staged `install(TARGETS optiling …)` output — **exactly the target the staged
+`op_tiling/liboptiling.so` resolves to**. Say that mapping; it is the whole answer.
+
+The reporter's own follow-up on this issue (comments `#issuecomment-4768459757`
+2026-06-22T12:50Z and `-4768516068` 12:57Z) supplies the two facts the first reply had to
+wait for: `ls -ld` prints the 43-byte link
+`compat/liboptiling.so -> lib/linux/aarch64/libcust_opmaster_rt2.0.so`, and
+`cat compat/liboptiling.so` fails with `No such file or directory`. **A `cat` on that link
+must fail in the build tree — it is neither new evidence nor the defect**; pre-empt it in
+the reply. What the follow-up still does not show is the *staged* link:
+`install(FILES ${compat_optiling_file})` (`:208-210`) copies a symlink whose target does not
+exist relative to `csrc/build/compat/`, and cmake is not in the snapshot, so whether
+`file(INSTALL)` preserves that relative link (repair-free) or dereferences it and aborts the
+`package` step (a real packaging defect, no `.run` produced) stays open — the check below
+separates the two. One thing makes that check unnecessary more often than not: that
+`build_aclnn` command re-raises (`raise SystemExit(e.returncode)`, `setup.py:223-228`), so a
+failed `package` step **aborts** `pip install -e .` — a transcript that ends with
+`Successfully installed … vllm_ascend …` means the staging tree was written and the
+`install(FILES)` copy worked, i.e. the dangling `compat/` path is cosmetic and there is
+nothing to ask for. Read the paste's last lines before requesting anything.
 
 **Answer, first sentence: 这不是安装失败。** `compat/` is a build-tree-only artefact and the
-installed link resolves; nothing needs `ln`, a rebuild or a wheel change. The reporter's
-own question ("should it be `./build/libcust_opmaster_rt2.0.so`?") is right about the
-build tree: `optiling` sets only `OUTPUT_NAME cust_opmaster_rt2.0` (`:183-185`) and no
+staged link resolves; nothing needs `ln`, a rebuild or a wheel change. The reporter's own
+question ("should it be `./build/libcust_opmaster_rt2.0.so`?") is right about the build
+tree: `optiling` sets only `OUTPUT_NAME cust_opmaster_rt2.0` (`:183-185`) and no
 `*_OUTPUT_DIRECTORY`, so the library is `${CMAKE_CURRENT_BINARY_DIR}/libcust_opmaster_rt2.0.so`
-(`csrc/build/…`, because `csrc/build.sh:14` sets `BUILD_DIR=${CURRENT_DIR}/build` with `csrc/` as the project root). An upstream
-patch is `$<TARGET_FILE:optiling>` (like `:189`) or `../libcust_opmaster_rt2.0.so`.
+(`csrc/build/…`, because `csrc/build.sh:14` sets `BUILD_DIR=${CURRENT_DIR}/build` with
+`csrc/` as the project root). Keep the two spellings apart when drafting the upstream patch:
+`build/libcust_opmaster_rt2.0.so` is correct *from `csrc/`*, but the link itself lives in
+`csrc/build/compat/`, so its correct relative target is `../libcust_opmaster_rt2.0.so` — or
+`$<TARGET_FILE:optiling>`, as the sibling link at `:189` already does.
 
-Two commands settle it on the reporter's box, and only the second one can turn this into a
-real defect:
+When the transcript does not already end in `Successfully installed`, three cheap reads on
+the reporter's box settle it, and only the last two can turn this into a real defect:
 
 ```bash
-ls -l <repo>/csrc/build/libcust_opmaster_rt2.0.so                      # build-tree library
-readlink -f "$(find <repo> -path '*op_tiling/liboptiling.so' | head -1)"  # installed copy -> lib/linux/<arch>/libcust_opmaster_rt2.0.so
+ls -l <repo>/csrc/build/libcust_opmaster_rt2.0.so     # the library the POST_BUILD link already points at
+ls -l <repo>/csrc/build/_CPack_Packages/Linux/External/*/packages/vendors/vllm-ascend/op_impl/ai_core/tbe/op_tiling/liboptiling.so
+ls -l <repo>/csrc/build/_CPack_Packages/Linux/External/*/CANN-custom_ops-*.run
 ```
 
-Installed copy dangling too → packaging defect; one-line repair
-`ln -sfn lib/linux/$(uname -i)/libcust_opmaster_rt2.0.so <that dir>/liboptiling.so`, and say
-the next `build_aclnn.sh` run will recreate it.
+Staged link dangling **or** no `.run` beside its directory name ⇒ the `package` target died
+on `install(FILES)` and the one-line repair is
+`ln -sfn lib/linux/$(uname -i)/libcust_opmaster_rt2.0.so <staged op_tiling>/liboptiling.so`
+(the next `csrc/build.sh` run recreates it). Otherwise answer 无需处理 and stop, and never
+ask back for a `readlink -f` of the body's own `_CPack_Packages/…` copy — that path **is**
+the resolution target.
 
 Do not escalate into a wheel question. The runtime
 `liboptiling.so: cannot open shared object file` line is a *separate*, non-fatal report
@@ -295,13 +330,17 @@ reported ref before quoting it.
 ## Delivery
 
 **A report whose body is a path and a symlink has no diagnosis to earn: the verdict is the
-answer.** #10792's recorded run spent 60 tool calls and 1.65 M prompt tokens (16 K
+answer.** #10792's first recorded run spent 60 tool calls and 1.65 M prompt tokens (16 K
 completion tokens, the cap) walking `csrc/CMakeLists.txt`, `setup.py`, `csrc/build_aclnn.sh`
-and the wheel scripts, and shipped **no message text at all** — while step 2b's verdict is
-four reads and the reporter's own paste already contained the resolved path. When the paste
-carries no failing frame, say what the artefact is (`compat/` is build-tree-only), say
-whether the packaged copy resolves, and give the two-command check; the source walk after
-that is optional.
+and the wheel scripts, and shipped **no message text at all**; the second run on the same
+body hit §Step 2b from the reference grep on turn 1 and shipped the verdict in 8 turns and
+14 tool calls. When the paste carries no failing frame, say what the artefact is
+(`compat/` is build-tree-only), map the reporter's own `_CPack_Packages/…` path onto the
+staged link, and offer the staged-link/`.run` pair as the only escalation; the source walk
+after that is optional. **The ask list is the complement of the paste and of the case's own
+follow-ups**: a reply that already names the staged copy, or shows `cat` failing on the
+build-tree link, has answered the check — answer it with the mapping instead of sending the
+same command back.
 
 A build report is answerable from the paste plus one docs grep: stage, owner, version
 envelope and rung 1 need no local source read, so the ranked answer is owed by the
@@ -316,6 +355,10 @@ reporter-confirmed only at the level of 「Thanks a lot. Solved!」.
 - Which side minted the second spelling: CANN's `ascendc.cmake` /
   `recompile_binary.py` are not in the snapshot, so never publish "symlinks are the
   cause"; give the three-line check above instead.
+- Whether `install(FILES <dangling symlink>)` preserves the link or aborts the `package`
+  step: cmake is not in the snapshot and #10792's follow-up never listed the staged
+  `op_tiling/liboptiling.so` or the produced `.run`, so keep that escalation open instead
+  of promising that the staged link resolves as a verified fact.
 - Whether a `vllm_ascend_C`-less install is acceptable for the reporter's workload is
   theirs to decide — answer with the cost (no custom ops, sleep mode) and let them
   choose.

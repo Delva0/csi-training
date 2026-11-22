@@ -462,10 +462,13 @@ Not this topic, leave immediately:
   per-token in the artifact's json (one script call, and the static one is what the
   pin's own dense w8a8 tutorial produces with `--anti_method m1` over a BoolQ
   calibration file), why static-vs-dynamic moves accuracy but not the matmul, the
-  `R = 2/(1+u)` ceiling that decides whether "no gain" is arithmetic, the three
-  asymmetric levers (graph lane, `VLLM_ASCEND_ENABLE_NZ=0` which costs only the int8
-  side, one-sided runs), the two tables behind 「是否有模型对应版本表」, and the
-  Qwen2.5-7B-w8a8 coverage gap with the published 0.5B artifact as the control.
+  `R = 2/(1+u)` ceiling that decides whether "no gain" is arithmetic (and #2514, the
+  32B end where `R ≈ 1.9×` with a flat prefill means the int8 matmul is not on its
+  fast path), the three asymmetric levers (graph lane, the pin's own weight-layout
+  switch — `enable_weight_nz_layout` **off by default** on a v0.9-line tree,
+  `VLLM_ASCEND_ENABLE_NZ`/`weight_nz_mode` later, one-sided runs), the two tables
+  behind 「是否有模型对应版本表」, and the Qwen2.5-7B-w8a8 coverage gap with the
+  published 0.5B artifact as the control.
 - `qwen3-next-decode-throughput.md` — Qwen3-Next-80B-A3B at 4-6 tok/s on one
   request: the per-step arithmetic that rules capacity and queueing out, the
   verified v0.11.0rc2 map (`--enforce-eager` in the project's own command,

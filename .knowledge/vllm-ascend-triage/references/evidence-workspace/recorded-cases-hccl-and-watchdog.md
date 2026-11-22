@@ -510,10 +510,14 @@ The recorded run opened `control-plane-port-binding.md` first and spent its **en
 `SetRanksPort`, `GetLocalNicPort`, `GetHostPort`), never reached the launcher, and was
 cut with no final message; the reporter's later comment says the
 `ASCEND_DEFAULT_DEVICE_PORT` line "has nothing to do with" the case and that offsetting
-the decode instance's cards (0-7 → 8-15) fixed it. What would have redirected it: the
-report's own `npu-smi` table already showed two ~59 GB workers per chip on NPU 0-3 with
-NPU 4-7 empty, and one grep of `visiable_devices` in the launcher shows the card list
-starts at 0 in every invocation. Page:
+the decode instance's cards (0-7 → 8-15) fixed it, recommending afterwards the in-node
+`examples/disaggregated_prefill_v1/mooncake_connector_deployment_guide.md` flow (which
+gives each instance its own `ASCEND_RT_VISIBLE_DEVICES` and so never had the problem) as
+the route that closed the issue. What would have redirected it: the report's own
+`npu-smi` table already showed **one** ~59 GB worker on each die of NPU rows 0-3 (die
+ids 0-7 — a prefiller of DP2×TP4 = 8) with NPU rows 4-7 (ids 8-15, not ids 4-7) empty,
+and one grep of `visiable_devices` in the launcher shows the card list starts at 0 in
+every invocation. Page:
 `../pd-disaggregation/same-host-pd-device-partition.md` (new), with the family
 separation in `../hccl-and-hardware/comm-create-errors.md` §code 7.
 
@@ -568,11 +572,23 @@ watchdog deadline is `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` 300 s, and the A2+EP b
 sends that 37-token step over cross-node MC2 because capacity = `max_cudagraph_capture_size`
 = 48 (the reporter's own list) while `world_size_across_dp/pp = DP2 × TP8 = 16` sits
 exactly on the `>= 16` gate — and it corrected its own DP-asymmetry hypothesis by reading
-`_sync_metadata_across_dp` (pad to the DP max). The coverage fact it shipped: the pin's
-only dual-node DSv3.2-W8A8 nightly is **A3** (`npn 16`); the A2 recipe does not exist,
-and the A3 command differs from the reporter's in `--additional-config
-'{"layer_sharding": ["q_b_proj","o_proj"]}'`, `VLLM_ASCEND_ENABLE_FLASHCOMM1`,
-`HCCL_BUFFSIZE`, `--no-enable-prefix-caching` and `--max-num-seqs`. Pages:
+`_sync_metadata_across_dp` (pad to the DP max). What it got wrong, both one call:
+(a) **it diffed the wrong SoC tab.** The pin's tutorial *does* carry the A2 two-node
+recipe — `docs/source/tutorials/DeepSeek-V3.2.md:273-381` (`--tensor-parallel-size 8`
+`:313`, `deepseek_mtp` n=2 `:325`, `cudagraph_capture_sizes [3,…,48]` `:324`) — while
+the run compared the **A3** tab (`:173-269`, TP16 `:208`, MTP n=3 `:220`, no
+capture-size list) and shipped its differences (`--additional-config
+'{"layer_sharding": ["q_b_proj","o_proj"]}'`, `VLLM_ASCEND_ENABLE_FLASHCOMM1`) as if
+they belonged to the reporter's SoC. The real A2 diff is six keys — `HCCL_BUFFSIZE` 512
+vs 200 (`:297`), `HCCL_CONNECT_TIMEOUT` 300 vs 120 (`:301`), `--max-num-seqs` 128 vs 16
+(`:318`), `--max-model-len` 48000 vs 8192 (`:319`), no `--no-enable-prefix-caching`
+(`:322`), no `--seed 1024` (`:315`) — plus node 1's unpasted `--headless
+--data-parallel-start-rank 1` (`:362-366`). "No A2 recipe" is only true of nightly CI,
+whose single dual-node DSv3.2-W8A8 config is `DeepSeek-V3_2-W8A8-A3-dual-nodes.yaml`.
+(b) It ranked `VLLM_ASCEND_ENABLE_MLAPO=1` third as "你自己加的非默认开关": the variable
+resolves to `1` by default at this pin (`envs.py:95-99`) and the tutorial exports the
+same value, so the knob was the pin's default — the `=0` ablation was still worth one
+launch (SFA ≤ 1024-token gate), the framing was not. Pages:
 `../hccl-and-hardware/rpc-watchdog-timeouts.md`,
 `../hccl-and-hardware/multinode-mc2-alltoall-silent-deadlock.md`,
 `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md`.

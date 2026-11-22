@@ -23,7 +23,7 @@ next code is deterministic:
 
 | Order | Site | What can stall there |
 |---|---|---|
-| 1 | `vllm_ascend/worker/worker.py:240-256` `determine_num_available_blocks` → `self.model_runner.profile_run()` | the dummy forward of the whole model, then `torch_npu.npu.synchronize()` (`model_runner.py:1078`) — a device op that never completes shows as silence here |
+| 1 | `vllm_ascend/worker/worker.py:240-282` `determine_num_available_blocks` → `self.model_runner.profile_run()` (`:256`) | one dummy **prefill** of the whole model, then `torch_npu.npu.synchronize()` (`model_runner.py:1078`) — a device op that never completes shows as silence here. Size that batch from the serve line instead of by feel: its **total** token count is `max_num_batched_tokens`, split across `max_num_seqs` sequences (`model_runner.py:1001-1036`, each `seq_len = max_num_batched_tokens // max_num_seqs + …` at `:1031` sums back to `max_num_batched_tokens`), and when unset it is `max(max_model_len, 2048)` on this pin's V0 path (`vllm/config.py:1865-1882`; `_DEFAULT_MAX_NUM_BATCHED_TOKENS = 2048` at `:67`) because V0 leaves chunked prefill off by default (`vllm/engine/arg_utils.py:1568-1600` `_set_default_args_v0`, whose >32K auto-enable is CUDA-only). So `--max-model-len 10000` is a 10 K-token dummy prefill while `--max-model-len 131072` is a 131 K-token one: the same paste means two different phases |
 | 2 | `worker.py:260-282` — `mem_get_info()`, then `assert peak_memory > 0` (`:264`) | an `assert` message would be the next line; silence means it has not reached it |
 | 3 | `worker.py:284` `initialize_cache` → KV allocation | an allocation failure prints `EL0004`/`207001`, so silence is not this |
 | 4 | `worker.py:325-326` `_warm_up_model` | **nothing** — the comment reads "model capture is not supported, thus we just set seed here", so on this version the capture lane is not a candidate |
@@ -42,6 +42,11 @@ The reporter's own line prefix fingerprints the engine generation at that ref:
 vllm v0.8.4 does not carry the string at all (only `hpu_model_runner.py`,
 `xpu_model_runner.py` do). So `[model_runner.py:904]` says V0 — which V1 evidence
 would have contradicted.
+
+The pin's own docs agree that V1 is opt-in here, so vllm's `envs.py:76,527-528`
+default of `VLLM_USE_V1: bool = True` is not the operative one: the release note
+says "By default, vLLM will fallback to V0" (`docs/source/user_guide/release_notes.md:9`)
+and `pytest.ini:60` records "VLLM_USE_V1=1 is not supported with device type=npu".
 
 Caveats to state with it: the log prints the **basename** only, line numbers move
 between releases, and a partial export weakens an absence claim. Use it to pick
@@ -65,9 +70,18 @@ first one, and the reporter supplied it the next day):
    the platform already sets `simple_compile_backend = "eager"`
    (`vllm_ascend/platform.py:59`), so on this version it is a no-op and reads as
    not having read the code.
-4. The effective length budget (`Using max model len N`) and a smaller
-   `--max-model-len` / smaller `--max-num-seqs` run — the Phase-1 forward is sized
-   by those, so this is the cheapest way to make the stall disappear.
+4. The effective length budget (`Using max model len N`) and a rerun with a smaller
+   `--max-model-len`, or the same length with an explicit small
+   `--max-num-batched-tokens` (e.g. 2048) — those two are the only knobs that shrink
+   the Phase-1 forward, because they are what sets the dummy batch's token count
+   (previous section). Two knobs that do **not**: `--max-num-seqs` only re-splits
+   that same total across more or fewer sequences (`model_runner.py:1029-1036`,
+   default 128 at `vllm/config.py:1768`), and `--gpu-memory-utilization` only scales
+   the KV block count computed *after* the peak is measured (`worker.py:271-274`).
+   Offering either as "the stall fix" is a wrong lever and wastes the reporter's
+   round trip. Upstream states the first lever itself: a long `max_model_len` with
+   chunked prefill off "may cause OOM during the initial memory profiling phase"
+   (`vllm/engine/arg_utils.py:1602-1607`).
 
 ## Step 4 — what the paste cannot support
 
@@ -86,9 +100,34 @@ first one, and the reporter supplied it the next day):
 line, HTTP port refused. Both flags are valid at vllm v0.8.4
 (`vllm/engine/arg_utils.py:216-217,979-994`; `--reasoning-parse` is an argparse
 abbreviation of `--reasoning-parser`, whose `choices` are the registered parser
-names), so the command is not the failure. The phase is therefore the profiling
-forward of `determine_num_available_blocks` (or a killed process), and the
-artefact that moved the case was the serve line itself. The mechanism was never
-established: the recorded session shipped no answer (14 turns, 11 of them bare
-tool calls, ~47.6 K characters of reasoning against 322 characters of text), and
-its last blocks were re-reading the V0/V1 question it had already settled.
+names), so the command is not the failure.
+
+That serve line became public the next day (reporter comment, 2025-04-29), so read
+it as a **size** before ranking anything:
+
+```bash
+vllm serve /llm --served-model-name deepseek-r1-distill-qwen-1.5b --enable-reasoning \
+    --reasoning-parse deepseek_r1 --max-model-len 10000 --api-key REDACTED \
+    --tensor-parallel-size 1 --dtype float16
+```
+
+No `--max-num-batched-tokens` + `--max-model-len 10000` ⇒ the dummy prefill is
+`max(10000, 2048) = 10000` tokens, split over the 128-default `max_num_seqs` into
+128 × 78-79. A 10 K-token prefill of a 1.5 B model whose weights are 3.35 GB is a
+small batch beside any 910B4's HBM budget (32 GB on the common variant, and the
+paste does not state which), so on this report "the profiling forward is too big
+for the box" is the weakest row of the ranking; the live pair is a device op
+that never returns versus a process killed with no line printed, which is why the
+next turn asks for liveness (`docker ps -a` exit code, `dmesg`, `npu-smi` **during**
+the stall) rather than for a smaller run. `--api-key` and `--served-model-name` play
+no part in the phase.
+
+The phase is therefore the profiling forward of `determine_num_available_blocks`
+(or a killed process), and the artefact that moved the case was the serve line
+itself. The mechanism was never established in the original session: it shipped no
+answer (14 turns, 11 of them bare tool calls, ~47.6 K characters of reasoning
+against 322 characters of text) and its last blocks were re-reading the V0/V1
+question it had already settled. The replay with this page in the library shipped
+the complete ranked answer on its 5th assistant turn in 4 tool blocks — owning page,
+then one pin-verification call — which is the shape this page exists to make cheap:
+when the paste matches this recorded case, the ladder *is* the message.

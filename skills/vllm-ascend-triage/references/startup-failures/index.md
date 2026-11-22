@@ -274,6 +274,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   flag, not the model. Read the text before routing to the SoC-mismatch bullet above:
   `device-id-invalid-at-worker-init.md` (`ls /dev/davinci*` + `npu-smi info` inside the
   container, then one framework-free `torch_npu.npu.device_count()` line).
+- The same `107001` but from a **Ray** serve: every line carries a
+  `(RayWorkerWrapper pid=…)` prefix, the frames start at `worker.py:185 init_device` →
+  `NPUPlatform.set_device` (not `check_ascend_device_type()`), the text is `EE1001 … Set
+  visible device failed, invalid device=<n>, input visible devices:1`, and above it sits
+  `Overwriting environment variable ASCEND_RT_VISIBLE_DEVICES from '<one id>' to
+  '0,1,2,3,4,5,6,7'`. The raylet, not the container: Ray handed each actor one card while
+  vLLM indexes the node's full list by node-local `local_rank`, so only `local_rank` 0 can
+  open. One launch-line fix, from the pin's own tutorial — `RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1`
+  and `ASCEND_RT_VISIBLE_DEVICES=0,…,7` in **each** node's shell before `ray start`, then
+  restart the cluster → `ray-visible-devices-local-rank.md` (do not walk vLLM's
+  `local_rank` plumbing or torch_npu's visible-device parsing: neither changes a rung).
 - The report's **first** failing command is `npu-smi info` itself ("容器中获取不到NPU信息"), with
   `dcmi model initialized failed, because the device is used. ret is -8020`, `drvRet=87` at
   `halGetDeviceInfo`/`drvGetDevNum` and `rtGetDeviceCount … 507899`, and **no** engine or
@@ -429,7 +440,11 @@ Inherit the rules in SKILL.md. Conditional routes:
   'model.embed_tokens.weight'` when it did — one
   `.../scripts/checkpoint-key-prefix.py --dtypes <model dir>` decides it from the
   safetensors headers, and `config.json` does not (the conversion guide has converters
-  delete those fields first).
+  delete those fields first). The **same key on a `…-w8a8` / `…-W8A8` directory** is the
+  other owner and the dtype census is not what settles it: int8 tensors plus a
+  construction-time miss mean the description the engine holds lacks that module —
+  §C-iii of the same page, one census of `config.json` against
+  `quant_model_description.json`.
   A **fifth** form is raised by vllm-ascend's own compressed-tensors
   reimplementation, in the worker at model construction, and it names the pair
   instead of the method: `NotImplementedError: No compressed-tensors compatible
@@ -496,7 +511,10 @@ Inherit the rules in SKILL.md. Conditional routes:
   (`convert_quant_weight.sh … -type qwen_w8a8`) that MindIE itself serves is §C-ii
   (its per-weight description is in `quant_model_description.json`, which a
   0.7.x-era ref never opens), while a foreign format renamed onto `ascend` is §C —
-  same frame, same key, different owner.
+  same frame, same key, different owner. A ref that **does** read that file (at
+  v0.11.0rc0 `get_config_filenames()` returns `["quant_model_description.json"]`) has a
+  third owner for the same key: §C-iii — `config.json`'s marker dict pre-empted the
+  file, or the export omitted the module.
 - The first MoE forward (usually `profile_run`, so it reads as a startup failure)
   dies with `RuntimeError: Promotion for Float8 Types is not supported, attempted to
   promote Float8_e4m3fn and Bool`, deepest frames `w4a8_mxfp4.py` →

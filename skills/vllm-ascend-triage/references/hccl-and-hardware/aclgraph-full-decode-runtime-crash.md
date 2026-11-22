@@ -426,9 +426,14 @@ root-cause stack and no in-window plog exist in the report. Coverage at that pin
 the only FULL-mode e2e for this model is `tests/e2e/multicard/test_full_graph_mode.py`
 (`Qwen3-30B-A3B`, TP2, `max_model_len=1024`, bf16) and **no** `.github/workflows`
 file references it — the wired graph runs are `singlecard/test_aclgraph.py` and
-`test_aclgraph_mem.py` (`_e2e_test.yaml:77,91-92`) — so DP+EP+W8A8+32K+async is
-outside everything that release ran. The recorded run reached this section's rungs
-and the coverage verdict and delivered a ranked answer on its 11th and last turn,
+`test_aclgraph_mem.py` (`_e2e_test.yaml:77,91-92`), and the one `FULL_DECODE_ONLY`
+case *inside* that wired file is marked `@pytest.mark.skip("Skipping this test for
+now, it fails intermittently and needs investigation")` (`test_aclgraph.py:103-108`,
+the same skip at v0.11.0rc2 `a2e4c3f`) — so on the v0.11.x line **no** wired test
+ran the mode at all, and DP+EP+W8A8+32K+async is outside everything that release
+ran against a mode whose only exercise was a skipped case. The recorded run
+reached this section's rungs and the coverage verdict and delivered a ranked
+answer on its 11th and last turn,
 after seven of its eleven turns carried no message text at all (rule 1: a
 truncation at that point would have kept nothing).
 

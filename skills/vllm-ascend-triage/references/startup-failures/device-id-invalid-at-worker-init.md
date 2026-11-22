@@ -25,17 +25,24 @@ card, `ASCEND_RT_VISIBLE_DEVICES=7`, Qwen3.5-0.8B; the whole log exists only as 
 screenshot OCRs, so the `aclInit` code digits are lost). Line numbers above are that
 pin: re-grep `check_ascend_device_type` if the row is a different release.
 
+**The frame decides it before the text does.** This page is the paste whose failing
+`vllm_ascend` frames start at `Worker.__init__`'s `check_ascend_device_type()`. A `107001`
+reached from `worker.py:185 init_device` under `(RayWorkerWrapper pid=…)` prefixes is the
+raylet's `ASCEND_RT_VISIBLE_DEVICES`, not the container:
+`ray-visible-devices-local-rank.md`.
+
 The `aclrtSetDevice` failure happens **inside the SoC query**, before the device-type
 guard compares anything — so the model, the quant config and every serve flag are
 unreached, and nothing about them can be blamed or exonerated from this log.
 
-## Three owners share this frame — classify on the text, not the frame
+## Four owners share this frame — classify on the text, not the frame
 
 | Text in the paste | Owner | Page |
 |---|---|---|
 | `AssertionError: Current device type … does not match the installed version's device type` / `RuntimeError: Can not support soc_version: <n>` | the SoC the runtime resolved vs the type baked into the wheel by `SOC_VERSION` | `../soc-platform-paths/device-type-build-vs-runtime.md` |
 | `SetPrecisionMode … 500001` + `PlatformInfoInit … SocVersion <name>` + `GEInitialize failed` | ACL/GE bring-up: in a container, the privilege/device set first (`--privileged=true`, reporter-confirmed #302), then the mounted driver/firmware × the image's CANN | `acl-init-500001-and-soc-version.md` |
 | `set default device id failed, ret: 107001` / `invalid device ID` / `reason=device id error` | **this page**: `aclrtSetDevice` rejected the id — the container/`ASCEND_RT_VISIBLE_DEVICES` device set | here |
+| the same `107001`, but reached from `worker.py:185 init_device` → `NPUPlatform.set_device` → `torch.npu.set_device` (**not** `check_ascend_device_type()`), every line under a `(RayWorkerWrapper pid=…)` prefix, with `EE1001 … Set visible device failed, invalid device=<n>, input visible devices:1` and a `WARNING [utils.py:634] Overwriting environment variable ASCEND_RT_VISIBLE_DEVICES from '<one id>' to '0,1,2,3,4,5,6,7'` above it | the **raylet's** environment, not the container: Ray hands each actor one card while vLLM indexes the node's full id list by node-local `local_rank`, so every rank with `local_rank` ≥ 1 is out of range — fix is `RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1` exported on each node **before** `ray start` | `ray-visible-devices-local-rank.md` |
 | the same `107001` in a **vllm-omni** serve (`--omni`), while the log above it prints `stage_init_utils.py … [stage_init] Stage-N set runtime devices: <ids>` and one of those ids is outside the visible set | the **stage config's `devices`**, not a missing card: copy `vllm_omni/platforms/npu/stage_configs/<model>.yaml`, edit every stage's `devices`, relaunch with `--stage-configs-path` (reporter-confirmed on 2 cards, #8068) — `../deploy-sizing/card-budget-and-device-visibility.md` |
 
 `107001 = ACL_ERROR_RT_INVALID_DEVICEID` (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h:22`;

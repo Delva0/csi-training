@@ -38,6 +38,15 @@ version and wrong about the scope.
 | upstream `vllm/entrypoints/openai/engine/protocol.py:104-108` | | vllm v0.18.0 `UsageInfo` has only `prompt_tokens/total_tokens/completion_tokens/prompt_tokens_details`; `CompletionTokenUsageInfo` and `completion_tokens_details` **do not exist** anywhere in that tree — so the patch changes the class's shape, not just its behaviour |
 | upstream, `:26-28` | | `OpenAIBaseModel` is `ConfigDict(extra="allow")` — the extra detail could ride the existing class, so the subclass is a choice, not a necessity |
 
+The same rebinding is why a **chat** `usage` body on this stack can carry
+`completion_tokens_details` although upstream's chat schema has none, and why a Qwen
+serve reads `null`/`0` there even with `--reasoning-parser qwen3`: the schema half is
+process-wide, only the token *count* is MiniMax-gated (`:95-100` and `_make_usage_info`
+`:131-146` at v0.22.1rc1; the same file at v0.18.0rc1 is `:40-62`). So a
+`reasoning_tokens` value is not evidence that a parser ran — the triage consequence and
+the field to read instead are in `../accuracy-benchmarks/reasoning-output-routing.md`
+(§*inverse shape*).
+
 ## Mechanism — pydantic v2 refuses a base instance where a subclass is annotated
 
 Two forms, one cause; both are silent until an instance crosses the boundary:

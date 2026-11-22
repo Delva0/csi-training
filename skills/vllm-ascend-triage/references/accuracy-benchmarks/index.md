@@ -401,7 +401,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   reads `thinking`, Qwen3's reads `enable_thinking` — vllm v0.23.0
   `kimi_k2_reasoning_parser.py:40-46`); (b) re-verified at vllm v0.22.1
   that "thinking inside `content` + no `reasoning` field + `reasoning_tokens: 0`" is a
-  missing `--reasoning-parser` (default `""`), that the chat field is now `reasoning`
+  missing `--reasoning-parser` (default `""`), that a `reasoning_tokens` key on a chat
+  body is a process-wide *schema* patch downstream (`patch_minimax_usage_accounting.py`)
+  with only its **count** MiniMax-gated — so its value is not evidence a parser ran —
+  and that the chat field is now `reasoning`
   with `reasoning_content` only a deprecated input alias, and that the Qwen3.6 tutorial
   omits the flag while seven sibling pages pass it — and that this drift is already true
   at vllm v0.18.0 (`chat_completion/protocol.py:64`, `reasoning_content` surviving only

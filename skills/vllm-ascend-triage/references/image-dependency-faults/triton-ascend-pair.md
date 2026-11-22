@@ -75,7 +75,7 @@ What follows it does:
   the detail line is `ub overflow, requires N bits …`, which is the one case where the
   tile *is* the finding (`../custom-ops-runtime-faults/triton-ub-overflow-tiling-budget.md`).
 
-## The install axis (what the pair is supposed to be)
+## The install axis — the release's own pin decides which build is even installable
 
 The project prescribes a **versioned pair**, never "latest from a mirror". At
 vllm-ascend v0.11.0 (`2f1aed9`), `docs/source/tutorials/multi_npu_qwen3_next.md`:
@@ -96,13 +96,42 @@ Successfully installed triton-ascend-3.2.0rc4
 bishengir-compile: returned non-zero exit status 1
 ```
 
-i.e. a standalone AscendNPU-IR package plus whatever the mirror served, on top of
-an image that already carried its own pair. The differencing items to ask for:
-`pip show triton-ascend`, `which bishengir-compile`, and whether `set_env.sh`
-from the *doc's* toolkit root was sourced (a `RUN source …` in a `Dockerfile`
-does not persist into later layers or the container).
+i.e. a standalone AscendNPU-IR package plus whatever the mirror served. Nothing in
+that log says `Attempting uninstall: triton-ascend` / `Found existing installation:
+triton-ascend`, so the distribution it built was **new**, not a replacement — an
+image of that release carried none (see the pin table below). The differencing items
+to ask for: `pip show triton-ascend`, `which bishengir-compile`, and whether
+`set_env.sh` from the *doc's* toolkit root was sourced (a `RUN source …` in a
+`Dockerfile` does not persist into later layers or the container).
 
-## Reporter/maintainer-confirmed resolution (#5750, 2026-01-29)
+**The reporter's `pip install triton-ascend` is not the variable; that release's pin
+is.** One grep classifies it: `rg -n 'triton-ascend' requirements.txt pyproject.toml`
+plus `rg -n 'Install Triton Ascend|triton_ascend-3' docs/source/` in the tree at the
+reported ref, and the log's own `Downloading …/triton_ascend-<version>-…whl` line
+(names the build actually installed):
+
+| Pin at that ref | What it means | Route |
+|---|---|---|
+| **absent**, with a tutorial `Install Triton Ascend` section | the pair is a **hand install** for that release, and the only valid build is the `.dev` wheel its own docs name in the `vllm-ascend.obs.cn-north-4.myhuaweicloud.com` bucket | install *that wheel file* verbatim (plus `set_env.sh`), or move to a release whose pin is final |
+| `.dev…` / `.rc…` pin | the index cannot be trusted to serve it, so `pip install triton-ascend` resolves some *other* build | same |
+| **final** pin (`triton-ascend==3.2.0`) | pip — and therefore the image — installs the pair; there is **no** manual step, and a manual install only shadows/downgrades it | drop the manual install, keep the image |
+
+Verified pins and the flip date: v0.11.0 (`2f1aed9`, the table above) and v0.12.0rc1
+both hand-install — the latter names `triton_ascend-3.2.0.dev2025110717-…whl` and
+"triton is not installed and enabled by default"
+(`docs/source/user_guide/release_notes.md:215`); **v0.13.0rc2 flips it** —
+"triton-ascend is upgraded to 3.2.0" (`release_notes.md:98`; the v0.13.0rc1 section
+`:107-163` still names no triton-ascend anywhere) — and at v0.14.0rc1
+`requirements.txt:37` / `pyproject.toml:33` pin `triton-ascend==3.2.0`, installed by
+`Dockerfile:60-64` through `PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi`.
+That is *why* the maintainer says v0.14.0rc1 "does not require additional
+installation", and why 0.13.0rc1 — one release below the flip — is the trap: there is
+no final pin to resolve, so any simple index (`mirrors.xfusion.com/pypi/simple` in the
+recorded case) hands out a build that release was never tested with. When the snapshot
+does not hold the reported ref, these neighbour pins plus the log's own download URL
+are the evidence; say which one you read.
+
+## Maintainer-confirmed resolution (#5750, 2026-01-29) and the ladder
 
 > 0.13.0rc1 uses the triton-ascend dev package. Installing it via `pip install
 > --trusted-host mirrors.xfusion.com -i https://example.invalid/pypi/simple
@@ -110,15 +139,22 @@ does not persist into later layers or the container).
 > recommend using our latest version, v0.14.0rc1, which works correctly and does
 > not require additional installation of triton-ascend.
 
-Two rules follow, and they outrank any compiler archaeology:
-
-1. **Do not add or replace triton-ascend in these images.** The release that needs
-   it ships it; a mirror "latest" makes it unusable. Delete the `pip install` line
-   and re-run the untouched image first (cheapest single action).
-2. **When the pair is mismatched, move the release rather than fix the compiler.**
-   v0.14.0rc1 needs no separate triton-ascend install at the recorded date. If the
-   reporter must stay on the broken release, install the pair from *its* pinned
-   tutorial verbatim (paths and file names above), including `set_env.sh`.
+1. **Rung 1 is the release move, and it goes first in the answer.** v0.14.0rc1 (or
+   anything at/after the v0.13.0rc2 pin flip) both fixes the pair and deletes the
+   install step. This is the maintainer's own recommendation and the reporter
+   accepted it ("OK, I'll give it a try"), so do not bury it under a local repair.
+2. **If the reporter must stay on a hand-install release** (≤ v0.13.0rc1):
+   `pip uninstall triton-ascend`, then install the *wheel file* that release's own
+   release notes / tutorial name, verbatim — the obs
+   `…/triton_ascend-3.2.0.dev<date>-cp311-…whl` — and source the doc's `set_env.sh`.
+   Never `pip install triton-ascend` against any index, and never a "latest".
+3. **"Re-run the untouched image" is conditional, not the universal cheapest step.**
+   It is only a valid ablation where that release installs the pair itself (final
+   pin, per Step 1): `pip show triton-ascend` on the untouched image must show a
+   version. On a hand-install release the untouched image has none, and a
+   Triton-required model (Qwen3-Next, DeepSeek-V3.2) then fails or silently loses the
+   kernels — so the recorded #5750 container (rc4 installed over an image that had no
+   triton-ascend) could not have been fixed that way. Do not rank it above rung 1.
 
 The mechanism sentence to keep labelled as hypothesis: the log shows the IR
 rejection, not which of the two artefacts is older or newer; "mispaired
@@ -129,11 +165,15 @@ answer settles the *action*, not the ABI detail.
 
 1. Name the lane in the first sentence: Triton-Ascend kernel compile, engine up,
    first request dies — not an AscendC custom-op build.
-2. Cheapest action: fresh container from the image, **no** `pip install
-   triton-ascend`, **no** extra BiSheng/AscendNPU-IR `.run`; then serve the same
-   command. Print `pip show triton-ascend` / `which bishengir-compile` as evidence.
-3. If it still fails: try the newer release whose image carries a usable pair
-   (v0.14.0rc1 at the recorded date), which also removes the install step.
+2. Give the release pin class in one line (Step 1's table), then **rung 1 = move to
+   the release whose `requirements.txt` pins a final `triton-ascend`** (v0.14.0rc1 at
+   the recorded date; the flip is v0.13.0rc2) — maintainer-confirmed, and it also
+   removes the install step.
+3. If the reporter must stay: install that release's own `.dev` wheel from the obs
+   URL its docs name, after `pip uninstall triton-ascend`; never an index
+   `pip install triton-ascend`. Offer the untouched-image re-run only after
+   `pip show triton-ascend` on that image returns a version; print
+   `pip show triton-ascend` / `which bishengir-compile` either way as evidence.
 4. Missing artefacts to ask for: the `pip list | grep -i triton`, the toolkit root,
    and whether the failing request is the very first one after startup.
 5. Close with the version gap when it applies: the pinned snapshot tree may not

@@ -11,6 +11,11 @@ metrics block (`Avg prompt throughput`, `Avg generation throughput`, `Running`,
 `Waiting`, `GPU KV cache usage`, `Prefix cache hit rate`, sometimes
 `Preemptions`), the serve command, and the prompt lengths of the load driver.
 
+**Or the cache hit rate is *low* rather than absent** — "输入 token 数为 1024 倍数时 prefix cache
+命中率个位数", 命中率在一个长度上骤降 — which is the lookup arithmetic in
+`prefix-cache-hit-rate-at-block-boundary.md` and ends in two log lines plus one
+`cached_tokens` read; it is not the gate page's `0.0 %` and not a kernel question.
+
 **Also this topic:** the report is a *version comparison* instead of a measurement —
 "[Bug]: <model>相同条件下性能测试不如0.7.3版本", "升级后吞吐掉了", the new image's env dump
 as the only evidence, no numbers on either side. Then the baseline may carry an
@@ -191,6 +196,16 @@ Not this topic, leave immediately:
   0 % on P is the recipe run outside its envelope. Diff the reporter's two launch
   scripts against that recipe in the same turn (#12093 burned 60 turns on the
   coordinators instead).
+- **A rate that is *nonzero* but low, or that steps with the prompt length, is
+  arithmetic and not a defect.** The lookup asks for `num_tokens − 1` tokens and
+  every group rounds the hit down to a block multiple, so the ceiling is
+  `B·floor((L−1)/B)/L`: exact-multiple prompt lengths lose one whole block, and
+  anything shorter than one block is never cached. `B` is 128 on the dense path but
+  is *derived* from the state geometry on a hybrid-marked model (the pin's own
+  Qwen3.5 tutorials say it can be 2048), which is why the lost block can look like a
+  collapse. Two log lines and one `cached_tokens` read close it —
+  `prefix-cache-hit-rate-at-block-boundary.md`; reporter-confirmed #7965, and the
+  answer is "normal behaviour", so do not rank kernels or config for it.
 - **Separate the two complaints before answering.** "排队久" is TTFT: total
   prefill work ahead / prefill throughput, and it is *not* improved by
   `--max-num-seqs` or by memory. "生成慢" during the same window is
@@ -281,12 +296,19 @@ Not this topic, leave immediately:
   direction from the flag before ranking mechanisms; details and both recorded runs:
   `graph-mode-from-the-serve-line.md`.
 - **On a hybrid GDN MoE, a low single-digit `Avg generation throughput` with
-  `Running: 1` may be the release, not the flags.** When the project's own
-  tutorial command at that ref already carries `--enforce-eager` and caps graph
-  mode at `PIECEWISE` (`platform.py:207-208` at v0.11.0rc2), the config diff finds
-  nothing and the answer is the version ladder — `qwen3-next-decode-throughput.md`.
-  Do not promise the flag flip as a fix: it is a hypothesis with a named log line to
-  confirm.
+  `Running: 1` has a one-flag diff even when the tutorial already carries
+  `--enforce-eager`.** v0.11.0rc2 downgrades only `FULL_AND_PIECEWISE` to
+  `PIECEWISE` (`platform.py:207-208`); an explicit
+  `--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'` is *accepted*
+  (`:224-227`) and turns `_use_aclgraph()` on (`model_runner_v1.py:591-592`), so
+  "remove the flag and add the mode" is the cheapest check — but it is a check with
+  three readable outcomes, not a promised fix: the banner plus a faster rate, a
+  `ValueError … not supported with <Builder> backend` (`:3428-3433`), or the
+  mode's known-broken lane (v0.12.0rc1 `release_notes.md:42`, #4990 for
+  DeepSeek 3/3.1 and Qwen3, fixed 0.13.0rc1). At v0.11.x that mode's own in-tree
+  e2e is `@pytest.mark.skip`-ped, so an upgrade stays the durable rung. Recorded
+  #4357's own later answer was 并没有, with no invocation named —
+  `qwen3-next-decode-throughput.md`.
 - **"Why is this path many ops instead of one — platform limit or engineering
   choice?" is an intent question, and it is answered per phase.** On a hybrid
   linear-attention (GDN) family the prefill/chunk lane and the decode lane have
@@ -422,10 +444,13 @@ Not this topic, leave immediately:
 - `qwen3-next-decode-throughput.md` — Qwen3-Next-80B-A3B at 4-6 tok/s on one
   request: the per-step arithmetic that rules capacity and queueing out, the
   verified v0.11.0rc2 map (`--enforce-eager` in the project's own command,
-  `FULL_AND_PIECEWISE` degraded to `PIECEWISE`, prefill GDN rebound to a pure-torch
-  chunk loop, no `qwen3_next` in `tests/`), why the newer release's
-  `FULL_DECODE_ONLY` tutorial command is the real lever, and the paste-hygiene traps
-  (#4357: `served_model_name` contradicts the reported command).
+  `FULL_AND_PIECEWISE` degraded to `PIECEWISE` while an explicit `FULL_DECODE_ONLY`
+  is accepted, `ASCEND_LAUNCH_BLOCKING` refusal, prefill GDN rebound to a pure-torch
+  chunk loop, no `qwen3_next` case and the mode's e2e skipped), the in-version
+  `FULL_DECODE_ONLY` experiment with its three log-line outcomes, the HBM warning
+  that usually hits first, why the newer release's command is the durable lever, the
+  scope of the recorded 并没有, and the paste-hygiene traps (#4357:
+  `served_model_name` contradicts the reported command).
 - `kv-capacity-step-and-preemption.md` — the same step shape owned by the KV pool
   instead of the graph (#5859: 6/7/8/12 concurrent at 79.4/92.4/98.9/98.7 % KV):
   the two-row pool back-solve and the per-request percentage, the pinned
@@ -445,6 +470,18 @@ Not this topic, leave immediately:
   TTFT-falls / wall-time-triples shape that retires prefill and admission, and
   what the residual host-side candidate class looks like if the A/B does not
   move.
+- `prefix-cache-hit-rate-at-block-boundary.md` — the *nonzero* sibling of that page
+  (recorded #7965, Qwen3.5-9B, v0.18.0rc1, "1024·n prompt lengths → 个位数 hit rate"):
+  the `max_cache_hit_length = num_tokens − 1` line and the block rounding that make
+  `hit = B·floor((L−1)/B)`, the sawtooth it produces (worst at exact multiples, ~100 %
+  one token past a boundary, 0 % below one block), the downstream derivation that can
+  push `B` far above 128 (`refresh_block_size`'s hybrid early return plus
+  `patch_mamba_config.py`'s `attn_block_size` from the ssm page size, and `lcm`
+  alignment in align mode), the `IsHybrid` marker question that decides whether that
+  branch is reachable at all, and the two-line closure (the `Setting attention block
+  size to` log line, then `usage.prompt_tokens_details.cached_tokens` against the
+  formula). The reporter's own comment is the verdict: prefill must compute at least
+  one token, so the last block never hits.
 - `zero-prefix-cache-hit-hybrid.md` — a hybrid GDN model (Qwen3-Next) reporting
   `Prefix cache hit rate: 0.0%`: the `SupportsMambaPrefixCaching` gate that
   disables prefix caching in `MambaModelConfig` at vllm v0.14.1, the model's own

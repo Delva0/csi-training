@@ -133,6 +133,16 @@ Conditional routes:
   family (the release pipeline ships a2/a3/310p variants only, `Dockerfile.a5`
   exists in-tree) or a live SoC code the map lacks →
   `device-type-build-vs-runtime.md`.
+- A device op on an **A5 / Ascend 950** box refuses an **MX scale** —
+  `npu_transpose_quant_batchmatmul … Tensor x1Scale not implemented for
+  DT_FLOAT8_E8M0, should be in dtype support list [DT_FLOAT,]` (a **one-entry**
+  list), or the question is **which 950 die** a build or a validation covered:
+  `AscendDeviceType` has a single `A5` member and `soc_version == 260` sends both
+  dies to it, so `_build_info.__device_type__ == 'A5'` is never evidence about
+  950PR vs 950DT, and the pin's docs name neither die. A one-entry support list is
+  a kernel-build × die question (a multi-entry one is the caller's dtype) →
+  `a5-mxfp-refusal-and-die-coverage.md`; the caller-side gate is
+  `../custom-ops-runtime-faults/quant-scale-dtype-gate.md` rule 0.
 - Engine start dies **inside torch_npu device open** on a `-310p`/pairing report —
   `SetPrecisionMode … aclrtSetCompileOpt(aclCompileOpt::ACL_PRECISION_MODE …) 500001`,
   `PlatformInfoInit … SocVersion <name>`, `GEInitialize failed`, `ERR99999` — with no
@@ -160,7 +170,10 @@ Conditional routes:
   errno:361001` is the next launch on the poisoned stream, not a second fault — read
   `kernelName=` and the timestamps) and the **VL/OCR model** case, where no
   `_310p/ops/fla/` indexed write is reachable and the sampler's Triton-absent penalty
-  fallback explains an `aclnnInplaceSub` but contains no `index_put_`. It also owns the
+  fallback explains an `aclnnInplaceSub` but contains no `index_put_` — for an **image**
+  request the first indexed write is instead upstream's `_merge_multimodal_embeddings`
+  (`inputs_embeds[is_multimodal] = …`), so grep the vllm tree before the plugin (#12086,
+  Qwen3-VL on 310P: text answers, every image request dies). It also owns the
   **GDN-family** form on the 310P line (#13449, v0.20.2rc1): the two `index_put_` writes
   are prefill-only (`gdn_310.py:249-269`), the reporting frame is a `.item()`
   (`_310p/ops/causal_conv1d.py:137,142`), `--enforce-eager` removes nothing, and the

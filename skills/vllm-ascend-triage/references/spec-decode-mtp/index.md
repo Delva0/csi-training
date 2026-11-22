@@ -26,7 +26,7 @@ at request time. The shapes:
   `'NoneType' object has no attribute 'sampled_token_ids'` in the EngineCore and a
   negative `Counters can only be incremented by non-negative amounts`, together,
   with `--async-scheduling` and `--speculative-config` in the same launch and a
-  fractional `temperature` (`async-spec-bookkeeping-desync.md`).
+  non-zero `temperature` (`async-spec-bookkeeping-desync.md`).
 - the **process** dies with a *device dump* instead of a Python error: the deepest
   frame is `counts_cpu[: counts.shape[0]].copy_(counts, non_blocking=True)` in
   `_copy_valid_sampled_token_count` (`model_runner_v1.py:1393`) and the paste also
@@ -493,9 +493,11 @@ from the acceptance numbers.
   (`model_runner_v1.py:838-842` mask → `prev_req_id_to_index` built without those
   indices → `-1`-filled row → `num_accepted = -1` → unguarded lookup), why the
   statement is upstream v0.13.0's and the patch only carries it, the
-  `0 < temperature < 1` branch anchor in the rejection sampler with what remains
-  unverified, the ladder (async off → MTP off → token step), and the upstream fix
-  shape (#8724).
+  greedy-vs-stochastic branch anchor in the rejection sampler — any
+  `temperature > 0`, not a `(0,1)` window: `vllm bench serve` substitutes `0.0`
+  while a raw client's omitted field arrives as the generation config's value or
+  `1.0` — with what remains unverified, the ladder (async off → MTP off →
+  `--temperature 1.0` → token step), and the upstream fix shape (#8724).
 - `accepted-token-row-snapshot.md` — the **silent** member of the `num_accepted_tokens` family:
   intermittent repeated/omitted token runs on a hybrid GDN serve with async scheduling + MTP +
   prefix caching, reporter-controlled by "async off: 0/1024". Carries the two row spaces

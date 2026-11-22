@@ -136,16 +136,23 @@ row with `-1` (`spec_decode/eagle_proposer.py:816-822`) so
 request is in the batch but absent from `prev_req_id_to_index`, so the unguarded
 lookup raises the `KeyError`. One provenance, three symptoms.
 
-Why `0 < temperature < 1` and not `0`: the vllm-ascend rejection sampler takes
-the all-greedy branch only when `sampling_metadata.all_greedy`
+Why temperature is involved at all — and why the window is `> 0`, not `(0,1)`:
+the vllm-ascend rejection sampler takes the all-greedy branch only when
+`sampling_metadata.all_greedy`
 (`sample/rejection_sampler.py:119,155` — `if sampling_metadata.all_greedy:
 return output_token_ids`) and otherwise falls through to the stochastic path
 (`generate_uniform_probs`, `sample_recovered_tokens`, `:158` onward). So a
-fractional temperature changes which branch writes the padded
+non-zero temperature changes which branch writes the padded
 `(batch, max_spec_len + 1)` output buffer, i.e. which entries survive as
-`PLACEHOLDER_TOKEN_ID`. **The exact step where the row becomes discarded is not
-established by this report** — label it hypothesis, and settle it by logging
-`self.num_discarded_requests` per step at the reporter's own temperature.
+`PLACEHOLDER_TOKEN_ID`. The reporter's "unset works" is not a second control:
+`vllm bench serve` fills `"temperature": 0.0` into the body when the flag is
+absent (`vllm/benchmarks/serve.py:1412-1413` at vllm v0.13.0), while a raw client
+that omits the field reaches the engine as the generation-config value or `1.0`
+(`vllm/entrypoints/openai/protocol.py:390,406-408`). **The exact step where the
+row becomes discarded is not established by this report** — label it hypothesis,
+and settle it by logging `self.num_discarded_requests` per step at the reporter's
+own temperature; the branch reasoning, both controls and the `--temperature 1.0`
+disambiguation are in `../spec-decode-mtp/async-spec-bookkeeping-desync.md`.
 
 First actions in the answer: `--async-scheduling` off (removes
 `use_async_scheduling`, hence the `prev_num_draft_len` bookkeeping and the

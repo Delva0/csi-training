@@ -10,7 +10,9 @@ into a dense model; **C** is a *foreign* format
 so the refusal never happens and the format question surfaces as a construction-time
 `KeyError` instead — with §C-ii for the same key when the directory is instead the
 **Ascend-native** conversion, where the owner is the description file this ref never
-reads; **D** is a method the release supports but never named on its own
+reads, and §C-iii for that key at refs that *do* read the file, where the owner is
+whichever of `config.json`'s marker dict and the description file the engine ended up
+holding; **D** is a method the release supports but never named on its own
 command line, so `argparse` rejects the flag before `ModelConfig` is built at all;
 **E** is a checkpoint whose *weights* are FP8/E4M3 — no method name, config edit or
 graph flag makes it run, and it surfaces as A's refusal or as C's `KeyError` depending
@@ -98,6 +100,15 @@ before answering "not supported".
 - Cheap verification for the reporter: run the same serve command without
   `--quantization`; if the gate still fires, the checkpoint's own `quant_method`
   is the cause and the file list (`config.json`) is the artefact to send.
+- Say what the conversion inherits at that pin, before the reporter spends hours on
+  it: v0.13.0's own `### Known Issue` reads *"Due the upgrade of `transformers`
+  package, some models quantization weight, such as `qwen2.5vl`, `gemma3`,
+  `minimax`, may not work. We'll fix it in the next post release."*
+  (`docs/source/user_guide/release_notes.md:108`, inside the
+  `## v0.13.0 - 2026.02.06` section at `6281c120`, PR #6302). #6800's checkpoint is
+  a MiniMax-M2.5, so on that image a freshly converted `ascend` checkpoint of the
+  same family can still fail at weight load — name that as the next gate and quote
+  the release note rather than a kernel theory.
 
 ## B. The other direction: the flag omitted on a layout that has no `quantization_config`
 
@@ -383,6 +394,105 @@ that verdict plus the one `config.json` census is the entire first message; the
 same question asked of a ref that documents quantization gets that ref's table row,
 not this verdict.
 
+### C-iii. The same key at a ref that *does* read the description: which dict won (recorded #3494)
+
+Signature — every rank, at model construction, on a directory whose own path says it
+**is** an Ascend W8A8 export (`…-w8a8` / `…-W8A8`) and whose engine config line reads
+`dtype=torch.float16`:
+
+```text
+File ".../vllm/model_executor/models/qwen2.py", line 309, in __init__
+    self.embed_tokens = VocabParallelEmbedding(
+File ".../vllm_ascend/ops/vocab_parallel_embedding.py", line 81, in __init__
+    quant_method = quant_config.get_quant_method(self, prefix=prefix)
+File ".../vllm_ascend/quantization/quant_config.py", line 115, in get_quant_method
+    if self.is_layer_skipped_ascend(prefix,
+File ".../vllm_ascend/quantization/quant_config.py", line 147, in is_layer_skipped_ascend
+    is_skipped = self.quant_description[prefix + '.weight'] == "FLOAT"
+KeyError: 'model.embed_tokens.weight'
+```
+
+**Neither §E nor `empty-prefix-quant-keyerror.md` owns this one.** The quoted key is
+correctly prefixed: qwen2's model file passes `prefix=f"{prefix}.embed_tokens"`
+(`vllm/model_executor/models/qwen2.py:308-312` at vllm v0.11.0rc3 `8ce5d31`), so the
+`''`-prefix bug cannot produce it; and the checkpoint is not the stock FP8 release §E
+owns (that row's trigger is a `DeepSeek-V3`/`-R1`/`-0324` path with no `-W8A8`).
+`scripts/checkpoint-key-prefix.py --dtypes <dir>` settles the dtype half in one call
+(int8 + a declaration means a converted export). Nor is it §C's "foreign format renamed
+onto `ascend`": nothing was renamed and nothing was refused — the **description the
+engine ended up holding** has no entry for that module, and at a ref that reads the file
+only two dicts can be in that slot.
+
+**Two sources, one order.** Upstream `get_quant_config` returns
+`hf_config.quantization_config` (then `text_config`'s, then `compression_config`)
+**before** it globs the directory
+(`vllm/model_executor/model_loader/weight_utils.py:229,249-250` then `:275,285,289` at
+vllm v0.11.0rc3); only when that is absent does it read the one `*.json` whose name ends
+with what `AscendQuantConfig.get_config_filenames()` declares —
+`["quant_model_description.json"]` (`vllm_ascend/quantization/quant_config.py:76-77` at
+v0.11.0rc0 `00ba071`), stored verbatim as `quant_description` (`:57`). One census of the
+reporter's directory separates them, and it is the whole first answer (save it as
+`census.py` and run `python3 census.py <model dir>`):
+
+```python
+import json, os, sys
+d = sys.argv[1]
+c = json.load(open(os.path.join(d, "config.json")))
+q = (c.get("quantization_config") or c.get("compression_config")
+     or (c.get("text_config") or {}).get("quantization_config"))
+print("config.json quant dict:", None if q is None else (len(q), list(q)[:10]))
+p = os.path.join(d, "quant_model_description.json")
+print("description present:", os.path.exists(p))
+if os.path.exists(p):
+    r = json.load(open(p))
+    print("entries:", len(r))
+    print("embed/lm_head:", {k: v for k, v in r.items()
+                             if "embed_tokens" in k or "lm_head" in k})
+    print("first keys:", list(r)[:8])
+```
+
+Read its answers in this order:
+
+1. **A marker dict in `config.json`** (`{"quant_method": "ascend"}` beside
+   `"quantize": "w8a8_dynamic"`, or another vendor's keys) — that dict *is* the
+   `quant_description`, the description file was never opened, and `embed_tokens` is
+   merely the first module qwen2 builds. Rung 1: delete the field on a **copy** of the
+   directory and re-run the same serve line; the pin's own guide tells converters to do
+   exactly that before exporting W8A8
+   (`docs/source/user_guide/feature_guide/quantization.md:32-33` at v0.11.0rc0). Do not
+   hand out §C's "format not implemented" verdict here — an int8 directory that MindIE or
+   an earlier engine serves is not a foreign format.
+2. **No marker, description present, entry missing** — the export omitted the
+   (unquantised) module. Rung 1: add `"model.embed_tokens.weight": "FLOAT"` to a copy of
+   the description (`FLOAT` is the value that routes it to
+   `UnquantizedEmbeddingMethod`, `quant_config.py:120-122`), or re-export with the
+   modelslim build the pin's FAQ names (`quantization.md:100-104`,
+   `br_release_MindStudio_8.1.RC2_TR5_20260624`). Say that the next lookup names the next
+   missing key, so the second failure is not read as the edit breaking something.
+3. **No marker and no `quant_model_description.json`** — you are on §F's shape and the
+   engine should have raised `Cannot find the config file for ascend`; check for a
+   suffixed `quant_model_description_<quant>.json` (§F) before trusting the KeyError's
+   provenance.
+4. **Description present with another prefix** (`embed_tokens.weight` bare,
+   `transformer.`, a fused spelling) — a naming-direction mismatch: re-export, do not
+   hand-rename keys, because the safetensors index carries the same names.
+
+Rungs that cannot move it: `--enforce-eager`, TP size, `--max-model-len`, every graph or
+scheduling flag, and the `Failed to import from vllm._C` warning — construction precedes
+the first shard read and does no device work. Do **not** answer
+`quant_description.get(prefix + '.weight', "FLOAT")`: the same function decides
+`LinearBase`/`FusedMoE` as well (`quant_config.py:100-125`), so the service starts and the
+quantised linears run unquantised (same trap as `empty-prefix-quant-keyerror.md`).
+Acceptance is one real request against the same weights served in bf16, not a healthy
+port.
+
+**Version scope, and this case is open.** Verified at vllm-ascend v0.11.0rc0 `00ba071` +
+vllm v0.11.0rc3 `8ce5d31`. #3494's log prints `vLLM API server version 0.10.2` while that
+pin pairs vllm v0.11.0rc3 (`docs/source/conf.py:68`), and its `quant_config.py` frames are
+5-6 lines earlier than the pin's (`:115/:147` vs `:121/:152`) — the same code in another
+build, so do not read the offsets as a different tree. No reporter reply confirms which of
+the two dict sources failed, so quote both with their checks rather than a cause.
+
 ## D. Named, but never an argparse choice (`invalid choice: 'ascend'`)
 
 ```
@@ -573,7 +683,10 @@ It prints the dtype histogram, the module families carrying FP8 *weight* tensors
   later release that adds an fp8 row, and label the mechanism "reporter-confirmed on
   #3534", not "NPU-wide".
 - **int8 weights + a declaration** → a converted export: §A/§B, and §C when the load
-  dies on a lookup key.
+  dies on a lookup key. A **correctly prefixed** key (`model.embed_tokens.weight`)
+  out of that lookup on a `…-w8a8` directory is §C-iii, not §C: the description the
+  engine holds is either `config.json`'s marker dict or an export that omitted the
+  module.
 - **bf16 weights + a stale `quantization_config`** → one config edit; that is exactly
   the guide's delete-the-fields step, and the weights are innocent.
 

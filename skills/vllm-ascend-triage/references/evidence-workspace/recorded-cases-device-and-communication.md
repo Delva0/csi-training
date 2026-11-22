@@ -1182,3 +1182,34 @@ vllm-ascend 0.13.0rc1) and #5684 has no public resolution. Pages:
 `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3b2 (CANN-pairing
 negative + the `107000`/`ret = 2`/128 TiB sibling), and
 `../hccl-and-hardware/index.md` (one-box branch paragraph).
+
+**#13904** vllm-ascend **v0.23.0rc1** (`f4a08bddd0cc`) + vllm v0.23.0, 4× Ascend950PR,
+DeepSeek-V4-Flash w8a8 MXFP8 (`quantization_config` `{"quant_method": "fp8", "fmt":
+"e4m3", "scale_fmt": "ue8m0", "weight_block_size": [128,128]}`), `--data-parallel-size 4
+--tensor-parallel-size 4 --enable-expert-parallel`: architecture detection, 46/46 shards,
+KV init and the API all pass, `GET /v1/models` 200, and the **first** chat request is a
+500 at `vllm_ascend/attention/dsa_v1.py:1566` `_forward_o_proj` →
+`npu_transpose_quant_batchmatmul` → `device error type 0, error code is 161002` +
+`EZ1001: Tensor x1Scale not implemented for DT_FLOAT8_E8M0, should be in dtype support
+list [DT_FLOAT,]`; the body carries a framework-free `torch_npu` repro of the same call,
+so the serve flags are not the variable. This is the `EZ1001` dtype gate's **MX member**
+and the side of it where the caller is right: a **one-entry** support list means the
+installed kernel build has only the non-MX scale variant, so the owner is the kernel ×
+the SoC die, and the caller (`group_sizes=(0,0,32)`, `x1_scale`/`x2_scale` as
+`….view(torch.float8_e8m0fnu)`, `:1572-1573`; twin at
+`attention/context_parallel/dsa_cp.py:1234`) is doing what an MX checkpoint requires.
+`device/mxfp_compat.py`'s `hasattr`-only shims all pass on that stack and are never
+called from the attention path, so "symbol present" is not "kernel supports it", and the
+A5 branch is selected by device type alone with no probe and no fallback — the remaining
+branches consume an unquantized `wo_a` (`dsa_v1.py:1580`, `:1650-1662`), so a capability
+gate needs a dequant path and is not a drop-in. The report also asks which 950 die was
+validated: `AscendDeviceType` has one `A5` member and `soc_version == 260` sends both
+dies to it (`utils.py:824-828`, `:857-858`; any `ascend950*` build string maps to A5,
+`setup.py:181-187`), `Dockerfile.a5:52` defaults `ascend950dt_9582`, and the pin's `docs/`
+contain neither `950PR` nor `950DT` while the model row is `A2/A3`
+(`support_matrix/supported_models.md:20`) — an enumeration gap, answered as such with the
+build-with-your-own-`SOC_VERSION` and sibling-die checks. The aclnn kernel's dtype table
+and `StructKernelNpuOpApi.cpp` are not in the export (`Ascend/op-plugin` 103 files, no
+`opapi/`), so the die-versus-CANN split is a hardware check, not a source read. Page:
+`../soc-platform-paths/a5-mxfp-refusal-and-die-coverage.md`; caller-side gate:
+`../custom-ops-runtime-faults/quant-scale-dtype-gate.md` rule 0.

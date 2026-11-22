@@ -51,6 +51,9 @@ sampling noise cannot produce bit-identical repeats. It is the *repeat* signatur
   `allocate_slots()` needs `num_computed_tokens` block-aligned. So request 2 is
   scheduled as "N − k·block_size cached + a tail", never as a full recompute —
   and the same prompt always produces the same tail, which is why 2…N agree.
+  The same line is why a hit *rate* reads low instead of 0: the hit is
+  `B·floor((L−1)/B)`, so exact-multiple prompt lengths lose a whole block —
+  `../performance-throughput/prefix-cache-hit-rate-at-block-boundary.md`.
 - **Every pooling forward is routed to the encoder attention branch, which never
   sees the cached prefix.** `vllm_ascend/attention/attention_v1.py:708`
   (v0.13.0rc1) — `if attn_metadata.model_runner_type == "pooling":

@@ -111,7 +111,9 @@ copied workaround rather than as the deviation table
 (`../spec-decode-mtp/empty-first-response.md`); #10495 v0.20.2rc1 Qwen3.6 MoE + `qwen3_5_mtp` on 2×A2 with ~64K prompts,
 acceptance collapsing to exactly 0.000 with drafts still produced and throughput
 stalling, where the run ranked KV capacity/queue thrash first and the reporter then
-reported MTP as the owner (MTP off → normal); #10943 v0.20.2rc1 custom
+reported MTP as the owner (MTP off → normal) — a later replay built from the owning
+page led with the MTP-off row, put capacity third and shipped it in six assistant turns,
+so the ordering rule is the part that was missing, not the mechanism; #10943 v0.20.2rc1 custom
 `nvidia/LocateAnything-3B` served through `TransformersMultiModalForCausalLM`,
 `terminate called after throwing an instance of 'std::logic_error'` /
 `basic_string::_S_construct null not valid` at EngineCore init — a native
@@ -331,7 +333,16 @@ turns (8.4 K characters of message text)**: four confirmation reads (the
 `KeyError` line, the `-1` fill in `eagle_proposer.py:825`, the index-map filter,
 the `vllm_version_is('0.13.0')` install gate), then the ranked answer with the
 upstream identity, the temperature anchor and the honest gap (which step discards
-a row). The page, not more source, is what closed it.
+a row). The page, not more source, is what closed it. A third replay answered it in
+the same shape in six assistant turns and 7.4 K characters of message text, and is the
+one that found the page's temperature claim under-determined: the stack's only
+branch is greedy vs stochastic, so the title's `(0,1)` window is not a source
+boundary. Both pages now carry the two control facts that settle it — `vllm bench
+serve` fills `temperature: 0.0` when the flag is absent
+(`vllm/benchmarks/serve.py:1412-1413` at vllm v0.13.0) while a raw client's omitted
+field arrives as the generation config's value or `1.0`
+(`vllm/entrypoints/openai/protocol.py:390,406-408`) — which makes
+`--temperature 1.0` the run that tests the reading.
 
 **#10405** vllm-ascend `v0.20.2rc1` (`367b8e6`) / vllm `v0.20.2` (`bc150f5`), 4×910B2C,
 Qwen3.5-35B-A3B with `qwen3_5_mtp`, `--async-scheduling` and a 1M window set through

@@ -14,6 +14,11 @@ flag from the default. **Scope: vllm v0.14.1 and earlier.** At vllm v0.23.0 that
 branch is gone and an explicit flag *is* honored — read *Version flip* at the end
 before quoting this verdict at a newer pin.
 
+**Not this page when the rate is nonzero.** A rate that is small, or that steps as the
+prompt length changes, is the lookup arithmetic, not a gate: go to
+`prefix-cache-hit-rate-at-block-boundary.md` (`hit = B·floor((L−1)/B)`, one whole block
+lost at exact-multiple lengths). This page owns only the flat `0.0 %`.
+
 ## The chain (each step source-verified)
 
 | Step | Site | What it does |

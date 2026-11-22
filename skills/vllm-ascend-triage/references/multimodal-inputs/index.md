@@ -27,7 +27,13 @@ from `MultiModalBudget` → `get_dummy_mm_inputs` → `_apply_prompt_updates`
 (`prompt-replacement-assertion-at-budget-init.md`) — same topic, different phase, and
 the owner there is the checkpoint directory plus the HF processor version, not the
 request.
-Not this topic: a VL serve that is merely **slow** with correct answers and sane
+Not this topic: a `ValueError: Error during index put operation` (or the count message) raised
+by `_merge_multimodal_embeddings`' own `except RuntimeError` **on a `-310p` image**, where
+the frames above it end in a device sync (`507018`, `kernelName=IndexPut`,
+`soName=libpt_kernels.so`) — the mask write itself has no AI-Core kernel there, so the
+counts were fine and both numbers match: `../soc-platform-paths/310p-cpu-fallback-op-fault.md`
+(is the merge write upstream's `inputs_embeds[is_multimodal] = …`? then the plugin has no
+substitution and no env knob); a VL serve that is merely **slow** with correct answers and sane
 counts, especially on a pre-v0.8 pin whose baseline is transformers
 (`../performance-throughput/pre-0.8-vl-vs-transformers.md` — the vision-tower patch
 gap is priced there, not here, and the placeholder rules below do not apply);

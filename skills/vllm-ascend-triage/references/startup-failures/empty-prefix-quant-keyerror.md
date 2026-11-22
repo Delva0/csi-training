@@ -93,7 +93,10 @@ Verified at those two pins (one-commit snapshots):
    converts this crash into `KeyError: 'model.embed_tokens.weight'`, which is a
    description/export question (their conversion did not record the embedding), not a
    code bug. Say that before they patch, or they will report the second error as a
-   regression.
+   regression. That follow-on error arriving without a prior empty-prefix crash is
+   `quantization-method-gate.md` §C-iii: the key is then correctly prefixed, and
+   `config.json`'s marker dict (which upstream returns before any glob) is the other
+   source the same census has to rule out.
 3. **Confirm which layer still lacks it.** After patching `embed_tokens`, the next
    un-prefixed module would crash the same way; check `lm_head` in the same file. In
    the recorded case `lm_head` already passes `maybe_prefix(...)`, which is why one line

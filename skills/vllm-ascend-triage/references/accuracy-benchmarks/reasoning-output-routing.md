@@ -205,13 +205,31 @@ layer, so say that before any device theory.
 | no parser class ⇒ no split and no counting | `vllm/entrypoints/openai/chat_completion/serving.py:98,125-126,143,253-255` build the parser only when the name is set; the split branch is guarded by `elif reasoning_parser:` / `if reasoning_parser` (`:343-362,1124-1133`) |
 | `qwen3` covers Qwen3 **and** 3.5/3.6 | `vllm/reasoning/__init__.py:107-110`; the parser strips a leading `<think>`, since from Qwen3.5 the template puts it in the prompt (`qwen3_reasoning_parser.py:21-24`) |
 | `reasoning_tokens` is parser-derived, not a sampler counter | `vllm/reasoning/basic_parsers.py:183` `count_reasoning_tokens`, consumed at `vllm/entrypoints/openai/responses/serving.py:861-893` |
+| the `reasoning_tokens` **key's presence is not evidence the parser ran** | on a vllm-ascend image the chat usage schema is patched **process-wide**: `patch/platform/patch_minimax_usage_accounting.py` is imported unconditionally (`patch/platform/__init__.py:32`, applied from `platform.py:181-186` `pre_register_and_update` → `adapt_patch(is_global_patch=True)`) and rebinds `engine_protocol.UsageInfo` / `chat_protocol.UsageInfo` / `chat_serving.UsageInfo` + `model_rebuild(force=True)` on both chat response models (`:40-48,56-71` at v0.22.1rc1), while upstream's chat `UsageInfo` has no `completion_tokens_details` field at all (`engine/protocol.py:105-109` at vllm v0.22.1) |
+| nothing fills it for a Qwen parser | only the *count* is MiniMax-gated: `_count_minimax_reasoning_tokens_for_usage` returns `None` unless `_is_minimax_reasoning_parser` (`:95-100,115`), and `_make_usage_info` then leaves `completion_tokens_details` `None` (`:131-146`); the stream injector is gated the same way (`:318`) |
 | a *wrong* name is not this failure (it is a boot failure) | two upstream boot-time `KeyError`s list the registered names — `vllm/reasoning/abs_reasoning_parsers.py:180-199` and `vllm/entrypoints/openai/api_server.py:503-511` (v0.18.0) — so a server that came up had either the right name or none; the list also fingerprints the release ("The parser *name* space", above) |
 
-Reporter-supplied scope (#11715, later comment): 910B + Ubuntu 22.04 + CANN 25.5.1,
+Reporter-supplied scope (#11715, later comment): 910B + Ubuntu 22.04 + `25.5.1`,
 two images (v0.20.2rc1, v0.18.0), MTP on and off, English and Chinese prompts, both
 a 35B-A3B and a 27B w8a8 Eco-Tech checkpoint — every combination identical. That
 invariance is itself the argument for a frontend config gate over any
-model/device/kernel cause.
+model/device/kernel cause. Read that bare `25.5.1` as the firmware/driver (HDK) line,
+not the CANN release: this corpus spells the same number as `HDK：25.5.1` (#8306's
+`collect_env.py`) and `25.5.0HDK` (#7220), while the pin's install table wants
+`CANN == 9.0.0` (`docs/source/installation.md:15`). The two files that settle a pairing
+question are `/usr/local/Ascend/driver/version.info` and
+`ascend-toolkit/latest/version.cfg`; do not carry "CANN 25.5.1" into an answer.
+
+A `reasoning_tokens: 0` in a Qwen body is that release's/client's own
+default — not a count the server produced, and not a second defect beside the missing
+split. Say it once and name the field to read (`choices[0].message.reasoning`); do not
+hunt for a "populator" (the recorded #11715 run spent four calls on that hunt) and do not
+tell the reporter either half alone: "the field does not exist" is true upstream and
+false on their image, while "MiniMax-only" reads as a MiniMax-gated schema when only the
+count is gated. The process-wide rebinding and its v0.18.0rc1 line numbers
+(`patch_minimax_usage_accounting.py:40-62`) are
+`../upstream-downstream-drift/protocol-model-class-swap.md`'s subject; re-grep the line
+numbers per ref.
 
 Field-name drift, checked before concluding "`reasoning_content` is missing": at
 vllm v0.22.1 the chat response field is `message.reasoning`

@@ -5,6 +5,8 @@
 A hybrid linear-attention family (Qwen3.5/Qwen3.6, `model_type` `qwen3_5`) served with
 `--speculative-config '{"method": "qwen3_5_mtp", …}'` **and**
 `--enable-prefix-caching`, where the title says only "同时开启mtp+prefix cache后，推理报错"
+(**or names neither feature** — #8913's title was just `Qwen3.5-35B-A3B启动后发请求报错`, so
+the pair is visible only in the serve line: read that, not the title)
 and the **body carries no error at all** (recorded #9003: the body's whole bug section was
 `<!-- Failed to upload "image.png" -->`, and `/workspace/attachments` was empty) — or the
 error is one line of Chinese with no traceback — **or the body carries the whole
@@ -13,6 +15,21 @@ is the answer, not the coverage verdict. The launch usually also has
 `--async-scheduling`, `cudagraph_mode: FULL_DECODE_ONLY`, an explicit
 `cudagraph_capture_sizes` list, a `--quantization ascend` w8a8 checkpoint and a
 `--additional-config` stack.
+
+**A `<details>` block whose entire content is a link is the no-error-text form, not a
+traceback.** Recorded #8913 (vllm 0.19.1 + vllm-ascend v0.19.1rc1, bf16
+`Qwen3.5-35B-A3B`, TP2 + `--enable-expert-parallel`, K=3, `--enable-prefix-caching`,
+`--async-scheduling`, `FULL_DECODE_ONLY`) streamed three chunks (~4 tokens) and then
+`{"error": {"message": "EngineCore encountered an issue. See stack trace (above) for the
+root cause.", … "code": 500}}`, while its `<summary>详细报错</summary>` block held exactly
+one line: `[errors.txt](https://github.com/user-attachments/files/27434752/errors.txt)`.
+That is a `user-attachments` URL, unreachable from the case view, and
+`/workspace/attachments` was empty — nothing there can be read as a frame. The
+reporter's own next comment was 详细报错log好像没传上 followed by a **second**
+user-attachments id (`…/27470681/…`), so the upload failed; the log was never withheld.
+Answer that form as the no-error-text form (coverage verdict + ladder + ask for the file
+and its tail) and say which form the paste is in — never infer a mechanism from the
+missing text.
 
 **Not every "GLM"/DeepSeek launch in this pair's shape is this page.** GLM-5/5.1 is
 `model_type: glm_moe_dsa` — DSA/MLA sparse attention, no mamba layers — so
@@ -47,6 +64,13 @@ neither exported tree — `v0.18.0rc1` and `v0.19.1rc1` both carry
 `docs/source/tutorials/models/Qwen3.5-27B.md`, which is where the two anchors above live.
 Answer from the reporter's own pin and say which ref you verified; do not chase the URL
 (`../tutorial-verification/docs-version-space-and-image-tag.md`).
+
+**The variant can be off-matrix on top of the pair.** At v0.19.1rc1
+`docs/source/user_guide/support_matrix/supported_models.md:82-83` lists only
+`Qwen3.5-397B-A17B` and `Qwen3.5-27B`; #8913's `Qwen3.5-35B-A3B` (MoE — its serve line
+passes `--enable-expert-parallel`, so `model_type` `qwen3_5_moe` and drafter arch
+`Qwen3_5MoeMTP`) has no row, no tutorial page and no nightly config at that pin. State
+it as a second coverage gap beside the pair, not as the cause.
 
 Config facts that keep the answer honest:
 
@@ -157,7 +181,15 @@ the coverage verdict does not depend on it.
 2. Align to the validated row: `n=3`, `--max-num-batched-tokens 8096`,
    `--max-num-seqs 32`, `--max-model-len` down to the reported input+output, default
    capture sizes. A launch at `n=5`, `max-model-len 262144` and a hand-picked
-   `cudagraph_capture_sizes` list is three deviations at once.
+   `cudagraph_capture_sizes` list is three deviations at once. #8913's were
+   `--max-num-seqs 128` / `--max-num-batched-tokens 16384` (vs `32` / `8096`) plus two
+   env levers the row does not set, `VLLM_ASCEND_ENABLE_FLASHCOMM1=1` with
+   `VLLM_ASCEND_ENABLE_FUSED_MC2=1` on a **MoE** drafter
+   (`../feature-enable-recipes/sequence-parallel-flashcomm.md` owns the FC1 half); its
+   `n=3`, `FULL_DECODE_ONLY`, `--async-scheduling` and
+   `--additional-config '{"enable_cpu_binding":true}'` were **not** deviations — that key
+   is live and defaults to `True` (`ascend_config.py:110`, `platform.py:951`), so do not
+   rank it either way.
 3. `"num_speculative_tokens": 5 → 1` with prefix caching still on: the
    speculative-block term shrinks but stays non-zero.
 4. `--async-scheduling` off (the other axis outside the validated matrix for hybrid
@@ -170,7 +202,9 @@ the coverage verdict does not depend on it.
 
 ## What to send back
 
-The traceback — the screenshot failed to upload, so the text is the whole ask — plus:
+The traceback — the attachment or screenshot failed to upload, so the text is the whole
+ask: name the file the body links (`errors.txt`), and ask for its last ~40 lines and the
+deepest three frames rather than the whole log — plus:
 whether it fails during engine init or on the first request; the startup lines
 `Mamba cache mode is set to 'align' …`, `Prefix caching in Mamba cache 'align' mode …
 experimental` and the `block_size` actually used; `KV cache size` / "Maximum concurrency"

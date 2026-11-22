@@ -82,6 +82,43 @@ leads were.
   text by turn 3 (already passed …) I need to send the deliverable", then sent two tool
   calls with empty text; its last turn was 14.4 K characters of reasoning holding the
   whole ranked answer and the repro script, cut inside it, 67 characters shipped.
+- **The hypothesis sweep is its own cut risk.** Weighing three or more "alternatively /
+  another candidate" branches in one reasoning block is the same spend as writing
+  them as ranked lines, with no artifact. #15527 spent ~12 K characters twice on two
+  competing length hypotheses and shipped nothing at the cap; the #14731/#12102 pair
+  spent 42.9 K and 39.4 K characters of reasoning against 1.3 K and 2.7 K characters
+  of delivered answer, both cut at the 16 384-token cap; #7150 (51.8 K / 756) and
+  #18754 (59.1 K / 1.7 K) ended on an **empty** final message with the answer already
+  in hand. Two candidates is already the deliverable's shape: send the pair, then run
+  the single check that separates them.
+- **The two tells that predict the cut** (both forwards of the #3971/#8863 pair: 10-11
+  assistant turns, 43-48 K characters of reasoning against 1.2-4.9 K of message text,
+  `output_truncated`). (a) **The reasoning block starts laying out the answer** —
+  "Now write the answer", "Shape:", "1. Verdict:", "Verified facts (pinned …)". At
+  that word the block *is* the message: typing the skeleton as reasoning burns the
+  artifact, and #3971's last block was cut inside exactly that skeleton while its
+  owner (`fla.py:58`), arithmetic (tokens × 8 > 65 535) and precedent were all
+  correct. (b) **The message text is a provisional verdict** — #8863 shipped "working
+  verdict (draft, to be confirmed against source)" and spent four more turns
+  confirming it. A draft/pending/TBC label on a ranking that already names the owner
+  is worse than no text: it turns the next turn into a re-write instead of an append.
+  Drop the label, keep the confidence tag (`source-verified at <commit>` /
+  `hypothesis`), and append each correction to the text already delivered.
+- **A gate the paste already answers needs no source read.** #4796 had its answer by
+  turn 4 — v0.9.1 🟡 for the pooling task, fixed in v0.9.2rc1 #1359, two greps away —
+  and spent 32 turns to the cap emitting **no message text**; minibatch sibling
+  #10962 reasoned the whole answer and typed it on the last turn, cut mid-sentence.
+  Test at every turn: could the first paragraph be written now? If yes, the tool call
+  goes in a message that already carries it.
+- **A paste that stops in silence is answered, not investigated.** When the log simply
+  ends (no traceback, last line inside init), the cause is decided by artefacts on the
+  reporter's machine — process count, per-rank logs, device mapping — never by more
+  source reading, so the ranked list plus "send these three" *is* the message and is
+  owed on the turn the shape is classified. #1496 spent 12 turns and ~49 K characters
+  of reasoning across four mechanisms (HCCL env, the gloo `cpu_group`, an `all_reduce`,
+  "all ranks picked npu:0") and shipped **zero** characters before the cap; the cheap
+  discriminators that replace that walk are in
+  `../startup-failures/multiprocess-launch-hang.md`.
 - **The mechanism is the last thing owed; a source the snapshot does not carry is not
   owed at all.** #1579 had the full traceback, owning frame included
   (`torch_npu/distributed/distributed_c10d.py` `_gather` → `dist.broadcast_object_list`),
@@ -184,6 +221,16 @@ leads were.
   the first paragraph; each further action directly after its cause; the closing
   scope/open-questions block 3-5 lines. A cut answer must still be usable, and the
   evidence table goes last.
+- **The message's language is the report's, not the corpus's.** `history/*.md` bodies
+  are mostly Chinese, so a session that has just read three precedent bodies drifts
+  into Chinese on an English report, and the reporter who filed in English gets the
+  frame around the evidence in a language they did not use. Recorded #2015 (English title,
+  English body, English environment block) got a Chinese first paragraph and a
+  wholly Chinese answer after four Chinese precedent bodies — the quoted
+  `quantization.md:37` line stayed English inside the Chinese prose, so the drift is
+  the frame around the evidence, not the evidence. Decide the output language from
+  the report's first two lines, before the first tool call, and keep `path:line`
+  quotes verbatim in their source language.
 - **A new hypothesis that needs a new code area is not this session's job.** Put it
   in the answer as an open question with the one command that decides it. For an
   accuracy/corruption or topology report, a ranked list plus an ablation matrix

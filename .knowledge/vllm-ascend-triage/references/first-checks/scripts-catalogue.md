@@ -165,8 +165,12 @@ after that keeps the header, not this text.
   their `collect_env.py` paste: prints `=== #<id> :: <title>` and the body with the
   fenced dump replaced by `[... N lines of collect_env dump omitted ...]`, dropping
   `<details>`/`<summary>` furniture so `-n` (default 80) counts report text. `-g REGEX`
-  prints only matching lines with their line numbers (pull the traceback, the serve
-  command, or the `Encoder cache will be initialized …` line); `--env` prints the dump
+  prints only matching lines with their **raw-file** line numbers (pull the traceback,
+  the serve command, or the `Encoder cache will be initialized …` line); `-n` caps the
+  matched lines as well, so a long body needs `-n 0` and a broad `-g '.'` still stops at
+  80, and because the printed stream is collapsed those `-g` numbers are not `sed` ranges
+  into it (recorded #4766: `history-body.sh 3513 | sed -n '190,320p'` printed nothing,
+  and the next call was a `wc -l`); `--env` prints the dump
   instead (the artefact when the torch_npu/CANN pin, card count or host RAM is the
   question); `--all` prints everything. Several ids per call. `--root` picks one case
   directory when several share an id, and the header flags that case (`x2`). Use it
@@ -257,13 +261,17 @@ after that keeps the header, not this text.
   --aiv --max-num-seqs --sizes]` — the capture-size budget: maximum captureable
   sizes and the sampled subset (94 layers, TP=16 gives 6 sizes, #3389).
 - `scripts/seq-cliff-capture-budget.sh --max-num-seqs N [--num-spec K]
-  [--max-num-batched-tokens T] [--running 256,258,264]
+  [--max-num-batched-tokens T] [--running 256,258,264] [--observed-cliff M]
   [--max-cudagraph-capture-size V] [--tp --dp] [--enforce-eager]` — the
   concurrency cliff: the Ascend default capture ceiling
-  (`min(max_num_seqs × (1+num_spec), 512)`), the capture-size list near the
-  boundary, the running-sequence count where dispatch flips to `NONE`, the
-  padded size per step, and the `max_cudagraph_capture_size` A/B value with its
-  truncation trap (#14440).
+  (`min(max_num_seqs × (1+num_spec), 512)`), the 8/16-step grid floor that makes
+  the effective ceiling, the running-sequence count where dispatch flips to
+  `NONE`, the padded size per step, the per-engine vs dp-aggregate boundary, the
+  truncation warning a run must carry, and the `max_cudagraph_capture_size` A/B
+  value. `--observed-cliff` reconciles the reporter's own step index with the
+  arithmetic and, on a mismatch, lists the per-engine `--max-num-seqs` values
+  that would produce it (#14440: tp8 `264 × 2 → floor 512 → 256`, dp2/tp4
+  `224 × 2 → 448 → 224`, MTP off `264 × 1 → floor 256`).
 - `scripts/rope-cos-sin-slice-check.sh --num-tokens N --size M [--paste <log|->]
   [--width W | --head-size H --partial P] [--capture-sizes 1,4,8,16] [--num-spec K]
   [--max-num-seqs S]` — the rope cos/sin reshape in one call: the row count

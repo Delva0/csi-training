@@ -12,7 +12,11 @@ The topic's second shape keeps the requests **running**: `num_requests_running`
 stays > 0 while the generation and completion counters do not move at all, health
 answers 200 and nothing is logged. That is not the throughput topic either —
 nothing drains — so it is a scheduler/KV-*state* failure and its page is
-`kv-block-lifetime-async-scheduling.md`.
+`kv-block-lifetime-async-scheduling.md`. Its third shape has the same counters but a
+**helper process in the log**: the worker's model step is blocked on a queue fed by a
+subprocess that has exited (the Dynamic EPLB planner at v0.23.0), and
+`background-helper-death-wedge.md` owns it — check for the helper's
+`Launched … subprocess, pid=` line before crediting a KV-state story.
 
 This topic owns the **admission decision**: which request gets blocks from the KV
 pool, what happens to the queue when one request cannot have them, and the
@@ -41,6 +45,13 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   read it as a per-request KV-state question
   (`kv-block-lifetime-async-scheduling.md`) and take the two series' *deltas*, not
   their levels: a stuck rank's `Running` level looks healthy.
+- **A 200 from `/health` is not a liveness reading, so it never discriminates this
+  topic's stall shapes** (SKILL.md rule 11 carries the route: `AsyncLLM.check_health`
+  raises only on `errored`, `async_llm.py:900-903,1045-1055` at vllm v0.23.0, and the
+  executor's 10 s probe has no caller). For these pages that means: do not read the 200
+  as "the engine is fine, so the scheduler must be stuck", and do not ask for another
+  health poll — take the counters above, or the worker's stack (Step 0 of
+  `background-helper-death-wedge.md`).
 - **Read the pool's capacity from the startup lines, not from the flags.** The
   engine prints `GPU KV cache size: N tokens` and
   `Maximum concurrency for M tokens per request: kx`
@@ -113,3 +124,14 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   from ever being refreshed on a DP=1 serve, the inertness above capacity 1 that explains
   the control arm, the per-rank widening at any DP size, the reported `== ` repair and its
   unverified cross-DP trade, and the nightly-config-only coverage.
+- `background-helper-death-wedge.md` — the request never returns, `/health` answers 200
+  and the engine log carries `[eplb/updator] Launched EPLB subprocess, pid=` (recorded
+  #18691, vllm-ascend v0.23.0 `5cb98caa` + vllm v0.23.0 `0fc695fc`): `forward_before`
+  waits on `block_update_q.get()` with no timeout (`eplb_updator.py:106-109`) while the
+  planner's exception path logs and `break`s without a sentinel
+  (`core/eplb_worker.py:383-401`), so both a policy crash and a SIGTERM wedge the rank
+  until the step RPC's deadline. Why the 200 is by construction, why upstream's
+  thread-based EPLB degrades instead of blocking, why the 211-line
+  `patch_multiproc_executor.py` does not own the monitor/timeout, why the RPC deadline
+  cannot be lowered from a launch line (`platform.py:1275-1282` forces 3000 below 1836),
+  and the two-line bounded-wait repair with its unit-test seam.

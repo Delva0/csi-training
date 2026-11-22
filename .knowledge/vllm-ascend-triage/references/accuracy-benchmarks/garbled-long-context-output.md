@@ -53,7 +53,7 @@ vllm-ascend **v0.23.0rc1** (`f4a08bd`), `docs/source/tutorials/models/Kimi-K2.6.
 | `HCCL_BUFFSIZE` | 800 | 800 / 1100 | `:337,:417,:497,:577` |
 | `--max-model-len` | 32768 | 32768 | `:355,:435,:515,:595` |
 | `--max-num-batched-tokens` | 16384 | 32 or 4 | `:356,:436,:516,:596` |
-| eagle3 `num_speculative_tokens` | 1 | 3 | `:360,:440,:521,:601` |
+| eagle3 `num_speculative_tokens` | 1 | 3 | `:360,:440,:521,:601` — but §9.1 Table 2 (`:850-859`) prints `MTP Speculation Num 3` for the PD rows too, so quote the runnable command and do not spend a turn reconciling the two |
 | `--max-num-seqs` | 4 | 8 | `:354,:434,:514,:594` |
 | decode-only features | `VLLM_ASCEND_ENABLE_FLASHCOMM1=1`, no MLAPO | `VLLM_ASCEND_ENABLE_MLAPO=1`, `recompute_scheduler_enable: true` | `:625-627` (explicit: MLAPO and the recompute scheduler on decode only) |
 
@@ -76,18 +76,39 @@ proven cause. The first recorded session never got as far as saying so — it sp
 read in eight slices) and shipped no answer at all. The replay that had this page
 shipped the complete ranked answer in 11 assistant turns / 17 tool calls and opened
 that connector exactly once — for the single `dp_size`/`tp_size` grep the P-vs-D
-asymmetry needed — which is the cost this page is meant to save.
+asymmetry needed — which is the cost this page is meant to save. **A still later
+replay with this page shipped nothing, and the cut point is textual**: it found this page
+on its 3rd assistant turn, verified the table above plus one parser gate in the 4th (two
+calls), wrote "the deliverable is that page's recipe-diff ladder. Let me verify its two
+version-specific claims" — and spent the remaining ten turns (the parser split, the
+connector's `engine_id` assert, the recompute gate) until `output_tokens` ended the session
+with **no message text at all**: 14 assistant turns, 18 tool calls, ~1 K characters of
+status-line text against 54.8 K of reasoning, 1.08 M cumulative prompt tokens. A turn whose
+text *names* the deliverable and then opens a verification is the turn to send it: type the
+five deviations as the ranking, then let each later read correct one named row — the two
+owning lines below arrived that way and belong in a follow-up message, not in front of the
+first one.
 
 Two report-side traps from the same case, both cheaper than any source read:
 
-- **A `</think>` leak into `content` is not corruption until `reasoning_content`
-  is captured.** At vllm v0.23.0 (`0fc695f`),
-  `vllm/reasoning/kimi_k2_reasoning_parser.py:40-46` selects the identity
-  fallback from `chat_template_kwargs["thinking"]`, not from a request's
-  `enable_thinking`, so whether the tag is stripped depends on which key reaches
-  the parser; and a client that concatenates only `delta.content` cannot tell a
-  routing decision from a model-emitted token. One request printing both fields
-  decides it (`reasoning-output-routing.md` carries the neighbouring shapes).
+- **A `</think>` leak into `content` is a routing question, and the key that reaches
+  the parser is now settled.** At vllm v0.23.0 (`0fc695f`) the request's own kwargs *do*
+  reach it — the parser is constructed per request with
+  `chat_template_kwargs=self._effective_chat_template_kwargs(request)`
+  (`vllm/entrypoints/openai/chat_completion/serving.py:180-190,243-249`) — and `kimi_k2`
+  reads the key **`thinking`** (`kimi_k2_reasoning_parser.py:39-47`), so the Qwen-family
+  body key #13002's repro sends, `chat_template_kwargs: {"enable_thinking": false}`, is a
+  **no-op**: `thinking` stays True, no identity parser is installed, and the tag is treated
+  as a routing marker — `extract_reasoning` splits at the **first** `</think>`
+  (`:157-177`), so text before it becomes `reasoning` and text after it `content`. The body
+  key that turns the parser off is `{"thinking": false}`. A tag still visible inside
+  `content` therefore means the split already happened (a second tag, or the streaming path
+  at `:190-245`); one `stream: false` response printing both `content` and `reasoning`
+  separates that from a model-emitted tag, and a client that concatenates only
+  `delta.content` cannot (`reasoning-output-routing.md` carries the neighbouring shapes).
+  A startup that raises `KimiK2ReasoningParser could not locate think start/end tokens in
+  the tokenizer!` (`kimi_k2_reasoning_parser.py:62-66`) is the tokenizer, not the request:
+  that check runs at parser construction.
 - **The reporter's own mechanism is a hypothesis.** #13002 asserted that
   `HCCL_BUFFSIZE=256` "overflows and corrupts KV"; a too-small HCCL buffer is a
   collective-side complaint, and the value is worth A/B'ing because the validated
@@ -117,7 +138,16 @@ two-instance runs degraded 8-9 % — i.e. the pressure that moved was the aggreg
   and a larger `max_output_size`. That is a reporter-side claim, but it names the
   rows for this deployment shape (`recompute_scheduler_enable: false`,
   `--max-model-len` small enough that KV is never saturated, `--enforce-eager`) and
-  it explains a 3-minute streaming gap better than any connector story.
+  it explains a 3-minute streaming gap better than any connector story. At
+  vllm-ascend v0.23.0rc1 (`f4a08bd`) that row also has an owning site:
+  `attention/utils.py:372-392` sets `treat_short_extends_as_decodes = True` whenever
+  `is_pd_decode_recompute_scheduler_enabled()` is true — true only for a **kv_consumer**
+  with `recompute_scheduler_enable` (`vllm_ascend/utils.py:1148-1168`, docstring: "After
+  KV recv, RecomputeScheduler sets num_computed_tokens to N-1 so the decode node
+  recomputes the last prompt token before MTP decode. Worker metadata must not treat that
+  step as prefill.") — i.e. on exactly this D-node shape a recomputed request is
+  classified **decode** in the mixed-batch split (`:381-392`). Ask for one degenerate
+  step's `max_query_len` / `num_decodes` line beside that row.
 
 ## The deliverable is an ablation matrix
 

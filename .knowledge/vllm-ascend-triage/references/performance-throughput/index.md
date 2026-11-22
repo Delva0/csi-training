@@ -22,6 +22,18 @@ This is a *measurement* track, not a defect hunt: no `WorkerProc` line, no devic
 dump, no traceback. The deliverable is arithmetic over the pasted numbers, the
 one or two flags that move each number, and the artefacts that are missing.
 
+**Not this topic: a "首 token 慢" that came with a frontend flag.** When the report is
+"加了 `--reasoning-parser` 后首 token 显著变慢 / 思考内容也丢了", the flag lives in the
+API server *after* generation and routes every pre-`</think>` delta into
+`delta.reasoning`, so a client timing the first non-empty `delta.content` is timing the
+end of thinking — open `../accuracy-benchmarks/reasoning-output-routing.md` instead, and
+decide it with the engine's own `vllm:time_to_first_token_seconds` histogram (flat ⇒
+measurement artifact, and this topic stays closed). The neighbouring route-away is a
+streaming complaint on a serve that added `--tool-call-parser` / `--enable-auto-tool-choice`:
+a tool parser holds text back until it can classify the boundary, which is why those
+runs show silent `delta: {}` chunks — `tool-call-streaming/index.md` owns that, and the
+engine's TTFT histogram separates it from decode work the same way.
+
 **Also this topic:** the pasted evidence is a *profiler table* instead of a metric
 block — "单请求推理时 `QuantBatchMatmulV3_ND` 被调用了 98 万次", "采集出来的数据
 NPU 空闲时间 95%", a MindStudio/`msprof` op-statistics screenshot, or an
@@ -239,17 +251,23 @@ Not this topic, leave immediately:
   identical otherwise. **The graph ceiling, when it is the owner:** Running sequences ×
   `(1 + num_speculative_tokens)` is compared with
   `max_cudagraph_capture_size`, which vllm-ascend defaults to
-  `min(max_num_seqs * decode_query_len, 512)`; above it
-  `cudagraph_dispatcher` returns `NONE` with no log, so every step falls back to
-  eager while the metric block stays healthy. One call —
-  `bash <skill_root>/scripts/seq-cliff-capture-budget.sh --max-num-seqs N
-  --num-spec K` — gives the threshold from the serve command alone, so this
-  rule belongs in the *first* answer, not after a source walk
-  (`sequence-count-cliff-capture-size.md`). Two traps that make an otherwise
-  correct diagnosis look refuted: an ablation that moves the baseline
-  (`--enforce-eager` deletes the graph, so it cannot refute a graph-boundary
-  claim) and a user-set `max_cudagraph_capture_size` that the log says was
-  **truncated** before it took effect. A flat bare-HCCL all-gather benchmark, if
+  `min(max_num_seqs * decode_query_len, 512)`, which upstream then floors to its
+  8/16-step capture grid; above it `cudagraph_dispatcher` returns `NONE` with no
+  log, so every step falls back to eager while the metric block stays healthy.
+  One call — `bash <skill_root>/scripts/seq-cliff-capture-budget.sh
+  --max-num-seqs N --num-spec K --observed-cliff M` — gives the threshold from
+  the serve command alone *and* reconciles it with the reporter's step index, so
+  this rule belongs in the *first* answer, not after a source walk
+  (`sequence-count-cliff-capture-size.md`). Read the index before accepting a
+  "fixed-size structure indexed by sequence count": with `mns × (1+K) ≤ 512` the
+  cliff *is* the per-engine `--max-num-seqs`, so it moves between dp/tp runs
+  because the flag does, and removing MTP does not raise it (264 × 1 floors back
+  to 256). Three traps that make an otherwise correct diagnosis look refuted:
+  an ablation that moves the baseline (`--enforce-eager` deletes the graph),
+  `enable_npugraph_ex: false` read as "graphs off" (it is a compile-backend
+  switch; only `cudagraph_mode: NONE` zeroes the capture list), and a user-set
+  `max_cudagraph_capture_size` that the log says was **truncated** before it took
+  effect. A flat bare-HCCL all-gather benchmark, if
   the reporter offers one, retires the transport lane for the whole family.
 - **The graph lane is one flag in the reporter's command, and the same flag is a cost on
   one symptom and a cure on the other.** At v0.10.x, `--enforce-eager` (or
@@ -419,10 +437,14 @@ Not this topic, leave immediately:
 - `sequence-count-cliff-capture-size.md` — throughput collapsing in one step as
   running sequences cross a threshold (#14440: 256 → 258 at tp=8, MTP,
   DeepSeek-V4-Flash on 910B2): the `min(max_num_seqs × (1+num_spec), 512)`
-  ceiling, the silent `NONE` dispatch, the one startup `warning_once` that names
-  both numbers, the `max_cudagraph_capture_size` A/B with its truncation trap,
-  which of the reporter's seven "collapses" rows cannot refute it, and what the
-  residual host-side candidate class looks like if the A/B does not move.
+  ceiling, the 8/16-step capture grid that floors it (so the cliff is the
+  per-engine flag below 512 and `512 // (1+num_spec)` above it), the silent
+  `NONE` dispatch, the one startup `warning_once` that names both numbers, the
+  `max_cudagraph_capture_size` A/B with its truncation trap, the reporter's
+  seven "collapses" rows decided one by one (two of them confirm the grid), the
+  TTFT-falls / wall-time-triples shape that retires prefill and admission, and
+  what the residual host-side candidate class looks like if the A/B does not
+  move.
 - `zero-prefix-cache-hit-hybrid.md` — a hybrid GDN model (Qwen3-Next) reporting
   `Prefix cache hit rate: 0.0%`: the `SupportsMambaPrefixCaching` gate that
   disables prefix caching in `MambaModelConfig` at vllm v0.14.1, the model's own

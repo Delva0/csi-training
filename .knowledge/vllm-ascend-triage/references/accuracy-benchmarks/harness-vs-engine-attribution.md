@@ -32,6 +32,65 @@
 6. Deployment: same image/model rev, TP/DP/EP, quantization, graph mode (`aclgraph` vs eager),
    `max_model_len`, batch/concurrency.
 
+## A thinking checkpoint scored below the *official* number: the thinking switch, then the effort value (#10413)
+
+"AisBench GPQA 63-57 vs the official 71" is not two runs of one harness: the reference was
+produced by somebody else, and on a reasoning checkpoint **its thinking setting is part of the
+measurement**. Read the reporter's request body before ranking any transport, quant or kernel
+theory — at the pin of #10413 (vllm-ascend v0.20.2rc1 `367b8e62da79`, vllm v0.20.2
+`bc150f502991`, DeepSeek-V4-Flash w8a8, A2 4P1D 128K, `--tokenizer-mode deepseek_v4` +
+`VLLM_ASCEND_APPLY_DSV4_PATCH=1`) three spellings existed and only one of them produces a
+thinking prompt:
+
+| Request body | What reaches `encode_messages` |
+|---|---|
+| `chat_template_kwargs={"thinking": False}` (what #10413 shipped) | `thinking_mode="chat"` — `thinking` and `enable_thinking` are read with **default False**: `vllm/tokenizers/deepseek_v4.py:34-37` |
+| the key omitted | `thinking_mode="chat"` as well — the same defaults, so a harness that passes nothing is *also* a non-thinking run |
+| `reasoning_effort` as a top-level request field, with `VLLM_ASCEND_APPLY_DSV4_PATCH=1` (`vllm_ascend/envs.py:116`, applied at `patch/platform/__init__.py:46`) | `thinking_mode="thinking"` for any value except `"none"` — `patch_deepseek_v4_thinking.py::_patched_build_chat_params` sets `chat_template_kwargs["enable_thinking"] = self.reasoning_effort != "none"` |
+
+**The effort value is a second variable, and it is not free text.** Downstream the patch maps
+`"none"` → chat, `"max"`/`"xhigh"` → `"max"`, and **every other string → `"high"`** (non-str →
+`None`), in the same file's `apply_chat_template`. Upstream's own tokenizer keeps only
+`("max", "high")` and drops the rest to `None` (`deepseek_v4.py:44-47`), and it does **not**
+turn thinking on from `reasoning_effort` alone — that is downstream-only behaviour. So the
+same request body is two different runs depending on that env var; quote no
+`reasoning_effort` claim without its gate.
+
+Reporter-confirmed resolution (#10413, later public comments on the same issue): thinking
+**max** brought MMLU-Pro to weighted average 85.91 against the official 86.2 (closed — inside
+the aggregate/rounding difference), GPQA *stayed* below at max, and `<think> HIGH` on GPQA gave
+"the accuracy seems right". So the effort value is dataset-calibrated and **not monotonic**:
+the highest level is not automatically the reference level, and a session that ships "enable
+thinking" alone buys one more round trip.
+
+Ladder for the first message, cheapest first:
+
+1. Re-run the same dataset at the same `max_out_len` with thinking on **and** the effort value
+   the official baseline used; make `high` and `max` two launches, not one. The project's own
+   driver is *not* a max-effort run: `tools/aisbench.py:154-156` writes
+   `chat_template_kwargs={"thinking": True}` and passes no `reasoning_effort` at all, and
+   `:163` forces `temperature=0.6` for an accuracy task, while #10413's config sent
+   `temperature=1.0, top_p=1.0`.
+2. Prove the kwarg reached the template: `usage.prompt_tokens` for one shared body with and
+   without the thinking key (a thinking prompt is longer, so a difference of exactly 0 means
+   the key died in the frontend — check that the **API server** process, not only the workers,
+   carries the env).
+3. Size the floor with repeats at the baseline's temperature before calling the residual a
+   regression (`repeated-run-nondeterminism.md`), and recompute the aggregate the official
+   number uses — `weighted average`, `pro-weighted` and item-level `OVERALL` are different
+   columns (§*Reading the OCR'd score table*).
+4. Only then the transport/quant ranks: a colocated run (no `--kv-transfer-config`) over one
+   dataset subset, then the quant sibling floor (`quantized-sibling-score-gap.md`).
+
+**A hand-created `hccn_conf` is not an accuracy lever** — #10413's reporter asked exactly that
+after mounting that file into the container by hand. `hccn.conf` is the per-device network
+configuration `hccn_tool` reads, and its recorded failure modes in this library are
+connectivity ones: a rank-table / `device_ip` mismatch and registerMem loops
+(`../pd-disaggregation/llmdatadist-register-mem-loop.md:52,70,105`), A3 plane selection
+(`../pd-disaggregation/plane-selection-a3-parameter-plane.md:25-28,76-88`). If prefill→decode
+requests complete at all, the file did its job — confirm with `hccn_tool -i N -link -g` and
+`-ip -g` and spend the turn on rung 1. Label this a routing rule, not a verified cause.
+
 ## Decisive experiments (ask the reporter, or state them as the plan)
 
 - Rerun harness B with harness A's parameters only (one change at a time); the parameter that

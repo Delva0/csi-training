@@ -54,133 +54,78 @@ the turn the shape is classified, not a second copy of it here.
 1. **Say the answer in a message, early, and obey the delivery gates.** A long
    session can be cut off mid-sentence, so the deliverable has to survive
    truncation: what decides the outcome is not how much evidence was gathered but
-   whether the message exists. The recorded runs that shipped **no answer at all** —
-   #1255 through #13418, #7448 among them, whose verdict this library already
-   held — each had a usable lead in hand (ids and per-run detail:
-   `delivery-discipline.md`);
-   #1255/#5772 held the owning line; #2807/#15394 every fact of a ranked answer and
-   spent the rest on a host detail no local file settles; #4296 answered from one
-   traceback in ten turns. Thinnest, and newest: **#8301 wrote no message text at all**
-   (16 turns / 26 tool calls, 48.4 K characters of reasoning) and #11171 **54 characters**
-   (18 / 30, 47.5 K) with the ranked answer already in its 8th-turn reasoning; before them
-   #6488 (81 / 21) and #7996 (1 540 / 11). Each ended on a reasoning block with no message
-   and no tool call: the cap landed on the answer's shape. A later batch ended the same way
-   **twice**: #2069 wrote **217 characters** (16 / 23, 43.7 K) and #1617 **2 234**
-   (18 / 27, 43.4 K), the second cut on an empty turn although it had verified the whole
-   mechanism. The same ending with the numbers the wrong way round: **#11080** (24 turns /
-   33 tool calls, 43.1 K characters of reasoning against **115** of text — its verdict
-   sentence sat in a *reasoning* turn) and **#3706** (11 / 19, 43.5 K against 743, one
-   "verdict to be completed" line and then reasoning-only turns). Both had the ranking in
-   hand when the cut came.
-   The pair also fixes the trigger that would have saved them — a **second** pass over
-   the reporter's own numbers, reaching the same estimate, is the turn the ranking is
-   owed (`delivery-discipline.md`, *a recomputed estimate is not new evidence*).
-   A second trigger is the library holding the case: **#16079 was cut twice against its
-   own owning page** (16 turns 43.5 K reasoning / 3.3 K text, then 16 turns 44.7 K /
-   1.1 K, the second after recognising the match and then spending six turns
-   re-checking the release-note model list and the `enable_reduce_sample` default
-   (both already on the page) plus the `torch-npu` pin — none of them a row in that
-   page's table). When a `recorded-cases-*` entry or an owning page matches the
-   report's versions, model and stack, **that entry's ladder is this turn's message**:
-   type it, and let further checks confirm or correct a named claim — or drop them.
+   whether the message exists. The runs that shipped **no answer at all** each had a
+   usable lead in hand — #1255/#5772 held the owning line, #2807/#15394 every fact of
+   a ranked answer, #4296 answered from one traceback in ten turns — and the thinnest
+   wrote 0-2 234 characters against 43-48 K of reasoning (#8301 **nothing**, #11171
+   54, #11080 115, #2069 217, #3706 743, #1617 2 234, #6488, #7996), the newest
+   **#18691 nothing** (21 turns / 34 tool results) with the decisive correction — a
+   `/health` 200 is not liveness — already on its tenth turn. Each ended on a
+   reasoning block with no message and no tool call: the cap landed on the answer's
+   shape. Per-run ids, counts and cut points: `delivery-discipline.md`,
+   `delivery-recorded-sessions.md`.
+   Two triggers would have saved them. (a) A **second** pass over the reporter's own
+   numbers that reaches the same estimate is the turn the ranking is owed
+   (`delivery-discipline.md`, *a recomputed estimate is not new evidence*). (b) The
+   library already holding the case: **#16079 was cut twice against its own owning
+   page**, the second time re-reading three facts that page already stated. When a
+   `recorded-cases-*` entry or an owning page matches the report's versions, model
+   and stack, **that entry's ladder is this turn's message**: type it, and let
+   further checks confirm or correct a named claim — or drop them.
    Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
-     reporter's literal question plus the track/lane classification. A pasted
-     traceback, one config value or one registry listing is enough; do not hold
+     reporter's literal question plus the track/lane classification; a pasted
+     traceback, one config value or one registry listing is enough, so do not hold
      the answer for the mechanism.
    - **G2 — 8th assistant turn:** the full ranked answer (each cause with its one
      check, cheapest action, version scope, missing artefacts). Afterwards a tool
-     call is allowed only to confirm or correct a named claim: one per turn, a
-     couple of lines of reasoning. A turn whose text names a decisive fact and closes
-     with "one more confirmation read" is **not** G2: a recorded run wrote text on
-     all 13 turns that way (43 K characters of reasoning against 2.9 K of text) and
-     ended on an empty final message with the ladder never typed.
+     call only confirms or corrects a named claim: one per turn, a couple of lines of
+     reasoning. Text that names a decisive fact and closes with "one more confirmation
+     read" is **not** G2: a recorded run wrote text on all 13 turns that way (43 K of
+     reasoning against 2.9 K of text) and ended on an empty final message.
    - **G3 — 12th assistant turn:** answer text only; no reasoning, no tool call,
      no "one more thing".
-   - **A new user turn restarts the gates.** When the reporter's own follow-up
-     arrives in the same session — a retry on another version, a second pod's log, a
-     different error — turn 1 of that segment carries the **delta** answer: what the
-     new paste changes about the lane, per artefact if there are several. It comes
-     before any fresh source work, and neither the earlier answer nor the new paste
-     substitutes for it. Recorded #7352's second segment (the `v0.17.0rc1` retry) went
-     on to re-derive the Mooncake `ascend_transport.so` `DT_NEEDED` chain out of the
-     `kvcache-ai/Mooncake` tree across 18 tool calls and was cut with no message text
-     at all, while two pages already held that segment's whole answer:
-     `references/image-dependency-faults/launch-env-and-library-path.md` (the export
-     belongs in the launcher's boot command — reporter-confirmed on that same issue)
-     and `references/startup-failures/connector-config-attributes.md` (the `head_dim`
-     read on the decode pod is unchanged in the new version). The new paste's own
-     tokens are the index key to both: `rg -n '<the new .so name | exception text>'
-     <skill_root>/references/` is one call, and a follow-up is exactly when to make it.
+   - **A new user turn restarts the gates.** The reporter's own follow-up — a retry
+     on another version, a second pod's log, a different error — makes turn 1 of that
+     segment the **delta** answer: what the new paste changes about the lane, per
+     artefact, before any fresh source work, with `rg -n '<the new token>'` against
+     `references/` as the one call that finds the page already holding it. Neither the
+     earlier answer nor the new paste substitutes for it (recorded #7352: 18 tool
+     calls re-deriving a chain two pages already carried, no message text;
+     `delivery-discipline.md` §*follow-up turn*).
    - **The gates cap cumulative output (~45-50 K characters of reasoning+text), and
      the turn index is the weak part: your own count drifts 2-3x low.** #6529 wrote
      "I'm at turn 7" on its 15th turn, #6243 "I'm at 6" on its 14th, so G1-G3 never
      fired as written. Trigger on evidence instead of the number: the turn you can
      state a cause with its one check is the turn the answer is owed; if you do
-     count, count the `tool` results in the transcript, not from memory. A verdict
-     line is a *hypothesis*: the ranked deliverable is still owed as one message, and
-     a block that restates the verdict, numbers the fixes or lays out the evidence
-     table *is* this turn's message: send it, then one tool call
-     (`references/evidence-workspace/delivery-discipline.md`).
+     count, count the `tool` results in the transcript, not from memory
+     (`delivery-discipline.md`, budget arithmetic).
    - **When the discriminator lives only on the reporter's machine, the ranking *is*
      the deliverable.** If the check that separates your top two causes needs their
      plog, their two serve commands, their `pip show`/`env`, or a re-run, nothing you
      can read locally closes it — so the turn where you notice that is the turn to
-     send: verdict, ranked causes each with its one check, and the request list.
-     #13175 read the two pages that route its exact paste on turn 3, spent the other
-     18 turns on a transport/plog program only the reporter could run, and shipped
-     **zero** text. A page that answers your paste and then lists reporter-side
-     artefacts has already handed you the message: type it, do not go execute its
-     investigation (`delivery-recorded-sessions.md`, #13175 row).
+     send: verdict, ranked causes each with its one check, and the request list. A
+     page that answers your paste and then lists reporter-side artefacts has already
+     handed you the message: type it, do not go execute its investigation (#13175
+     read both routing pages on turn 3, spent 18 more turns on a program only the
+     reporter could run, and shipped **zero** text; `delivery-recorded-sessions.md`).
    - **Reasoning is a scratchpad, a few lines per turn:** what the last result
      proved, the single next check, go. It spends the **same output budget** as the
-     answer, before any of it becomes text (ids in `delivery-recorded-sessions.md`). If a
-     block enumerates the answer's sections, counts turns against G1/G2 ("this is
-     turn 5, G2 is turn 8"), or says "I have enough" / "let me write the answer",
-     that block *is* the answer — and a turn that reasons "the gate has passed, I
-     must send the deliverable" while sending empty text and another tool call is
-     the recorded way to ship nothing (#6243: 15 turns, 67 characters of text, cut
-     inside a 14 K character block that held the whole ranked answer). Its second
-     form is the **hypothesis sweep** — three or more "alternatively / another
-     candidate" branches weighed in one breath: #15527 spent ~12 K characters
-     twice on two competing length hypotheses and shipped nothing at the cap,
-     while the same content as message text is one ranked line per candidate with
-     its one check. Two candidates is already the deliverable's shape: send the
-     pair, then run the single check that separates them. The
-     #14731/#12102 pair shows the arithmetic: 42.9 K and 39.4 K characters of
-     reasoning against 1.3 K and 2.7 K characters of delivered answer, both cut at
-     the 16 384-token cap. #7150 (51.8 K of reasoning / 756 of text) and #18754
-     (59.1 K / 1.7 K) did it again with the answer already in hand, each ending on an
-     **empty** final message — and so did both forwards of the #3971/#8863 pair (10-11 assistant turns, 43-48 K
-     characters of reasoning against 1.2-4.9 K of message text, `output_truncated`).
-     That pair names the two tells that predict the cut. (a) **The reasoning block
-     starts laying out the answer** — "Now write the answer", "Shape:", "1. Verdict:",
-     "Verified facts (pinned …)". At that word the block *is* the message: typing the
-     skeleton as reasoning burns the artifact, and #3971's last block was cut inside
-     exactly that skeleton while its owner (`fla.py:58`), arithmetic (tokens × 8 >
-     65 535) and precedent were all correct. (b) **The message text is a provisional
-     verdict** — #8863 shipped "working verdict (draft, to be confirmed against
-     source)" and then spent four more turns confirming it. A draft/pending/TBC label on
-     a ranking that already names the owner is worse than no text: it turns the next
-     turn into a re-write instead of an append. Drop the label, keep the confidence tag
-     (`source-verified at <commit>` / `hypothesis`), and append each correction to the
-     text already delivered.
-
+     answer. A block that enumerates the answer's sections, counts turns against
+     G1/G2, or says "I have enough" / "let me write the answer" *is* the answer — and
+     the recorded way to ship nothing is to reason "the gate has passed, I must send
+     the deliverable" and then send empty text plus another tool call (#6243: 15
+     turns, 67 characters of text, cut inside the 14 K block holding the ranked
+     answer). Its second form is the **hypothesis sweep** — three or more
+     "alternatively / another candidate" branches in one breath: two candidates is
+     already the deliverable's shape, so send the pair and run the one check that
+     separates them (`delivery-discipline.md`, hypothesis-sweep rows).
    - **Budget in characters per block, not turns** — the count-free form of the rule
-     above. #13527 hit the cap with no draft at all: 16 turns, 26 `tool` results,
-     **43.8 K characters of reasoning against 2.2 K of message text**, nine of its turns
-     opening with a self-dated count of its own turns ("I'm at turn 5", "turn 8",
-     "turn 10") that was 2-3 low and closing with two more tool calls. #587 spent 52.6 K
-     characters in **7** assistant turns and shipped 800 characters of text, #11680
-     51.2 K in 10 turns and 2.8 K: G1/G2 never fired because the turn index was low
-     while single blocks ran 8-12 K characters. So test the characters, not the count:
-     **message text ≥ a third of the reasoning you have written so far**, and keep each
-     reasoning block short (~1.5-4 K characters) — what the last result proved, the one
-     next check, and this turn's answer section typed rather than "one more check".
-     Once a message can name the discriminator, the **next** message is the ranked
-     answer built on it — a further read is a turn whose text, if there is one,
-     cannot carry the answer after a truncation (#11680 and #587 each held the
-     decisive datum by turn 8 and kept reading).
+     above: test **message text ≥ a third of the reasoning written so far**, keep each
+     reasoning block ~1.5-4 K characters, and once a message can name the
+     discriminator the **next** message is the ranked answer built on it (#13527 hit
+     the cap with no draft at 43.8 K reasoning / 2.2 K text; #587 and #11680 each held
+     the decisive datum by turn 8 and kept reading; `delivery-discipline.md`).
    - **The paste can already contain the whole answer surface.** An argparse error
      prints the complete valid choice list, a log line can name its own thread and
      owner, and a traceback can name the class *and* the rule
@@ -188,41 +133,29 @@ the turn the shape is classified, not a second copy of it here.
      only `DefaultModelLoader` has; the MLA `queries per kv … only support {32, 64,
      128}` assert states the rule and leaves only the TP-split arithmetic). Then the
      verdict is owed at G1 with no source read: #4796 had its answer by turn 4 and
-     spent 32 turns to the cap emitting **no message text** (its pooling gate,
-     v0.9.1 🟡 → v0.9.2rc1 #1359, was two greps away); minibatch sibling #10962
-     reasoned the whole answer and typed it on the last turn, cut mid-sentence. Test
-     at every turn: could I write the first paragraph now? — if yes, the tool call
-     goes in a message that already carries it.
+     spent 32 turns to the cap emitting **no message text**; #10962 reasoned the whole
+     answer and typed it on the last turn, cut mid-sentence. Test at every turn: could
+     I write the first paragraph now? — if yes, the tool call goes in a message that
+     already carries it.
    - **A new hypothesis that needs a new code area is not this session's job.**
      Put it in the answer as an open question with the one command that decides it.
      For an accuracy/corruption or topology report a ranked list plus an ablation
      matrix already *is* the full answer, and a **mechanism the paste cannot carry**
      (*which* scheduler step mixed decode with prefill, *which* phase refused a comm
      resource) is a fact about the reporter's run that no local source read produces:
-     five recorded sessions (#14506, #2934, #1369, #5947, #8350 — the last treating
-     `--block-size 128 --enable-prefix-caching` as a hybrid KV experiment with no
-     works-vs-fails control) spent the remainder of their budget there after the
-     answer existed and shipped nothing or 185 characters
-     (`references/accuracy-benchmarks/reasoning-output-routing.md` §#8350,
-     `references/accuracy-benchmarks/topk-logprob-negative-inf.md`).
-     The same block on a **closed component** is the #7774 shape: with the owning line
-     already found on turn 8 (the hybrid-SSM mask clear at
-     `patch/worker/patch_qwen3_5.py:180`) it went on deriving *how* an MTE "DDR address
-     out of range" arises inside a CANN `NonZero` kernel whose source `SOURCES.json`
-     lists as `unavailable` — 19 turns, 34 tool calls, **45 K characters of reasoning
-     against 39 characters of message text**, cut with no answer — while the deliverable
-     was the version lane the same pin's page already carried
+     #14506, #2934, #1369, #5947 and #8350 spent the rest of their budget there after
+     the answer existed and shipped nothing or 185 characters, and #7774 derived *how*
+     an MTE "DDR address out of range" arises inside a CANN `NonZero` listed as
+     `unavailable` (45 K of reasoning against 39 characters of text) instead of
+     shipping its pin's version lane
      (`references/custom-ops-runtime-faults/hybrid-ssm-mask-nonzero-fault.md`).
    - **A paste that stops in silence is answered, not investigated.** When the log
      simply ends (no traceback, last line inside init), the cause is decided by
      artefacts on the reporter's machine — process count, per-rank logs, device
      mapping — never by more source reading, so the ranked list plus "send these
-     three" *is* the message and is owed on the turn the shape is classified.
-     #1496 spent 12 turns and ~49 K characters of reasoning across four mechanisms
-     (HCCL env, the gloo `cpu_group`, a `all_reduce`, "all ranks picked npu:0") and
-     shipped **zero** characters before the cap;
-     `references/startup-failures/multiprocess-launch-hang.md` holds the cheap
-     discriminators that replace that walk.
+     three" *is* the message and is owed on the turn the shape is classified (#1496
+     spent 12 turns and ~49 K of reasoning on four mechanisms and shipped nothing;
+     `references/startup-failures/multiprocess-launch-hang.md`).
    - **An ownership question is answered by naming the owner.** "The flag did
      nothing" and "the log line is missing" are gate checklists on the owning
      component — usually the upstream vLLM OpenAI frontend, not vllm-ascend — and
@@ -233,10 +166,9 @@ the turn the shape is classified, not a second copy of it here.
      section, append **2-3 K characters per write**, keep the file ≤ ~8 K characters,
      and lead the final message with the 交付件 items (verdict, path, the three
      完整性/易用性/正确性 scores, one line per defect) — never one heredoc, never a
-     re-paste of the deploy script. Heredoc characters are output tokens from the
-     same budget as the message: #11759 lost a finished 5.7 K report to the cap,
-     #11751's message was cut inside its defect table, #11739/#11742 wrote no file or
-     no text (`community-test-report.md`).
+     re-paste of the deploy script, whose characters are output tokens from the same
+     budget as the message (#11759, #11751, #11739/#11742;
+     `community-test-report.md`, `delivery-discipline.md`).
    - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
      write it at G2 *in place of* the reasoning block; once it exists the next
      turn's text is the answer (`delivery-discipline.md` §draft).
@@ -246,42 +178,32 @@ the turn the shape is classified, not a second copy of it here.
    - **A byte count that "matches" is not the answer.** Re-deriving a mechanism from
      an allocation size needs inputs the report does not carry (a `config.json`, a
      group size, an expert count): ask for the line that settles it and send the
-     ranked answer, since the reporter's own resolution is usually a serve line rather
-     than a mechanism (`references/deploy-sizing/moe-load-oom-expert-shard.md`, #7123
-     died at the cap deriving DP/EP algebra for a 674 MiB request whose two
-     `[EP Rank r/N] … experts` lines were never asked for). **The same holds for a
+     ranked answer (#7123 died at the cap deriving DP/EP algebra for a 674 MiB
+     request whose two `[EP Rank r/N] … experts` lines were never asked for,
+     `references/deploy-sizing/moe-load-oom-expert-shard.md`). **The same holds for a
      tensor shape quoted from a debugger** (`变量 x.shape [5040, 1, 1152]`): it is a
      gap in the paste, not the failing allocation. #7419 spent 19 tool turns locating
      the producing `.unsqueeze(1)` and shipped **zero** text, while the two answer
      facts came from two greps (`references/lora-adapters/multimodal-vit-lora-ignored.md`).
    - **A refusal that quotes an argument value is answered by the contract, not by the
      producing line.** When the op error names the value it rejected — a mask shape, a
-     seq-len list, a dtype, an out-of-range index — the deliverable is the contract, the
-     one call site (or the two candidates) that feeds it, the single print or repro that
-     discriminates, and the workaround; *which* line computed the value is a
-     confirmation. Both forwards of one recorded minibatch held that contract by their
-     3rd–5th turn and spent the rest proving provenance with **zero** message text after
-     their first turn: #6573 walked `attention_v1.py` → `AscendMMEncoderAttention` → the
-     `Attention` dispatch before finding the mask in the model file's
-     `get_extended_attention_mask`, and #10757 spent most of its budget on whether the
-     encoder branch's gate (`not attn_metadata.causal`) could ever be true instead of
-     ranking the invariant it had already derived
-     (`references/custom-ops-runtime-faults/fa-tiling-argument-refusals.md`, both
-     members). A **per-request pair** is the same shape: `numAcceptedTokens[0]=4 exceeds
-     varlen segment length=3` (hybrid GDN + MTP) is answered by the two feeders — the
-     scheduler's segments vs the runner's CPU/optimistic accepted counts — plus the
-     rung-1 ablation, not by deriving which producer shortened the segment; #10372 typed
-     its answer early and spent the rest choosing between the scheduler's truncation and
-     the op's padding, and shipped no revision
-     (`references/custom-ops-runtime-faults/gdn-conv1d-accepted-tokens-varlen.md`).
-     **Dead-branch variant:** when the snapshot shows a gate that nothing sets
-     (a hardcoded flag), that is a version-skew fact to *ask* for — the reporter's build
-     differs from the pin — not a mechanism to derive; the paste's own op name can prove
-     the branch ran.
-   - **Truncation eats the tail, not the head — and the body has a size too.** One minibatch showed both halves (#1255 typed no message text across 24
-     tool turns and shipped nothing; #3170 kept its verdict and ranked causes but lost the
-     action ladder's last commands), so type the ladder before the scope block.
-     Each action directly after its cause, the closing scope block 3-5 lines. With
+     seq-len list, a dtype, an out-of-range index — the deliverable is the contract,
+     the one call site (or the two candidates) that feeds it, the single print or repro
+     that discriminates, and the workaround; *which* line computed the value is a
+     confirmation. #6573 walked the attention dispatch before finding the mask in the
+     model file, #10757 spent most of its budget on whether the encoder gate could ever
+     be true, and #10372 shipped no revision while choosing between two producers of a
+     `numAcceptedTokens` overflow — all three held the contract by their 3rd–5th turn
+     and then shipped **zero** text
+     (`references/custom-ops-runtime-faults/fa-tiling-argument-refusals.md`,
+     `gdn-conv1d-accepted-tokens-varlen.md`). **Dead-branch variant:** a gate in the
+     snapshot that nothing sets is a version-skew fact to *ask* for — the reporter's
+     build differs from the pin — not a mechanism to derive.
+   - **Truncation eats the tail, not the head — and the body has a size too.** One
+     minibatch showed both halves (#1255 typed no message text across 24 tool turns
+     and shipped nothing; #3170 kept its verdict and ranked causes but lost the
+     action ladder's last commands), so type the ladder before the scope block:
+     each action directly after its cause, the closing scope block 3-5 lines. With
      no log pasted: 3-4 causes with one check each, one ladder of ≤6 lines,
      precedents as one line of `#id: fact`, 3-5 lines of scope (≈3-4 K characters);
      a fifth cause is an open question with its one command.
@@ -294,8 +216,7 @@ the turn the shape is classified, not a second copy of it here.
      special turn. A *status note* is not a draft: the sentence must state the
      current verdict even when the next call may overturn it. The mechanical test
      at any turn: no message text yet names a cause plus a `path:line` or `#id`,
-     so nothing has been drafted (`delivery-discipline.md` gates; the per-run table is
-     `references/evidence-workspace/delivery-recorded-sessions.md`).
+     so nothing has been drafted (`delivery-discipline.md` gates).
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C;
    for a runtime report, decide whether it is a device-op fault, an accuracy/score
    gap, a corruption report or a performance claim. The signature index
@@ -472,7 +393,15 @@ the turn the shape is classified, not a second copy of it here.
    matching-looking number (tensor count, hostname, line number) as proof. A
    maintainer's clean run on different hardware is a data point, not a
    refutation of a reporter-confirmed fix on theirs; say what was verified on
-   which hardware.
+   which hardware. **A `path:line` at commit X is a claim about X, and a *defect*
+   claim expires as readily as an absence one**: a page can prove a branch or an
+   interface missing at an older pin that has since gained it, so re-run the page's own
+   grep at the tree in your hand before ranking that defect. Recorded #12339 was run
+   with "the generic Mooncake connector cannot describe a hybrid page" — true at
+   v0.18.0, `rg -c Mamba` empty — while its pin (v0.22.1rc1) carries a full `MambaSpec`
+   branch (`is_mamba_group`, `_append_mamba_transfer_meta`), so the mechanism had to be
+   demoted inside the answer; presence claims and absence claims both belong to the pin
+   they were seen at (`references/pd-disaggregation/hybrid-state-transfer.md`).
 7. **Keep reads small and exact.** Use `rg -n -C2 <symbol>` and
    `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines. A
    20-40 KB full-file read of an AscendC kernel header buys one fact and costs
@@ -565,14 +494,23 @@ the turn the shape is classified, not a second copy of it here.
     reason a report is unanswerable or a lane misclassified; naming them is part
     of the answer, and the task environment asks you to flag stale/incomplete
     knowledge. Missing lines are a data gap, not a fact.
-11. **A log sentence is not a diagnosis: some are fixed wrapper text.** vllm-ascend
+11. **A log sentence — or a `/health` 200 — is not a diagnosis: some of them are
+    fixed wrapper text.** vllm-ascend
     logs canned advice inside `except` blocks and re-raises, so the sentence names a
     cause the code never checked — the `ACLgraph has insufficient available streams
     … Recommended solutions` block prints for *any* capture exception
     (`model_runner_v1.py:3553-3565` at v0.11.0rc0, `:3143-3152` retCode-gated at
     v0.12.0rc1, absent at v0.18.0rc1, back `207008`-gated by v0.21+: re-grep per
-    version), and its "Recommended solution 2" is a lever a pooling serve refuses, so
-    price a logged recommendation against the engine's own gates before repeating it
+    version) — so **classify the appended error, not the wrapper**: Step 2 of
+    `references/startup-failures/acl-graph-capture.md` sends a collective/transport code
+    (`EI0006 … Remote Rank did not send the data in time` inside an `HcclAllreduce`, the
+    `[Create][DestLink]Create Dest error!` beside it), a plain Python exception, a
+    synchronize refusal (`107027`), a capture-mode copy (`107030`) and an aclop refusal
+    each to its own page, while `capture-stream-table-exhaustion.md`'s stream arithmetic
+    applies only when that inner line is the capture-begin resource refusal (`207005` /
+    `Alloc sq cq fail` / `stream_id=…`). Its "Recommended solution 2" is a lever a
+    pooling serve refuses, so price a logged recommendation against the engine's own
+    gates before repeating it
     (`references/startup-failures/capture-stream-table-exhaustion.md` §4). Before
     adopting a log's own explanation, `rg -n '<fragment>'
     vllm_ascend/` — and in the upstream `vllm/` tree when that comes back empty, since
@@ -605,15 +543,46 @@ the turn the shape is classified, not a second copy of it here.
     it. When the paste cannot carry that block at all (a screenshot whose `*.ocr.txt`
     is noise, a title-only report), the wrapper is all the evidence there is: classify
     from the serve path's own tokens — a quant variant in the model directory
-    (`…-W8A8`, `…-w8a8_dynamic`) plus that quant's cell in `supported_models.md` at the
-    pin decides the lane (quantised and untested → the load-phase aux-key family first,
-    `references/startup-failures/weight-scale-keyerror-quant-variant.md`) — and put the
-    traceback request in the answer. **The oddest flag in the command is not a
+    (`…-W8A8`, `…-w8a8_dynamic`) decides the lane — and put the traceback request in
+    the answer. Two quant lanes start there, and the launch line separates them before
+    any page read: **no** `--quantization ascend` / `quantization="ascend"` anywhere in
+    the command is the gate that never fires (the msmodelslim export's `config.json`
+    carries no `quantization_config` on purpose, so upstream's auto-detect cannot fire
+    and a dense engine meets int8 tensors — the quant gate's §B
+    (`references/startup-failures/quantization-method-gate.md`), recorded #2015, where
+    the pin's `DeepSeek R1 ✅` row says nothing about it), while the aux-key family
+    (`…weight_scale`, `w2_weight_offset` —
+    `references/startup-failures/weight-scale-keyerror-quant-variant.md`) needs a
+    traceback that names such a key.
+    Reading `supported_models.md` first is the recorded detour: the flag, not the model
+    row, is the discriminator. **The oddest flag in the command is not a
     substitute**: `--mm_processor_cache_type shm` ranks only with its own
     `Data for address:id …` string. Recorded #7744 ranked that flag first on a
     load-phase `KeyError: 'layers.37.mlp.experts.w2_weight_offset'` and its resolution
     was the newer tag (reporter-confirmed `v0.17.0rc1`) —
     `references/startup-failures/silent-worker-exit.md`.
+    **A 200 from `/health` is the same kind of wrapper in the one place it decides a
+    verdict**: every "it hangs while health stays 200" report rests on it, and at vllm
+    v0.23.0 the route only reads two frontend flags — `AsyncLLM.check_health` raises
+    `dead_error` when `errored`, and `errored` is
+    `engine_core.resources.engine_dead or not is_running(output_handler)`
+    (`vllm/v1/engine/async_llm.py:900-903,1045-1055` behind
+    `entrypoints/serve/instrumentator/health.py:30-34`) — while the executor's real
+    probe, `check_health` → `collective_rpc("check_health", timeout=10)`
+    (`multiproc_executor.py:491-493`), has **no caller** (`rg -n 'check_health' vllm/`
+    returns the definition, the `AsyncLLM` method and the route) and could not be
+    answered anyway: `worker_busy_loop` (`:969-997`) serves one RPC at a time. So a
+    worker blocked mid-step looks healthy for as long as the RPC deadline, and the 2 ms
+    200 is not evidence about the engine. One grep settles it per pin — the route has
+    drifted (vllm v0.18.0 carries the same `errored` pair at `async_llm.py:874-877`;
+    an older release does reach a 10 s `check_health`,
+    `references/hccl-and-hardware/rpc-watchdog-timeouts.md`) — and then the answer says
+    "health is not a liveness probe here" once, with the lines, instead of ranking a
+    health defect or asking for another health poll:
+    `references/scheduler-admission/background-helper-death-wedge.md` (recorded #18691,
+    v0.23.0, a dead Dynamic-EPLB planner subprocess; it also carries the
+    `platform.py:1275-1282` floor that makes a launch-side
+    `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=8` inert).
 12. **A crash inside a native module the image installed is an environment
     question, and it is answerable without that module's source.** Three forms — a
     `python -c "import <pkg>"` glibc allocator abort, `std::logic_error` /
@@ -942,7 +911,15 @@ the shape's home track): each row carries the lane or track it
 belongs to and the page that owns it. Read the row's middle cell before opening the
 page; it carries the decisive local rule. A token you cannot place: one
 `rg -n '<fragment>' <skill_root>/references/` searches every row **and** every page
-body, which is the version that pays. **A traceback whose deepest frame is in
+body, which is the version that pays. **Grep that text rather than picking the page
+by the operator name in its filename**: an op-named page is usually the kernel/tiling
+map for a *launch* fault, so an `EZ1001 Get regInfo failed` / `does not support
+opType` / `not in libopapi.so` / `undefined symbol` paste is the install lane however
+prominent the operator is in the title — recorded #11519 read
+`custom-ops-runtime-faults/add-rms-norm-bias-op-map.md` first for a registry text
+(that map is verified at another pin and answers a different surface) before the
+signature row sent it to `op-not-registered-for-soc.md`.
+**A traceback whose deepest frame is in
 `torch/`, `torch_npu/` or `vllm/` rather than in `vllm_ascend/` is a routing
 signature: search the helper's name or the exception text in the same call as the
 history search, before any source read.** A **returned `None`** is the same shape
@@ -1161,7 +1138,11 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    prefix read of their first lines: the template puts a 100-250 line
    `collect_env.py` paste before the symptom section (#3963's bug heading is line
    148), and the script collapses that dump to a marker (`--env` restores it,
-   `-g REGEX` pulls just the traceback).
+   `-g REGEX` pulls just the traceback). **Its output then stops at 80 lines unless
+   you pass `-n 0`, and the numbers `-g` prints are raw-file numbers while the
+   printed stream is collapsed** — `history-body.sh <id> | sed -n '190,320p'`
+   therefore returns nothing and reads as an empty body (recorded #4766 lost two
+   calls to exactly that on #3513).
 7. Locate the owning code path at the pinned commit and walk it from the entry
    point (kernel launch site, harness config, model/feature flag) to the line
    that produces the symptom. Prefer computing the decision (a tiling branch, an
@@ -1208,7 +1189,14 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
 - Ranked causes, each with the evidence you have, the exact check that confirms
   or refutes it, and its confidence label (reporter-confirmed / source-verified
   at commit X / hypothesis).
-- The action ladder, cheapest first: **the request's own sampling value**
+- The action ladder, cheapest first: **on a reasoning checkpoint, the request's own
+  thinking mode and effort value** — a score measured against an official/vendor number
+  is compared across two harnesses, and the official number is a thinking-mode number, so
+  `chat_template_kwargs={"thinking": false}` (or a body that omits the key, which is the
+  same non-thinking run) and an effort value below the baseline's are the first two rungs
+  and are dataset-calibrated, not monotonic (reporter-confirmed #10413: MMLU-Pro closed at
+  `max`, GPQA only at `high`; `references/accuracy-benchmarks/
+  harness-vs-engine-attribution.md` §*thinking checkpoint*), then **the request's own sampling value**
   (`temperature`/`top_p` — on a reasoning-distill checkpoint a ≤0.1 temperature is
   itself a degeneration, so the rung *raises* it; `references/accuracy-benchmarks/
   short-prompt-corruption.md`), `--dtype bfloat16` when the answer is one repeated

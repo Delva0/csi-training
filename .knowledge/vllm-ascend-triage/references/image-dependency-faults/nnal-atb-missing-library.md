@@ -65,9 +65,17 @@ proves nothing here: it works only for the reader who also ran the CANN block.
 
 ## Steps, in order
 
-1. `ls -l <ASCEND_HOME>/nnal/atb/set_env.sh` and
-   `find <ASCEND_HOME> -name 'libatb.so' 2>/dev/null` — this splits "not
-   installed" from "installed, not sourced", and both fixes are cheap.
+1. **The report's own env dump already answers the first half.** vllm-ascend
+   ships its own `collect_env.py` and prints every variable whose name starts
+   with `TORCH`/`PYTORCH`/`ASCEND_`/`ATB_` (`collect_env.py:307`) plus vllm's
+   own list, which includes `LD_LIBRARY_PATH`. So a dump with **no
+   `ATB_HOME_PATH=` line** and an `LD_LIBRARY_PATH` holding no `nnal`/`atb`
+   entry is positive evidence that the ATB env was never sourced — quote it
+   instead of asking `echo $ATB_HOME_PATH`, which is the same fact a round trip
+   later. #10525's dump is that shape: only `<cann root>/lib64*` and
+   `/usr/local/Ascend/driver/*` on `LD_LIBRARY_PATH`, no `ATB_*` line at all.
+   Then `find <root> -name 'libatb.so' 2>/dev/null` splits "not installed" from
+   "installed, not sourced"; both fixes are cheap.
 2. Not installed → install NNAL **matching the CANN version** (`== 9.0.0` here;
    the docs' `wget … Ascend-cann-nnal_9.0.0_linux-$(uname -i).run` needs
    `--header="Referer: https://www.hiascend.com/"`). Then source its
@@ -114,6 +122,53 @@ the base image is where it comes from, and the same recipe also carries the `dev
 `LD_LIBRARY_PATH` append (`:48,52`) and the `torch-npu` index (`requirements.txt:25-27`)
 that a hand-built env must reproduce. Put those paths plus the in-container `pip list`
 diff in the same message as this page's step 1, not in a later turn.
+
+## When the report is a whole from-zero hand build
+
+The follow-up after this page's fix is a documentation question, not a stack.
+#10525's reporter answered 「cann的路径在安装完成cann后已有，但这个检查脚本确实没检查到，不过
+这个影响是不是不大，主要是从零开始构建环境，没有一个详细的资料或说明吗？工程下的说明比较简单，
+按顺序一个一个包的装和核对，依然到启动过程中会报上面的错误。从零构建这条路很难走通？」
+— so the verdict is "viable, and the step you missed is in the doc but collapsed",
+delivered with the ordered path and a gate per stage, not only the one missing
+package.
+
+**Where the pin hides it.** The whole manual CANN sequence sits inside one
+collapsed `dropdown "Install CANN manually"` (`installation.md:76`) under the
+**pip** tab, while that tab's *visible* text says the CANN base image "includes
+NNAL … No additional installation is required when using the prebuilt image"
+(`:49-52`). Inside the dropdown: toolkit `.run --full` `:94-96`,
+`source …/ascend-toolkit/set_env.sh` `:97`, the SoC ops package
+`.run --install` `:99-101`, NNAL `.run --install` `:103-105`, then
+`source …/nnal/atb/set_env.sh` `:107`. The component table `:12-18` lists NNAL as
+required, and FAQ §6 (`faqs.md:87-95`) leads with the NNAL `source` and puts the
+CANN one second. A reader who follows the numbered, visible steps therefore
+never sees stages 2-4 — that is the documentation defect to name in the same
+message, and it is why "装完每个包都核对过" is compatible with this traceback.
+
+**The order, one gate each** (line refs at v0.20.2rc1):
+
+| stage | gate that must pass before the next stage | the paste's frame when it was skipped |
+|---|---|---|
+| firmware/driver | `npu-smi info` lists the dies (`installation.md:34`) | no driver version, `npu-smi` missing |
+| CANN toolkit + its `set_env.sh` (`:94-97`) | `python3 -c "import acl; print(acl.get_soc_name())"` → `Ascend910B4-1` (the probe #10525's reporter ran) | ACL/GE init codes, `libascend*.so: cannot open shared object` |
+| SoC ops/kernels package (`:99-101`) | no startup gate — an unresolved aclnn op at the first launch, i.e. *not* this traceback's stage | — |
+| NNAL + its own `set_env.sh` (`:103-107`) | `python -c "import torch, torch_npu; from torch_npu.op_plugin.atb._atb_ops import _register_atb_extensions; _register_atb_extensions(); print('ATB OK')"` | this page's `libatb.so` `OSError` |
+| python env + `torch`/`torch-npu`/`triton-ascend` pins | `python -c "import torch, torch_npu; print(torch.npu.is_available())"` (the tree's own check, `vllm_ascend/worker/worker.py:294`) | the SIGILL / ABI / `undefined symbol` forms → the sibling pages |
+| `pip install vllm==<pin>` then `vllm-ascend==<pin>` (`:148-163`) | `pip show vllm vllm-ascend torch torch-npu` against the tag's own pair (see below) | plugin/import and pairing shapes |
+
+**A relocated install root moves both documented `set_env.sh` paths.** #10525's
+dump reads `ASCEND_TOOLKIT_HOME=/usr/local/Ascend/cann-9.0.0` and the reporter
+sourced `/usr/local/Ascend/cann/set_env.sh`, while the doc block's paths are
+`/usr/local/Ascend/ascend-toolkit/set_env.sh` (`:97`) and
+`/usr/local/Ascend/nnal/atb/set_env.sh` (`:107`). On such a box all three
+documented absolute paths are wrong, so print the reporter's own roots (the CANN
+root from `ASCEND_TOOLKIT_HOME`, the sibling `nnal/atb` root, `$ASCEND_OPP_PATH`)
+and let `find` locate `libatb.so` — do not hand back the doc paths verbatim. The
+pair to check the stack against is the tag's own (`installation.md:12-18`,
+`requirements.txt:17,20,38`), not the neighbouring row of
+`versioning_policy.md` — at an `rc` tag that table can still describe the
+previous release (`../startup-failures/environment-correspondence.md`).
 
 ## The two distractors in the same log
 

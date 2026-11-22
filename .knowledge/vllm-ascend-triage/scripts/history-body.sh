@@ -18,7 +18,9 @@
 # free prose *into* the environment field ("环境：… 问题：…"), which is why the
 # marker is a deletion of the dump only, never of the whole field.
 #
-#   -n LINES     max body lines to print (default 80; `-n 0` = no cap)
+#   -n LINES     max lines to print (default 80; `-n 0` = no cap). It caps the
+#                lines `-g` matched too, so a broad `-g '.'` still stops at 80 --
+#                use `-n 0` to read a body end to end
 #   -g REGEX     print only matching lines, with line numbers (case-insensitive):
 #                on a 400-line body pull the traceback or the serve command
 #   --env        print the collect_env dump instead of the body
@@ -26,6 +28,13 @@
 #   --root DIR   history root (default /workspace/history); both layouts are
 #                understood: flat `<root>/<id>.md` and per-case `<root>/<id>/<id>.md`.
 #                When several case dirs share the id, pass `--root <root>/<case>`.
+#
+# `-g`'s numbers are **raw file** line numbers, while the printed stream is not 1:1
+# with the file (the dump collapses to one marker line, `<details>` scaffolding is
+# dropped, and -n truncates). So do not slice this output with `sed -n 'A,Bp'`: it
+# prints nothing and reads as an empty body (recorded #4766 -- `history-body.sh 3513
+# | sed -n '190,320p'` empty, then a `wc -l` -> 82, two wasted calls). Read a region
+# with the `-g` pattern itself, or the whole body with `-n 0`.
 #
 # One id per argument, several allowed, so 2-3 precedents cost one call. Output is
 # prefixed `=== #<id> :: <title>`; each line is capped at 1000 chars. Exit 1 = an id
@@ -51,7 +60,7 @@ while [ $# -gt 0 ]; do
     --all)       mode="all"; shift ;;
     --root)      root=${2:-}; shift 2 ;;
     --root=*)    root=${1#--root=}; shift ;;
-    -h|--help)   sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)   sed -n '2,/^set -u/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*)          echo "history-body.sh: unknown option '$1'" >&2
                  echo "usage: history-body.sh [-n LINES] [-g REGEX] [--env] [--all] [--root DIR] <id> [<id> ...]" >&2
                  exit 2 ;;
@@ -153,7 +162,8 @@ def emit(raw, span):
             print(line[:1000])
         shown += 1
         if cap and shown >= cap and k + 1 < len(rows):
-            print(f"... ({len(rows) - k - 1} more lines; raise -n or use -g REGEX)")
+            print(f"... ({len(rows) - k - 1} more lines; -n 0 for all of it,"
+                  " -n LINES for more, or narrow -g REGEX)")
             return
 
 

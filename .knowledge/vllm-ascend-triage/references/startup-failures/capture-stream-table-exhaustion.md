@@ -31,6 +31,26 @@ graph: 72` then `No adjustment needed for ACL graph batch sizes: … with 51 siz
 the device still refused at graph **38 of 51** with `stream_id=2011` — ~53 streams per
 captured graph against the formula's `layers + 1 = 25` (§2).
 
+**Not this page — classify the appended inner error first.** The `ACLgraph has
+insufficient available streams …` sentence is unconditional wrapper text at
+v0.11.0rc0-v0.12.0rc1 (§3), so its presence says nothing about a budget. This page owns
+only the paste whose inner line under it is the capture-begin resource refusal
+(`207005`, `[SqCqManage]Alloc sq cq fail`, `stream_id=…`). Every other inner line is
+classified in `acl-graph-capture.md` **Step 2** and stops here — a collective/transport
+code (`EI0006 … Getting socket times out. Reason: Remote Rank did not send the data in
+time`, `[Create][DestLink]Create Dest error!`, `HcclAllreduce` as the working operator),
+a plain Python exception, a stream-synchronize refusal (`107027`), a capture-mode copy
+(`107030`), or an aclop refusal each has its own page, and none of them is a stream
+budget. Recorded #3389 (v0.11.0rc0, Qwen3-VL-235B TP=16 on one host) is that shape:
+`Capturing ACL graphs (mixed prefill-decode, PIECEWISE): 0/6` frozen, the wrapper
+sentence, and an `EI0006`/`DestLink` block underneath — the deliverable is the ranks
+that never reached capture (Step 2's timeline reading), not this formula. The one
+arithmetic worth doing before leaving is Step 3's: when the paste's own
+`Starting to capture ACL graphs for cases: [...]` list already equals the computed
+maximum (`scripts/aclgraph-size-budget.sh`, one call), the sizes were auto-reduced by
+this very code, so there is nothing left to cut and the advice is refuted by the log's
+own list.
+
 ## 1. What owns the failure, and the two lines that mislead
 
 - `[Error]: Failed to apply for memory. / Check the remaining storage space in the

@@ -126,8 +126,23 @@ for a 310P report: the answer is not a different tag, it is a source build on a
   `COMPILE_CUSTOM_KERNELS=1`. The matching 310P wheel had to be attached to the
   GitHub release by hand — #1742's v0.9.2rc1 checklist still has
   `- [ ] Upload 310p wheel to Github release page` unchecked.
-- Later releases split it per SoC: `.github/workflows/dockerfiles/Dockerfile.buildwheel.{a2,a3,310p}`
-  at v0.23.0rc1.
+- The split is already there at **v0.18.0**, three wheel jobs, not one:
+  `.github/workflows/dockerfiles/Dockerfile.buildwheel.a2:20` (`ARG
+  SOC_VERSION="ascend910b1"`), `.a3:20` (`ascend910_9391`), `.310p:20`
+  (`ascend310p1`). It did **not** change what PyPI serves: in
+  `.github/workflows/schedule_release_code_and_wheel.yml` only the A2 job
+  twine-uploads `dist/*.whl` (`:192-196`; the `:84-89` Release uploads the sdist),
+  while the A3/310P packages are emitted as
+  **variant** wheels (`-l a3` / `-l 310p`, labels in
+  `.github/workflows/scripts/wheel/config.json`) by the
+  `generate_and_upload_variant_index` job and land on the OBS variant index. So
+  `pip install vllm-ascend==<tag>` on an A3 / 910_93 host still installs A2
+  custom-op binaries — the wheel-side twin of the `-a3` image question
+  (`../custom-ops-runtime-faults/op-not-registered-for-soc.md`,
+  `../custom-ops-runtime-faults/opapi-symbol-absent.md` §*The published wheel is
+  built for one SoC: A2*). Earlier notes dated this split to v0.23.0rc1; the
+  three Dockerfiles are already present at v0.18.0, so treat the split, not a
+  single-wheel build, as the shape from that release on.
 
 ## Answer shape
 

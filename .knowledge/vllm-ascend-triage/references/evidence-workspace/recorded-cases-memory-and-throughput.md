@@ -253,6 +253,22 @@ the queue never leaves zeros and the guard is inert above capacity 1 — and ups
 widens the wedge to any DP size. Route:
 `../scheduler-admission/balance-scheduler-admission-stall.md`.
 
+**#18691** vllm-ascend v0.23.0 (`5cb98caaadeff`) + vllm v0.23.0 (`0fc695fc6d1d`), image
+`quay.io/ascend/vllm-ascend:v0.23.0` (local ID `sha256:660ce23a…`), 2×910B3, TP=2/EP=2,
+eager, synchronous scheduling, a generated two-layer dummy-weight Qwen3-MoE,
+`eplb_config.dynamic_eplb=True`: a controlled failure injection — both planner
+subprocesses SIGTERM'd (`/proc` state `Z`), after which the next completion times out at
+45.0075 s while `/health` returns 200 both immediately and 10 s later, and the API exits
+0 on SIGTERM. A 45 s client deadline proves nothing about the engine, so the report
+already carried its own source quotes and a shortened-deadline control; what it could not
+see was that `/health` is not a liveness probe at this pin (`AsyncLLM.check_health` reads
+`errored` = `engine_dead or not is_running(output_handler)`, and the executor's 10 s
+`check_health` RPC has no caller) and that the 211-line
+`patch_multiproc_executor.py` is a thin subclass, so the upstream monitor/timeout lines
+the report cites are the code that runs. The run reached both facts by its tenth turn and
+shipped **no** message at all (21 turns / 34 tool calls, 48.3 K characters of reasoning,
+cut at 16 384). Route: `../scheduler-admission/background-helper-death-wedge.md`.
+
 **#4766** vllm-ascend `v0.11.0rc3` (`b6d63bb`) / vllm `v0.11.0` (`b8b302c`), 2×910B4-64G,
 Qwen3-VL-32B under an ais-bench textvqa loop: "显存一直异常增长，最后 OOM" with no serve
 log, no `npu-smi` sample and no crash tail (runtime-memory growth lane). Delivered at
@@ -337,13 +353,27 @@ A/B): the decode step is `running_seqs × (1 + num_spec)` tokens against
 `min(max_num_seqs × decode_query_len, 512)` (`platform.py:241`), so 264 requests
 = 528 tokens > 512 and `cudagraph_dispatcher` returns `NONE` with no log
 (`v1/cudagraph_dispatcher.py:276-285`) — every step eager. The reporter's later
-public follow-up supplied the localisation this page needed and one shape rule:
+public follow-ups supplied the localisation this page needed and one shape rule:
 the cliff is per engine (dp=2/tp=4 healthy at ≤224 with the aggregate ceiling
 doubling), it survives `--max-model-len 1024`, and a bare-HCCL all-gather
 microbenchmark is flat at ~0.3 ms from 256 to 640 tokens, which retires the
-transport lane. Their seven-row "collapses" ablation matrix is **not** a
-refutation: none of its rows carries its own below-cliff baseline, and
-`--enforce-eager` deletes the graph entirely. Delivery: the recorded run reached
+transport lane. The **capture grid** is the missing half of the arithmetic:
+upstream floors the injected default to 8/16-step sizes, so the boundary is the
+per-engine `--max-num-seqs` while `mns × dq ≤ 512` and `512 // dq` above it — the
+tp8 index (`264 × 2 = 528 → 512 → 256`) and the dp2/tp4 index (`224 × 2 = 448 →
+224`) both reproduce from their serve lines, and their MTP-off row is predicted
+too (`264 × 1` floors back to 256, with `Truncating max_cudagraph_capture_size to
+256` in that log). Their second follow-up adds the startup command
+(`--max-num-batched-tokens 8192`, `enable_dsa_cp`, `multistream_overlap_shared_expert`,
+`enable_cpu_binding`, `block-size 128`), a benchmark table in which TTFT **falls**
+across the step (3.2 s → 2.0 s) while per-request wall time goes 65 s → 185 s →
+202 s for the same 1024 output tokens and MTP acceptance stays 1.6-1.8 on both
+sides — a decode-step cost, with prefill, admission and the drafter all retired —
+and three plog/process logs at default level (startup warnings only). Their
+seven-row "collapses" ablation matrix is **not** a refutation: none of its rows
+carries its own below-cliff baseline, `--enforce-eager` deletes the graph
+entirely, and `enable_npugraph_ex: false` is a compile-backend switch, not the
+graph mode. Delivery: the recorded run reached
 the ceiling argument by its 11th assistant turn and then shipped **no answer** —
 18 turns, 0 characters of message text, ~45 K characters of reasoning, cut
 inside a reasoning block; the arithmetic script

@@ -163,11 +163,28 @@ read, because **this matrix changed between the two recorded pins**:
 - Matrix **with** quantization (v0.22.1rc1 `:49-56`): SP = `x` in all four columns,
   "SP currently does not support quantization and is under adaptation" (`:51`).
 - `:21` documents `sp_min_token_num` as "from upstream vllm's `pass_config`",
-  "**The default value is 1000 on Ascend**", later appended into
-  `compile_ranges_split_points`. That sentence is **wrong on a MoE model** at
-  v0.22.1rc1 (`platform.py:251-255` + `get_sp_min_token_num()` give `1`), so its
-  own "SP will only take effect when `num_tokens >= sp_min_token_num`" caveat does
-  not hold there. Call that a documentation defect, not a code bug.
+  "**The default value is 1000 on Ascend, which generally does not need to be
+  modified**", later appended into `compile_ranges_split_points`, so its own
+  "SP will only take effect when `num_tokens >= sp_min_token_num`" caveat reads as
+  "safe below 1000 tokens". That is **wrong on a MoE model** at v0.22.1rc1
+  (`platform.py:249-255` + `get_sp_min_token_num()` give `1`), and the same file's
+  own Q1 section already says so — "set default `sp_min_token_num` (1000 for Dense
+  models, 1 for MoE models)", `:105-109`. Quote both lines: it is an internal
+  inconsistency, not an unstated fact, and against a reporter who read only the
+  example paragraph the `1` is the decisive half (MoE ⇒ the pass applies at every
+  batch size). A documentation defect, not a code bug.
+- **The next bullet of that same Q1 section is stale at this pin, and it inverts an
+  ablation.** It claims `VllmConfig._apply_optimization_level_defaults` sets
+  `enable_sp = True` for dense models; at vllm v0.22.1 (`0decac0`) that table is
+  `OPTIMIZATION_LEVEL_02/03 = {… "enable_sp": IS_DENSE …}` with `IS_DENSE = False`
+  (`vllm/config/vllm.py:90,237,258`) and the old
+  `lambda c: not c.model_config.is_model_moe()` left commented at `:95`. So at this
+  pin **SP never switches on without the user's key**, and row 1 (delete
+  `pass_config.enable_sp`) is a valid single-variable ablation on a dense model too —
+  re-read `IS_DENSE` before carrying this to another ref, because where it is a
+  predicate again a dense serve gets SP for free at optimization level ≥02. The other
+  upstream auto-on path is `fuse_gemm_comms` (`vllm/config/vllm.py:1131-1134`), which
+  matters only if that key is in the reporter's `--compilation-config`.
 - `:32-39` FC1 is a *different* optimisation (Custom OP based, hard for VL-class
   models) and "FC1 and SP are complementary" — **not** two names for one switch.
 - `docs/source/user_guide/release_notes.md:97` the key was renamed back
@@ -282,6 +299,11 @@ The tree's own validated command for this model
 that doc pins an explicit `max_tokens` (`:593` = 50), so "default `max_tokens` was
 never exercised by the recipe" is a documentation finding you can state, not a
 theory.
+
+**Calibration, reproduced.** A later #12278 run that opened this page first shipped
+the lane plus `enable_sp` rung 1 in its second assistant turn, and the reporter's own
+follow-up (2026-07-17) is that rung verbatim — so the one-turn opening answer is
+reachable; spending turns before it is the failure mode, not a budget limit.
 
 Delivery note for this shape: the opening answer (lane + the
 `enable_sp`/`reasoning-parser` pair + the two greps) fits in one turn. Both

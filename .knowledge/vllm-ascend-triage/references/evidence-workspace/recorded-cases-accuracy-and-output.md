@@ -298,6 +298,17 @@ complete ranked answer (first ablation `USE_OPTIMIZED_MODEL=0`, then TP=1,
 weights to **activations** (`:101-108`), so #976's weight-padding mechanism cannot be
 quoted at v0.13.0rc1 — see `../accuracy-benchmarks/vl-vision-tower-degeneracy.md`.
 
+A later recorded session on the same report **shipped no answer**: ten verification
+rounds and the whole output budget spent re-confirming what the page and
+`../accuracy-benchmarks/hybrid-block-size-corruption.md` already state (no 910B3/B4
+branch anywhere in `vllm_ascend/` except the `core/scheduler_dynamic_batch.py:151`
+comment; `--block-size 16` is a no-op while prefix caching or chunked prefill forces
+128 at `utils.py:1068-1076` — pin-verified here; `mm_encoder_tp_mode` defaults to
+`weights` at vllm `config/multimodal.py:111`; `rg -i dots docs tests .github` is
+empty), cut on an empty final turn. Deliver the three levers and the saved request
+JSON's `prompt_tokens` comparison in the first message, then spend the rest on the
+one thing the paste cannot answer.
+
 **#8724** vllm-ascend `v0.13.0rc3` (`bbe9bc0d`) / vllm `v0.13.0` (`72506c98`), one
 A3 16-card node, DeepSeek-V4-Flash-w8a8-mtp with
 `--speculative-config '{"num_speculative_tokens": 1, "method": "deepseek_mtp"}'`,
@@ -1158,3 +1169,66 @@ unpairable OCR table and an `rg -rn 'mmlu'` that ran `--replace`; the fixes are 
 `../accuracy-benchmarks/harness-vs-engine-attribution.md` (pair only where an
 independent line fixes the mapping; quote ais-bench's `naive` **and** `weighted` columns
 against evalscope's single `OVERALL`; ask for `summary_*.csv`/`reports/*.json`).
+
+**#10413** vllm-ascend `v0.20.2rc1` (`367b8e62da79`) + vllm `v0.20.2`
+(`bc150f502991`), A2 16×NPU per machine, 4P1D Mooncake deployment, 128K,
+DeepSeek-V4-Flash-w8a8-mtp, `VLLM_ASCEND_APPLY_DSV4_PATCH=1`, ais-bench
+`gpqa_gen_0_shot_str` with `chat_template_kwargs={"thinking": False}`,
+`temperature=1.0`, `max_out_len=65536`, `extract_non_reasoning_content`: GPQA
+63-57 against the official 71. Track: score-below-official, harness side. The
+recorded run answered in one message after 16 turns and ~615 K prompt tokens, and
+its rank 1 was right (the body runs DSV4 in non-thinking "chat" mode; upstream and
+the downstream patch both default `thinking`/`enable_thinking` to False, patch
+opt-in via `envs.py:116`), with the `prompt_tokens` probe, the project's own
+`tools/aisbench.py:154-156,163` values and a PD/quant ladder behind it. Two things
+only the reporter's later comments settle, both now in
+`../accuracy-benchmarks/harness-vs-engine-attribution.md` §*thinking checkpoint*:
+the effort value is a second, dataset-calibrated variable (MMLU-Pro closed at
+thinking **max**, 85.91 vs 86.2; GPQA still short at max and matched at `<think>
+HIGH`), and the hand-created `hccn_conf` the reporter asked about is a connectivity
+configuration, not an accuracy lever.
+
+**#4616** vllm-ascend `v0.11.0rc2` (`a2e4c3fe`) + vllm `v0.11.0` (`b8b302cd`),
+910B 32G, official image, `Qwen3-Reranker-4B` served with
+`--hf_overrides '{"architectures": ["Qwen3ForSequenceClassification"],
+"classifier_from_token": ["no","yes"], "is_original_qwen3_reranker": true}'` and no
+`--task`/`--runner`, `/rerank` with 6 Chinese documents: HTTP 200, scores
+0.807-0.889, the exact match fourth behind an unrelated document, filed as
+精度问题. Track: pooling/rerank scoring. The recorded run spent its whole 16 384
+token output budget inside `adapters.py`/`pooler.py`/`registry.py` and shipped no
+message text, although the decisive arithmetic was in the response body it had
+pasted (`usage.total_tokens: 88` over 6 pairs ≈ 15 tokens per pair). Now
+`../pooling-embedding/rerank-untemplated-score.md`: `get_score_prompt`'s three
+branches at v0.11.0 and the fact that only `jina_vl.py` implements
+`SupportsScoreTemplate` mean a Qwen3-family `/rerank` call at that pin scores a
+raw `query + document` pair, and the release's own route is the embedding endpoint
+with a client-built `Instruct:` prefix.
+
+**#8844** reported vllm `0.18.0` / vllm-ascend `0.18.0` (neither is in the snapshot;
+the case pins vllm-ascend v0.13.0rc3 `bbe9bc0d` + vllm v0.13.0 `72506c98`), 4-node PD:
+GLM-5/5.1 `GLM-new-w8a8`, `MooncakeConnectorV1` with `use_ascend_direct`, DP2 × TP16 +
+`--enable-expert-parallel`, `--speculative-config '{"method":"deepseek_mtp",
+"num_speculative_tokens":3}'`, P with `--enforce-eager` (4096 max batched tokens) and D
+with `FULL_DECODE_ONLY` + `--async-scheduling` (512), `--gpu-memory-utilization` 0.95 /
+0.92, `--max-num-seqs` 64 / 128, `VLLM_ASCEND_ENABLE_FLASHCOMM1` on the P node only,
+`multistream_overlap_shared_expert` written twice in one JSON object, and
+`"recompute_scheduler_enable": true` on **both** nodes. The symptom is a score, not a
+crash: GPQA-diamond 67.17 in the title, 67.8 % in the body, "lower than the result
+reported in the paper", with two reporter hypotheses — a large TP (≤4 is fine) and a
+loss that appears "when the output length is long, concurrency is high, and GPU memory
+utilization remains saturated for an extended period". The reporter's later comment on
+the issue closed it: *"This issue arises from recalculations after the gpu memory usage
+is fully utilized. Disabling recalculations eliminates this problem."* — i.e. the
+decode-side recompute path, and its off-switch is the `recompute_scheduler_enable` their
+own paste sets to true. The recorded run shipped a complete six-cause ranked answer
+(measurement terms first, then truncation/`--reasoning-parser glm45` routing, then
+MTP + `--async-scheduling` bookkeeping, then the P/D recipe asymmetry, then KV
+saturation as "a correctness trigger, not a fix", then TP16/DP2), correctly reading the
+duplicate `multistream_overlap_shared_expert` key and the `layer_sharding` /
+FLASHCOMM1 asymmetry — and never opened the recompute flag, although one of its own
+greps had printed `recompute_scheduler_enable` among the reporter's keys. What that cost
+is the whole session's answer: the flag-vs-state control was one restart with a key the
+reporter had already typed. The durable rule is in
+`../accuracy-benchmarks/pd-recompute-after-kv-saturation.md` (new): when the reporter's
+hypothesis names a *state* and the `--additional-config` carries a flag gated on that
+state, the flag-vs-state arm is rung 1.

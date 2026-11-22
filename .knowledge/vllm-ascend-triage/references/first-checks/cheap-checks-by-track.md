@@ -438,14 +438,18 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   requests fine, 258 collapsed; `Waiting` 0, KV under 90 %, no error text, NPUs
   idle and host cores busy): run
   `bash <skill_root>/scripts/seq-cliff-capture-budget.sh --max-num-seqs N
-  --num-spec K` before any graph/compile source — it prints the sequence count
-  where `cudagraph_dispatcher` silently returns `NONE`, and the value to put in
-  `--compilation-config '{"max_cudagraph_capture_size": N×(1+K)}'`. Then one grep
-  for the `max_cudagraph_capture_size … is smaller than the potential max tokens`
-  startup line, then the A/B. Ablations that move the baseline
-  (`--enforce-eager`) or leave the ceiling unchanged (FlashComm1, DSA-CP,
-  `npugraph_ex`, `--async-scheduling`) cannot refute it, so quote them only
-  against their own below-cliff N
+  --num-spec K --observed-cliff M` before any graph/compile source — it prints
+  the sequence count where `cudagraph_dispatcher` silently returns `NONE`, the
+  grid floor that makes the effective ceiling, the value to put in
+  `--compilation-config '{"max_cudagraph_capture_size": N×(1+K)}'`, and whether
+  the reporter's own step index matches. Then one grep for the
+  `max_cudagraph_capture_size … is smaller than the potential max tokens` line
+  and one for `Truncating max_cudagraph_capture_size`, then the A/B. Ablations
+  that move the baseline (`--enforce-eager`) or leave the capture list unchanged
+  (FlashComm1, DSA-CP, `npugraph_ex`, `--async-scheduling`,
+  `multistream_overlap_shared_expert`) cannot refute it, so quote them only
+  against their own below-cliff N; the one matrix row that *confirms* the grid is
+  MTP off, which floors `264×1` back to 256 and leaves the cliff where it was
   (`../performance-throughput/sequence-count-cliff-capture-size.md`,
   #14440).
 - The body compares **two runs** and gives one number each ("12s vs 4s" between two

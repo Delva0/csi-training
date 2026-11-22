@@ -60,6 +60,15 @@ resident decodes almost no token budget — the survivors' per-token time multip
 for the duration of the re-prefill, then returns. State it as the mechanism and
 name the log line that proves it.
 
+The same exhaustion has a **second branch** that this page must not absorb: on a
+PD **decode** node whose launch sets `recompute_scheduler_enable: true`, the pool
+returning `None` does not preempt at all — the request is freed and handed back to the
+front end (`stop_reason: "recomputed"`), which re-prefills prompt+generated text on a
+prefiller. No preemption counter moves on that branch, so an absent `Preemptions` line
+cannot be read as "the pool was never exhausted"; its artefact is per-request (a
+handed-back, half-finished generation) rather than a latency curve:
+`../accuracy-benchmarks/pd-recompute-after-kv-saturation.md`.
+
 ## Checks, cheapest first
 
 1. `rg -n 'Preemptions|GPU KV cache size|Maximum concurrency' <serve.log>`. A

@@ -107,7 +107,18 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    source walk cannot refute it — the allocator layer it calls is not in the
    snapshot. `host-ram-and-per-rank-rss.md` §"Step 0" has the recorded case, the
    matching rule and the line that closes the lane (`torch_npu` already at
-   `.post1`/`.post2` or a later pta line).
+   `.post1`/`.post2` or a later pta line). **Scope the lane to the ref before you
+   rank it, the more so when the paste carries no env block**: one
+   `rg -n 'torch-npu|torch==' requirements.txt pyproject.toml` at the pin says
+   whether the leaking line ships at all — v0.11.0rc3 pins `torch-npu==2.7.1`
+   (`requirements.txt:13,28`; `pyproject.toml:16-17`), so a report that names that
+   release is not the 2.8.0 lane unless the reporter's own dump shows a hand-installed
+   pta. And that pin's `release_notes.md` does not carry the bullet (its newest
+   section is `v0.11.0rc0`), so grepping the old pin's notes for `leak` and finding
+   only the P/D `#2650` bullet and a v0.9.x CPU-leak fix line (`:537`) refutes
+   nothing. Recorded #4766 ranked the leak first,
+   spent two calls on those greps, then read `requirements.txt` and demoted it; the
+   paste-side rung is `collect_env.py`, the pin-side one is that grep, in that order.
 4. **Ask for two timestamped samples**, not one `npu-smi` dump: monotonic growth
    and a flat near-full pool look identical in a single sample.
 5. **Check flag liveness before attributing behaviour to a flag.** On pre-migration

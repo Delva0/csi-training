@@ -12,6 +12,22 @@ bfloat16`, `--max_model_len 136000`, `--enable-prefix-caching`,
 latest version"). Inherit `index.md`, `../first-checks/signature-routes/index.md`
 and the SKILL.md rules.
 
+**Variant — the paste names no kernel, and the onset is engine start (recorded #4483).**
+Qwen3-Next-80B-A3B at vllm-ascend **v0.11.0rc1**, many TP/DP ranks:
+`RuntimeError: copy between host and device_opapi, UCE ERROR, error code is 507053`,
+raised from `core.py` → `collective_rpc("determine_available_memory")` →
+`worker_v1.py profile_run()` → `model_runner_v1.py` `hidden_states[logit_indices]`, so
+the engine never finishes profiling (`worker proc VllmWorker-0 died unexpectedly`,
+`EngineCore failed to start`) and the title says "multi-request concurrency". Same
+owner line, older layout: at that pin the masked clear sits in the **model file**,
+`vllm_ascend/models/qwen3_next.py:331` `initial_state[~has_initial_state, ...] = 0`
+under `if attn_metadata.num_prefills > 0:` (verified in the v0.11.0rc2 tree
+`a2e4c3fe`) — the `patch/worker/patch_qwen3_next.py` copy is the newer pin's layout,
+so grep both spellings. It fires at `profile_run` because that dummy run *is* a
+prefill. The reporter closed the issue as fixed for `>= v0.13.0rc1` with no mechanism
+named, so the owner here is **hypothesis**; what the record settles is the lane —
+this paste is a version question, not a card fault.
+
 ## What the paste proves
 
 | Fragment | Pins down | Does not |
@@ -75,6 +91,12 @@ never for the line.
   v0.17-era pin the ranked answer is: the hybrid-SSM state clear, no in-snapshot
   fix, upgrade to ≥ v0.19.1rc1 (when only the older pin is exported, the newer
   tree's line is a **check** to name, not a derivation — do not spend turns on it).
+- **Two pins, two confirmations, one action.** #7774 → 0.19.1rc1, #4483 → ≥ v0.13.0rc1;
+  both reporter-closed as fixed by a later version, neither naming a mechanism. On any pin older
+  than the fix, the first action is the upgrade to a release at or past it, and
+  card/driver/`npu-smi` rows are the branch taken only if a single-card, single-request
+  repro of the same paste faults (the recorded #4483 answer ranked a device UCE second
+  and the version lane third — the two closings invert that order).
 - State coverage before any mechanism: at v0.17.0rc1 Qwen3.5 has **no row** in
   `docs/source/user_guide/support_matrix/supported_models.md`, while
   `tests/e2e/multicard/4-cards/test_qwen3_5.py` covers 27B and 35B-A3B at **tp4**,
@@ -95,7 +117,8 @@ never for the line.
    step reaches the masked clear. They are documented here as **regime tests, not
    fixes**: no recorded run reports them as a workaround, and the semantic path
    stays.
-4. **The release.** The one confirmed answer in this family.
+4. **The release.** The only confirmed answer in this family, at two pins (#7774 →
+   0.19.1rc1, #4483 → ≥ v0.13.0rc1) — take it before asking for per-card health.
 
 ## Stop rules
 
@@ -109,5 +132,8 @@ never for the line.
   kernel. Use it only when the named op is a *victim* (a generic 507xxx with no op
   name, `../hccl-and-hardware/latched-runtime-error-masking.md`).
 - Do not convert it into a hardware case: no `npu-smi`, driver or CANN-pairing
-  ranking until the same `NonZero` line appears across ranks *and* a single-request
-  repro on one card faults.
+  ranking until the same `NonZero` line (or, on the #4483 paste, the same generic
+  `507053` at `profile_run`) appears across ranks *and* a single-request repro on one
+  card faults. A UCE code alone is not that evidence — `507053` is
+  `ACL_ERROR_RT_DEVICE_MEM_ERROR` and is also what a faulting kernel's reporting sync
+  returns.

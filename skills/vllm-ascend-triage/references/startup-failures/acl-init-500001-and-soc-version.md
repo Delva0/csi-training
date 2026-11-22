@@ -118,7 +118,21 @@ per-device `--device`) is a follow-up experiment, not this diagnosis.
    `requirements.txt:27` pins `torch-npu==2.5.1.post1.dev20250619`. A host driver
    older than that CANN release is the top-ranked candidate here (#2315 reports
    `NPU-SMI 24.1.0.1`); it is a candidate, not a confirmed fix — see Limits.
-5. **Conform the container to the 300I tutorial before blaming the driver**: the
+   The row is per tag, so read the tag the report names: at v0.8.5rc1
+   `Dockerfile.openEuler:18` is
+   `FROM quay.io/ascend/cann:8.1.rc1-910b-openeuler22.03-py3.10` with
+   `requirements.txt:12` `torch-npu==2.5.1` — and #975's own env block already prints
+   exactly that in-container CANN 8.1.RC1 (and `torch-npu 2.5.1`), so the *container*
+   side of the correspondence is verified by the paste and only driver/firmware is
+   still open. Say that instead of re-deriving what the image ships; `git show HEAD:`
+   the tag's Dockerfile only when the dump disagrees with it.
+5. **A second repro on a different model is the model-independence proof — use it before
+   any capacity arithmetic.** #975's reporter also ran `LLM()` on Qwen2.5-0.5B at TP=1
+   and got the same three lines, which retires the 235B/MoE/`--max-model-len`/bf16-weight
+   theories in one sentence, in the answer's first paragraph rather than a later section; a
+   Qwen3-235B-A22B
+   bf16 footprint note stays a one-line follow-up for the run that gets past device open.
+6. **Conform the container to the 300I tutorial before blaming the driver**: the
    documented `docker run` also mounts `-v /usr/local/dcmi:/usr/local/dcmi` and
    `-v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi`
    (`docs/source/tutorials/single_node_300i.md:28-29`); #2315's command omits both,

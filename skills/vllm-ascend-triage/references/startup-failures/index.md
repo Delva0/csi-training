@@ -125,6 +125,17 @@ Inherit the rules in SKILL.md. Conditional routes:
   `PG_WAIT_TIMEOUT = 1800` s without printing. Ask `ray status` + per-rank log count, and
   leave the cause open versus `ray-npu-resource-label.md` only if the paste carries that
   `ValueError`.
+- The evidence is a **KubeRay `RayService`/`RayCluster` YAML** (not a log): the service
+  sits at `applicationStatus.llms: DEPLOYING`, the reporter says the plugin "起来之后
+  没法申请到资源", and the same `vllm serve … --distributed-executor-backend ray` works
+  by hand → a three-layer resource question, not an engine one: K8s
+  `huawei.com/Ascend910` is not Ray's `NPU`, only `rayStartParams.resources` bridges
+  it (a head group with `rayStartParams: null` and no device limit advertises none), the
+  Serve replica actor's own `ray_actor_options.resources` consumes a bundle in addition
+  to one per engine rank (`pp=2` on two devices = three bundles), and `HCCL_IF_IP` /
+  `GLOO_SOCKET_IFNAME` / `TP_SOCKET_IFNAME` must exist **before** `ray start`. One
+  `ray status` + `ray list placement-groups` separates the layers; `ray/serve/` is in no
+  export → `ray-npu-resource-label.md` §*A KubeRay RayService YAML* (recorded #8156).
 - A **model family the pinned release only just added** (a hybrid/GDN or otherwise new
   architecture) hangs or dies at init/load before the first request → read that version's
   own `docs/source/user_guide/release_notes.md` *Highlights + Known issues* and the model's
@@ -254,6 +265,10 @@ Inherit the rules in SKILL.md. Conditional routes:
   resolved `PlatformInfoInit … SocVersion <name>` below). Run the same `npu-smi info` on the host
   first — that one comparison splits "container" from "card/driver" — then the device nodes,
   another holder, and the two sides' `driver/version.info` → `no-npu-in-container.md`.
+  A `npu-smi info` that **does** answer does not clear the container's mount list: a
+  `docker run` missing the pin's `-v /usr/local/dcmi:/usr/local/dcmi` line
+  (`docs/source/quick_start.md:30`, `:59` at v0.11.0rc2) surfaces later, at weight load
+  (reporter-confirmed #4847) → same page, §*A responding `npu-smi info` is not a mount check*.
 - `EngineCore failed to start` / `WorkerProc failed to start` whose deepest frame is
   `torch_npu` device open (`set_device` → `npu_setDevice`) and whose text is
   `RuntimeError: SetPrecisionMode: … aclrtSetCompileOpt(aclCompileOpt::ACL_PRECISION_MODE,
@@ -427,9 +442,15 @@ Inherit the rules in SKILL.md. Conditional routes:
   Three calls there: does the reporter's own model file pass a prefix (the sibling
   `qwen2.py` / `deepseek_v2.py` do), does `quant_model_description.json` carry
   `model.embed_tokens.weight: "FLOAT"`, and does `lm_head` already pass one. Not §C of
-  `quantization-method-gate.md` — that key carries a module path — and no blanket
+  `quantization-method-gate.md` (that row's key names a real transformer layer) and no blanket
   `quant_description.get(..., "FLOAT")` guard, because the same function also decides
-  the quantised linears. When the key **does** carry a module path, settle provenance
+  the quantised linears. A key that carries a module path but names only `lm_head`
+  (`KeyError: 'lm_head.weight'` from `modelslim_config.py` `get_linear_quant_type`, on a
+  VL model served with `--quantization ascend`) is the **renamed-prefix** variant of the
+  same page, not §C: the model file hard-codes `prefix="lm_head"` while its
+  `hf_to_vllm_mapper` renames `lm_head.` → `language_model.lm_head.` in the description,
+  so no export spelling can satisfy the lookup and editing the description cannot help
+  (recorded #8367: v0.18.0rc1 + vllm v0.18.0). When the key **does** carry another module path, settle provenance
   before reading either chain: a directory from the Ascend-native converter
   (`convert_quant_weight.sh … -type qwen_w8a8`) that MindIE itself serves is §C-ii
   (its per-weight description is in `quant_model_description.json`, which a
@@ -580,6 +601,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   the answer is two ablations (drop the `torchair_graph_config` key — `--enforce-eager`
   cannot be added beside it; then the tutorial tab's own W8A8 checkpoint) before any
   attempt to localise the producing `.permute` from the dump.
+- Before any capture line, in the **memory-profiling** dummy run of the same torchair
+  serve, every rank dies with `IndexError: index 0 is out of bounds for dimension 0 with
+  size 0` at `torchair_attention.py`'s `if kv_cache is not None and kv_cache[0].numel()
+  > 0:` → `torchair-graph-profile-run-kv-cache-indexerror.md`: the tensor-index wording
+  means upstream's unbound placeholder `torch.tensor([])` was indexed, so no KV budget,
+  card, HCCL or checkpoint fact applies; the torchair override hands a real decode
+  metadata to a prefill dummy forward where the generic builder returns `None` (and the
+  guard lacks the `len(kv_cache) > 0` its sibling has). Rung 1 = drop the
+  `torchair_graph_config` key (reporter-confirmed #4847), and do not add
+  `--enforce-eager` beside it — `check_ascend_config` refuses that pair.
 - The worker raises while the **model forward is being compiled**, not at load
   and not at capture: `torch._dynamo.exc.Unsupported: Attempted to call function
   marked as skipped`, `Explanation: Dynamo does not know how to trace the builtin

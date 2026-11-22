@@ -83,6 +83,13 @@ tree's own test and CI wiring, not the bulletin procedure: route to
    `/v1/models` before calling the line cosmetic
    (`../image-dependency-faults/platform-plugin-register-raised.md`, recorded #130, where the
    maintainer's answer to the follow-up was this page and the reporter still expected v0.7.3).
+   On an ordinary **crash** report this section is the *first* read, not a
+   bulletin-only step: when the command sets an experimental/opt-in mode, the reported
+   release's own row can already name the model family, the mode and the tracked fix —
+   v0.12.0rc1 `:42` "DeepSeek 3/3.1 and Qwen3 doesn't work with FULL_DECODE_ONLY graph
+   mode … #4990" answered #5076 before any source read (reporter-confirmed fixed in
+   0.13.0rc1; `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §0).
+
 7. **Budget one message per tracked issue.** A two-issue bulletin at the 16 K
    completion cap was cut mid-ladder (#15985: verdict + both ranked lists
    survived, the action ladder did not), so lead with the verdict and the

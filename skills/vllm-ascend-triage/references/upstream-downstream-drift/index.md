@@ -24,6 +24,14 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   up in `KVConnectorFactory._registry` before `kv_connector_module_path` is read, so
   a name that collides with an upstream registration runs upstream's class —
   `../pd-disaggregation/connector-name-registry-collision.md` (#7864);
+- A sibling question with no traceback is *when*
+  the hook runs: "在线正常、离线 `LLM()` 报错，patch 要 import 在离线脚本之前" — for the engine
+  itself both paths call `load_general_plugins()` (`arg_utils.py:576-589`) and
+  `current_platform.pre_register_and_update()` (`:1312`, inside `create_engine_config`
+  before `ModelConfig`), so the only order-sensitive step is the user's own pre-engine
+  `AutoConfig`/tokenizer read; that page's *When the patch is applied* section carries
+  the verified chain, the inert `HFConfigParser` rebinding, and why the deliverable is
+  the coverage statement plus the traceback ask (recorded #10870).
 - the named class subclasses a `transformers`/`vllm` class or is registered as a
   drop-in replacement for one (`PluggableLayer`, `ModelRegistry.register_model`,
   monkey-patched `forward`);
@@ -124,6 +132,16 @@ Inherit the rules in SKILL.md. This topic is the right entry when:
   (`vllm-omni`, an app, a plugin) now fails validation with a message whose
   `input_type` is the very class it names. The patch is the owner and the consumer's
   dict-passing is only the workaround: `protocol-model-class-swap.md` (#8201, v0.18.0rc1).
+
+- **or the message is a returned `None`, not a raise**: `AttributeError: 'NoneType'
+  object has no attribute 'sampled_token_ids'` at upstream
+  `v1/core/sched/scheduler.py::update_from_output` on a first request, all
+  `vllm/**` frames, reached from a trainer that builds `vllm.LLM(...)` itself
+  (verl/RL) — the downstream worker's `return output if self.rank == 0 else None`
+  against upstream `is_driver_worker`, which are the same predicate in every
+  multiproc executor and differ in `ExecutorWithExternalLauncher`
+  (`distributed_executor_backend="external_launcher"`, the torchrun/SPMD trainer
+  path): `execute-model-none-external-launcher.md`.
 
 The one `NotImplementedError` that belongs to startup instead: a **custom op**
 registered by the downstream C++ extension without a Meta/fake implementation
@@ -236,6 +254,23 @@ answer is not "downstream drift".
    (`docs/source/community/versioning_policy.md`) and CI `vllm_version` matrix,
    and ask for `pip show vllm`. Do not keep grepping the pinned tree for the
    missing line — that loop cost a recorded run its whole session.
+
+   **The file is usually present and still the wrong ref: fingerprint it with the
+   paste's own line numbers before any argument rests on the pin.** One
+   `rg -n 'def <name>' <pinned file>` per pasted frame, 2-3 frames: recorded #960
+   (vllm-ascend v0.8.5rc1 `ec27af3`, pin vllm v0.8.5 `ba41cc90`) had
+   `v1/engine/core.py:294 def step` against the pin's `:192`, and
+   `scheduler.py:639 update_from_output` against `:625`, while three neighbouring
+   frames (`entrypoints/llm.py:473,1423`, `v1/engine/llm_engine.py:218`) matched —
+   a nearby main build, not the tag. The second tell is a **helper the paste calls
+   and the pin does not have**: that paste's `EngineCore.execute_model` wraps the
+   executor call in `try/except BaseException` + `dump_engine_exception(...)`, which
+   `rg -n 'dump_engine_exception' vllm/` returns **nothing** for. Neither tell
+   invalidates a mechanism whose two lines are at the pin (see
+   `execute-model-none-external-launcher.md`); both invalidate "the pin's line
+   produced this", so state them and ask for the one grep instead of walking the
+   wrong tree — #960's run never took this step and spent its whole 16 384-token
+   budget on the pin, shipping no message text.
 
 10. **A config flag is not the capability test, and a stack through the graph
    wrapper is not attribution.** The downstream fork replaced upstream's
@@ -459,6 +494,19 @@ answer is not "downstream drift".
   **checkpoint's** `model_type`/`kv_lora_rank` — so the one print decides the checkpoint
   lane before any pairing story; the maintainer's public answer was the modelslim tool
   and the project's published `vllm-ascend/<model>-W8A8` weight.
+- `execute-model-none-external-launcher.md` — worked case vllm-ascend #960
+  (v0.8.5rc1 `ec27af3` / vllm v0.8.5 `ba41cc90`, reporter's vllm
+  `0.8.5.post2.dev0+g3015d5634`, verl DAPO rollout): a first request dies as
+  `RayTaskError(AttributeError: 'NoneType' object has no attribute
+  'sampled_token_ids')` in `update_from_output`. The two candidate statements and
+  why the model-runner branch is refuted at the pin, why `rank == 0` and
+  `is_driver_worker` coincide in `multiproc_executor.py:288` and diverge in
+  `ExecutorWithExternalLauncher` (`uniproc_executor.py:68-120`, `RANK` from the
+  launcher, `is_driver_worker = True` for every process), the `InprocClient` tell
+  in the paste, the fix (upstream's line, or a release with no gate — verified
+  v0.20.2rc1 `worker/worker.py:435-441`), the ablations that do not test it
+  (TP=1 keeps `RANK`), and the line-number fingerprint that shows the run's vllm
+  is a main build rather than the pin.
 - `stale-module-binding.md` — worked case vllm-ascend #15815 (v0.26.0rc1,
   Qwen3-Coder-30B-A3B TP4): `AttributeError: 'UnquantizedFusedMoEMethod' object
   has no attribute 'is_monolithic'. Did you mean: 'apply_monolithic'?` inside

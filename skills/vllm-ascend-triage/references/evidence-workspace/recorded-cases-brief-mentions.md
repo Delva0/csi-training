@@ -174,3 +174,16 @@ earlier reporter asking the same design question; #3138 is the crash form of the
 subject (`get_attn_backend() got multiple values for argument 'use_mla'`). The
 reporter's later public comment is two more images, so nothing was confirmed —
 `../upstream-downstream-drift/impl-and-oot-signature-drift.md` Rule 6 (new).
+
+**#5158** vllm-ascend v0.12.0rc1 (`42ceaf08a1ef`) + vllm v0.12.0 (`4fd9d6a85c00`), image
+`quay.io/ascend/vllm-ascend:v0.12.0rc1`, `[Doc]` report: the DeepSeek-V3.2 tutorial says
+"install extra operator" and gives no how, and the reporter asks whether #3278's manual
+`deepseek_v3_ops` build is what they must do. The sentence is inherited boilerplate
+(`Qwen2.5-7B.md:27`, same text) while the sibling DeepSeek pages say "run … directly" and
+the same release's own `release_notes.md:8` says "you don't need to install any other
+packages now" (`:15` custom ops mandatory, `:14` the triton-ascend wheel is the only
+optional extra) — tier stale, the real gap being the wheel with no URL. The recorded run
+delivered that verdict; the reporter's later public comment (2025-12-19) is "I switch to
+latest main branch and hit another error", which is why the answer must name the
+image↔vllm pair and ask for the runtime error —
+`../tutorial-verification/missing-guidance-and-contributor-docs.md` §#5158.

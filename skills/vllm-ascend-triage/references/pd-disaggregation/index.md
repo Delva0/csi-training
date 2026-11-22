@@ -315,6 +315,18 @@ output, or did no request ever reach a decode engine?**
   prefiller can return, and the three patch sites in the example proxy →
   `prompt-side-outputs-on-decode-node.md`.
 
+- The deployment **serves every request** while one prefiller (or decoder) is chosen
+  far more often than its peers — "高并发场景下 proxy 请求概率异常", "proxy 的负载分发机制有问题",
+  "P 节点利用率一边倒" — **or** the body is a self-diagnosed accounting bug in
+  `examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py` with a stdlib
+  repro and no backend fault: this is the proxy's own heap arithmetic
+  (`active_tokens + active_kv_cache * 0.3` as the prefiller priority), so no log line
+  carries it and no connector, CANN or graph knob moves it. Date the reporter's file
+  before reading it — the example is rewritten often (928 lines and class `ProxyState`
+  at v0.19.1rc1, `SharedProxyScheduler`/`_release_load`/`reassign_instances` post-pin) —
+  then read the reservation/release pairing and the `recomputed` reassignment path →
+  `proxy-load-balance-accounting.md`.
+
 Inherit the rules in SKILL.md. Rules specific to this topic:
 
 1. **The transport identity is a topology input, not a tunable.** Any Ascend
@@ -384,6 +396,17 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   `async_scheduling` defaulting on at vllm v0.14.1 (`config/vllm.py:588-628`, KV
   transfer absent from the disable list) with the reporter's PD-incompatibility
   claim and its counter-evidence. Verified at v0.14.0rc1 `52d4acf`; #6485 left open.
+- `proxy-load-balance-accounting.md` — the example proxy as a **scheduler**: uneven
+  selection, a leaked or double-released load score, or a self-diagnosed counter bug
+  with a repro and no crash. How to date the reporter's copy (the cited anchors of
+  #14967 are past the pin's 928-line EOF, and corpus #13214 quotes the same post-pin
+  `_release_load` body), the pin's two counters and five sites with their real guard
+  semantics (`if active_kv_cache > 0: -= n` skips but still overshoots below zero),
+  and the defect that is actually there at `v0.19.1rc1` `da421af`: `released_kv` is a
+  per-request boolean, so a `recomputed` reassignment strands the **new** prefiller's
+  kv reservation and the **old** decoder's tokens — the mirror image of the reported
+  over-release — with the per-reservation fix shape, the sibling layerwise example as
+  the control, and the invariant a regression test should assert.
 - `invalid-max-tokens-and-p-refill.md` — `max_tokens = 0` or
   `prompt + max_tokens > max_model_len` on a P/D deployment produces no 400, the
   request is re-dispatched and the prefiller's KV is held to expiry. Where the

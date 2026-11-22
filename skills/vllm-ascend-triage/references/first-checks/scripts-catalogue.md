@@ -389,7 +389,13 @@ after that keeps the header, not this text.
   version": reads both trees' `torch` / `torch-npu` / `torchvision` pins, flags the
   metadata-vs-tree split for `--pre` / `--extra-index-url`, and names each
   contradiction (a torch-npu line off the torch line, a torchvision cap that excludes
-  the vllm pin) (#1796, #4737). It also prints the **release's own contract** in the
+  the vllm pin) (#1796, #4737). Its **first finding** now restates the
+  `torch-npu==X` beside `torch>=X` pair in `[build-system] requires`: that pair is only
+  jointly satisfiable through a `+cpu`-labelled torch, so it prints the pip text to expect
+  (`Cannot install torch-npu==X and torch>=X … torch-npu X depends on torch==X+cpu`), the
+  rung (`--no-build-isolation` / `--extra-index-url …/whl/cpu`), and the tree's own x86
+  CPU-index line — which refutes "no wheel for my arch" (#1411). It also prints the
+  **release's own contract** in the
   same call — the `docs/source/community/versioning_policy.md` matrix row(s) and the
   `conf.py` pip-pair substitutions — plus a reminder that `installation.md` prints
   `|pip_vllm_version|` tokens, so a version grep there comes back empty by design;
@@ -433,11 +439,15 @@ after that keeps the header, not this text.
   guide has converters delete those fields first
   (`../startup-failures/quantization-method-gate.md` §E).
 - `scripts/checkpoint-header-scan.py <model-dir|*.safetensors>` — is each shard a
-  safetensors *container*: per file the size, whether the first 8 bytes are a Git-LFS
-  pointer / zeros / HTML, the decoded header length, the tensor count and a `BAD`
+  safetensors *container* and does it hold the tensor data its header declares: per
+  file the size, whether the first 8 bytes are a Git-LFS pointer / zeros / HTML, the
+  decoded header length, the tensor count, the declared data region against the file
+  size (a short/interrupted copy is `BAD` even with a parseable header) and a `BAD`
   verdict, plus `model.safetensors.index.json` vs disk; exit 1 names the file behind a
-  `HeaderTooLarge` / `HeaderTooSmall` / `invalid JSON` report, so the lane closes
-  without opening the loader (#955).
+  `HeaderTooLarge` / `HeaderTooSmall` / `invalid JSON` report (#955) or behind a serve
+  that loaded and then answered one repeated token (`../accuracy-benchmarks/
+  constant-token-degeneracy.md` Step 3b, #6136). Structural, not a hash — compare sizes
+  or `sha256sum` with the hub as the second step.
 - `scripts/mtp-head-check.py <model-dir|config.json> [-q]` — does the checkpoint
   actually carry the MTP head the config promises (`mtp_num_hidden_layers` /
   `num_nextn_predict_layers`)? Reads the sharded index or each shard header and

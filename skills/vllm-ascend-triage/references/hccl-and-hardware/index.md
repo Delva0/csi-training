@@ -86,6 +86,19 @@ sibling, not this family: #9447 was still
 unresolved on 2026-06-22 with the failure on **two** fabrics, and its passing
 `hccl_test` cleared nothing — `mc2-dispatch-profile-run-hang.md` §Step 3c.
 
+**A `507009` / `507903` capture-window failure is the graph-task-group sibling, not
+that family.** `rtEventRecord execution failed, reason=task not supported` + `record
+event failed, runtime result = 507009` + `Failed to submit capture task,
+retCode=0x7100003`, then `AclmdlRICaptureEnd … error code is 507903`, on a serve
+exporting `HCCL_OP_EXPANSION_MODE=AIV` whose first request later sits at `Replaying
+aclgraph` with `AIVector` 8–16 % / `AICore` 0 %: `507009` is
+`ACL_ERROR_RT_TASK_TYPE_NOT_SUPPORT` and the capture owner is torch_npu/CANN — but the
+reporter's own `graph_task_group_begin` + `all_reduce` matrix is **not** a path the
+serving stack builds (all ten task-group regions at v0.22.1rc1 wrap one compute op),
+so the replay deadlock is the MC2 × AIV lane while the capture code is torch_npu's.
+`aiv-ric-task-group-capture.md` has both halves, the MiniMax-only gate on the tree's
+own AIV auto-enable, and the "torch_npu cannot see the env var" read.
+
 **If the report is a mode split instead of an error — "图模式算子通信报错, 只有开启单算子
 才能规避", no log, the attachment failed** — that is an execution-mode classification
 before it is a kernel question: `单算子` is GE's single-op/eager mode, not a key in the

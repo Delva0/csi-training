@@ -223,6 +223,22 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   `PyInit_vllm_ascend_C` one. Read the build gate before calling it an incomplete
   install; by v0.23.0rc1 the string is gone and the import is lazy
   (`vllm_ascend/utils.py:435`).
+- **An op that faults only inside the engine is a call-site question before it is an
+  address question.** When the reporter's own control is "I dumped the inputs to a pkl
+  and the op runs standalone", audit the control: one `<op>` family has several call
+  sites in this tree with different keyword lists, and the fault kernel's own name can
+  rule one out. `paged_attention_mask_1_mix_aic` cannot come from
+  `torch_npu._npu_paged_attention`, which has **no mask operand** at v0.7.3 — only
+  `_npu_paged_attention_splitfuse` (`attention.py:867`, `attention_v1.py:261`) passes
+  `mask=` — so a replay of the decode call proves nothing, and the batch regime that
+  reaches the mask branch (mixed prefill+decode, prefix-cache hit) is the discriminator.
+  The mask is host-built (`attention.py:614-623`: `cat(attn_mask[context_len:seq_len])`
+  over a `max(prefill, decode)` square), the block table is padded to the longest
+  sequence (`:597-602`), and both runners' `npu_format_cast(<cache>, 2)` calls
+  **discard their return** (`worker/worker.py:315-316`, `worker/model_runner_v1.py:850`)
+  — do not build a format mechanism on them. The op body is ATB/op-plugin and in no
+  export: one `rg` per tree, then the ladder
+  (`engine-only-op-replay.md`, recorded #3263).
 - The dump names the operator and the error class; it does **not** identify the shape. Never
   assert "fails for hidden size N" without a shape-bearing artefact (reporter log line,
   tiling log, or a computed tiling decision).
@@ -272,7 +288,11 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   clear, it runs on **prefill steps only** (so the fault arrives hours in and tracks
   request arrivals), `507053`/`507899` are the sync report and the UCE query rather
   than causes, and the version lane is the answer — reporter-confirmed on 0.19.1rc1
-  (#7774). The sites per pin, the rank check and the stop rules:
+  (#7774) and again at a v0.11-era pin, where the same clear sits in
+  `vllm_ascend/models/qwen3_next.py:331` and the reporter closed the generic
+  `copy between host and device_opapi … 507053` at `profile_run` as fixed for
+  `>= v0.13.0rc1` (#4483). The sites per pin, the start-phase variant, the rank
+  check and the stop rules:
   `hybrid-ssm-mask-nonzero-fault.md`.
 - **A built-in KV store that faults (`fault kernel_name=reshape_and_cache_…`, MTE GM
   address / `The DDR address of the MTE instruction is out of range`) on a hybrid
@@ -369,6 +389,15 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   vendor table listing the op A5-only is CANN's fallback copy), the two texts that split
   "extension absent" from "vendor package without the op", and the checks that replace a
   CANN `version.cfg` diff.
+- `engine-only-op-replay.md` — the "works standalone, fails in the engine" control
+  (recorded #3263, v0.7.3 `paged_attention_mask_1_mix_aic` + MTE DDR out of range,
+  `runtime result 507053`): the five `_npu_paged_attention*` call sites and the argument
+  that separates them, the host-built splitfuse mask arithmetic
+  (`attention.py:595,614-623`), the padded block table (`:597-602`), the discarded
+  `npu_format_cast` return at both runners, the closed ATB/op-plugin boundary, the
+  ladder (single request → `--no-enable-prefix-caching` → `--enforce-eager` →
+  `ASCEND_LAUNCH_BLOCKING=1`), the asks, and why that run's 46 messages produced no
+  answer.
 - `triton-jit-kernel-device-fault.md` — the plog names a downstream `@triton.jit`
   kernel (`fault kernel_name=token_bin_counts_and_mask_kernel_0` with `aivec error`,
   `The DDR address of the MTE instruction is out of range`, `isSmmuFault is 1`,

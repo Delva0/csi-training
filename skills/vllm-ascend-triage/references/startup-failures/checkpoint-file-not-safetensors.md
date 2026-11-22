@@ -64,7 +64,10 @@ this message. Consequences to state in the answer:
    leaves `<file>.incomplete`, which vLLM's `*.safetensors` glob skips — a
    final-named file with the wrong content therefore points at the *copy* step,
    not at huggingface_hub. Check: compare each file's byte size with the hub
-   entry, or `sha256sum` against a second copy.
+   entry, or `sha256sum` against a second copy. The same damage does not always
+   reach this page: a copy that loads and serves but answers one repeated token is
+   `../accuracy-benchmarks/constant-token-degeneracy.md` Step 3b (recorded #6136,
+   fixed by a re-download).
 3. **Directory/index mismatch**: `model.safetensors.index.json`'s `weight_map`
    names shards that are not on disk (renamed, an older conversion, a second
    model's files). The log's `0/N` is N from that map.
@@ -76,10 +79,13 @@ uv run --no-project python <skill_root>/scripts/checkpoint-header-scan.py <model
 ```
 
 It prints, per shard: size, whether the first 8 bytes are an LFS pointer / zeros
-/ HTML, the header length, the tensor count and a `BAD` verdict, then the
-index-vs-disk comparison, and exit 1 when a shard is not a container. On exit 0
-the report's files are *not* the explanation: ask for the traceback's exact
-shard path (a stale copy or another directory is still open).
+/ HTML, the header length, the tensor count, the tensor-data extent its header
+declares against the real file size, and a `BAD` verdict, then the
+index-vs-disk comparison, and exit 1 when a shard is not a container or is
+shorter than its own declared data region. On exit 0 the report's files are *not*
+the explanation for a header parse: ask for the traceback's exact shard path (a
+stale copy or another directory is still open) and compare sizes/`sha256sum` with
+the hub — the scan is structural, not a hash.
 
 ## Ruled out, with the evidence that rules them out
 

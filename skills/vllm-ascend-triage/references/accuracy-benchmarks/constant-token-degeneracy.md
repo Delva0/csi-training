@@ -40,6 +40,11 @@ follow from that, and both retire whole lanes cheaply:
   ids ⇒ degenerate forward. A normal distribution with `!` in the text sends you to
   the text layer above instead — that single response decides the page.
 
+A constant id retires *which* checkpoint is served only in the sense of the intended
+weights — never the **integrity of the local copy**: a damaged, truncated or
+mixed-revision model directory loads and serves and still answers `!` (recorded
+#6136, Step 3b below).
+
 `'!' == token id 0` is **recalled, not verified** for the GLM and Qwen tokenizers
 (no GLM vocabulary exists in this snapshot; the Qwen note reads the same way in
 `vl-vision-tower-degeneracy.md`). The inference that survives verification is
@@ -80,12 +85,54 @@ reproducible", fine on upstream vLLM: engine-side, no model defect. The V0-era
 row, name the mode/flag that is unsupported for that model
 (`../pipeline-parallel/index.md`, `../feature-enable-recipes/index.md`, the release's
 known-issue list) and give one ablation that removes it, before any numerics theory —
-but when no flag in the command is unsupported, the dtype row is the next restart and
-the cheapest one there is: `--dtype bfloat16` plus the log's own `dtype=` line
+but when no flag in the command is unsupported, clear Step 3b's copy check first (one
+command, no restart), then the dtype row is the next restart and the cheapest one there
+is: `--dtype bfloat16` plus the log's own `dtype=` line
 (`precision-dtype-degeneracy.md`). A **quantized** serve on a
 triton-ascend-backed family (Qwen3-Next and its GDN siblings) is the config row this
 step means: that `!` run is the wheel build's (`qwen3-next-gdn-numeric-path.md`
 §*triton-ascend build*, #5606), and its build check precedes the bf16 control.
+
+## Step 3b — the local copy of the checkpoint, not its identity (recorded #6136)
+
+The *always* lane above assumes the weights on disk are the ones `config.json`
+describes. A **damaged or mixed-revision copy of the right checkpoint** is a different
+variable, and it survives every control the other rows use: the load reports success,
+`dtype=` is unchanged, the flag set is the tutorial's, the card is healthy, and the
+forward degenerates to one id. Recorded #6136 — Qwen3-Next-80B-A3B-Thinking on
+`IMAGE=quay.io/ascend/vllm-ascend:v0.13.0rc1`, CANN 8.2, `triton-ascend==3.2.0`, TP4,
+`--max-model-len 32768 --gpu-memory-utilization 0.8 --max-num-batched-tokens 4096
+--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'`: an 11-token prompt
+(`你是谁?`) answered with a sensible Chinese opening sentence and then `!` to
+`completion_tokens: 512` / `finish_reason: length`. The reporter then added that the
+same model answered normally on a **910B3** box and not on the **910B4-1** one, and
+closed on 2026-02-26 with 「可能是模型文件有点毛病，重新下载了一遍现在可以了」 — a
+re-download, not a wheel, dtype, graph-mode or card change. Three consequences:
+
+- **A clean peer host with the same image is a control on everything except the
+  files.** "Works on B3, fails on B4-1" invites a SoC/card reading; it fits two hosts
+  holding different copies just as well. Before ranking hardware, ask which directory
+  each serve loaded (`Starting to load model <path>...`) and whether the working host
+  used *that same* directory or its own download.
+- **The copy check costs one command and no restart**, so it precedes the dtype/wheel
+  restarts: `uv run --no-project python <skill_root>/scripts/checkpoint-header-scan.py
+  <model dir>` for the per-shard inventory (index-vs-disk names, container validity,
+  declared data region vs file size), then each shard's byte size against the hub
+  entry or `sha256sum` against a second copy, and the load log's
+  `Loading model weights took` / `missing keys` / `unexpected keys` lines — a
+  mixed-revision directory shows up in the key lists. The damage shapes are
+  `../startup-failures/checkpoint-file-not-safetensors.md` §2-3, which is the same
+  file damage at the point where the loader still refuses (`HeaderTooLarge`); there the
+  lane closes at the file instead of at the logits.
+- **A verified re-pull is the discriminator, so say it in the answer.** If the same
+  directory still answers `!` after a re-download whose sizes/hashes match, the copy
+  row is out and the flag/dtype/wheel rows above resume. Otherwise the reporter's own
+  retry answers the issue — better as your sentence than as their later discovery.
+
+Calibration from the recording: that answer ranked the pin's `triton-ascend` build
+(`3.2.0` against the pinned `dev2025110717`) and `FULL_DECODE_ONLY` first and never
+asked for a file comparison. The wheel delta is a legitimate row — it is one restart
+against a zero-restart check, and it was not the cause here.
 
 ## Step 4 — the onset-after-hours ladder (recorded #3547)
 

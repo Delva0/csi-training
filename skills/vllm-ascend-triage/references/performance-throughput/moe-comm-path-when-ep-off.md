@@ -9,6 +9,12 @@ says it was *removed on purpose* ("开 tp+dp+ep 会胡言乱语，所以改成 t
 error, no dump, the engine is healthy, and the model is a large MoE (GLM-4.5/4.6/5.x,
 Kimi-K2, Qwen3-MoE, DeepSeek-V3.x).
 
+That garbled EP run has an owner of its own — a model-level bare
+`tensor_model_parallel_all_reduce` re-summing an MoE output the MC2/ALLTOALL finalize has
+already aggregated: `../accuracy-benchmarks/ep-mode-reduce-double-count.md` (its A2 gate
+needs `world_size_across_dp/pp >= 16` **and** `num_tokens <= mc2_tokens_capacity`, so TP8
+with EP is the free control). Answer the two complaints together when the body names both.
+
 The two complaints in that kind of body are **one configuration decision**, and the
 performance half is a consequence of the accuracy workaround: turning EP off is what
 moved every MoE layer onto the TP all-gather path. Answer both in one ranking —

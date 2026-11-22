@@ -11,6 +11,14 @@ size actually lands in, and the two ablations that separate "MC2 finalize" from
 `../performance-throughput/moe-comm-path-when-ep-off.md`, which carries the older
 in-line form of the selector and the recipe trap for GLM-4.5.
 
+**The accuracy side of that same sentence has its own page**: when EP-on is *garbled*
+rather than *crashing*, the cause is a model-level bare
+`tensor_model_parallel_all_reduce` re-summing what `MC2`/`ALLTOALL` finalize already
+aggregated, and the selector row that decides whether the reported layout is even
+affected (A2 needs `world >= 16` **and** `num_tokens <= mc2_tokens_capacity`) is
+`../accuracy-benchmarks/ep-mode-reduce-double-count.md`. Start there for a corruption
+report, here for a start-up/crash one.
+
 Not this topic: a bare `TimeoutError` with only
 `multiproc_executor.py`/`shm_broadcast.py` frames
 (`../hccl-and-hardware/rpc-watchdog-timeouts.md`), a KV-transfer/PD topology

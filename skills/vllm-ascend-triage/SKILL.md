@@ -507,7 +507,9 @@ the turn the shape is classified, not a second copy of it here.
    not "no precedent".** Search titles with **one** distinctive token — an op name,
    an error string, a numeric code, a fault kernel, a model id — never the failure
    category and never a word the environment dump already carries (`suffix` ←
-   `ATB_SHARE_MEMORY_NAME_SUFFIX=`, `mtp`, `ngram`, `spec`, `npu`, `acl`) or a
+   `ATB_SHARE_MEMORY_NAME_SUFFIX=`, `mtp`, `ngram`, `spec`, `npu`, `acl`, and any version
+   placeholder such as `0\.0\.0`, whose `-b` search returns every `0.0.0.0` bind address in
+   the corpus — #16559 spent a turn on 573 hits that way) or a
    mechanism phrase (`graph capture|capture size|图捕获`). Two recorded forms: #9278
    searched `-i 'suffix|507035|aivec|MPU address'`, got "207 hits / 207 distinct
    issue ids", read the whole result as env-var noise and stopped — while #488 in
@@ -626,8 +628,24 @@ the turn the shape is classified, not a second copy of it here.
     (`std::string` ABI split, decided by the env dump's `cxx_abi_{0,1}` root,
     reporter-confirmed on #1144) — all route from
     `references/image-dependency-faults/index.md`; do not walk the module's source.
-    Cap ~6 calls (#5609, #10943 burned the session there). The fourth form is an
-    **ACL/GE bring-up failure** at device open — `SetPrecisionMode … AclSetCompileopt(
+    Cap ~6 calls (#5609, #10943 burned the session there). **The fourth import-time
+    form is `Illegal instruction (core dumped)` at `import torch` on an aarch64 host,
+    and it is the CPU core's ISA level rather than the module**: an ARMv8.0 core
+    (Phytium D2000 / FT-2000-class FTC663) against a wheel built on an ARMv8.2
+    baseline, while Kunpeng 920 / D3000 are ARMv8.2 and import the same image fine —
+    reporter-confirmed on #13936 (`v0.23.0rc1-310p-openeuler`, `torch==2.10.0` /
+    `torch-npu==2.10.0.post2` at `requirements.txt:16-17`; 「d2000只支持armv8 …
+    torch.2.10默认使用armv8.2的指令集编译的」), where the reporter's own control is
+    `torch` 2.9 importing on the same board. One host-side round trip decides it —
+    `dmesg -T | grep -i 'trap invalid opcode'` names the `.so`, `/proc/cpuinfo`
+    `Features` / `LD_SHOW_AUXV=1` names the missing extension — and the rung is the
+    last image line before the 2.10 bump (`release_notes.md:316`, v0.20.2rc1 at that
+    pin), **never** `pip install torch==2.9.0` under the newer `torch_npu`. Do not
+    confuse it with the aicore's `Illegal instruction, which is usually caused by
+    unaligned UUB addresses` (`references/hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`)
+    — same three words, runtime device fault, no import →
+    `references/image-dependency-faults/host-cpu-isa-sigill-at-import.md`. The fifth
+    form is an **ACL/GE bring-up failure** at device open — `SetPrecisionMode … AclSetCompileopt(
     aclCompileOpt::ACL_PRECISION_MODE …) error code is 500001` +
     `PlatformInfoInit … SocVersion <name>` + `GEInitialize failed`, ending
     `ERR99999` with no `vllm_ascend` frame. Owner, in this order: a **containerized**
@@ -636,7 +654,7 @@ the turn the shape is classified, not a second copy of it here.
     #302: 「已解决，加个--privileged=true即可」, driver unchanged, one variable); then the
     driver/firmware × image-CANN pairing, with the printed SoC name read against
     `npu-smi`. No precision/dtype flag is ever the cause →
-    `references/startup-failures/acl-init-500001-and-soc-version.md`. The **fifth** form is an
+    `references/startup-failures/acl-init-500001-and-soc-version.md`. The **sixth** form is an
     **ATB op-create refusal**: `RuntimeError: LinearOperation CreateOperation failed!` (also
     `GroupTopkOperation …`) out of a `torch_npu._npu_*` call — at a 310P engine start it is the
     unconditional `_warm_up_atb` (`worker_v1.py:332,337-341` at v0.11.0) meeting an ATB/NNAL build
@@ -706,6 +724,17 @@ the turn the shape is classified, not a second copy of it here.
     attempt will surface *different* errors (recorded #6257: four more screenshots
     titled 其他错误 after the ❌-row answer), so the ladder must not read "then it
     will work" — `references/feature-enable-recipes/unsupported-model-row.md`.
+    **A deployment-recipe question ("现在支持 k8s ray 插件做分布式推理么") is answered
+    from the docs tree at the report's ref, and an absence borrowed from another pin is
+    not a finding.** One `rg --files docs/source/tutorials | rg -i '<feature>'` decides
+    recipe / no recipe, and the page it finds carries the support statement in its own
+    contents (docker + manual `ray start`, no KubeRay chapter) — quote that with the
+    pin. `tutorials/multi_node_ray.md` is **absent** at v0.10.2rc1 (`048bfd5`) and
+    **present** at v0.11.0rc1 (`c5fe179`, 182 lines), so recorded #8156 shipped "this
+    tag has no Ray deployment tutorial" in its first message and retracted it a turn
+    later; every absence recorded in this library is that pin's
+    (`references/startup-failures/ray-npu-resource-label.md`,
+    `references/tutorial-verification/missing-guidance-and-contributor-docs.md`).
 15. **A working sibling path in the reporter's own evidence constrains the cause.**
     When the same box fails on one entry point and works on another — offline
     `LLM()` vs `vllm serve`, one flag, one model, one card — a mechanism that also
@@ -808,6 +837,23 @@ the turn the shape is classified, not a second copy of it here.
     arithmetic, not a connector question: the proxy sends the prefill leg
     `max_tokens = 1`, so a 400 there bounds the **prompt**
     (`references/pd-disaggregation/proxy-upstream-400-body.md`).
+
+    **A repro the reporter built from a lower-level API is a premise about the
+    *serving* path, and it is the one to check before adopting its conclusion.** A
+    tidy 4-row matrix over `torch.npu` primitives ("baseline PASS / no-collective
+    PASS / wrapped collective FAIL / separate PASS — so the *wrapping* combination
+    is the bug") does prove that pair conflicts, and it usually belongs to a
+    component you cannot fix from here. What it cannot show is that the served
+    failure travels through it. Check the tree's own call sites for the primitive:
+    one `rg -n 'graph_task_group_begin' vllm_ascend/` at v0.22.1rc1 returns ten
+    regions that each wrap a single compute op and never a collective, so the
+    reporter's `graph_task_group_begin` + `all_reduce` is a combination the
+    serving stack does not build. Recorded #13688 then has two findings with two
+    owners — `507009` (`ACL_ERROR_RT_TASK_TYPE_NOT_SUPPORT`) belongs to
+    torch_npu/CANN for the API pair, and the replay deadlock (`AIVector` 8-16 % /
+    `AICore` 0 %, no error) to the MC2 × AIV lane — and saying so is also the
+    correction the report's own "revert the patch" ask needs
+    (`references/hccl-and-hardware/aiv-ric-task-group-capture.md`).
 16. **A release candidate's experimental mode is a version question before it is a
     mechanism question.** When the mode printed its own banner
     (`FULL_DECODE_ONLY compilation enabled on NPU`, `PIECEWISE …`), every rank finished
@@ -848,8 +894,23 @@ failing frames at all** — prose only, "installing vllm 0.9.1 prompted me to un
 **pairing** question: the release's own versioning-policy row, the two requirement trees and
 `_no_device()` decide it in four reads, and rung 1 is the project's own recipe (vllm from
 source with `VLLM_TARGET_DEVICE=empty`, then the tree's mirror), not another pip command
-(`references/image-dependency-faults/pip-index-visibility.md` §A0). **Two no-frame
-shapes are not pairing questions.** A title that paraphrases a *Python* requirement
+(`references/image-dependency-faults/pip-index-visibility.md` §A0). **Read the pin's
+`[build-system] requires` before accepting that route.** When it puts `torch-npu==X` beside a
+`torch>=X` floor (v0.8.5rc1 `pyproject.toml:14-15`), the failure that release produces on an
+x86 host whose index does not carry the `+cpu` label is the §D build-dependency conflict —
+`ERROR: Cannot install torch-npu==X and torch>=X … torch-npu X depends on torch==X+cpu` under
+`× pip subprocess to install build dependencies did not run successfully` — whose cure is one
+flag (`--no-build-isolation`, which the same pin's `installation.md:168` names, or
+`--extra-index-url …/whl/cpu`). Then the first message carries that rung, and the title's
+"x86 systems cannot install through pip" is the reporter's **premise, not a finding**: that
+pin's own pip tab tells x86 users to add the CPU index (`installation.md:126,129`), so the
+project documents the path and the `+cpu` label — not a missing arch wheel — is the usual
+holder. One call decides which: `bash <skill_root>/scripts/pip-pairing-check.sh
+<ascend-root> [vllm-root]` prints the pin pair, the predicted error text and the rung, and
+`rg -n '^## ' <page>` before reading any § (two recorded runs read `sed -n '1,140p'` of that
+page, landed in §A0 and never saw §C/§D — #446, #1411; the second one ranked "no x86_64
+wheel is published" first and shipped `--no-build-isolation` as ladder step 3).
+**Two no-frame shapes are not pairing questions.** A title that paraphrases a *Python* requirement
 (「python version should above 3.10」) with its printed line only in the screenshot's OCR
 is an interpreter question: the string is in no tree, pip was told `>=3.9` by
 `pyproject.toml` / `python_requires` / `installation.md:8`, and the failure is a PEP 604
@@ -874,7 +935,17 @@ page; it carries the decisive local rule. A token you cannot place: one
 body, which is the version that pays. **A traceback whose deepest frame is in
 `torch/`, `torch_npu/` or `vllm/` rather than in `vllm_ascend/` is a routing
 signature: search the helper's name or the exception text in the same call as the
-history search, before any source read.** Its **import-time form** is the same
+history search, before any source read.** A **returned `None`** is the same shape
+with the owner one layer up: `AttributeError: 'NoneType' object has no attribute
+'sampled_token_ids'` at `update_from_output`, with no `--async-scheduling` and no
+spec config, means the worker handed back `None` — the downstream `rank == 0` gate,
+which equals upstream's `is_driver_worker` in every multiproc executor and diverges
+**only** under `distributed_executor_backend="external_launcher"`
+(`vllm/executor/uniproc_executor.py:68-120`: `rank = os.environ["RANK"]`,
+`is_driver_worker = True` for all processes) — the backend torchrun/SPMD trainers
+select, so only `RANK=0` returns an output: print `RANK`, and TP=1 does not test it
+(`references/upstream-downstream-drift/execute-model-none-external-launcher.md`,
+#960). Its **import-time form** is the same
 signature and is decided arithmetically: an `ImportError` / `cannot import name`
 naming a `vllm.attention*` symbol from a `vllm_ascend` module, enclosing line
 `if vllm_version_is("X.Y.Z"): … else: …`, on an install whose vllm is an rc/dev/post

@@ -19,9 +19,18 @@ Exit status: 0 = every shard parsed, 1 = at least one shard is not a safetensors
 file (that file is the failure), 2 = nothing scanned. Read the report, not just
 the status.
 
+It also checks the **data region**: the header's own ``data_offsets`` say how many
+weight bytes must follow the header, so a shard whose file ends before that
+(interrupted copy, torn rsync, a partial re-download that kept the final name) is
+``BAD`` even though its header parses. That is the "loads fine, then serves
+garbage" family of a damaged local copy (recorded #6136: a re-downloaded
+checkpoint fixed a `!!!!` answer) — see references/accuracy-benchmarks/
+constant-token-degeneracy.md Step 3b.
+
 Caveat: the 100 MB cap is the safetensors library's own ``MAX_HEADER_SIZE``; it
 is not in any exported tree, so a shard this script passes is "looks like a
-container", not "hashes match the hub" — ask for the download method next.
+complete container", not "hashes match the hub" — ask for the download method and
+compare each shard's byte size (or `sha256sum`) with the hub entry next.
 """
 
 import glob
@@ -64,10 +73,23 @@ def classify(path):
         return "bad", f"header is not JSON: {exc}"
     if not isinstance(header, dict) or not header:
         return "bad", "header JSON is not a tensor map"
-    n = len([k for k in header if k != "__metadata__"])
-    if n == 0:
+    tensors = {k: v for k, v in header.items() if k != "__metadata__"}
+    if not tensors:
         return "bad", "header carries no tensors"
-    return "ok", f"{n} tensors"
+    # data_offsets are relative to the end of the header, so the largest end is
+    # the number of weight bytes this shard promises; a shorter file is a short copy.
+    extent = 0
+    for name, info in tensors.items():
+        offs = info.get("data_offsets") if isinstance(info, dict) else None
+        if not (isinstance(offs, (list, tuple)) and len(offs) == 2):
+            return "bad", f"tensor {name} has no data_offsets pair"
+        extent = max(extent, int(offs[1]))
+    expected = 8 + length + extent
+    if size < expected:
+        return "bad", (f"header declares {extent} B of tensor data ending at "
+                       f"{expected} B but the file is {size} B: truncated / "
+                       f"short copy")
+    return "ok", f"{len(tensors)} tensors, data region {extent} B"
 
 
 def main(argv):
@@ -126,19 +148,25 @@ def main(argv):
               "command uses (the path in `Starting to load model <path>...`).")
         return 2
     if bad:
-        print("VERDICT: at least one shard is not a safetensors container. The")
-        print("engine fails in the weight iterator (`safe_open`) before any")
-        print("device work, so TP size, card, image and model support are not")
+        print("VERDICT: at least one shard is damaged — not a container, or")
+        print("shorter than the tensor data its own header declares. The engine")
+        print("fails in the weight iterator (`safe_open`) before any device work")
+        print("when the header is unusable, and reads a short copy as a broken")
+        print("tensor later, so TP size, card, image and model support are not")
         print("involved: re-download or re-copy the named file(s). Ask which")
         print("tool produced the directory (`hf download`, `git clone`,")
         print("modelscope, rsync/netdisk) and compare each shard's byte size")
         print("with the hub.")
         print("See references/startup-failures/checkpoint-file-not-safetensors.md")
+        print("and, for a serve that loaded but answers one repeated token,")
+        print("references/accuracy-benchmarks/constant-token-degeneracy.md Step 3b.")
         return 1
-    print("VERDICT: every shard parses as a safetensors container, so a")
-    print("`HeaderTooLarge` report is NOT explained by these files: ask for the")
-    print("full traceback and the exact shard path from it (a second model")
-    print("directory, a stale copy, or another rank's path can differ).")
+    print("VERDICT: every shard parses as a container and holds the tensor data")
+    print("its header declares, so a `HeaderTooLarge` / short-read report is NOT")
+    print("explained by these files: ask for the full traceback and the exact")
+    print("shard path from it (a second model directory, a stale copy, or")
+    print("another rank's path can differ), then compare each shard's size or")
+    print("`sha256sum` with the hub entry — this scan is structural, not a hash.")
     return 0
 
 

@@ -16,11 +16,14 @@ nothing drains — so it is a scheduler/KV-*state* failure and its page is
 
 This topic owns the **admission decision**: which request gets blocks from the KV
 pool, what happens to the queue when one request cannot have them, and the
-counters that show it. It also owns the crash a *forked* scheduler raises while
-taking that decision — `vllm_ascend/core/scheduler.py` reaching into upstream's
-`KVCacheBlocks` (`scheduler-fork-block-index.md`) — which is fork drift in
-origin and a scheduling-decision failure in the report
-(`../upstream-downstream-drift/index.md` keeps the general fork method). Throughput/queue arithmetic on an engine that keeps
+counters that show it. It also owns the crashes the scheduler raises while taking
+that decision: `vllm_ascend/core/scheduler.py` reaching into upstream's
+`KVCacheBlocks` (`scheduler-fork-block-index.md`), which is fork drift in origin and
+a scheduling-decision failure in the report, and the engine dying inside the
+**prefix-cache lookup** that same decision performs, whose deepest pasted frame is
+upstream `kv_cache_manager.get_computed_blocks` → `coordinator.find_longest_cache_hit`
+(`prefix-cache-lookup-crash.md` — a KV-coordinator-patch lane, not a fork;
+`../upstream-downstream-drift/index.md` keeps the general fork method). Throughput/queue arithmetic on an engine that keeps
 draining is `../performance-throughput/index.md`; a worker that stopped
 answering mid-collective is `../hccl-and-hardware/index.md`.
 
@@ -84,6 +87,17 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   under an in-flight step. The pinned anchors, the `--async-scheduling` /
   `--speculative-config` ablations, why a self-recovering hours-long stall is a
   lifetime story, and the two collective/graph-sync theories the counters refute.
+- `prefix-cache-lookup-crash.md` — the EngineCore dies under
+  `EngineCore encountered a fatal error` with the deepest visible frame at
+  upstream `kv_cache_manager.py:261 get_computed_blocks` →
+  `coordinator.find_longest_cache_hit`, on a serve with more than one KV-cache
+  group and `--enable-prefix-caching` (recorded #16760: DeepSeek-V4-Flash-Vision,
+  8×910B3, `--block-size 32`, one request after `POST /start_profile`). Ownership
+  (the Ascend coordinator + per-spec manager are what the cut frames hide), the
+  four contract facts that exclude the arity / kwarg / pop-loop / cold-pool
+  theories at the pin, the proof that `core.py step_with_batch_queue` implies async
+  scheduling the printed command does not show, why `/start_profile` is not the
+  trigger, and the two ablations that split the remaining lanes.
 - `balance-scheduler-admission-stall.md` — `VLLM_ASCEND_BALANCE_SCHEDULING=1`
   admits nothing at `--max-num-seqs 1` (recorded #17953, v0.18.0rc1 `99e1ea0fe685`):
   the patch's waiting-loop guard `max(balance_queue) >= max_num_running_reqs - 1` over a

@@ -48,6 +48,14 @@ Reports on the DSA / SFA sparse-attention families — DeepSeek-V3.2-Exp
   (`_reshape_kv_cache_tensors`), on a DSA model with C8 and/or DCP/MTP — a page-size
   arithmetic/spec-consistency question, not memory or a card —
   `c8-page-size-reshape-assertion.md`.
+- a DSv4 / hybrid **multi-group** serve with `--enable-prefix-caching` whose
+  EngineCore dies at the scheduler step inside the **prefix-cache lookup**
+  (`kv_cache_manager.get_computed_blocks` → `coordinator.find_longest_cache_hit`),
+  nothing device-side, paste often cut at a `@@@` marker — the ownership and the
+  contract exclusions at the pin are
+  `../scheduler-admission/prefix-cache-lookup-crash.md` (recorded #16760, DSv4
+  Vision on 910B3 with `--block-size 32`); the compressed-group page-size twin is
+  `c8-page-size-reshape-assertion.md` below.
 - a `glm_moe_dsa` (GLM-5/5.1) **w4a8** serve that starts cleanly and emits repeated junk
   from the first token, on a **newer image tag** whose older tag answered the same
   weights correctly, while a plain-text prompt on the broken tag is correct — a

@@ -145,7 +145,13 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   torch came preinstalled, then vllm-ascend "could not find torch 2.5.1" (#1363) — the same
   script plus the release's pairing row decide it, and the rung is vllm from source with
   `VLLM_TARGET_DEVICE=empty` (`Dockerfile:40-44`), not a pip command
-  (`../image-dependency-faults/pip-index-visibility.md` §A0). When the same
+  (`../image-dependency-faults/pip-index-visibility.md` §A0). **But the script's first
+  finding outranks that route when the pin pairs an exact `torch-npu==X` with a `torch>=X`
+  floor**: the failure that release produces without a visible `+cpu`-labelled torch is the
+  §D build-deps conflict, cured by `--no-build-isolation` (`installation.md:168`) or
+  `--extra-index-url …/whl/cpu`, and the tree's own x86 CPU-index line (`installation.md:126,129`)
+  refutes "no wheel for my arch" — #1411 shipped the arch hypothesis first and the flag as
+  ladder step 3. When the same
   call is asked as a **dependency bump** ("能否把 torch-npu 升级为 2.8.0", no pip error),
   the same script's matrix block is the answer, not a version survey
   (`../image-dependency-faults/dependency-pin-bump-request.md`, #3266).

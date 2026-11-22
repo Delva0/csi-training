@@ -7,12 +7,42 @@ request, the worker dies with `507011`, `fftsplus aivector error`,
 `Illegal instruction, which is usually caused by unaligned UUB addresses`,
 `mte error`, and/or `sqe_type=7(notify wait) … sq sw status error` - or it dies at
 the **first replay** with a Python-level `ValueError: not enough values to unpack
-(expected 13, got 9)` from `attention_v1.update_graph_params` (section 9).
+(expected 13, got 9)` from `attention_v1.update_graph_params` (section 9) - or the
+**first decode** raises a host-side `RuntimeError` whose two numbers are the
+batch-padding arithmetic, `Target sizes: [N]. Tensor sizes: [M]` at
+`model_runner_v1.py _prepare_inputs`, with no device code at all (section 10).
 
 Sibling lanes: the **hang** variant of the same mode is
 `aclgraph-full-decode-runtime-hang.md`; a failure during capture is
 `../startup-failures/acl-graph-capture.md`; a Python frame naming a graph API is
 `../spec-decode-mtp/draft-graph-capture-device-fault.md`.
+
+## 0. Before any mechanism: the reported release's own Known Issues row
+
+One grep on the pin of the **reported** release, before a single code path:
+
+```bash
+rg -n -i 'known issue' -A 12 <pin>/docs/source/user_guide/release_notes.md
+```
+
+At v0.12.0rc1 (`42ceaf0`) `:42` reads **"DeepSeek 3/3.1 and Qwen3 doesn't work with
+FULL_DECODE_ONLY graph mode. We'll fix it in next release. #4990"** while the same
+section's Core bullet (`:13`) invites the reports — "[Experimental] Full decode only
+graph mode is supported now … Let us know if you hit any error. We'll keep improve it
+and enable it by default in next few release". So a crash whose model is in the row's
+family and whose command sets the row's mode is *answered by the row*: quote it, give
+the tracked PR, name the release to try, and keep the mechanism below as the
+explanation rather than the verdict. That is what #5076 was (Qwen3-Coder-480B-A35B,
+`{"cudagraph_mode":"FULL_DECODE_ONLY"}`, DP4×TP8, `--max-num-seqs 64`); the reporter
+later confirmed **0.13.0rc1 fixed it**, which is "next release" as the row promised.
+The row itself is already recorded in this library for the **accuracy** context
+(`../accuracy-benchmarks/qwen3-next-gdn-numeric-path.md` §v0.12.0rc1, "quote the release's
+own statements"); what is new here is reading it as the *first* check on a **crash** of
+that mode, before any code path. Two limits: it is scoped to the families it names (a
+DeepSeek-V3.2, Qwen3.5 or GLM report does not inherit it — read the same release's other
+bullets and `../release-known-issues/index.md` rule 6), and it names no mechanism, so it
+does not tell you *which* line — sections 1-10 still decide that. The recorded #5076
+session reached this row on its last turn and shipped no message (rule 1).
 
 `Replaying aclgraph` proves only that *some* captured graph replayed. On a
 spec-decode launch read the gate before attributing the fault to that replay: with
@@ -477,3 +507,54 @@ experimental Gemma4 support on A2 and Ascend 950", while `support_matrix/support
 lists only `Gemma-2` (`:84`) and `Gemma-3` (`:85`, `:185`) — no Gemma-4 row, and no ACL-graph
 e2e for the family. Recheck by listing every `using_paged_attention(` call site and counting
 the unpack targets in each branch: both moved between v0.18.0rc1 and v0.23.0.
+
+## 10. A host-side `RuntimeError` at the first decode: the DP-wide token count meets `max_num_reqs`
+
+Signature (recorded #5076, vllm-ascend v0.12.0rc1 `42ceaf0` + vllm v0.12.0 `4fd9d6a`;
+`FULL_DECODE_ONLY`, `--data-parallel-size 4 --data-parallel-size-local 2`,
+`--tensor-parallel-size 8`, `--enable-expert-parallel`, `--max-num-seqs 64`,
+`--max-num-batched-tokens 8192`, `--async-scheduling`, chunked prefill, 7168-token
+prompts at concurrency 200): every rank of one DP group raises, in the same second,
+
+```text
+RuntimeError: The expanded size of the tensor (63) must match the existing size (6151) at
+non-singleton dimension 0.  Target sizes: [63].  Tensor sizes: [6151]
+```
+
+at `vllm_ascend/worker/model_runner_v1.py:1035`, stack
+`multiproc_executor.worker_busy_loop → worker_v1.execute_model → model_runner_v1.execute_model (1484) → _prepare_inputs (1035)`,
+and the API server then reports `EngineDeadError`. There is no `ERR`/`EZ` code and no
+plog: this is a Python shape error, so no device, tiling or card lane applies.
+
+**The two numbers decode.** `N` is the *clamped* slice length and `M` the length of
+`fill_values`:
+
+- `:202` `self.max_num_reqs = scheduler_config.max_num_seqs` = 64 in that launch;
+- `:392` `self.query_start_loc = self._make_buffer(self.max_num_reqs + 1, …)`, so the
+  buffer holds 65 slots and `gpu[num_reqs + 1 : num_reqs_padded + 1]` truncates at 65;
+- with `num_reqs = 1`: `65 - 2 = 63 = N` ✓ and `M = pad_size = num_reqs_padded - 1 =
+  6151`, i.e. `num_reqs_padded = num_input_tokens // uniform_decode_query_len = 6152`
+  with `uniform_decode_query_len = 1`.
+
+**Where 6152 comes from** is the mechanism, one line above:
+
+| Anchor (v0.12.0rc1) | Fact |
+|---|---|
+| `:617-632` | local `num_input_tokens` = `pad_for_cudagraph(total_num_scheduled_tokens)` while the local total fits `cudagraph_batch_sizes[-1]`, else the raw total (eager / above the largest capture), else TP-rounded under SP |
+| `:650-655` | `num_input_tokens = maybe_padded_num_tokens`, i.e. the **maximum over DP ranks** returned by `_sync_metadata_across_dp` (`:448-505`, `max_tokens_across_dp`); the skip path (`_skip_all_reduce_acorss_dp_group`, MoE + `recompute_scheduler_enable` + MC2) is off by default |
+| `:1016-1039` | `if cudagraph_mode.decode_mode() == FULL and uniform_decode:` → `num_reqs_padded = num_input_tokens // uniform_decode_query_len`, then the slice write at `:1035` and `num_reqs = num_reqs_padded` |
+| upstream `vllm/v1/worker/gpu_model_runner.py:2761-2768`, `:2939-2941` | upstream computes `uniform_decode` from the *padded-by-SP* token count and takes `num_reqs_padded = batch_desc.num_reqs` from the graph descriptor **after** `coordinate_batch_across_dp` — a capture-time constant ≤ `max_num_reqs`, never a division on the DP-padded count |
+
+So the crash needs **both** a locally uniform decode batch (all requests at one token,
+else the block is skipped) **and** a sibling DP rank whose step carries more tokens than
+`max_num_seqs` — the first prefill chunk in the group does it. That is why `PIECEWISE`
+never shows the line, why the failure arrives "when concurrency is large" rather than on
+the first request, and why no single rank's log explains it: the DP-wide max is the
+input. Nothing about the model, the quantization or the cards is involved.
+
+Ladder: drop the `--compilation-config` (rung 1; the block is `decode_mode() == FULL`
+only) → `--enforce-eager` → if it must be reported, the two numbers plus
+`--max-num-seqs`, `--max-num-batched-tokens` and the DP/TP layout are the artefacts,
+and §0's release row says whether the reported release already lists the combination as
+broken. A per-rank `num_reqs` / `num_input_tokens` print is the confirming log, not a
+prerequisite for the verdict.

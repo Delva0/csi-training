@@ -84,15 +84,30 @@ question, not this page's.
 
 ## 3. What the paste's own frames already prove
 
-- **`core.py:653 step_with_batch_queue` ⇒ a batch queue ⇒ `async_scheduling` (or
-  PP > 1).** `vllm/config/vllm.py:540-550` returns `pp_size` normally and `2` when
+- **`core.py:653 step_with_batch_queue` ⇒ a batch queue — and on these pins that is
+  the *default* path, so it is not evidence of a flag the paste hides.**
+  `vllm/config/vllm.py:540-550` returns `pp_size` normally and `2` when
   `scheduler_config.async_scheduling` (V1 runner, PP ≤ 1); `core.py:206-232`
   builds the queue only when that is > 1 and then picks `step_with_batch_queue`.
-  So a launch whose command shows neither `--async-scheduling` nor `-pp` is *not*
-  the launch that crashed: ask for the running command. It matters twice — an
-  `AsyncScheduler` uses a different `_update_request_with_output`, which
-  vllm-ascend patches (`patch/platform/patch_async_scheduler.py`), and async
-  scheduling moves when `num_computed_tokens` and `cache_blocks` advance.
+  The field itself is `None` by default (`vllm/config/scheduler.py:148` at v0.27.1,
+  `:138` at v0.18.0) and `VllmConfig.__post_init__` resolves `None` to **True**
+  unless one named exclusion applies (`vllm/config/vllm.py:1095-1143` at v0.27.1:
+  pooling runner, a spec method outside Eagle/MTP/ngram/dspark,
+  `disable_padded_drafter_batch`, an executor backend without support, ROCm DeepEP
+  DBO; v0.18.0 is the same default-on block at `:718-752`). A serve whose command
+  carries neither `--async-scheduling` nor `-pp` therefore still prints this frame —
+  #16760's own launch line has neither flag, and none of the exclusions applies to a
+  dense/vision MoE serve with no spec config. So **do not ask for the running
+  command on this ground and do not demote the paste as "not the launch that
+  crashed"**; read the exclusion list instead. A pin that logs the resolution settles
+  it from the paste in one grep — `Asynchronous scheduling is %s.`
+  (`config/vllm.py:754-757` at v0.18.0) — while the v0.27.1 tree prints no such line
+  (`rg -n 'Asynchronous scheduling' vllm/` → nothing), which is why the exclusions
+  are the route there. What the frame *does* buy is two live consequences for the
+  default launch too: an `AsyncScheduler` uses a different
+  `_update_request_with_output`, which vllm-ascend patches
+  (`patch/platform/patch_async_scheduler.py`), and async scheduling moves when
+  `num_computed_tokens` and `cache_blocks` advance.
 - **`/start_profile` is not the trigger.** The only profiling→scheduler coupling
   downstream is the profiling-*chunk* scheduler
   (`core/scheduler_profiling_chunk.py:109 run_profiling_chunk_init`, installed by

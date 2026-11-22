@@ -1,6 +1,6 @@
 ---
 name: vllm-ascend-triage
-description: 'vLLM-Ascend issue triage; load alone, no shell beside'
+description: 'vLLM-Ascend triage: skill_view first, alone, no skills_list'
 ---
 
 # vLLM-Ascend issue, deployment and support triage
@@ -16,7 +16,11 @@ Anything batched beside that call — `ls
 /workspace`, `cat SOURCES.json` — executes before this body is in context, so no rule
 here can stop it, and its output is re-sent on every later turn: six recorded runs paid
 14-54 KB that way, one ending output-truncated at 1.1 M cumulative prompt tokens, which
-is why the frontmatter description names the prohibition, not only the reading order.
+is why the frontmatter description carries both pre-load prohibitions, not only the
+reading order: nothing in this body can stop a `skills_list` or a batched shell
+listing that runs before the body loads, and a recorded #7076 replay still opened with
+`skills_list` and only then `skill_view`, on a name `<available_skills>` had listed all
+along.
 If something has to share it, let it be
 `bash <skill_root>/scripts/sources-summary.sh` (one line per repo, ~45 per case, not the
 28 KB file) — that summary plus the reporter's own paste **is** the orientation. Never
@@ -246,6 +250,10 @@ the turn the shape is classified, not a second copy of it here.
    owning page as `sed -n '1,120p'`, the registry-split header landed on that read's
    last line, and the answer it shipped was re-asked as 「qwen3_coder可以吗？」 plus the
    boot `KeyError` — a window that ends on a section header has not read that section. A
+   200-250-line owning page is **one** read, not a window ladder: recorded #9579 spent
+   `wc -l` plus `1,80` / `70,200` / `200,235` of its own 235-line page, two turns of
+   transcript re-send (`sed -n '1,260p'` reaches it), while listing `^## ` headings is
+   for pages past ~500 lines whose tail is a per-case table you already hold. A
    20-40 KB full-file read of an AscendC kernel header buys one fact and costs
    the budget for several conclusions. Listing, dumping and a handful of
    search-command traps each cost a recorded run whole steps; the full text is in
@@ -620,9 +628,18 @@ the turn the shape is classified, not a second copy of it here.
     an ablation only rules out a phase it actually removes and its own log line has to
     be in the paste (`--enforce-eager` is neither universal nor free, and
     `--async-scheduling` with `method: mtp` makes an "eager" rerun the same path
-    twice); a workaround the report's own prose names is rung 1, but only after
+    twice); **a knob that is also an argument to the suspect's own computation is a
+    reproduction, not a control** — `num_speculative_tokens` is the subtrahend of the
+    PD connector's mamba block index, so "works with MTP, breaks without" moves the
+    transport and the decode shape together and licenses neither (sweep 3 → 1 with MTP
+    still on); a workaround the report's own prose names is rung 1, but only after
     diffing it against the failing launch line — one that also drops other flags is
-    a multi-flag change, not an ablation (#17797's "fixed" line moved three); a
+    a multi-flag change, not an ablation (#17797's "fixed" line moved three), and a
+    workaround that is a **source edit** (`将 "X" 改为 "Y"`) is diffed by one
+    `rg -n '<literal>' <repo>/` at the reported ref — no hit means the lever has no
+    target there, so give that with the structural reason and stop rather than
+    reconstructing a release the snapshot does not carry (#8367 re-derived the absent
+    0.17 key over four turns after its owning page had already answered); a
     tested-configuration matrix in the body is one verdict line per row, with the rows
     that work as the controls; a **ranked diagnosis the report pastes** (a
     问题分析报告 / 根因分析 block with a 建议排查 list) is a hypothesis table: grade each
@@ -887,7 +904,13 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    report's **own** issue id, that entry is an earlier run of this very case and already
    carries its ranking and the correction to it, so it beats the topical page beside it:
    recorded #11450 read both op-fault pages and re-derived, in five reads, what its own
-   entry stated (the sampler body holds no indexed write).
+   entry stated (the sampler body holds no indexed write). Hand the script the number:
+   `reference-locate.py <tokens> --issue <the report's own id, from the task title>` prints
+   a `[case arrows]` block above the grades and marks that arrow `[YOUR CASE]` with its
+   `sed` range — because a thick all-token grade is often family words while the own entry
+   sits one grade down. Recorded #5075's printout already carried `→ #5075:82 (2/4)` in its
+   `3-of-4` grade, no entry was opened, and ~20 turns re-derived (less completely) what
+   that entry and `soc-platform-paths/atlas-300i-310p.md`'s pin-keyed block already held.
    **A `[row]` line and a `[case]` line on the same all-token list are one decision, not
    two**: several cases can share three or four tokens (the `is_layer_skipped_ascend`
    `KeyError`s are #2984's stock-FP8 release, #3494/#569's `…-w8a8` exports and #5564's
@@ -946,6 +969,15 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
      reporter's script differ by exactly `--hf-overrides '{"use_index_cache": true,
      "index_topk_freq": 4}'`, a key in no doc at that pin
      (`references/dsa-sparse-attention/sfa-sparse-indices-row-mismatch.md`).
+     **Run the same grep backwards on a flag the *paste* carries**: `rg -n -- '--<flag>'
+     docs/` with no hit means the flag postdates the pinned release, so the reporter copied
+     a newer doc and the pin's own tutorial line — not a workaround — is the intended
+     recipe. Recorded #902: `--quantization ascend` occurs nowhere in v0.8.5rc1's `docs/`,
+     while its w8a8 tutorial serves the converted model flagless
+     (`docs/source/tutorials/multi_npu_quantization.md:78`, and the pin's own test serves a
+     w8a8 export the same way, `tests/singlecard/test_offline_inference.py:34`). That one
+     call moves "drop the flag" to rung 1 and demotes the site-packages wrapper
+     (`references/startup-failures/quantization-method-gate.md` §D).
    - Lane A/B: effective `max_model_len`, then the diff between the reporter's
      command/env and the matching tutorial or CI test
      (`references/startup-failures/max-model-len-budget.md`; an explicit
@@ -1173,7 +1205,14 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   artefacts, because each page's *what to ask for* section still listed them (both
   pages now name the recorded block and the reduced ask). Quote the block back, drop
   it from the list, and ask only for what the page's "never established" section
-  enumerates. The template's `<details>`
+  enumerates. **A page that records several cases carries several asks — take the row
+  for the paste's form.** #9579's page still carried #8913's `errors.txt` ask (that
+  reporter's upload had failed; no file is named in this paste) while never asking for
+  the `vllm serve` line, the one artefact that decides its ranking, so the recorded run
+  had to overrule the page inside its reasoning to keep the ask list right
+  (`references/spec-decode-mtp/hybrid-mtp-prefix-cache-unvalidated.md`, *What to send
+  back*). An ask inherited from another case's paste is a defect to notice, not an
+  instruction to follow. The template's `<details>`
   *Your current environment* block is a `collect_env.py` dump and already prints
   `vLLM Version:`, `vLLM Ascend Version:`, the torch/torch_npu/CANN versions, the
   launch env vars and a full `npu-smi` table, so "which vllm / vllm-ascend version"

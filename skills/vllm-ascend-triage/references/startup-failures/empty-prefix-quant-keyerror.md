@@ -121,16 +121,16 @@ Recorded #8367 (vllm-ascend v0.18.0rc1 `99e1ea0f` + vllm v0.18.0 `bcf2be96`;
 
 1. The model file hard-codes the prefix: `vllm/model_executor/models/qwen3_vl.py:1327-1332`
    builds `ParallelLMHead(…, prefix="lm_head")` literally, while the same class's parent
-   passes `prefix=maybe_prefix(prefix, "language_model")` (`:1434`, class default
+   passes `prefix=maybe_prefix(prefix, "language_model")` (`:1436`, class default
    `prefix: str = "model"` at `:1391`) and other families in the tree use
    `maybe_prefix(prefix, "lm_head")`. The lookup key is therefore `lm_head.weight`.
 2. The same class's mapper renames that prefix: `hf_to_vllm_mapper = WeightsMapper(
    orig_to_new_prefix={"model.visual.": "visual.", "lm_head.":
    "language_model.lm_head.", "model.language_model.": "language_model.model."})`
    (`:1374-1381`), and `configure_quant_config` applies it to the description **before**
-   the model is built (`vllm/model_executor/model_loader/utils.py:49` →
-   `apply_vllm_mapper` → `hf_to_vllm_mapper.apply_dict`, `models/utils.py:109-114`, the
-   prefix rule in `_map_name` at `:77-82`).
+   the model is built (`vllm/model_executor/model_loader/utils.py:265`, the apply call at
+   `:283-284` → `apply_vllm_mapper` → `hf_to_vllm_mapper.apply_dict`,
+   `models/utils.py:109-114`, the prefix rule in `_map_name` at `:77-82`).
 3. No export spelling can satisfy that lookup: `lm_head.weight` is renamed to
    `language_model.lm_head.weight` by the mapper, while a description that already says
    `language_model.lm_head.weight` is left alone — the engine still asks for
@@ -139,8 +139,16 @@ Recorded #8367 (vllm-ascend v0.18.0rc1 `99e1ea0f` + vllm v0.18.0 `bcf2be96`;
 4. The downstream side is only the hard index: `modelslim_config.py:292` is the `else`
    branch, taken because a `proj_name` of `lm_head` is not in
    `packed_modules_model_mapping`, and `quant_prefix_mapper` (`:432-434`) returns the
-   prefix unchanged. Same pair as the empty-prefix case one indent later — an upstream
-   model file's `prefix` kwarg plus a hard dict index.
+   prefix unchanged. The skip check that runs **before** it does not raise, and that is
+   why the paste's only `vllm_ascend` frame is `get_linear_quant_type`: its `else`
+   branch (`is_layer_skipped_ascend`, `:490`, else at `:510-515`) is a
+   `key.startswith(prefix)` scan over the description, so the mapped
+   `language_model.lm_head.weight` does not start with `lm_head` and it returns `False`
+   without touching `:292`'s key. Same pair as the empty-prefix case one indent later —
+   an upstream model file's `prefix` kwarg plus a hard dict index.
+5. The `:432-434` identity mapper is also the answer to a reporter's older-release
+   workaround: `将 "qwen3_vl_text" 修改为 "qwen3_vl"` in this very file cannot be replayed
+   here (see the bullet on it below).
 
 What to answer, and the traps:
 
@@ -153,6 +161,22 @@ What to answer, and the traps:
 - Not a `.get(prefix + ".weight", "FLOAT")` default — `get_quant_method` decides every
   linear, so the service would start and the arithmetic would be wrong (same reasoning as
   the empty-prefix fix above).
+- **A reporter's workaround that is a *source edit* is priced by one grep, not
+  reconstructed.** This report's own body says serving worked on 0.17.0rc1 after
+  editing `modelslim_config.py` (`将 "qwen3_vl_text" 修改为 "qwen3_vl"`). One grep of the
+  pin's tree settles whether that lever still has a target: at v0.18.0rc1
+  `rg -n 'qwen3_vl' vllm_ascend/` returns only `modelslim_config.py:141`
+  `"qwen3_vl_moe"` — the edited string does not exist — `quant_prefix_mapper` is
+  `return prefix` (`:432-434`), and `lm_head` appears in **no** entry of
+  `packed_modules_model_mapping` (22 model_type keys, whose sub-keys are fused module
+  names only: `qkv_proj`, `gate_up_proj`, `fused_qkv_a_proj`, `experts`, …), so no key
+  added to that table can remove the `:292` lookup either. Hand back that pair of facts
+  as *why the old edit does not carry over*, note that the `_text`/non-`_text` naming
+  split is real in that table (`glm4v_moe_text` beside `qwen2_5_vl`, so their 0.17 story
+  is plausible), and that the snapshot carries one vllm-ascend pin so 0.17's own code is
+  not checkable — write it in one sentence and stop. The #8367 re-recording had this
+  page on its first grade call and still spent four more turns re-deriving the absent
+  0.17 key.
 - Rungs that cannot move it: `--enforce-eager`, `--compilation-config`
   (`cudagraph_mode`, capture sizes), `--mm_processor_cache_type`, `--async-scheduling`,
   `--max-model-len`, TP size. Construction precedes the first shard read and does no
@@ -217,7 +241,8 @@ Verified at vllm-ascend v0.13.0rc1 (`1b5d5abf`) + vllm v0.13.0 (`72506c98`) for 
 empty-prefix case, and at vllm-ascend v0.18.0rc1 (`99e1ea0f`) + vllm v0.18.0
 (`bcf2be96`) for the renamed-prefix case: the
 constructor defaults, the `quant_config=`-without-`prefix=` condition and the 17 call
-sites listed above, the hard dict index, the `quant_model_description.json` file name
+sites listed above, the hard dict index, the skip check's `startswith` scan and the
+packed-module table's own key set, the `quant_model_description.json` file name
 and the support-matrix rows. That site list is a property of **that** vllm pin — re-run
 the two-line grep rather than quoting the families for another release. Not verified:
 whether a later rc already passes a prefix (the snapshot carries one vllm-ascend pin),

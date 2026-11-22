@@ -14,10 +14,13 @@ vllm_ascend/ops/linear.py:351 AscendLinearBase.__init__ → :83 quant_config.get
 vllm_ascend/quantization/compressed_tensors_config.py:160 → :202 → :325 raise
 ```
 
-`WorkerProc failed to start.` follows it, and the title is usually the message
-itself. The failing layer is the *first* linear the model builds, so its family
-(vision tower, `mm_projector`, dense attention) says nothing about scope — every
-dense linear behind it fails the same way.
+`WorkerProc failed to start.` follows it — that is the `logger.exception` at
+`multiproc_executor.py:772`, 29 lines below the `WorkerProc(*args, **kwargs)` call at
+`:743`, and the two numbers are not interchangeable when quoting the frame (the recorded
+#7076 replay's own answer wrote `:749` for it, which is `ready_writer.send`). The title is
+usually the message itself. The failing layer is the *first* linear the model builds, so
+its family (vision tower, `mm_projector`, dense attention) says nothing about scope —
+every dense linear behind it fails the same way.
 
 ## What the message means (one read)
 
@@ -70,7 +73,9 @@ pinned files:
 - the upstream model frames drifted and the drift grew down the file
   (`kimi_k25.py` 331 vs 325; `kimi_k25_vit.py` 315 vs 313, 367 vs 362,
   576 vs 565), i.e. the reporter runs a slightly different vllm build that does
-  thread `quant_config` into the vision tower.
+  thread `quant_config` into the vision tower; the executor frames matched that pin
+  (`:743` the `WorkerProc(...)` call, `:772` the `logger.exception`), so the drift is
+  confined to the model files.
 
 Downstream matches + upstream drifts ⇒ answer from the downstream frame; the
 "impossible" code path is the drift. Verify with `grep -n` on the pinned files,

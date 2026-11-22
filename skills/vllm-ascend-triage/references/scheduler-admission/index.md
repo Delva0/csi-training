@@ -110,9 +110,12 @@ answering mid-collective is `../hccl-and-hardware/index.md`.
   8×910B3, `--block-size 32`, one request after `POST /start_profile`). Ownership
   (the Ascend coordinator + per-spec manager are what the cut frames hide), the
   four contract facts that exclude the arity / kwarg / pop-loop / cold-pool
-  theories at the pin, the proof that `core.py step_with_batch_queue` implies async
-  scheduling the printed command does not show, why `/start_profile` is not the
-  trigger, and the two ablations that split the remaining lanes. §6 there is the
+  theories at the pin, what `core.py step_with_batch_queue` really buys — at
+  v0.18.0/v0.27.1 `async_scheduling` resolves to **True** when unspecified, so the
+  frame is the *default* path and a printed command with no flag is not "not the
+  launch that crashed" (read the exclusion list; v0.27.1 prints no
+  `Asynchronous scheduling is` line) — why `/start_profile` is not the trigger, and
+  the two ablations that split the remaining lanes. §6 there is the
   mirror variant — the *consumer* widened to per-group hit lengths while the copied
   coordinator still returns the scalar (`TypeError: '<type>' object is not iterable`
   at `max(per_group_hits)`, #13998, vllm-ascend 0.24.0rc1 + vllm 0.24.0), where the

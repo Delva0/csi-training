@@ -110,7 +110,11 @@ Qwen3-32B converted to W4A4 with msmodelslim: layer 2 epoch-0 loss `136268` agai
 No engine failure and no generation sample in the report. Following the rules above:
 the counter format and the missing quantizer version make this a converter-side
 report to Ascend/msit, with the published checkpoint as the one command that proves
-the vllm-ascend side innocent.
+the vllm-ascend side innocent. The replay cost four working turns from this page alone
+(`skill_view` → `sources-summary.sh` + `reference-locate.py` → this page → the two
+tutorial reads) and no source walk, because the converter is not in the export; its
+decisive read was rule 6's epoch-0 test on the reporter's own table, which is the
+argument to lead with rather than any `w4a4.py` mechanism.
 
 ## Recorded case (#2318, vllm-ascend v0.9.1rc2 = reporter's own version)
 

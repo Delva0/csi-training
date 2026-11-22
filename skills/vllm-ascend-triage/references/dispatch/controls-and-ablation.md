@@ -12,7 +12,7 @@ licenses:
 |---|---|---|
 | a sibling entry point, flag, model or card works | which mechanism is *excluded* before ranking | first |
 | the **same** server answers request 1 and dies on request 2 | the two requests' *scheduler input state* is the variable, and the dumped `SchedulerOutput` names it | *A first request that works* |
-| your own ablation (`--enforce-eager`, a spec/async toggle) | which *phase* was removed, and whether the paste proves it ran | *Your own ablations* |
+| your own ablation (`--enforce-eager`, a spec/async toggle) | which *phase* was removed, whether the paste proves it ran, and whether the knob is also an argument to the suspect's own computation | *Your own ablations* |
 | a workaround named in the report's prose | which rung is first | *A named workaround* |
 | a ranked diagnosis the report pasted (a 根因分析 / 建议排查 block) | each named lever is a hypothesis: grade its existence at the pin and its cited log line's emit site | *A ranked analysis the reporter pasted* |
 | a tested-configuration matrix in the body | one verdict line per row, and which rows are the controls | *A matrix* |
@@ -81,6 +81,19 @@ eager mode by default`, `vllm_ascend/platform.py:145-147`). Do not reason "that 
 not in the graph, so eager cannot help": pool, workspace, stream overlap and task
 concurrency all change with the mode.
 
+**A knob that is also an argument to the suspect's own computation cannot separate that
+suspect from what else it moves.** When the mechanism under test *reads* a config value,
+toggling the value changes the mechanism and everything else the value does, so the toggle
+is a reproduction, never a control. The PD mamba transport is the sharp case:
+`transfer_block_idx = len(remote_group_block_ids) - num_speculative_tokens - 1`
+(`vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py:474-478,728-730` at
+v0.22.1rc1) makes the reporter's "works with MTP, breaks without" move the transferred
+block, the draft layer set and the decode query length at once — so it licenses neither the
+transport lane nor the decode-shape lane. Sweep the value in place instead (MTP still on,
+`num_speculative_tokens` 3 → 1), where the only effect is which block travels
+(`../pd-disaggregation/hybrid-state-transfer.md` §3 item 2; recorded #12339, closed 已解决
+with no published mechanism, so the ranking stays open either way).
+
 **The same trap sits inside `--speculative-config`:** with `--async-scheduling` on,
 `method: mtp` forces the drafter eager regardless of `enforce_eager`
 (`spec_decode/eagle_proposer.py:136-142` at v0.18.0rc1), so "toggled `enforce_eager`,
@@ -129,6 +142,22 @@ everything else constant; the cheaper knob first). The same request applies when
 working side is a different session, image or "earlier version": ask which of the
 changed flags the answer rests on before shipping a mechanism
 (`../pooling-embedding/chunked-prefill-vector-corruption.md`).
+
+**A workaround that is itself a source edit has no flag to diff — its diff is one grep
+of the pin's tree for the literal it names.** `将 "X" 修改为 "Y"` / 修改 `<file>` in the
+body is a claim about a string that exists in *some* release, so price it before writing:
+`rg -n '<literal>' <repo>/` at the reported ref. A hit is a real lever (read the branch
+it feeds); **no hit means the lever has no target at that ref** — say that with the grep,
+add the structural reason a table/key edit could not fix the lookup anyway, and stop.
+Recorded #8367: the reporter says 0.17.0rc1 served after renaming `qwen3_vl_text` to
+`qwen3_vl` in `modelslim_config.py`, while the pinned v0.18.0rc1 tree has no such key
+(`rg -n 'qwen3_vl' vllm_ascend/` → only `:141` `"qwen3_vl_moe"`), `quant_prefix_mapper`
+returns the prefix unchanged (`:432-434`), and `lm_head` is in no entry of
+`packed_modules_model_mapping` — so no table edit can remove the crashing lookup. The
+re-recording had the owning page already and still spent four more turns reconstructing
+0.17, a release the snapshot does not carry: "cannot check that release from here" is
+the whole sentence. Details:
+`../startup-failures/empty-prefix-quant-keyerror.md` (§*What to answer, and the traps*).
 
 ## A ranked analysis the reporter pasted is a hypothesis table
 

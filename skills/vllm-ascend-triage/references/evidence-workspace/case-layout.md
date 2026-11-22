@@ -97,6 +97,17 @@ characterise its comment thread or closure, which the snapshot does not carry. R
 #4148 read `history/4148.md` (empty, `No such file`), then told the reporter their own
 case "只被致谢、没有闭环" — an unobservable claim dressed as precedent.
 
+The same own-issue rule covers **measurements**, not only citations: an owning page is
+written from the later comments, so its recorded numbers and log lines can be the
+reporter's own *future* replies. Quote such a row as 「你自己后续回复里测到的」 or leave
+it out; an unattributed 「已记录的实测」 reads as another box's data and turns into a
+retraction the moment the reporter answers. Recorded #6572 replay: its first message
+offered 「同类同配置 BF16/910B3-64G/262144 已记录的实测：TP8 约 0.60 就是能起的最上限」
+for a number the reporter had not posted yet, and the follow-up had to withdraw the
+attribution (「其实那是你这两条回复里的数字」). The tell is the page's provenance line:
+when it names the report you are answering, every "reported" / "measured" it records
+belongs to that thread, and a replayed report has not said it yet.
+
 **A listing from a compound `ls` is not evidence about its first path.** The recorded
 #11923 run issued `ls -la /workspace/attachments/ 2>/dev/null | head -20; ls -la
 /workspace/history/ 2>/dev/null | head -5`: the attachments directory did not exist, its
@@ -338,7 +349,12 @@ These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
   *thin* grades: **an arrow printed in a 2-of-4 near-miss or family-word block is
   still the case**, because an entry quotes the reporter's own wording while the family
   words sit in 100+ pages, and `scripts/reference-locate.py` now prints it as a
-  `[case-first]` line with a ready `sed` range. Recorded #5643's replay had that line,
+  `[case-first]` line with a ready `sed` range; when some page *does* carry every token
+  the script prints a `[case arrows]` block above the grades instead, listing entries that
+  share two or more tokens (pass `--issue <the report's own id>` to have that one marked
+  `[YOUR CASE]` with its range) — a thick all-token grade is often family words, so the
+  own entry can sit one grade down (#5075 opened neither arrow and re-derived its own
+  case for ~20 turns). Recorded #5643's replay had that line,
   greped the case file's *name* twice through `rg -l`, opened no entry, and re-derived
   the whole ladder from `expert_load_balancer.py`/`common_fused_moe.py` in 14 calls;
   #10700 is the same skip one grade higher — the token grep listed the owning page

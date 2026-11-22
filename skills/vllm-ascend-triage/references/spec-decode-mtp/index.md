@@ -178,7 +178,10 @@ at request time. The shapes:
   "error" may also be a `<details>` block whose whole content is one `user-attachments`
   link (`errors.txt`, #8913) — a link is not text, so that is the same form. Verdict +
   ladder in the first message (`hybrid-mtp-prefix-cache-unvalidated.md`, worked #9003,
-  #8913).
+  #8913). **With no serve command either** (recorded #9579: one English line, "if the
+  server config includes prefix-cache, it will abnormal shut down") the pair is a
+  *hypothesis*, not the read evidence — so rank both branches (pair vs prefix-cache-only)
+  with the one launch that separates them, and put the serve line first in the ask list.
 
 - or the **decode node's EngineCore dies at the scheduler step**, before any model
   execution, with `Warning: The token id -1 is out of range … Rejecting the token`

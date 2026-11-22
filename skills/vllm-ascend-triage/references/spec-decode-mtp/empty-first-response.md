@@ -123,9 +123,13 @@ Two version facts that cost turns when they are missing:
 
 - `"method": "qwen3_next_mtp"` is rewritten to `"mtp"` with a deprecation warning
   (`vllm/config/speculative.py:354-358`, v0.18.0; a `qwen3_next` draft model maps to
-  `qwen3_next_mtp` → `Qwen3NextMTP` at `:295-300`). Downstream `if self.method ==
+  `qwen3_next_mtp` → `Qwen3NextMTP` at `:295-300`; `qwen3_5_mtp` and the rest of
+  `MTPModelTypes` sit in the same list, `:43`). Downstream `if self.method ==
   "mtp"` gates therefore do apply to such a command — do not spend a turn on "the
-  method name is unusual".
+  method name is unusual". **A paste that dumps its config has already answered it**:
+  `speculative_config=SpeculativeConfig(method='mtp', num_spec_tokens=3)` is the
+  rewrite's output, so the gate is live with no grep (recorded #8091 replay spent
+  the call before noticing that line in its own paste).
 - Line numbers drift between the pinned commit and the reporter's image: #9355's
   log prints `model_runner_v1.py:1213` where the pinned v0.18.0 tree prints that
   debug line at `:1214`. Quote a line number with that caveat rather than claiming

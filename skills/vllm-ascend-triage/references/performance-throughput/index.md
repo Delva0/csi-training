@@ -11,6 +11,17 @@ metrics block (`Avg prompt throughput`, `Avg generation throughput`, `Running`,
 `Waiting`, `GPU KV cache usage`, `Prefix cache hit rate`, sometimes
 `Preemptions`), the serve command, and the prompt lengths of the load driver.
 
+**Also this topic, and the first arithmetic on any slow-decode report:** when
+per-request `ITL`/`TPOT` is the **same at a batch of one and at a batch of N** (a
+20-concurrency table at `TPOT 0.3519` beside a one-request log whose
+`Avg generation throughput: 2.8 tokens/s` is `1/ITL`), the step buys a token for
+every stream at one price — the cost is a **fixed per-step** one, so batch padding,
+`--max-num-batched-tokens`, MoE ALLGATHER/MC2 shape, kernel/quant choice and any
+other token-scaling term are the wrong lanes. Look instead for a per-step wait: a
+default the launch never asked for (`async_scheduling` at 0.14.x), a graph/eager
+fallback, a per-step host sync. Worked example with both pastes and the relaunch
+that tests it: `../pd-disaggregation/decode-step-latency-tpot-anomaly.md`.
+
 **Or the cache hit rate is *low* rather than absent** — "输入 token 数为 1024 倍数时 prefix cache
 命中率个位数", 命中率在一个长度上骤降 — which is the lookup arithmetic in
 `prefix-cache-hit-rate-at-block-boundary.md` and ends in two log lines plus one

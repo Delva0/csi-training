@@ -143,10 +143,36 @@ the reporter cannot see. Deliverable in this order: the release-line gate, the
 `/en/v<tag>/` docs branch for their line
 (`../tutorial-verification/docs-version-space-and-image-tag.md`), the two per-card
 byte numbers, then the two artefacts that settle the residual — the serve line actually
-used on each node, and `pip show vllm vllm-ascend` (a `mindie_turbo` frame in the load
-path dates the stack by itself: the Turbo integration is a v0.8.5rc1 release note,
-`release_notes.md:336-352`, so a stack carrying it is not the 0.7.3 line it claims).
+used on each node, and `pip show vllm vllm-ascend`. **A `mindie_turbo` frame in the load
+path dates nothing — it is what a 0.7.3-line install predicts.** The integration is in the
+**v0.7.3** release itself: that tree's own `release_notes.md:13` names PR #708 (the same
+bullet is `release_notes.md:336` under the `## v0.7.3 - 2025.05.08` header at `2.0rc1`,
+`:892` under the `:881` header at v0.14.0rc1), `vllm_ascend/worker/worker.py:78-82` calls
+`try_register_lib("mindie_turbo", …)`, and its `logger.info` at
+`vllm_ascend/utils.py:33` prints the `MindIE Turbo is installed.` line — so a 0.7.3-era
+stack carries both that INFO and the `mindie_turbo/adaptor/vllm/weight_utils.py:94
+postprocess_loading` load-path frame; recorded #1696's attached v0.7.3 log has exactly
+those two lines (`error.txt:52`, `:75`). The `## v0.7.3.post1` highlights *recommend*
+Mindie Turbo for Qwen3 (`:304-315`), and the release compatibility matrix fills the
+MindIE Turbo column **only** for `v0.7.3.post1` / `v0.7.3`
+(`community/versioning_policy.md:33-34` at this pin — the page has also shipped as
+`developer_guide/versioning_policy.md`, so locate it rather than assuming the path; at
+v0.14.0rc1 the column is gone and the note "If you're using v0.7.3, don't forget to
+install mindie-turbo as well" remains, `:51`). The old inverted reading came from the
+file's ordering, not its facts: its headers run `v0.7.3.post1` (`:304`) → `v0.7.3`
+(`:326`) → `v0.8.5rc1` (`:351`) → `v0.8.4rc2` (`:374`), so position is not date and
+a bullet's line number means nothing without the nearest `## v` header **above** it. Date
+the stack from `pip show` / `collect_env` instead (`v0.7.3.post1` ↔ vllm v0.7.3, CANN
+8.1.RC1, torch/torch-npu 2.5.1, `:33`). Only the other direction is informative: from
+v0.9.1 the notes say Turbo is **not needed** and the old version is incompatible
+(`release_notes.md:141` at v0.11.0rc1), so a 0.9.1+ stack carrying it is a compatibility
+question (`../image-dependency-faults/mindie-turbo-graph-break.md`), not an old release
+line.
 Answering "官网骗人" or "去问维护者" is wrong: both facts are in the pinned docs.
+Recorded #2378 replay: it shipped this verdict on its seventh assistant turn, and the only
+paragraph it spent on itself was withdrawing the sentence above
+(「一条我自己的记录需要作废式的更正」) — the plugin is not a version marker, and no
+retraction is owed.
 
 ## A self-built vllm beside an rc vllm-ascend is not the release's set
 

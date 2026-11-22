@@ -83,7 +83,12 @@ the model or vllm-ascend Python. The decisive pairing fact is the image's own re
 `'torch-npu==2.8.0.post1'`, against `requirements.txt:31` `torch-npu==2.8.0` — so the
 reported post1 is the *shipped* pairing and "use the release image" is not a rung. The
 run got there (log grep → skill page → header facts → recipe), then finished at the
-16 384-token cap with the tail of its Chinese answer cut. Route:
+16 384-token cap with the tail of its Chinese answer cut. A later comment from the same
+reporter states the tag was pulled, not built (`docker pull
+quay.io/ascend/vllm-ascend:v0.13.0rc2-openeuler`), which is the artefact the collision
+ships in; a re-recording with the page already in the library delivered the whole answer
+in 5 assistant turns / 6.3 K output tokens (skill locate → one log grep → page →
+`Dockerfile.openEuler:18,75` + `requirements.txt:31`). Route:
 `../image-dependency-faults/host-cxx-compile-header-conflict.md`.
 
 **#6082** vllm-ascend v0.10.0rc1 (`4604882a3e2c`) + vllm v0.10.0 (`6d8d0a24c02b`),
@@ -166,15 +171,23 @@ upstream `rotary_embedding.py:109 _compute_inv_freq` → `torch.arange` →
 `RuntimeError: call aclnnArange failed … EZ9999 … Parse dynamic kernel config fail /
 AclOpKernelInit failed opType / ArangeAiCore ADD_TO_LAUNCHER_LIST_AICORE failed`, no
 `vllm_ascend` frame; the reporter's question was literally "does this image support
-910C?". Answerable from docs in four calls (`Dockerfile:16` base
-`cann:8.1.rc1-910b`, `docs/source/conf.py:78`, `faqs.md:14-17` "ONLY Atlas A2",
-`installation.md:87-89` the `-910b` kernels run) plus one standalone op probe, and
-the run also disposed of the `Failed to register custom ops` /
+910C?". Answerable from docs in four calls (`Dockerfile:18` base
+`cann:8.1.rc1-910b` — a `:16` quoted here earlier was off by two, `:16` is a `#`
+comment line, as the owning page records; `docs/source/conf.py:78`, `faqs.md:14-17`
+"ONLY Atlas A2", `installation.md:87-89` the `-910b` kernels run) plus one standalone
+op probe, and the run also disposed of the `Failed to register custom ops` /
 `No module named vllm_ascend.vllm_ascend_C` red herring (`setup.py:296-298`,
 `platform.py:29-38`). Answered in full on its 13th assistant turn, with the verdict already in the
 seventh turn's message text; the
 sibling of #11519's `EZ1001` on the same axis — built-in op here, custom op there
-(`../soc-platform-paths/kernel-package-vs-card.md`).
+(`../soc-platform-paths/kernel-package-vs-card.md`). Replay against the page: verdict and
+class in the **3rd** assistant turn (G1 met) off `sources-summary.sh` +
+`reference-locate.py` + the attached `error.txt`, full answer on turn 5 after one
+batched confirm read that matched the page (`Dockerfile:18`, `conf.py:78`,
+`faqs.md:14-22`, `installation.md:87-89`) plus `rg -ni '910c|atlas a3|A3'` over
+faqs/quick_start returning 0 hits — which is why the answer quoted `faqs.md:14` and
+not the exclude list. It also pre-empted the report's `mindie_turbo` load-path frame,
+now on the owning page's red-herring list.
 
 **#2178** vllm-ascend `v0.9.2rc1` (`b5b7e0ec`), a 310P host on `linux/arm64/v8`:
 "[Usage]: 310p的镜像找不到linux on arm64的" — the quay tag page
@@ -626,6 +639,16 @@ this ref" was wrong — `tests/e2e/310p/test_offline_inference_310p.py` exists, 
 by a label-gated workflow, and is eager-only, which is the sharper statement. Route now
 `../soc-platform-paths/atlas-300i-310p.md` (v0.12.0rc1 section) and
 `../feature-enable-recipes/index.md` rule 9.
+A later replay of the same report (`completed`, 21 assistant turns, 13.3 K completion
+tokens, **891 K cumulative prompt tokens**) shipped a correct verdict but re-derived it:
+its `reference-locate.py` output already carried `→ #5075:82 (2/4)` and `→ #5075:615
+(2/4)` and it opened neither entry, then read the atlas page as `1,120p` → `120,260p` and
+stopped one screen short of its own `At v0.12.0rc1` block. Missing from its answer: RFC
+#1309's `Stage2` heading and the test-path coverage verdict. Wrong in it: the "300I
+performance improved" bullet attributed to a specific NZ fix (`#1591`, a highlight that
+names no mechanism), and `vllm:time_per_output_token_seconds`, renamed at vllm 0.11. Two
+affordances now exist for exactly this: `reference-locate.py --issue <id>` marks the own
+entry's arrow, and the atlas page opens with a section map.
 
 **#3524** vllm-ascend `v0.11.0rc0` (`00ba0710`) + vllm `v0.11.0rc3` (`8ce5d319`),
 DeepSeek-V3.1-W8A8 with `--quantization ascend`, 2 nodes × 8 910B2, ray,

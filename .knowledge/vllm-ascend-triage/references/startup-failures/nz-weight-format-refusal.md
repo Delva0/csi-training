@@ -1,7 +1,10 @@
 # `Not support mat2 n = 1 or k = 1 when format is FRACTAL_NZ`: a narrow linear cast to NZ kills the load
 
 Verified at vllm-ascend `v0.20.2rc1` (`367b8e6`) + vllm `v0.20.2` (`bc150f5`),
-re-read at vllm-ascend `v0.22.1rc1` (`5f6faa0`) + vllm `v0.22.1` (`0decac0`).
+re-read at vllm-ascend `v0.22.1rc1` (`5f6faa0`) + vllm `v0.22.1` (`0decac0`), and
+again at vllm-ascend `v0.23.0` (`5cb98ca`) + vllm `v0.23.0` (`0fc695f`): same
+signature and same gate, but that ref **does** carry a shape guard — scoped to
+310P, which changes the reader's first check (see *The owner* below).
 Recorded for #10014 (Qwen3.5-35B-A3B, TP4, A2/A3-class 910B, npu-smi 25.3.rc1,
 CANN 9.0.0, `--additional-config '{"multistream_overlap_shared_expert": true}'`) and
 for #11621 (Qwen3.6-35B-A3B bf16, TP2 + `--enable-expert-parallel`, MTP spec,
@@ -83,7 +86,21 @@ that the switch was ignored.
 - Mode at this ref: `weight_nz_mode`, `0` off / `1` quantised only (default) /
   `2` bf16+fp16 too, resolved from `additional_config["weight_nz_mode"]` then
   `VLLM_ASCEND_ENABLE_NZ` (`ascend_config.py:216-223`; env default `1`,
-  `envs.py:92`).
+  `envs.py:92`; at v0.23.0 the same resolution is `ascend_config.py:247-254`,
+  and the gate reads `get_ascend_config().weight_nz_mode` rather than the env
+  var — `utils.py:274-276`).
+- **v0.23.0 adds the shape guard, and it is SoC-scoped.** `_should_trans_nz`
+  still has no shape test (`utils.py:261-287`), but
+  `AscendUnquantizedLinearMethod.process_weights_after_loading` now computes
+  `keep_nd_weight = _should_keep_nd_for_310p_weight(layer.weight.data)`
+  (`ops/linear.py:88`) — `is_310p() and weight.ndim >= 2 and (weight.shape[-1] ==
+  1 or weight.shape[-2] == 1)` (`:79-80`; `is_310p()` is
+  `get_ascend_device_type() == AscendDeviceType._310P`, `utils.py:148-149`) — and
+  skips the cast for such a weight (`:93-98`, comment "310P torch_npu rejects
+  FRACTAL_NZ matmul when the weight-side matrix has n=1 or k=1 … leaving
+  non-310P policy intact"). So at v0.23.x a 310P `[1, H]` gate is clear while a
+  **910B/A2/A3 one still converts and still fails identically**: read the SoC
+  off `npu-smi` / the paste before quoting either half.
 
 So for a **bf16** `[1, 2048]` gate the crash is a *mode* question, and the three
 modes are not interchangeable: `2` is the aggressive one and makes this certain,
@@ -105,7 +122,12 @@ modes are not interchangeable: `2` is the aggressive one and makes this certain,
 4. Code-side fix: one guard at the top of `_should_trans_nz`
    (`if weight.shape[0] == 1 or weight.shape[1] == 1: return False`), or skip the
    `[1, H]` probe in `_validate_shared_expert_consistency`. NZ is a perf layout
-   for real GEMMs, so the guard trades nothing.
+   for real GEMMs, so the guard trades nothing. At v0.23.0 that guard exists
+   already but is gated on `is_310p()` (`ops/linear.py:79-80,88,97-98`), so the
+   ask at a 910B ref is one line — drop the SoC test, or move the test into
+   `_should_trans_nz` — not a new guard. Do not offer "go to mode 1" as that fix:
+   the 310P branch returns `True` before the mode is read (`utils.py:270-272`),
+   so on 310P the switch is inert in both directions.
 
 ## Scope, and what stays open
 
@@ -125,8 +147,13 @@ modes are not interchangeable: `2` is the aggressive one and makes this certain,
   mode 1 a bf16 weight is never cast (`utils.py:231-232`). #11621 is the same shape
   on npu-smi 25.5.0 **at mode 2**, it crashed, and `VLLM_ASCEND_ENABLE_NZ=0` cleared
   it — so the conversion is necessary *and*, for a bf16 1-length weight at mode 2,
-  sufficient, and no driver difference needs to be postulated. What stays open is
-  only the code side: no release in this snapshot is known to carry a shape guard.
+  sufficient, and no driver difference needs to be postulated. **Corrected at
+  v0.23.0:** that ref does ship a shape guard, but 310P-only
+  (`ops/linear.py:79-80,88,97-98`), so the mechanism above is unchanged on
+  910B/A2/A3 and what stays open is the guard's *scope*, not its absence —
+  aclnn is not in the snapshot, so nothing here says whether a non-310P
+  `aclnnMatmulWeightNz` would accept a 1-length NZ weight; the 310P-only comment
+  is the only evidence that the authors saw the refusal as SoC-specific.
 - **Same body at v0.22.1rc1** (#11621): wrapper
   `ops/fused_moe/fused_moe.py:477-491` (`wrapped_process_weights` calls
   `_validate_shared_expert_consistency()` at `:488`), probe `:493-503`

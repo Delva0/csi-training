@@ -224,4 +224,10 @@ exonerates DCP=16 on its own and leaves the sparse-c8 path, the length/capacity
 math and the PD KV transfer/offload as the live rows; read broadly it is only a
 one-line statement with no command attached, so ask which configuration it refers
 to before closing the DCP row. Either way the next evidence is the matrix above,
-not a source walk.
+not a source walk. Replayed with the sparse-attention pages present, the session
+wrote no answer text on assistant turns 2-5 and 7 (9 turns, 4 with text): turn 6 named
+the lane only, the ranked verdict arrived at turn 8 (494 characters) and the full
+answer at turn 9. Its rungs — `--cp-kv-cache-interleave-size == --block-size` first,
+then P/D DCP symmetry, then the C8-write ablations — are the matrix's first three
+rows, so the turn-8 message was already available when the matrix page was read on
+turn 3.

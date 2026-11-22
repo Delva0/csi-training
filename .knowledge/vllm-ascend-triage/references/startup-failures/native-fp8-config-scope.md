@@ -33,7 +33,7 @@ Verified at vllm-ascend **v0.23.0** (`5cb98ca`, vllm v0.23.0 `0fc695f`), the pin
 | # | Site | Fact |
 |---|---|---|
 | 1 | `quantization/fp8_config.py:30-37` | `remove_quantization_method()` deletes **both** `fp8` and `deepseek_v4_fp8` from `QUANTIZATION_METHODS`, then `:68` registers `AscendFp8Config` under the generic `FP8_METHOD` and `:137` registers the *same class* for `deepseek_v4_fp8` ("handled identically to fp8 on Ascend"). Upstream keeps the two apart: `"fp8": Fp8Config` (`vllm/model_executor/layers/quantization/__init__.py:143`) vs `"deepseek_v4_fp8": DeepseekV4FP8Config` (`:165`). |
-| 2 | `quantization/utils.py:132-133` | `detect_quantization_method` returns `fp8` for *any* directory whose `quantization_config.quant_method == "fp8"` **and** `get_ascend_device_type() == AscendDeviceType.A5` (A5 is `soc_version == 260`, `utils.py:857-858`). So the auto-detection itself routes the model into the Ascend class; the model family never enters the test. |
+| 2 | `quantization/utils.py:132-133` | `detect_quantization_method` returns `fp8` for *any* directory whose `quantization_config.quant_method == "fp8"` **and** `get_ascend_device_type() == AscendDeviceType.A5` (A5 is `soc_version == 260`, `utils.py:857-858`). So the auto-detection itself routes the model into the Ascend class; the model family never enters the test. **The device half is a v0.23.0-final line: at v0.23.0rc1 (`f4a08bd`) the same branch (`utils.py:130-133`) has no device test at all**, so at an rc pin an A2/A3 report takes this crash instead of §E's refusal. |
 | 3 | `quantization/methods/fp8.py:45,47` | The only linear scheme registered for `FP8` is `ds_linear` (`:30`), and its `__init__` reads `hf_config.o_groups` / `o_lora_rank` **unconditionally** — fields only `vllm_ascend/models/deepseek_v4.py` sets (`:733`). The only consumer is the MLA weight reshape behind `if layer.prefix.endswith("wo_a")` (`:71-77`), and the same tree already uses the guarded idiom `getattr(hf_config, "o_groups", 0)` at `ops/linear.py:455`. |
 | 4 | `quantization/fp8_config.py:77` | `self.ignore` is assigned from the checkpoint's `ignore` list and **read nowhere** in the tree: `get_quant_method` (`:113-133`) sends every `LinearBase` to `ds_linear`. The two ignore-aware paths are upstream `Fp8Config` (`…/quantization/fp8.py:155-172,180-185` → `is_layer_skipped(...)` → `UnquantizedLinearMethod()`) and `quantization/compressed_tensors_config.py:292,443` (`should_ignore_layer` + `hf_to_vllm_mapper.apply_list`). |
 
@@ -55,7 +55,10 @@ no flag permutation escapes.
    name survives to the platform gate and raises
    `ValueError: fp8 quantization is currently not supported in npu`
    (`quantization-method-gate.md` §E, recorded #119). Read the image/soc line and the
-   raise site together; do not carry the A5 verdict onto a 910B report.
+   raise site together; do not carry the A5 verdict onto a 910B report. **Grep the gate
+   for the reported ref before applying either half**: the A5 test is absent at
+   v0.23.0rc1 (`f4a08bd`, `utils.py:130-133` — the fp8 branch there is unconditional),
+   so on an rc an A2/A3 report reaches the `o_groups` crash, not §E.
 3. **`--quantization fp8` is not an escape.** The name resolves to the same
    `AscendFp8Config` (`fp8_config.py:68`), so flag permutations (`--dtype`,
    `--enforce-eager`, TP/DP size, graph mode) are spent turns. Say "no serve
@@ -84,6 +87,65 @@ no flag permutation escapes.
    later resolution is exactly a code change — the issue closed on a linked PR
    (#14852), which is a link only: its contents are not in the case view, so do not
    claim which of the two defects it fixes.
+
+## A model-specific rescue patch is re-armed by the platform's own auto-detect
+
+Recorded **#12685** (v0.23.0rc1 `f4a08bd`, `MiniMax-M2.7` served from a directory whose
+`config.json` declares `quantization_config.quant_method: "fp8"`, TP4 / DP4 / EP): the pin
+**ships a rescue for exactly this model** and still dies in `ds_linear`, because the two
+hooks run in opposite order.
+
+```text
+vllm  config/model.py:747          ModelConfig.__post_init__ → self._verify_quantization()
+  → patch/platform/patch_minimax_m2_config.py:74,133   forces cfg.quantization = None when
+      device_name == "npu" and model_type == "minimax_m2" and quantization == "fp8"   (:61)
+vllm  config/vllm.py:1335          VllmConfig.__post_init__ → current_platform.check_and_update_config(self)
+  → vllm_ascend/platform.py:465    maybe_auto_detect_quantization(vllm_config)
+  → vllm_ascend/quantization/utils.py:120-133  re-reads <model dir>/config.json → "fp8"
+  → vllm_ascend/quantization/utils.py:199      model_config.quantization = "fp8"; quant_config rebuilt
+```
+
+No `--quantization` value escapes that: `fp8` is cleared at verify and re-armed, `none` /
+`None` is not a method (`vllm/config/model.py:1075-1080`, `Unknown quantization method`),
+and any other name is **respected** by the auto-detect (`utils.py:186-195` warns and
+returns), leaving the checkpoint with a quantizer it cannot load. `--hf-overrides
+'{"quantization_config": null}'` does not reach it either — detection `open()`s the model
+directory's file itself. The general shape outlives this model: **a downstream patch on a
+`ModelConfig` verifier is undone by whatever `check_and_update_config` does later**, so when
+a patch that should have rescued a case looks absent, compare its hook site with the
+config-construction order before concluding its gate missed.
+
+Two checks, in this order:
+
+1. `grep -n "Disabling fp8 quantization" <full log>` — the line is the patch's own
+   `logger.info` (`patch_minimax_m2_config.py:31-35`, *Detected fp8 MiniMax-M2 checkpoint on
+   NPU. Disabling fp8 quantization and loading dequantized bf16 weights instead.*).
+   **Present** + the `o_groups` crash ⇒ re-armed (this section). **Absent** ⇒ the gate
+   missed: `_get_model_type` (`:38-58`, `model_arch_config` → `hf_text_config` →
+   `hf_config` → `cfg.model_type`) did not return `minimax_m2` for that checkpoint.
+2. The serve line plus `<model dir>/config.json`. A launch with **no** `--quantization`
+   beside `Using the vLLM Ascend fp8 Quantization now!` already says the file armed it —
+   which is how #12685's later public thread settled the fork the recorded run was still
+   preparing to ask for (the reporter posted the full command: no `--quantization`,
+   `--additional-config '{"enable_cpu_binding":true,"multistream_overlap_shared_expert":true}'`,
+   TP4/DP4/EP, KV store on mooncake, then 已成功拉起服务 after a modification).
+
+From the reporter's side the route that works is a **copy** of the model directory with
+`quantization_config` removed (detection falls to its Case 3, `utils.py:137`), and it is
+safe **only if the weights really are BF16** — census the shards for `*_scale_inv` /
+`weight_scale_inv` first, because for a genuine fp8 checkpoint the intended state at this
+pin is the opposite one (`quantization=None` **while** the file still declares fp8): the
+worker's dequant iter (`patch/worker/patch_minimax_m2.py:98-101,172-181`) gates on
+`self.config.quantization_config.quant_method == "fp8"`, so stripping the key turns the
+dequant off and loads fp8 bytes as bf16. The public record of #12685 does not say which
+side its eventual modification was, so keep the ranking (file declares fp8 → class armed)
+and do not claim the fix.
+
+Coverage at the same pin: `docs/source/tutorials/models/MiniMax-M2.md:23-28` lists only the
+w8a8 / w8a8c8 quantized M2.7 and M2.5 weights (plus the Eagle3 heads) and every serve block
+carries `--quantization ascend` (`:202`, `:270`, `:391`, `:454`), so a **BF16 M2.7 recipe is
+a coverage gap there, not a refusal of the model** — say which, and do not build the
+"unsupported model" verdict on it.
 
 ## Limits
 

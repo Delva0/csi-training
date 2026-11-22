@@ -535,9 +535,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   `fp8` config **is** the owner and it implements only the DeepSeek-V4 MLA layout:
   `native-fp8-config-scope.md`. Two facts redirect the search away from flags and
   drift: detection hands `fp8` to this class only on A5 (`utils.py:132-133`,
-  `soc_version == 260`), and `--quantization fp8` resolves back to the same registered
-  class — so the deliverable is BF16 or a modelslim W8A8 export plus the code fix, and
-  `getattr(..., 0)` is a stopgap whose acceptance is one request, not a healthy port.
+  `soc_version == 260` — a v0.23.0-final test that is **absent at v0.23.0rc1**
+  `f4a08bd`, so an rc report on A2/A3 lands here instead of at §E's refusal), and
+  `--quantization fp8` resolves back to the same registered class — so the deliverable
+  is BF16 or a modelslim W8A8 export plus the code fix, and `getattr(..., 0)` is a
+  stopgap whose acceptance is one request, not a healthy port. On a `minimax_m2`
+  report the same page's re-arm section applies: the pin ships
+  `patch_minimax_m2_config.py` to clear fp8 for that family, but
+  `check_and_update_config` → `maybe_auto_detect_quantization` sets it again from the
+  model directory's `config.json` afterward (#12685), so the file — not the flag — is
+  the arming route and the check is the log's `Disabling fp8 quantization` line.
 - The startup `TypeError` is `linear(): argument 'input' (position 1) must be Tensor,
   not tuple` (or `not list`) raised in `profile_run`/`determine_num_available_blocks`,
   every failing frame inside the **pinned upstream model file** → `layers/linear.py

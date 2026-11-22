@@ -5,6 +5,13 @@ and the failing call is a **free/unmap**, not an allocation — so no memory fig
 is short and nothing was served. It belongs to the allocator lane, not to the OOM
 track and not to the collective/device track, even though the text is loud.
 
+**Not the same lane as a memory-starvation report**: a paste where this variable was
+offered as the cure for two engines on one die (`Available memory: 0`, `No available
+memory for the cache blocks`) is the profiling-arithmetic family, and the setting
+changes nothing there — reporter-confirmed on `#5707` with it set in the container
+before launch (`kv-budget-per-instance-vs-device-global.md`). Do not read this page
+onto that symptom.
+
 The opposite verb is a **sibling, not a copy of this page**: a long-running engine
 that dies on `map:… aclrtMallocPhysical … 507899` with `halMemCreate … drvRetCode=17`
 (§*The map direction* below) has had an allocation fail, so the headroom arithmetic
@@ -108,23 +115,63 @@ Read that pair as the reporter's **prose**: the command in the same reply carrie
 a different `--additional-config` and no `--compilation-config` line), so the TP
 number and the graph mode of the stalling run are unconfirmed until the reporter
 sends that launch verbatim.
-Two cheap splits, in this order:
+Three cheap splits, in this order:
 
-1. `No available shared memory broadcast block found in 60 seconds` is the
+1. **Reconcile the TP number with the container's device set before any theory.**
+   The report's `docker run` exposes four cards (`--device=/dev/davinci4`…`7` with
+   `ASCEND_RT_VISIBLE_DEVICES=4,5,6,7`) and its serve line was
+   `--tensor-parallel-size 4`; the follow-up's line says `8`. If the stalling run
+   really asked for eight ranks on four devices, no collective is involved and the
+   watchdog is only the survivors waiting — the fingerprint is a rank that died at
+   device open (`107001` / `invalid device`,
+   `../startup-failures/device-id-invalid-at-worker-init.md`) or a
+   `Worker … died unexpectedly` line. Grep the per-rank logs for those two before
+   ranking a communication mechanism; if neither is there, this split is closed.
+2. `No available shared memory broadcast block found in 60 seconds` is the
    EngineCore writer's INFO watchdog (`VLLM_RINGBUFFER_WARNING_INTERVAL`), and in a
    *startup* log it fires while workers compile: the original #12534 log has it at
    10:22:53 with the ranks saving compiled graphs at 10:22:59-10:23:01, i.e. it
    recovered. Check whether **every** rank printed its compile/AOT line; the rank
    missing from that set is the one that stopped, and its per-rank log is the next
    artefact (`../hccl-and-hardware/rpc-watchdog-timeouts.md`).
-2. On 310P the documented graph budget shrinks with TP: "the number of capturable
+3. On 310P the documented graph budget shrinks with TP: "the number of capturable
    graphs is limited and depends on the model depth. For example, Qwen3-32B can
    capture and replay 2 graphs … no such limitation when TP=1"
-   (`docs/source/tutorials/hardwares/310p.md:20-30` at v0.23.0rc1). A TP=4 stall with
+   (`docs/source/tutorials/hardwares/310p.md:23-26` at v0.23.0rc1). A TP=4 stall with
    two capture sizes is therefore a candidate before any HCCL theory: run
    `--enforce-eager`, then `cudagraph_capture_sizes: [1]`
    (`../soc-platform-paths/atlas-300i-310p.md`,
-   `../startup-failures/acl-graph-capture.md`).
+   `../startup-failures/acl-graph-capture.md`). The tree backs the eager-first order
+   twice over at v0.23.0rc1 (`f4a08bbd`): the 4×310P MoE tests that run are eager
+   (`tests/e2e/pull_request/four_card/_310p/test_moe_model_310p.py:24-38`
+   Qwen3-30B-A3B TP4 fp16, `:41-56` TP2-W8A8, both `enforce_eager=True`,
+   `max_model_len=16384`, `max_num_batched_tokens=2048`), while the file's
+   `Qwen/Qwen3.5-35B-A3B` TP4 case — this reporter's model and card count — is
+   `@pytest.mark.skip("Probabilistic failure, need fix")` (`:59-74`). So a TP=4 310P
+   run of this model has **no passing validation at this pin**: say that as scope
+   and put eager first, rather than promising a flag that makes TP=4 work.
+
+Then read the follow-up's **export block** (v0.23.0rc1, `f4a08bbd`): of its six names
+only two are read by this project's Python — the allocator value and the AIV switch — one
+more (`HCCL_BUFFSIZE`) is a real knob whose consumer is CANN/HCCL, and two are inert
+spellings:
+
+| export | what it is at this pin |
+|---|---|
+| `PYTORCH_NPU_ALLOC_CONF=expandable_segments:False` | the cure above (rung 1); the `:True` that crashed is the value the model's own **A2/A3** tab exports (`Qwen3.6-35B-A3B.md:187`) |
+| `HCCL_OP_EXPANSION_MODE="AIV"`, `HCCL_BUFFSIZE=512` | live, HCCL-side. Both are in this model's tutorial **A2/A3** tab (`docs/source/tutorials/models/Qwen3.6-35B-A3B.md:184-192`, there with `HCCL_BUFFSIZE=1024`), and vllm-ascend only reads `HCCL_OP_EXPANSION_MODE` itself for MiniMax-M2 graph capture (`vllm_ascend/patch/platform/patch_minimax_m2_config.py:118-124`). AIV changes the selected collective path, so an AIV-off relaunch is a real ablation, not a placebo (`../hccl-and-hardware/aiv-mc2-env-ablation.md`) |
+| `USE_MULTI_GROUPS_KV_CACHE=1` | **not an env read**: `vllm_ascend/patch/platform/patch_kv_cache_coordinator.py:35` is a module constant `USE_MULTI_GROUPS_KV_CACHE = True`, and no other **code** file in either tree mentions it |
+| `USE_MULTI_BLOCK_POOL=1` | no reader in vllm-ascend or vllm; the only hit is a commented line in `docs/source/tutorials/models/GLM5.2.md:316` |
+| `ACL_OP_INIT_MODE=1` | docs/CI-only shell export (GLM5 / DeepSeek-V4-Pro tutorial blocks, weekly e2e yaml) — a CANN-side name, read by neither Python tree |
+
+The model's own **310P tab** (`Qwen3.6-35B-A3B.md:234-293`, serve block `:236-259`)
+carries none of those exports: `--tensor-parallel-size 2`, `--max-model-len 16384`,
+`cudagraph_capture_sizes: [1,2,4,8,16]`, `--no-enable-prefix-caching`,
+`--additional-config '{"ascend_compilation_config": {"fuse_norm_quant": false}}'`,
+`--dtype float16`. Diff the reporter's block against that tab before ranking a knob
+(general rule: `../feature-enable-recipes/per-soc-recipe-and-quantized-weights.md`
+§*Prune the flags that provably do nothing*; any paste, one call:
+`scripts/env-knob-liveness.py`).
 
 ## The map direction: `halMemCreate` / `aclrtMallocPhysical` (same allocator, opposite verb)
 

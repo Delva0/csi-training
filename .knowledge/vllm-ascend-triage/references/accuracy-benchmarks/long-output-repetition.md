@@ -79,6 +79,7 @@ and D commands per topology. Worked diff for #13719 against
 | `--enable-prefix-caching` | — (default on) | explicit | — (default on) | explicit |
 | `recompute_scheduler_enable` | true | **false** | true | true |
 | topology (tp / dcp / dp) | 8 / 8 / 4 | 8 / 8 / 4 (same) | 8 / 8 / 4 | **4 / 4 / 8** |
+| `--compilation-config '{"cudagraph_mode": …}'` | — | — | `FULL_DECODE_ONLY` (`:1435`, `:1308`, `:1255`) | same |
 
 The rankable rows are the ones the tree validates differently somewhere else:
 
@@ -91,13 +92,15 @@ The rankable rows are the ones the tree validates differently somewhere else:
 - **`--async-scheduling` on both nodes**, absent from every PD example here.
 - **P node `recompute_scheduler_enable: false`** where the doc's P block sets true,
   plus `--enable-chunked-prefill` and gmu 0.88 vs 0.75 — capacity/preemption rows.
-- **Decode topology flipped** (tp4 / dcp4 / dp8, where the doc's decoder nodes are
-  tp8 / dcp8 / dp4 — the P side matches). That split does exist on the same page for
-  the 8-node A2 layout (`:984`), whose text says both sides enable prefix caching
-  and MTP with `num_speculative_tokens=3`, so neither topology is unsupported — but
-  the tested P/D pairs differ, and MTP 5 with this decode shape is untested.
+- **Decode topology is the documented 8-node A2 split, not a deviation** (tp4 / dcp4 /
+  dp8 = the doc's Decode `DP8 TP4` at `:984`; the 4-node example's decoder nodes are
+  tp8 / dcp8 / dp4, and the P side matches both). The reason it still matters is the
+  arithmetic above: that layout's own text says both sides enable prefix caching and MTP
+  with `num_speculative_tokens=3`, so **MTP 5 on this decode shape** is the untested pair,
+  not the shape itself. Recorded #13719 repeats walked the topology row first; state it
+  as a control, then spend the row on MTP 5.
 
-## Three traps when reading that diff
+## Four traps when reading that diff
 
 1. **`--enable-prefix-caching` is not a deviation by itself.** At vllm v0.23.0 the
    default is on (`vllm/config/cache.py:92` `enable_prefix_caching: bool = True`),
@@ -115,7 +118,15 @@ The rankable rows are the ones the tree validates differently somewhere else:
    proxy/`--api-server-count` check are in
    `../pd-disaggregation/proxy-endpoint-vs-api-server-count.md`; read which side emitted
    it before choosing the lane.
-3. **Check the spec-decode branch at the reporter's ref before naming it.** At
+3. **`cudagraph_mode` and the spec-config `enforce_eager` are the doc's own settings,
+   so they are not rows.** `--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'`
+   sits in the tutorial's own PD decode blocks (`:1435`, `:1308`, `:1255`, next to MTP 3) and
+   every block writes `"enforce_eager": true` *inside* `--speculative-config`, so a
+   reporter carrying both has matched the tutorial. The recorded #13719 repeat invented
+   the graph-mode row, spent a grep on it and retired it — the graph lane is a lever only
+   when the symptom is a capture/hang fault (`../hccl-and-hardware/
+   aclgraph-full-decode-runtime-crash.md`), not when fluent text repeats.
+4. **Check the spec-decode branch at the reporter's ref before naming it.** At
    v0.23.0rc1 `using_block_verify = max_spec_len >= 3 and
    rejection_sampler_config.enable_block_verify`
    (`vllm_ascend/sample/rejection_sampler.py:399-400`), and the config defaults to

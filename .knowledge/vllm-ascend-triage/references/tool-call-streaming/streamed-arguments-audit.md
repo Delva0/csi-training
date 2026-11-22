@@ -32,7 +32,9 @@ bash <skill_root>/scripts/sse-toolcall-audit.sh capture.txt      # or: ... - < c
 It concatenates `choices[i].delta.tool_calls[j].function.arguments` in arrival
 order, per tool-call index, and prints for each: fragment count, empty fragments,
 the balance of `{ } [ ] "`, the first/last fragments, the assembled string, and
-`json.loads` on the assembly. It also lists the `stop_reason` chunks, the
+`json.loads` on the assembly, and — because a balanced assembly clears only the
+*punctuation* — the parsed `key = value` list of every tool call, which is where a
+value cut shows (`guest_phone = '138123'`). It also lists the `stop_reason` chunks, the
 `finish_reason` chunks, the last non-empty argument chunk, and any chunk whose
 `arguments` is the empty string — because "the tail arrived as `""`" is the shape
 that hides a lost tail. Since #12261 it also prints a per-tool-call **verdict** —
@@ -54,17 +56,25 @@ Calibrations on the recorded pastes:
 |---|---|
 | #7580 opencode reproduction, 11 chunks, `num_speculative_tokens: 3` | one tool call, 10 fragments, assembled `{"filePath":"/…/K8sYamlAgent.java` — `{` 1 / `}` 0, odd quote count, `json.loads` → `Unterminated string starting at: line 1 column 13 (char 12)`, which is the reporter's own error verbatim. Tail missing while `finish_reason: "tool_calls"` follows. |
 | #7682 GLM-5-w4a8 paste, 29 chunks (`delta: {}` × 28) | one tool call, **one** fragment, 2 chars: assembled `"}` — `{` 0 / `}` 1, 1 quote, `json.loads` → `Unterminated string starting at: line 1 column 1 (char 0)`. Head-lost, not a lost tail: the non-streaming body returns the complete `{"todos": "…"}` and the assembly is its last two characters. |
-| #8122 Qwen3-Next-80B-A3B-Instruct response dump, 97 chunks | one tool call, 95 fragments, assembled 268-char arguments, braces 1/1, 40 quotes (even), `json.loads` OK. The pasted stream is healthy — so that sample was not one of the "大概率截断" requests and no mechanism should be built on it. |
+| #8122 Qwen3-Next-80B-A3B-Instruct response dump, 97 chunks | one tool call, 95 fragments, assembled 268-char arguments, braces 1/1, brackets 1/1, 40 quotes (even), `json.loads` OK — **and a failing sample anyway**: the assembled values end `"guest_phone": "138123"}` where the request gave `13812345678`, so one *value* was cut while every piece of punctuation was present, and the closing `"}` arrived in the chunk that also carries `finish_reason: "tool_calls"`. Re-audited 2026-08 on the issue's own paste; the row previously read "the pasted stream is healthy — not one of the 大概率截断 requests", and a later session repeated that verdict to the reporter as `guest_phone` digits 全部到齐. |
 
 ## Step 3 — route on the outcome
 
-**A. Assembled JSON parses.** The server stream is self-consistent. The failure is
-in the client (or in whatever re-serialized the arguments): a parser that reads a
-single chunk instead of the concatenation, a strict schema, a duplicate id, an
-`arguments` object re-encoded by a proxy. Ask for the client version and its
-parser; do not modify the serving command. Also check the fragments are not
-duplicated or reordered — the script prints them in order, and a repeated
-fragment set means an id/`index` mix-up rather than a parser bug.
+**A. Assembled JSON parses — and the values are the next question, not the last.**
+The punctuation lanes are clear; nothing yet shows the server emitted a complete
+*value*. Compare the printed `key = value` list against the request's own constants
+(a phone, date, id, item list or count whose length the prompt fixes): the #8122 row
+above is a value cut from 11 digits to 6 under a perfect brace/quote balance, and the
+"healthy, client owns it" reading of it cost a later session's answer. Values plausible
+→ the failure is in the client (or in whatever re-serialized the arguments): a parser
+that reads a single chunk instead of the concatenation, a strict schema, a duplicate
+id, an `arguments` object re-encoded by a proxy. Ask for the client version and its
+parser; do not modify the serving command. A value is short or implausible → treat it
+as **B asked about a value instead of the tail**: `"return_token_ids": true` on the
+same body splits an engine-side early stop from a parse/delta cut, and `stream: false`
+shows whether the non-streamed arguments carry the whole value. Also check the
+fragments are not duplicated or reordered — the script prints them in order, and a
+repeated fragment set means an id/`index` mix-up rather than a parser bug.
 
 **B. Tail missing** (unbalanced braces/quotes at the end, `finish_reason:
 "tool_calls"` after it). The stream stopped short. Split engine from assembly with

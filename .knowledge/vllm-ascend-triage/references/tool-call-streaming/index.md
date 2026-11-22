@@ -12,7 +12,8 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   where `num_speculative_tokens: 1` "正常" (#7580);
 - the arguments are reported truncated / occasionally malformed / repeated:
   "function call 模型返回时大概率会截断输出，小概率会格式错误，重复输出" (#8122,
-  Qwen3-Next-80B-A3B, `stream: true`, `--async-scheduling`);
+  Qwen3-Next-80B-A3B, `stream: true`, `--async-scheduling`; its own paste is a
+  value-cut sample — see rule 1's calibration row before trusting a balanced audit);
 - `stream: true` plus a tool parser returns only CoT and no `tool_calls`
   (#5683, reporter-confirmed A/B: async scheduling off → correct call);
 - the assembled `arguments` has **balanced braces but an odd quote count**, the
@@ -211,8 +212,19 @@ parser puts you back on rule 1.
    calibrations: #7580's paste reassembles to `{"filePath":"/…/K8sYamlAgent.java`
    and `json.loads` reproduces the reporter's own `Unterminated string starting
    at: line 1 column 13 (char 12)`; #8122's pasted 97-chunk stream reassembles to
-   fully valid JSON, so the sample in the issue was *not* one of the failing
-   requests — say so instead of inventing a mechanism for a healthy stream.
+   syntactically valid JSON **and is still a failing sample** — its last value is
+   `"guest_phone": "138123"` where the request gave `13812345678`, a *value* cut
+   under complete punctuation — so `json.loads` OK clears the braces and the quotes
+   and nothing else: read the script's `key = value` list against the request's own
+   constants before calling a sample healthy or building a mechanism on it. (That
+   row read "healthy — not one of the failing requests" until 2026-08, and a later
+   session repeated it to the reporter as 11 位数字全部到齐.)
+   Audit with the script or with a recorded calibration row, **never by counting
+   fragments in reasoning**: a 90+-chunk stream is not countable by eye, and the
+   recorded #8122 rerun spent an 8.4 K-character reasoning block recounting 95
+   fragments (ending "I can't reliably count from memory") before one
+   `rg -n '<issue-id>' <skill_root>/references/` returned the row above — which had
+   sat 13 lines below the `sed -n '1,200p'` window it had already read.
    **Both mid-string owners are version-specific, so read the branch at the
    reporter's ref before naming it**: the schema-type gate documented for vllm
    v0.20.2 is fixed at v0.23.0 (`_is_string_type` now uses

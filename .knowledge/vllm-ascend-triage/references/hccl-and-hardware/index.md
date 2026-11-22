@@ -239,7 +239,13 @@ operator that ran on the CPU/AICPU fallback because no AI-Core kernel matched th
 SoC/dtype/layout; the code is what the copy-stream sync reports afterwards, and the
 `devmm … should call halMemMap` dmesg line follows the fault rather than causing it.
 Route by the op name — on 310P `../soc-platform-paths/310p-cpu-fallback-op-fault.md`
-— instead of looking for a collective or a card here.
+— instead of looking for a collective or a card here. **Its empty-descriptor sibling *does*
+belong here**: when the same `507018` sits under `errcode:1, msg:execute kernel param invalid`
+with `soName=`/`funcName=`/`kernelName=` all empty, the record's `retCode=0x2a` is
+`TS_ERROR_AICPU_EXCEPTION` carrying `rtAICPUErrorType::KERNEL_EXECUTE_PARAM_INVLID`, every
+later `507018` / `context is abort, status=0x715002a` / `EnterFailureAbort` line is one poisoned
+context, and the owner has to come from the device DFX dump and the peers' plogs —
+`aicpu-task-exception-empty-kernel.md` (recorded #12776; the named-descriptor contrast is #12487).
 
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been
@@ -520,6 +526,15 @@ debugging" caveat.
    `aclrtMemcpy` in the custom-op host adapters that mints `107030` at capture, why no flush
    exists (`clear_device_error_info` only via `torch_npu.npu.restart_device`), and the
    deliverable (plog at the failure second, not the capture block).
+16. `aicpu-task-exception-empty-kernel.md` — `retCode=0x2a` + `errcode:1, msg:execute kernel
+   param invalid` on an AICPU `sqe_type=1(aicpu)` task: the two decodes (`TS_ERROR_AICPU_EXCEPTION`
+   and the `rtAICPUErrorType` family, one `cann-error-lookup.sh` call) and why the family decides
+   the owner; the hint-vs-cascade split at `EnterFailureAbort` / `context is abort` including the
+   latched `507018` inside `OpParamMaker.cpp`'s `WaitEventFunc` and the `RepoStatus::RUN` queue
+   depth; what an **empty** `soName/funcName/kernelName` does and does not prove (the tiling-sink
+   task struct, the DFX ask); the plog pre-flight that keeps a 20-hour reproduction from being
+   wasted; and the verified non-findings at v0.23.0rc1 (`kernel_type=5`, `flip_num`, and the
+   already-fixed W4A8 MC2 aliased workspace).
 
 If the text is an allocation failure that merely names a collective or an
 operator (`HcclAllGather` / `current working operator name is …`) after a server

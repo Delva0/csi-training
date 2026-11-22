@@ -65,9 +65,16 @@ as the cause.
 
 At vllm-ascend `v0.21.0rc1` the project's own 4×310P test of a 35B-A3B MoE runs
 `max_model_len=16384, max_num_batched_tokens=2048, max_num_seqs=256`, TP4, fp16, eager
-(`tests/e2e/pull_request/four_card/_310p/test_moe_model_310p.py:57-70`
-`Qwen/Qwen3.5-35B-A3B`; `:22-37` `Qwen/Qwen3-30B-A3B` with the same knobs) — a batched-token
-budget 32× smaller than the recorded report's. Ladder, cheapest first:
+(`tests/e2e/pull_request/four_card/_310p/test_moe_model_310p.py`
+`Qwen/Qwen3.5-35B-A3B`; `Qwen/Qwen3-30B-A3B` with the same knobs) — a batched-token
+budget 32× smaller than the recorded report's. **Re-read the file at your pin, including
+the marks**: at v0.23.0rc1 (`f4a08bbd`) the `Qwen/Qwen3.5-35B-A3B` TP4 case is
+`@pytest.mark.skip("Probabilistic failure, need fix")` (`:59-74`), while the two rows that
+still run are `:24-38` (Qwen3-30B-A3B TP4 fp16) and `:41-56` (TP2-W8A8), both
+`enforce_eager=True, max_model_len=16384, max_num_batched_tokens=2048`. The knob values
+remain the tree's recipe; the 35B-A3B 4×310P row itself is **not** a passing validation, so
+cite it as the batch size to shrink toward, never as proof that the shape works. Ladder,
+cheapest first:
 
 1. `--max-num-batched-tokens 2048` (the vision dummy batch shrinks with `<N>`/`<M>`).
 2. `--max-model-len 16384`.

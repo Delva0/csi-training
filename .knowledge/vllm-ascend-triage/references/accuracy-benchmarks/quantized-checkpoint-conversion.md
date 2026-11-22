@@ -77,8 +77,8 @@ quality question.
    blown up, the learning rate cannot be the cause — the initial transform/scale is.
 7. **The engine does not validate the tuned values.** `get_pertensor_param`
    allocates `left_trans`/`right_trans`/`clip_ratio` empty
-   (`w4a4_flatquant_dynamic.py:105-117`) and the loader fills and registers them
-   as-is, taking `clip_ratio.item()` as the operator's clip ratio (`:186-190`). The
+   (`w4a4_flatquant_dynamic.py:105-116`) and the loader fills and registers them
+   as-is, taking `clip_ratio.item()` as the operator's clip ratio (`:189-191`). The
    module's two `ValueError`s only check format and shape consistency —
    `input_size % 8` (`:95`) and `left_dim * right_dim == in_features` (`:152`) —
    never whether the tuned values are numerically sane. So "the conversion loss was

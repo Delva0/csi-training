@@ -278,7 +278,12 @@ Conditional routes:
   allocator lane, `allocator-expandable-segments-unmap-crash.md` (reporter-confirmed
   #12534: `expandable_segments:False` starts; note vllm-ascend injects `True`
   unless the variable already carries another of the three keys, so "unset" is
-  not "off"). The **map** direction of the same allocator —
+  not "off"; if the reporter returns **after** that change with a stall instead of
+  the crash, the page's §*If the same reporter returns …* holds the three checks —
+  TP against the container's exposed `/dev/davinciN` set, the `107001` rank-death
+  fingerprint vs the `shm_broadcast` watchdog, and the launch **export** block
+  classified name by name, `scripts/env-knob-liveness.py`). The **map** direction of
+  the same allocator —
   `torch.OutOfMemoryError: map:…NPUCachingAllocator.cpp:457 … aclrtMallocPhysical,
   error code is 507899` beside `[drv api]halMemCreate failed drvRetCode=17 …
   [FUNC:MallocPhysical]`, on an engine that has been serving for hours — is that
@@ -291,7 +296,11 @@ Conditional routes:
   **second** engine sharing one card, while `npu-smi` shows free HBM →
   `kv-budget-per-instance-vs-device-global.md`: device-global HBM charged to one
   instance, the `#7308` → `#7427` → `#7372`/`#14274` propagation chain, the
-  per-instance `gpu_memory_utilization` contract, and the one-line patch.
+  per-instance `gpu_memory_utilization` contract, the identity that makes the fix
+  one line of arithmetic, and the one-line patch. It is also the page for a paste
+  where **`PYTORCH_NPU_ALLOC_CONF=expandable_segments:True` was tried and did not
+  help** (`#5707`, reporter-confirmed): that variable cannot move a device-global
+  free/used reading, so do not re-route such a paste to the allocator page.
 - The failure is an allocation error inside KV-cache initialisation, with the
   deepest frame in `_convert_torch_format` / `torch_npu.npu_format_cast` and
   `507013` / SDMA / SMMU text around it → `kv-init-and-format-cast-alloc.md`

@@ -61,11 +61,18 @@ families and only one of them is an install question:
 
 That is why only pooling/score/classify serves break on an otherwise fine image:
 the gate was written for int8 weights, and the classification head is the one
-routinely built in fp32. The same tree already treats the switch as
-precision-affecting from the other side: `worker/worker_v1.py:183-186` refuses
-`wake_up` under it with "FRACTAL_NZ mode is enabled. This may cause model
-parameter precision issues … Please set VLLM_ASCEND_ENABLE_NZ=0", i.e. the
-recommended escape is the project's own wording, not a workaround invented here.
+routinely built in fp32. The same tree treats the switch as precision-affecting
+from the other side too: `worker/worker_v1.py:183-186` refuses `wake_up` under it
+with "FRACTAL_NZ mode is enabled. This may cause model parameter precision issues
+… Please set VLLM_ASCEND_ENABLE_NZ=0". Quote that as the flag's own precision
+caveat, **not** as project advice about pooling heads — both sites guard RL sleep
+and weight-update paths and say "in the RL scenarios", so a reporter can fairly
+answer that it does not cover their crash (recorded #4679 was given it that way
+anyway, correctly: it is the flag's only in-tree warning). The spelling moves with
+the mode refactor: at v0.23.0 the same pair is `worker/worker.py:241-247`
+(`weight_nz_mode` truthy → "Please set weight_nz_mode=0 via `--additional-config`")
+and `:295-301` (`_check_nz_disabled`, env-var spelling), so name whichever of the
+two the reporter's ref accepts.
 
 ## Escape and fix
 
@@ -98,7 +105,7 @@ The same fp32 head is built at both pins — at v0.23.0 through
 |---|---|---|
 | v0.11.0rc3 | `is_enable_nz(dtype)` (`utils.py:74-84`), cast in `AscendUnquantizedLinearMethod.process_weights_after_loading` (`ops/linear.py:43-51`) | **converted** → crash |
 | v0.20.2rc1 | `_should_trans_nz` / `maybe_trans_nz` (`utils.py:203-235`): fp32 → ND (`:205-206`), 310P → always NZ, mode 0 → ND, bf16/fp16 → NZ **only at mode 2** (`:220-222`), other dtypes → NZ; cast in `AscendUnquantizedLinearMethod.process_weights_after_loading` (`ops/linear.py:78-82`) | not converted (fp32 is the first rule) — but the same gate has **no shape test**, so this ref fails instead on a 1-length weight: `../startup-failures/nz-weight-format-refusal.md` |
-| v0.23.0 | `_should_trans_nz` / `maybe_trans_nz` (`utils.py:260-298`), first rule `FP32 cannot use NZ`; policy comment lists `FP32: never convert`; cast sites are the quantised methods (`quantization/methods/w8a8_static.py:155`, `w4a8.py:195`, …) | not converted |
+| v0.23.0 | `_should_trans_nz` / `maybe_trans_nz` (`utils.py:261-298`): first rule `FP32 cannot use NZ` (`:262-264`), `weight.is_meta` → ND (`:266-268`), 310P → NZ (`:270-272`), then `weight_nz_mode` from `get_ascend_config()` (`:274-287`, not the env var); the **unquantised** method still casts (`ops/linear.py:86-98`, `maybe_trans_nz` at `:92`/`:98`) and is safe only because of that first rule — a grep that stops at the cast site reads as if nothing changed; quantised methods cast their own weights (`quantization/methods/w8a8_static.py:155`, `w4a8.py:195`, `w8a8_dynamic.py:149`, …) | not converted, and the caller adds a **310P-only** keep-ND guard for `n = 1` / `k = 1` weights (`_should_keep_nd_for_310p_weight`, `ops/linear.py:79-80`, used at `:88`/`:97-98`) — the shape family is fixed on 310P and untouched on 910B/A2/A3 (`../startup-failures/nz-weight-format-refusal.md`) |
 
 `VLLM_ASCEND_ENABLE_NZ` also changed meaning: from v0.20.2rc1 on it is a
 three-valued mode (`envs.py:92` default `1`; `ascend_config.py:216-223` also

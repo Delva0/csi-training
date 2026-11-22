@@ -446,7 +446,7 @@ findings, each `path:line`:
 | completeness / usability | the 38B serve block never passes `--trust-remote-code`, while the 241B block, the page's own lm_eval line and the in-tree gate all do — and the HF repo is `OpenGVLab/InternVL3_5-38B`, not the `-hf` conversion | page `:123-127` vs `:192`, `:266`; `InternVL3_5-8B-hf.yaml:10` |
 | 正确性 (cross-page) | "Supported Features" resolves to a matrix with no InternVL3.5 row whose InternVL family row is ❌ (check 8's failing form) | page `:13`; `supported_models.md:116` |
 | completeness | "…already within our CI monitoring scope, including:" is followed by an **empty** list; the prose evaluates `241B-A28B` (`:249`) while the command evaluates `38B` (`:262`); no baseline value anywhere, and the only in-tree gate is the 8B (`mmmu_val 0.58`, TP1, `max_model_len 40960`) | page `:247`,`:249`,`:262`; `tests/e2e/models/configs/InternVL3_5-8B-hf.yaml` |
-| completeness (the row's real workload) | the page documents BF16 HF weights only, while the row ships a w8a8 ModelScope checkpoint; the page's sample server log nonetheless shows a ModelScope download, contradicting its own HF weight link | page `:23-24` vs `:165` |
+| completeness (the row's real workload) — **this row's first reported defect** | the page documents BF16 HF weights only, while the row ships a w8a8 ModelScope checkpoint; the page's sample server log nonetheless shows a ModelScope download, contradicting its own HF weight link, and the serve block (`:123-127` = `vllm serve OpenGVLab/InternVL3_5-38B --tensor-parallel-size 2 --dtype bfloat16 --max_model_len 16384 --max-num-batched-tokens 16384`) passes no `--quantization ascend` — the one flag an msmodelslim artifact cannot load without (`../startup-failures/quantization-method-gate.md` §B), so a tester who follows the page fails at weight load | page `:23-24` vs `:165`; `:123-127` |
 | cosmetic | `--random-input 200` for `--random-input-len` (check 2 — prefix, tier cosmetic) | page `:285`; `vllm/benchmarks/datasets/datasets.py:1662` |
 | cosmetic (tabs copied) | the 38B tab's sample body prints `"reasoning_content": null` (the 241B one prints both keys) and its curl points at the **241B** repo's image, so the tab was copied from the sibling and never re-captured | page `:148`,`:158` vs `:225` (check 12) |
 | pass | `--max_model_len` (underscore) parses — the parser rewrites `_`→`-` at this pin too — and `--dtype bfloat16`, `--max-num-batched-tokens 16384` are valid; the model path is plain upstream (`rg -n -i internvl vllm_ascend/` → 0 hits) | parser (check 5); `vllm/model_executor/models/registry.py:427` (`InternVLChatModel` → `internvl`) |
@@ -455,6 +455,13 @@ The perf command is `vllm bench serve --dataset-name random`, i.e. text-only
 prompts, so a VL model's throughput number there never exercises the vision tower
 and the page prints no result at all — say both (the row's 交付件 asks for a
 performance screenshot).
+
+The row recurs: `#11742` is the same `hjh4` row a batch later, delivered as the
+蓝区 image `dev-26.1.0.B050-cann9.0.0-800I-A2-py311-Ubuntu24.04-lts-aarch64`
+(above the page's v0.20.2 gate). The w8a8/`--quantization ascend` row, the missing
+2-card container recipe, the empty CI list and the `--random-input` cosmetic
+transfer unchanged; its 任务问题和需求 version-gate reading and the `.tar.gz`
+deploy route are `community-test-report.md`'s.
 
 ## Sixth worked page: Qwen3-Omni-30B-A3B-Thinking at v0.18.0 (recorded #11750)
 

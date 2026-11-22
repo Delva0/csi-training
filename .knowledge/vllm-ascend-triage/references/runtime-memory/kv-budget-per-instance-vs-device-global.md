@@ -112,6 +112,11 @@ symptom-word search misses them. One search over this corpus returns the family:
   recognize it instead of treating the newer 310P wording as the only signature.
 - `#5917` `单卡多vllm实例报错`, `#7308` `单卡多服务场景下 … HBM内存管理异常` (v0.14.0rc1,
   the version-tabulated one), `#8621` (the first row of the table above).
+- `#5707` `[Usage]: 请问如何正确的在一张npu加速卡上面跑多个vllm 程序以启动多个模型服务`
+  — a **usage-shaped** title (no `[Bug]`, no symptom word), so a bug-titled search
+  misses it; it is the family's v0.11.0 report (910B2, two `0.4` serves on one
+  `davinci7`), the one that carries the reporter-confirmed `expandable_segments`
+  non-fix below, and the one whose follow-up asks the support question outright.
 - `#9374` `[Doc]: 缺少 Ascend 910B 显存调优与多实例部署指南` — the docs gap the family
   keeps producing.
 
@@ -194,6 +199,67 @@ upstream's `Free memory on device … is less than desired GPU memory utilizatio
 carries no such line. Report the fix as **absent** at these refs and say so plainly: #5917's
 reporter answered a "solved?" follow-up on 2026-01-22 with 「没有解决」, so the number is
 still wrong a week later, and only the workaround is actionable.
+
+### The identity that answers the paste in one line, and what it rules out
+
+Two consequences of `available = total × gmu − peak` are worth deriving once,
+because they turn this family into arithmetic instead of a source walk:
+
+- the **first** engine on a card settles at **`total × gmu₁`**: its KV pool is sized
+  to fill whatever the budget leaves (`peak + available`), so instance 1's share is
+  not "its weights plus what it happens to cache", it is its whole ratio
+  (#5917: 21.5 GiB of KV against a 24.38 GiB budget, the remaining 2.86 GiB its own
+  peak);
+- therefore instance 2 receives `available₂ ≈ total × (gmu₂ − gmu₁) − peak₂`, i.e.
+  **whichever engine starts second needs the larger ratio** (#7308, reporter-run:
+  `0.3`/`0.3` fails, `0.3`/`0.6` starts both) — and that instance's own footprint is
+  `total × gmu₂ − total × gmu₁`, so the card as a whole ends at `total × gmu₂`:
+  ordering the ratios this way cannot over-commit the die and the sum rule stays
+  satisfied. Say that out loud when a maintainer's instinct is "you are
+  oversubscribing". This points the same way as the maintainer's "set the second
+  instance to 0.8", so when you use it give the honest reason — the extra ratio is
+  spent *paying the co-tenant's charge*, not granted to instance 2, whose own KV is
+  the **difference** — and prefer shrinking the co-tenant you control (the paragraph
+  above) whenever you can, because that keeps every instance's ratio meaning what
+  its docstring says.
+
+### Recorded non-fixes, and how uncontested the bug is
+
+- **`PYTORCH_NPU_ALLOC_CONF=expandable_segments:True` is not a remedy here.**
+  `#5707` (vllm-ascend image v0.11.0 + vllm 0.11.0, 910B2 64 GB, `--device
+  /dev/davinci7`, two `vllm serve` at `--gpu-memory-utilization=0.4`: Qwen3-0.6B,
+  then Qwen2.5-0.5B-Instruct): the reporter set the variable **inside the container
+  before launching** — the maintainer's own caveat — and got the same
+  `Available memory: 0, total memory: 65452113920` →
+  `ValueError: No available memory for the cache blocks` (2026-01-08), plus the same
+  failing KV arithmetic as every other ref in this family. Expected, not a mis-set
+  variable: the charged term is `mem_get_info()[1] − mem_get_info()[0]`
+  (`vllm_ascend/worker/worker_v1.py:247-251` at v0.11.0 `2f1aed98`, logged at
+  `:257`), device-global used, which no `PYTORCH_NPU_ALLOC_CONF` value
+  (`expandable_segments`, `max_split_size_mb`) can change, since none of them move
+  the free/used reading a co-tenant holds. The flag belongs to the
+  segment/unmap lane (`allocator-expandable-segments-unmap-crash.md`), a different
+  symptom on the same card. So do not prescribe it; if the paste already shows the
+  attempt, say the outcome is expected instead of offering another allocator value.
+- `--kv-cache-memory` — inert at these refs, see trap 3 under *Patch*.
+
+**Support status when the reporter asks whether co-tenancy is sanctioned.** Nothing
+in the pinned docs says whether several engines may share one die; `#5707`'s
+reporter asked exactly that after reading them (「不知道在一个显卡上运行多个vllm进程
+是否是官方支持的用法 … 官方文档都没有提到」), and on 2026-01-29 relayed this
+family's public state: a bug in the current version, several issues discussing it,
+**no concrete fix plan**, pointing at `gpustack/gpustack#4325` (a downstream
+project's issue for the same multi-engine-per-card failure). So ship the arithmetic
+workaround, label any release fix absent/unverified, and cite `#9374` when the ask
+is a document reference rather than a config.
+
+**Solving the equation without instance 1's log.** `#5707` pasted only the failing
+instance, and its own numbers still bound the co-tenant: `Loading model weights took
+0.9275 GB` (≈0.86 GiB) plus its own activations against `total × 0.4` = 24.38 GiB
+of the 60.96 GiB card leaves `footprint₁ ≳ 21 GiB`, i.e. instance 1 already held
+~0.35 of the die — so `0.4` on the second engine could never fit. Quote it as a
+**bound** (its peak is not printed) — enough to prescribe the ordering above, and
+cheaper than asking for a log the reporter may no longer have.
 
 ## Patch, and the traps around it
 

@@ -69,6 +69,20 @@ explain a slowdown *or* a rejection:
   is 1 = NZ for quantized weights only.
 - `multistream_overlap_shared_expert` is MoE-with-shared-experts only
   (`additional_config.md:78`), so on a dense model it is not a lever.
+- An `export` block is the same question, one level up: reporters copy it from the tab
+  of some *other* SoC or model, so most of it can be provably inert before it is even a
+  candidate. At v0.23.0rc1 (`f4a08bbd`) `USE_MULTI_GROUPS_KV_CACHE` is a module constant
+  (`vllm_ascend/patch/platform/patch_kv_cache_coordinator.py:35` `= True`), not an env
+  read, so exporting it changes nothing; `USE_MULTI_BLOCK_POOL` has no reader anywhere
+  (its only occurrence is a commented `#export` in `docs/source/tutorials/models/GLM5.2.md:316`);
+  `ACL_OP_INIT_MODE` occurs in tutorial shell blocks and CI yaml only; `HCCL_BUFFSIZE` is
+  set in docs/CI but read by no Python line (the consumer is CANN/HCCL — `utils.py:1109-1111`
+  only *comments* on it when fitting pg_options to an `mc2` group). Classify a whole block
+  in one call: `uv run --no-project python <skill_root>/scripts/env-knob-liveness.py
+  --root <vllm-ascend> --vllm-root <vllm> <NAME> …` (or `--from-paste launch.sh`), and see
+  `../runtime-memory/allocator-expandable-segments-unmap-crash.md` §*If the same reporter
+  returns …* for the recorded 310P block (#12534) — the same diff that shows the model's
+  own 310P tutorial tab carries none of those exports.
 
 Both belong in the answer as "this line does nothing on your model", with the
 `path:line`. Do not turn the silent no-op into a cause: on refs whose schema is

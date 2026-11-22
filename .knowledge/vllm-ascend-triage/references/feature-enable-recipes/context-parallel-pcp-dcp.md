@@ -23,18 +23,57 @@ At v0.19.1rc1 **no A2 recipe for DeepSeek-V3.2 + PCP is validated**:
   `tests/e2e/nightly/multi_node/config/DeepSeek-R1-W8A8-longseq.yaml` and
   `Qwen3-235B-W8A8-longseq.yaml`, whose `npu_per_node: 16, num_nodes: 2` is an A3
   (910_93) pair.
-- The nearest human evidence is precedent-only and partial: #8580 (v0.18.0rc1,
-  2×A2, TP8 / PCP2 / DCP8, `--cp-kv-cache-interleave-size 128`) reports that the
-  deployment **serves short prompts and dies around 32K input tokens on A2**
-  (~64K on A3) with `AclrtSynchronizeStreamWithTimeout ... 507015` at
-  `sfa_cp.py` `_execute_indexer_select`. So PCP does come up on A2 for V3.2 at
-  0.18.0rc1 — it is not usable long context, and nothing in that report covers a
-  w8a8/w4a8 **mtp QuaRot** weight set.
+- The nearest human evidence is precedent-only, partial, and SoC-specific — spell the
+  SoC out, because it is the whole answer:
+  - #8580 (v0.18.0rc1, **2×A2 / 910B2** per its own dump, TP8 / DP1 / PCP2 / DCP8,
+    `--no-enable-expert-parallel --cp-kv-cache-interleave-size 128`,
+    FULL_DECODE_ONLY) **serves short prompts and dies around 32K input tokens on
+    A2** (~64K on A3) with `AclrtSynchronizeStreamWithTimeout ... 507015` at
+    `sfa_cp.py` `_execute_indexer_select`. Plain `DeepSeek-V3.2-W8A8` weights.
+  - #8579 (v0.18.0rc1, **2×A2 / 910B2** in its `npu-smi` block, TP8 / DP1 / PCP2 /
+    DCP1, `--no-enable-expert-parallel`) comes up and **serves with degraded
+    accuracy**: an A2 PCP2 run that starts is still not usable.
+  - #8578 (same A2 shape, PCP2 / DCP8 with EP on and MTP) dies on *short* inputs with
+    `AttributeError: 'PCPManager' object has no attribute 'mtp_slot_pad'`.
+  - #7375 (v0.13.0, **A3**, `DeepSeek-V3.1-Terminus-w4a8-mtp-QuaRot`, TP8 / DP1 /
+    PCP2) fails with a tensor mismatch. It is the corpus's **only**
+    `*-mtp-QuaRot` × PCP report, it is on the *supported* SoC, and it is a failure.
+  - #7305 (v0.13.0, **A3**, Qwen3-235B, PCP2 / DCP2) is the corpus's only *working*
+    CP datapoint, and it is filed as a performance regression.
+
+  So: no `*-mtp-QuaRot` weight set has a success report with PCP on any SoC, and on
+  A2 the plain W8A8 set comes up under PCP2 only with the defect each report carries.
 
 The honest answer is therefore three sentences: what the docs claim (A3-only), what
-the only precedent shows (A2 runs to ~32K then fails, v0.18.0rc1, different
-weights), and that DCP alone has no separate A2 validation either. Then the
-constraints and the staged experiment.
+the precedents show (A2 runs plain W8A8 under PCP2 and then fails by length, accuracy
+or `mtp_slot_pad`, v0.18.0rc1, none of them a QuaRot set), and that DCP alone has no
+separate A2 validation either. Then the constraints and the staged experiment.
+
+## 1b. The follow-up the verdict must pre-empt
+
+Recorded #8984, second round: the answer **did** open with "no validated A2 recipe"
+and then handed two launchers; one day later the same reporter's next public comment
+was 「有人在 A2 机器上成功跑通过 DeepSeek-V3.2-w8a8-mtp-QuaRot 开启 PCP 特性吗?」
+(`#issuecomment-4412075282`, 2026-05-09). "Not validated" does not answer "has anyone
+ever run it", so the first message must carry the **corpus sentence** too, and the
+search that produces it belongs with the verdict (the recorded run ran it at turn 40
+of 45, after the source walk, so it could no longer shape the answer):
+
+```bash
+bash <skill_root>/scripts/history-titles.sh -i 'PCP|DCP|context.parallel|长序列'
+```
+
+> 10 hits at this snapshot: 3 RFCs (#4310, #4312, #6764) and 7 failure reports. No
+> success report for any `*-mtp-QuaRot` weight set on any SoC; the A2 reports are all
+> plain `DeepSeek-V3.2-W8A8` with a defect (#8578 / #8579 / #8580); the only working
+> CP datapoint is A3 Qwen3-235B (#7305). Comments and PRs are outside this snapshot,
+> so "nobody in the searchable corpus reports success" is the strongest claim the
+> tooling supports — say it in that form, not "impossible".
+
+Two failure modes to avoid when writing that sentence: do not promote a *different*
+weight set's A2 datapoint to the reporter's (`#8580` is `DeepSeek-V3.2-W8A8`, never
+`-mtp-QuaRot`), and do not let a launcher you still hand back contradict your own
+card arithmetic (§5 rung 1).
 
 ## 2. Constraints the code enforces (map each to its error text)
 
@@ -231,7 +270,16 @@ nothing else changed (§4b).
 
 1. DCP only, co-located, short input: `--tensor-parallel-size 8
    --decode-context-parallel-size 2 --max-model-len 8192 --enforce-eager` — no
-   extra cards, no PD assertion, no env var.
+   extra cards, no PD assertion, no env var. **Check the weight set fits one node
+   first**: at this pin `docs/source/tutorials/models/DeepSeek-V3.2.md:20` puts
+   `DeepSeek-V3.2-w8a8` on 1×A3 (64G×16) or **2×A2 (64G×8)**, so a single 8-card A2
+   node cannot hold that set and rung 1 has to stay a two-node launch (TP8 / DP1 /
+   DCP2, `--nnodes 2 --node-rank N`); only a set that actually fits one node does
+   (compare the checkpoint's size with `cards × card HBM × --gpu-memory-utilization`,
+   and note the tutorial lists no w4a8 row at all, so its A2 node count is the only
+   published one). The recorded #8984 answer quoted the 16-card requirement
+   and then gave "A2 单机 8 卡, DCP=2" in the same message — keep the rung consistent
+   with the tutorial's own node count for the reporter's weight set.
 2. Add `--prefill-context-parallel-size 2` only after setting
    `--data-parallel-size 1` (world = tp × pcp) and
    `VLLM_ASCEND_ENABLE_CONTEXT_PARALLEL=1`.

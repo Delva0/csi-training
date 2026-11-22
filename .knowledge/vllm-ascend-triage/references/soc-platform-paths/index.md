@@ -126,6 +126,19 @@ Conditional routes:
   an arm64 tag that pulls amd64, an aarch64 wheel) — an image/wheel pipeline
   question, not a platform code path →
   `../image-dependency-faults/image-arch-and-tag-availability.md`.
+- Weights finish loading (`Loading model weights took … GB`), then the next device
+  line is `[ERROR] the socversion <A> of bin package does not match the current device
+  socverison <B>. Please modify default socversion in run.sh or execute run.sh with
+  socversion parameter.` (note the `socverison` typo; typically `A=Ascend910B1`,
+  `B=Ascend310P3`): an **artifact/binary** mismatch one stage after the Python-side
+  stamp assertion below — `A` is the build stamp, `B` the live SoC, and the string
+  lives in **no** pinned tree, so grep `references/` once instead of the repos. Ask
+  image-vs-pip before ranking: a generic PyPI wheel is A2-stamped by construction, so
+  the pip case is answered by the stamp and a source build with `SOC_VERSION` (both
+  vllm and vllm-ascend), and raising CANN only rewrites the error into the
+  `[tbe-custom] … not found in this op store` family →
+  `atlas-300i-310p.md` (its `bin package` section),
+  `device-type-build-vs-runtime.md` (stamp one-liner, variant wheel).
 - Engine start dies at `worker.py` `check_ascend_device_type()` before
   `Starting to load model`: `AssertionError: Current device type: AscendDeviceType.A5
   does not match the installed version's device type: AscendDeviceType.A2`, or

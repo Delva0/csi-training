@@ -175,8 +175,18 @@ The natural first guess — "the reporter must have enabled the Ascend scheduler
   not prove the fork is in play** — and it still prints after the reporter applies
   the `backend` escape below, so its continued presence is not evidence the escape
   failed. The gate test is the assignment line
-  (`grep -n "ascend_scheduler_config.enabled = True" …/platform.py`) or the
-  reporter's own successful `guided_*` request;
+  (`grep -n "ascend_scheduler_config.enabled = True" …/platform.py`) **or the
+  paste's own deepest `vllm_ascend` frame**: a traceback ending in
+  `vllm_ascend/core/scheduler.py:<line>` *is* the fork executing, so it settles the
+  question on pins this snapshot does not carry (recorded #3979's reporter ran
+  `0.11.0` final) with no grep on their tree. The inverted check costs the same and
+  is the one to state when a request works: while the fork is the scheduler **no**
+  structured-output request can succeed, because every `WAITING_FOR_FSM` request
+  reaches that `else: raise` (re-greped at `00ba0710` — the file's only
+  `WAITING_FOR_FSM|Invalid request status|grammar_bitmask` hits are the raise at
+  `:274` and the empty payload at `:475-476`), so a *working* `guided_*` request on
+  the same server proves the fork is **not** in the path and this page is not the
+  answer;
 - **v0.11.0rc1 has no such block**: `grep -n "ascend_scheduler" vllm_ascend/platform.py`
   at `c5fe179cef7f` (read from the #4309 snapshot, not this case's) shows only the
   opt-in gate at `:288`. So the
@@ -210,6 +220,16 @@ vllm-ascend one**, because the same vllm-ascend tree serves both:
 Only if the reporter needs the fork (graph-mode performance, a recipe that requires
 it) does the three-site patch matter — and say plainly that a partial patch degrades
 to the silent non-enforcement above.
+
+**Deliver the escape and the two-gap warning, not a table.** Once the first
+paragraph carries the ordered escapes with their acceptance check, a ranked-cause
+table that restates them row by row adds nothing and is what pushes the scope, the
+recheck grep and the ask list past the output cap — the more so in a Chinese answer,
+where the message spends the same budget at ~2-3 characters per token. Recorded
+#3979 re-verification at the reported pins: verdict, four escape rungs and the
+two-gap warning shipped, the cut landed inside row 4 of the ranked table, and the
+version scope plus the "send me this" list were lost. Keep one or two rows carrying
+the anchors the verdict needs, then the scope.
 
 ## Capability verdict and coverage
 
@@ -250,11 +270,14 @@ on it, and do not send the reporter to xgrammar or the model.
 
 - Mechanism verified at vllm-ascend `v0.11.0rc0` / vllm `v0.11.0rc3` and at
   `v0.10.2rc1` / vllm `v0.10.2` (#3904); the rc1 comparison comes from the
-  `v0.11.0rc1` tree in the #4309 snapshot. The reporter was
-  on `0.11.0` final, which this snapshot does not carry, so whether the final release
-  keeps the rc0 force-enable or the rc1 opt-in behaviour — and whether the FSM status
-  is handled there — is **open**: phrase it as the grep in step 1 of the escape,
-  never as a finding.
+  `v0.11.0rc1` tree in the #4309 snapshot. #3979's reporter was on `0.11.0` final,
+  which this snapshot does not carry, so what stays **open** is *why* the fork was
+  the scheduler in their run — final's own force-enable, an rc1-style opt-in they set
+  in `--additional-config`, or an image default — and whether final handles the FSM
+  status. The *classification* is not open: their traceback carries a
+  `vllm_ascend/core/scheduler.py` frame, so the fork ran and the escape applies under
+  either reading. Phrase the open half as the grep in step 1 of the escape, never as
+  a finding.
 - Recheck in one command at the reporter's ref:
   `grep -n "WAITING_FOR_FSM" $(python -c "import vllm_ascend,os;print(os.path.dirname(vllm_ascend.__file__))")/core/scheduler.py`
   — a branch plus a non-empty `grammar_bitmask` computation means fixed; only a

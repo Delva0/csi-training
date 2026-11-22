@@ -51,16 +51,43 @@ field"; the pydantic version in the URL moves with the image, so match the error
 
 ## Procedure
 
-1. Grep the key in the pinned tree: `rg -n '<key>' vllm_ascend/ascend_config.py`.
-   Three outcomes:
-   - a field of a nested `@config` class (`AscendCompilationConfig`,
-     `SchedulerConfig`, `SparseKVOffloadConfig`, `XLiteGraphConfig`, …) → it must
-     be **nested**, under the key that names that class on `AscendConfig`
-     (e.g. `{"ascend_compilation_config": {"fuse_muls_add": true}}`);
-   - a top-level `AscendConfig` field → the flat form is right and the reporter is
-     on an older/newer image, so check the version before theorising;
-   - absent everywhere → it was removed; check `_NON_USER_INPUT_KEYS` (a stripped
-     name only warns) and the docs table before calling it a typo.
+1. **Grade every key of the command in one call, not only the reported one:**
+   `uv run --no-project python <skill_root>/scripts/additional-config-key-audit.py
+   --tree <the vllm-ascend checkout> --json '<the --additional-config JSON>'`, or
+   `--doc docs/source/tutorials/models/<model>.md [--line N]` to audit the tutorial
+   line the reporter copied (that line is in the pinned tree, so no paste is
+   needed). It parses `ascend_config.py` and prints the **schema generation** first:
+   - STRICT (`@config` pydantic dataclass, `extra="forbid"`): one row per key as
+     `OK` (top-level, keep flat), `OK-PARENT` (the key that carries a nested class,
+     e.g. `scheduler_config` — keep it and put its fields inside),
+     `NEST-REQUIRED` (fatal; names the parent key to nest under), `WARN-STRIPPED`
+     (in `_NON_USER_INPUT_KEYS`, dropped before validation) or `UNKNOWN` (fatal:
+     removed, or misspelled), then a corrected `--additional-config` string.
+   - PERMISSIVE (`AscendConfig.__init__` reading `additional_config.get`, the
+     pre-`@config` generation): nothing is fatal — `FLAT-READ` / `NEST-ONLY` /
+     `IGNORED` — so a pydantic `unexpected_keyword_argument` cannot have come from
+     this module at that pin: check the installed version, or the named key belongs
+     to another model in the traceback. Verified on both generations with flat
+     `fuse_muls_add`: `NEST-ONLY` (silently inert) at v0.26.0rc1 `f2f74a1`,
+     `NEST-REQUIRED` (fatal) at v0.27.1rc1 `3b31886` — which is why the same
+     tutorial line served on an older image and now refuses to start.
+   Fallback when the parse returns nothing for a class (`**kwargs`-only or
+   generated): `rg -n '<key>' vllm_ascend/ascend_config.py`, three outcomes —
+   nested-class field (must be nested, e.g.
+   `{"ascend_compilation_config": {"fuse_muls_add": true}}`); top-level
+   `AscendConfig` field (flat is right, check the version); absent everywhere
+   (removed — check `_NON_USER_INPUT_KEYS`, where a stripped name only warns, and
+   the docs table before calling it a typo).
+   **A one-key answer is usually wrong.** Auditing every `--additional-config`
+   line under `docs/source/tutorials/models/` at v0.27.1rc1 `3b31886` leaves three
+   pages whose commands still carry a key that is fatal at that pin: `GLM5.3.md`
+   `:310,369` (`fuse_muls_add`), `InternVL3.5.md:116,158`
+   (`enable_weight_nz_layout` — absent from `vllm_ascend/`, only a test script still
+   reads it) and `Qwen3-Dense.md:539` (`weight_prefetch_config`, same),
+   while the GLM5.2 lines print `recompute_scheduler_enable` /
+   `enable_balance_scheduling` flat too (`:608,676`, `:163`), which are stripped and
+   therefore warning-only. So the answer carries the whole line's severity column —
+   fatal / inert / fine — not the reported key plus "send me the next error".
 2. Read the field's **default**. If the default already equals the value the
    reporter wants, the cheapest action is to delete the key — the reported
    `input_value=True` then changes nothing (`fuse_muls_add: bool = True`,
@@ -72,9 +99,10 @@ field"; the pydantic version in the URL moves with the image, so match the error
    scripts are based on an older release truncates its own authority — the answer
    is "doc bug at this ref" plus the corrected JSON.
 4. Answer: verdict (config-nesting/removed-key, not a defect or the card), the
-   one-line corrected `--additional-config`, the `path:line` proof from step 1,
-   the default that makes deletion safe, then the warnings-only leftovers. Stop —
-   this lane needs no plog, no `npu-smi`, no HCCL theory.
+   corrected `--additional-config` from step 1, the per-key severity column (fatal
+   vs warning-only, so the fix does not just move the error to the next key), the
+   `path:line` proof, and the default that makes deletion safe. Stop — this lane
+   needs no plog, no `npu-smi`, no HCCL theory.
 5. One history grep (`scripts/history-titles.sh '<key>'`) tells you whether the key
    was *ever* top-level; the count of earlier issues using the flat form is the
    doc-drift argument, not a second investigation.

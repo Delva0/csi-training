@@ -42,6 +42,22 @@ after that keeps the header, not this text.
   reporter runs inside their own container plus the diff against the same-tag image.
   Exit 0 always, 2 on a missing checkout or unknown `--soc`. Step 1 of
   `../image-dependency-faults/image-recipe-inventory-and-diff.md`.
+- `scripts/additional-config-key-audit.py [--json '<additional-config JSON>'] [--doc <tutorial.md>
+  [--line N]] [--tree <vllm-ascend root> | --config-file <.../vllm_ascend/ascend_config.py>]`
+  — grades every `--additional-config` key in one call against the pinned
+  `AscendConfig` (#18130: the v0.27.1rc1 GLM5.3 tutorial prints `fuse_muls_add` flat).
+  Prints the **schema generation** first — `STRICT` (`@config` pydantic dataclass,
+  `extra="forbid"`) or `PERMISSIVE` (plain `__init__` + `additional_config.get`, the
+  pre-`@config` era) — then one row per key: `OK` / `NEST-REQUIRED` (fatal, names the
+  parent key to nest under) / `WARN-STRIPPED` (`_NON_USER_INPUT_KEYS`) / `UNKNOWN`
+  (fatal) on a strict pin; `FLAT-READ` / `NEST-ONLY` / `IGNORED`, **none fatal**, on a
+  permissive one, where a pydantic `unexpected_keyword_argument` therefore cannot come
+  from this module. `--doc` audits every `--additional-config '{...}'` line of a model
+  tutorial, i.e. grades the reporter's whole command without waiting for a paste, and
+  the run ends with a corrected `--additional-config` string. Flat `fuse_muls_add` is
+  `NEST-ONLY` at v0.26.0rc1 `f2f74a1` and `NEST-REQUIRED` at v0.27.1rc1 `3b31886`.
+  Exit 0; 2 on a missing schema file or unparsable JSON. Step 1 of
+  `../startup-failures/additional-config-schema.md`.
 - `scripts/logprob-bucket-fit.py --row 'P_LOW,P_HIGH,N,MEAN_ABS' [--row …]
   [--vocab 152064] [--spread 2.0]` — the cross-platform logprob table in one call
   (#18755, 910B2C vs an H100×2 golden). Prints each bucket's `mean|Δ log p| / (1-p)`
@@ -607,3 +623,23 @@ after that keeps the header, not this text.
   cleanly and then breaks the layer that trusts the newer major (#7876). The torch /
   torch-npu / torchvision trio and the release compatibility matrix stay in
   `pip-pairing-check.sh`; this one is for any other package.
+
+- `scripts/env-knob-liveness.py [NAME …] --root <vllm-ascend-root> [--vllm-root <vllm-root>]
+  [--from-paste <launch.sh>] [--max-hits N]` — is each export in a pasted launch block a
+  lever **at this pin**? Prints one verdict per name — `LIVE` (a code path reads it via
+  `os.environ.get`/`getenv`/`environ[…]`), `LIVE-UPSTREAM` (read only in vllm, so a
+  downstream `patch/**` may bypass it), `SET-ONLY` (set in docs/tests/CI but read by no
+  Python here — the consumer is CANN/HCCL/another component, or the spelling is stale),
+  `CONSTANT` (only a module constant shares the name), `COMMENTED` (only inside comments),
+  `ABSENT` — plus up to `--max-hits` `path:line` sites each. `--from-paste` harvests the
+  names from a script (`export X=…`, `- X: …`, `"X": …`). Originating case #12534
+  (v0.23.0rc1 `f4a08bbd`): of five exports in the reporter's 310P block,
+  `USE_MULTI_GROUPS_KV_CACHE` is `CONSTANT` (`patch_kv_cache_coordinator.py:35`) and
+  `USE_MULTI_BLOCK_POOL` is `COMMENTED` (`GLM5.2.md:316`) while `HCCL_BUFFSIZE` /
+  `ACL_OP_INIT_MODE` are `SET-ONLY`, so only `HCCL_OP_EXPANSION_MODE` and the allocator
+  value could move anything. Step 3 of
+  `../runtime-memory/allocator-expandable-segments-unmap-crash.md` §*If the same reporter
+  returns …*; the rule also feeds
+  `../feature-enable-recipes/per-soc-recipe-and-quantized-weights.md` §*Prune the flags
+  that provably do nothing*. It reports sites, not causes: a `LIVE` verdict only says the
+  knob is reachable.

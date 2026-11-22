@@ -248,7 +248,10 @@ Worked for #8579 — DeepSeek-V3.2-W8A8, `--nnodes 2 --tensor-parallel-size 8
 FULL_DECODE_ONLY, v0.18.0rc1 (`99e1ea0f`). The deliverable is a **coverage** statement plus
 one flag. The recorded replay spent 26 assistant turns and 2.0 M prompt tokens inside
 `prepare_finalize.py` / `moe_comm_method.py` / `fused_moe.py` and emitted **no answer text
-at all** — the turn it matched this page's precedent was the turn the verdict was owed.
+at all** — the turn it matched this page's precedent was the turn the verdict was owed. A
+later replay of the same case stayed on this ladder (coverage rows, the EP flag, the
+selector's line) and shipped the coverage verdict plus the three rungs in 14 assistant
+turns / 11.6 K output tokens.
 
 - **One flag swaps the MoE communication strategy, so name which phase differs.**
   `vllm_ascend/ascend_forward_context.py:237-238`:
@@ -270,10 +273,17 @@ at all** — the turn it matched this page's precedent was the turn the verdict 
   neither keeps the PCP-aware branch. The sibling `_prepare_with_ep_group` has no PCP
   gather at all.
 - **One code asymmetry is worth one check, labelled a hypothesis.** The PCP branch records
-  `self.num_tokens_pcp` (`:399`) and never slices it back, while the DP branch slices
-  `[: self.num_tokens]` on return (`:436-437`): with differing per-rank PCP token counts
-  the pad rows stay in the reduced output. Ask for `max_tokens_across_pcp` beside the local
-  count, or run one launch with `--max-num-batched-tokens` a multiple of `pcp`. It predicts
+  `self.num_tokens_pcp` (`:400`) and never slices it back, while the DP branch
+  (`_finalize_with_dp_group`, `:455`) slices `[: self.num_tokens]` on return (`:467`,
+  right after the DP reduce-scatter at `:466`): with differing per-rank PCP token counts
+  the pad rows stay in the reduced output. Anchor lines in this file at `99e1ea0f`, since
+  the offsets drift between releases: PCP prepare block `:397-413` (pad `:403-404`,
+  PCP all-gather `:406-412`), `_finalize_with_dp_group` `:455`, DP reduce-scatter `:466`,
+  DP slice `:467`, PCP reduce-scatter `:469-470`. Re-grep and quote the enclosing branch
+  rather than announcing a "drift": a replay of this case told the reporter the page's
+  `:469-470` had moved to `:471-472`, which the pinned file does not support. Ask for
+  `max_tokens_across_pcp` beside the local count, or run one launch with
+  `--max-num-batched-tokens` a multiple of `pcp`. It predicts
   a *batch-shape-dependent* degradation, so a metric that is stable at one shape and worse
   at another supports it and a uniform shift does not.
 - **Coverage, quotable, never the cause:** every variant of the tree's own CP-vs-TP

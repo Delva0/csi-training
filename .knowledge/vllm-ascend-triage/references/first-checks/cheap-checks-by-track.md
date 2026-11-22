@@ -444,8 +444,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
 - Device allocation failure before the engine is ready
   (`Memory_Allocation_Failure(EL0004)`, `runtime result = 207001`, `507013`
   plus SDMA/SMMU text) at a KV-cache or weight `npu_format_cast`: read
-  timestamps, treat the cast frame as the allocation site, and shrink the pool
-  (`--max-model-len`, then `--gpu-memory-utilization`) before any
+  timestamps, treat the cast frame as the allocation site, and test
+  `peak + 2 × pool` against `total memory:` — the raw int8 pool and the converted
+  tensors are both live, so the lever is **halving** `--gpu-memory-utilization`
+  (0.4-0.5) while `--max-model-len` does not move the pool in V1 — before any
   driver/hardware theory
   (`../runtime-memory/kv-init-and-format-cast-alloc.md`).
   If instead the frame is `torch.npu.empty_cache()` and the text is

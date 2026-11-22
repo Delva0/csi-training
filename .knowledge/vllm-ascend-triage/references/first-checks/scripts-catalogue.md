@@ -184,9 +184,11 @@ after that keeps the header, not this text.
   `../tutorial-verification/missing-guidance-and-contributor-docs.md` §*The weights
   mirror is the other half*.
 - `scripts/reference-locate.py TOKEN [TOKEN …] [--root DIR] [--max N] [--min-grade N]
-  [--regex] [--case] [--quiet] [--issue N]` — step 2b's page-location grade in one call.
+  [--regex] [--case] [--quiet] [--issue [N]]` — step 2b's page-location grade in one
+  call.
   Pass `--issue <the report's own id>` and a `[case arrows]` block above the grades marks
-  that entry `[YOUR CASE]` with its `sed` range — the own entry is an earlier run of the
+  that entry `[YOUR CASE]` with its `sed` range; omit the flag when the paste carries no
+  id (a bare `--issue` is ignored, not an error) — the own entry is an earlier run of the
   case and beats the topical page beside it. One token
   per argument, taken from the paste: the error sentence, the attribute/function/op/
   kernel name, a numeric code, a flag, a symptom phrase. Prints each token's file count

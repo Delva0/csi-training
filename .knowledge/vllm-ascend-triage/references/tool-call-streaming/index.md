@@ -99,7 +99,10 @@ call** rather than about prose. Entry shapes, in the order they were recorded:
   DeepSeek-V3 extractor saw the start marker, matched no complete call, and
   returned `tools_called=True` with zero calls and `content=None`
   (`deepseek-parser-silent-drop.md`). Both halves are the answer: the first
-  shape is a missing parser, the second is a parse failure, not a fix.
+  shape is a missing parser, the second is a parse failure, not a fix. Rung 0
+  there is the body, not the serve line: both front-end paths consult the parser
+  only when the request carries a `tools` array (`serving_chat.py:1069-1072`,
+  `:1225-1236`), so flags added to a system-prompt-primed body change nothing.
 - **the stream itself dies server-side mid-request**, not at the client:
   `Error in chat completion stream generator` then a traceback whose deepest
   `vllm_ascend` frame is a `patch/**` tool-call parser returning `DeltaMessage(...)`,

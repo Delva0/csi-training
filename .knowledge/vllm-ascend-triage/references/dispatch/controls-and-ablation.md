@@ -4,13 +4,14 @@
 
 Rule 15 of `SKILL.md` in full. The rule is short — a working sibling path in the
 reporter's own evidence constrains the cause, and a mechanism that also predicts the
-working path failing is not yet the answer. This page carries the seven forms that
+working path failing is not yet the answer. This page carries the eight forms that
 recur, each with the recorded cost of getting it wrong, and the reasoning each one
 licenses:
 
 | Form | What it decides | Section |
 |---|---|---|
-| a sibling entry point, flag, model or card works | which mechanism is *excluded* before ranking | first |
+| a sibling entry point, flag, model or card works — or a second entry point fails identically | which mechanism is *excluded* before ranking, and whether the second path even leaves the lane | first |
+| a sibling **already ran the lever you are about to recommend** and died | that rung is spent, and its size is priced | *A sibling that already ran your rung* |
 | the **same** server answers request 1 and dies on request 2 | the two requests' *scheduler input state* is the variable, and the dumped `SchedulerOutput` names it | *A first request that works* |
 | your own ablation (`--enforce-eager`, a spec/async toggle) | which *phase* was removed, whether the paste proves it ran, and whether the knob is also an argument to the suspect's own computation | *Your own ablations* |
 | a workaround named in the report's prose | which rung is first | *A named workaround* |
@@ -40,6 +41,40 @@ not a knob (one `check_and_update_config` gate, the same V1 selection, and a dum
 forward *inside engine init* on both paths — §4 of that page), so those two log
 lines interrogate the *process*, and "serve defaults to no acl graph" needs one
 grep to rule out instead of a round trip.
+
+**The inverse also holds: a second entry point that fails the same way excludes only
+that entry point, not a lane both enter by default.** "Offline `LLM()` fails too, so it
+is not `vllm serve`" is a scope narrowing, not a graph ablation, whenever both paths
+default into the same lane — establish each entry point's *default mode* before
+crediting the second failure, then make the discriminating run the cheap one (offline
+`LLM(..., enforce_eager=True)` rather than another server launch). Recorded #2974's
+follow-up needed exactly that correction: offline `LLM()` is PIECEWISE unless
+`enforce_eager=True` (`../pipeline-parallel/pp-nonlast-rank-output-contract.md`).
+
+## A sibling that already ran your rung
+
+The same test read backwards prices the rung you are about to ship. When the corpus
+carries a report at the **same pin, image tag and card** that already ran the exact lever
+you are recommending and died at the same frame, that lever is spent — quote the sibling,
+say what its numbers were, and move the rung to the size the arithmetic actually needs
+instead of the next increment.
+
+The recorded case: #3316 (`v0.11.0rc0不支持Atlas 300I`, 310P3, `_convert_torch_format` →
+`507013` + `EL0004`) got `--gpu-memory-utilization 0.9 → 0.80` as rung 1, with the
+prediction that 4.96 GB of freed card covers a 3.35 GB conversion window. #3479 — the same
+`-310p` tag, the same 310P3 card, the same pin — had **run `0.8`** and died at that same
+frame, and the reporter's own later paste (a 93.96 GB 310P1 with a 0.6B model, ~5.7 GB of
+nominal slack) died there too. Two things were wrong, and only the second is about the
+sibling: the window was not one layer's copy but a second whole pool (the raw int8
+buffers and the converted tensors are both live, `kv_cache_raw_tensors` /
+`kv_caches`), so the requirement was `peak + 2 × pool ≤ total` — 1.7 × the card on both
+boxes — and a 10 % trim cannot pay for it. The sibling is what makes the increment
+untestable rather than merely insufficient: a rung that has already failed at the reported
+configuration produces no information, so it must not be sent as the cheapest next step.
+Search it before writing the ladder (`rg -n '<the flag>=?<value>'`
+`<skill_root>/references/` plus the issue family), and state it in the message as the
+reason the step is a halving rather than a trim. The mechanism and the numbers are in
+`../runtime-memory/kv-init-and-format-cast-alloc.md`.
 
 ## A first request that works: the scheduler state, not a warm-up
 

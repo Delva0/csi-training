@@ -47,6 +47,53 @@ v0.13.0rc1 it admits "The functional break on Qwen3-Next … is fixed, but it
 introduces a regression on performance … #5357". A version-vs-version report can
 be answered by the project's own admission, and that line outranks every flag.
 
+## Step 1b — if the two sides are vendor build tags, the whole stack moved
+
+The two sides are often not `vX.Y.Z` releases at all. Ascend's own dev/monthly image
+line numbers its builds `<yy>.<n>.<x>.B<build>` —
+`vllm-ascend:dev-26.1.0.B050-cann9.0.0-800I-A2-py311-Ubuntu24.04-lts-aarch64`
+(`../tutorial-verification/tutorial-command-audit.md:508`, quoted again in
+`../tutorial-verification/community-test-report.md:109`), the same `<line>-800I-A2`
+form that `../startup-failures/no-npu-in-container.md:198` reads as the MindStudio-26
+line beside `7.2.RC1` — and the body may abbreviate one as `26.1.0-B050` /
+`26.0.0-B150`. Recorded #12349 (A3 four-machine 2P1D DeepSeek-V3.1-Terminus,
+`26.1.0-B050` 12372 tok/s against `26.0.0-B150` 14540 tok/s, title naming
+`release/v0.18.0` instead).
+
+- **An empty grep for the build number proves nothing.** At v0.22.1rc1 every header in
+  `docs/source/user_guide/release_notes.md` is `## vX.Y.Z — date` and
+  `scripts/sources-summary.sh` lists vllm-ascend as `vX.Y.Z` rows, so
+  `rg '26\.[01]\.0' docs/source/user_guide/release_notes.md` returning 0 is a **naming
+  property**: say the number is a vendor build identifier, not a vllm-ascend release,
+  and ask which image (and which CANN) it is — do not read the empty result as "the new
+  build postdates every pin", because `B<build>` counts builds inside a line and says
+  nothing about a `v0.22.1rc1` ordering.
+- **The vllm-ascend release each image carries is inside the image — and so is CANN.**
+  The tag above spells CANN (`cann9.0.0`), hardware (`-800I-A2`) and python/OS, so a
+  monthly-to-monthly delta can be **CANN / NNAL / driver** rather than the plugin. One
+  command per image decides which layer moved: `pip list | grep -iE 'vllm|torch-npu'`
+  plus the tag's CANN part (`/usr/local/Ascend/ascend-toolkit/latest/version.cfg`).
+  Until both sides report the same CANN + NNAL, "vllm-ascend regressed" is one of two
+  readings — and say that the baseline is then still unidentified: a title naming
+  `release/v0.18.0` beside a body naming a `26.0.0` build is a contradiction to name in
+  the first message, never to resolve by guessing which one is meant.
+- **The same delta on two hardware generations or layouts is a layer argument, and it
+  is free.** "A2 大EP 也存在相同程度的劣化" beside an A3 4-machine 2P1D number says the
+  shared layer moved — the device-op/kernel package, the attention family (v0.19.1rc1
+  swapped `npu_fusion_attention` for `_npu_flash_attention_unpad` on **A2 and A3**,
+  `release_notes.md:382`, Performance section `:434`, #8671), a scheduler or graph
+  default, or a silently changed env default (§2) — and argues against a per-SoC policy
+  such as A3's CPU-binding slice or A2's hidden-NPU overlap (§2b). Rank the shared layer
+  above the per-SoC lever, state that the reporter's own sentence is the evidence for
+  that ordering, and leave the cause open until §2b's A/B or one op-summary says which.
+- **The throughput ratio has a second factor: tokens per step.** On a spec-decode serve,
+  a version comparison is `step time × tokens/step`, so ask for both builds'
+  `Mean acceptance length` / `Avg Draft acceptance rate` before pricing any engine
+  candidate — a drop from ~1.9 to ~1.6 is the same −15 % with no kernel change. The
+  two-build row and the metric reading are `../spec-decode-mtp/acceptance-collapse.md`;
+  the rate arithmetic is `cross-run-ratio-normalization.md`. Leave the mechanism open
+  until both sides report that number.
+
 ## Step 2 — the old script loses levers silently, so "same conditions" is false
 
 Each line below is a *silent* no-op: the flag is accepted, nothing errors, the

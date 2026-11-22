@@ -60,6 +60,32 @@ different parallelism (the validated 4-node w8a8c8 PD e2e splits
 The quant width is then the least isolated variable in the table. Ask for both
 `--additional-config` blocks verbatim before ranking a kernel-level cause.
 
+## Step 2b — The model tutorial is the published-weight inventory, and its node counts are the validated parallelism
+
+Before ranking a width, read what the pin actually ships for that model:
+`rg -n 'w[0-9]a[0-9]|QuaRot|require [0-9]+ Atlas|node' docs/source/tutorials/models/<Model>.md`.
+A width the page does not list has **no validated recipe at the pin**, and saying so
+with the line is the scope sentence of the answer. Recorded #8179: for
+`Qwen3.5-397B-A17B` at v0.18.0rc1 the Model Weight block lists only BF16 ("2 Atlas
+800 A3 (64G × 16) nodes or 2 Atlas 800 A2 (64G × 8) nodes") and `…-w8a8`
+("1 Atlas 800 A3 … or 2 Atlas 800 A2", `Qwen3.5-397B-A17B.md:21-22`) — no w4a8 and
+no QuaRot — so the reporter's community/self-converted w4a8 is outside every
+validated recipe, and their BF16-vs-w4a8 rows also ran on **different node counts**
+by the page's own arithmetic. That is Step 1's confound in its cheapest form: the
+width and the TP/DP/EP layout moved together, so ask which layout each row used
+before pricing any quant loss.
+
+Two riders for the **VL / agent-grounding** metric (action and mouse-click
+coordinate correctness, 93.34 % vs 94.86 % in #8179): a 1.5-point single-run gap
+sits inside this lane's noise band (Step 3) until the same weights are scored twice,
+so the first rung is a repeat run, and the input side is not free either — the same
+image through `AutoProcessor` and through the engine must agree on `image_grid_thw`
+and `prompt_tokens` (`vl-grounding-coordinate-drift.md` step 2 squeezes
+`max_pixels`/`smart_resize`). Then the published sibling (`…-w8a8-mtp`) on the same
+serve line decides converter-versus-engine. If the same report also complains that
+**spec-decode acceptance fell after the rotation was added**, that is a different
+owner and a different page: `../spec-decode-mtp/quarot-rotation-basis-draft-acceptance.md`.
+
 ## Step 3 — This lane's own documented noise floor is 2–3 points
 
 At the pin (`docs/source/user_guide/release_notes.md`):

@@ -279,8 +279,10 @@ model path with the `profile_run` shapes.
 Verified against vllm-ascend v0.14.0rc1 (`52d4acfa`) + vllm v0.14.1 (`d7de043d`),
 recorded for **#6370** ("The x86 image of vllm-ascend v0.14.0rc1 … `zeros_like.json` is
 invalid or does not exist"), **resolved by the original reporter**: reinstalling the CANN
-**OPS** package and **NNAL** fixed it (issue comment, 2026-01-28). No image-tag change and
-no serve flag. Container death is at worker init, on the first device `torch.zeros`
+**OPS** package and **NNAL** fixed it — his own words, in the issue's closing comment
+(2026-01-28, `issues/6370#issuecomment-3812648776`): 「Reinstalling CANN OPS and NNAL will
+resolve this issue.」 No image-tag change and no serve flag. Container death is at
+worker init, on the first device `torch.zeros`
 (console `EI9999` "for the operator `aclnnInplaceZero_1_ZerosLikeAiCore`" on the console,
 plog `[<dir>//zeros_like.json] is invalid or does not exist`).
 

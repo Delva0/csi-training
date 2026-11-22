@@ -94,13 +94,25 @@ be adjusted to 2048, which means that any prefix shorter than 2048 will never be
 
 Whether the derived branch is reachable at all is a **class-marker** fact, not a model
 family: `is_hybrid` is `ClassVar[Literal[True]]` on `IsHybrid`
-(`vllm/model_executor/models/interfaces.py:780-785`), read by
-`vllm/config/model.py:1462-1470`, and its only caller is
-`vllm/config/vllm.py:1554-1555` (`if self.model_config.is_hybrid:`). At vllm v0.18.0 the
-marker is on `qwen3_5.py:659` (`Qwen3_5ForConditionalGeneration`) and **not** on the
-text-only `Qwen3_5ForCausalLMBase` / `Qwen3_5ForCausalLM` (`:539`, `:634`) — a text-only
-Qwen3.5 serve keeps `B = 128` and can only lose 128 tokens per request. Re-grep the
-marker before reusing this at another pin.
+(`vllm/model_executor/models/interfaces.py:780-785`); `_ModelInfo.is_hybrid` is filled by
+`is_hybrid=is_hybrid(model_cls)` (`vllm/model_executor/models/registry.py:703`), which is
+`getattr(model, "is_hybrid", False)` (`interfaces.py:830-833`); `ModelConfig.is_hybrid`
+(`vllm/config/model.py:1462-1470`) adds a `hf_config.layer_types` gate, and its only caller
+is `vllm/config/vllm.py:1554-1555` (`if self.model_config.is_hybrid:`). **One grep on the
+architecture string from the reporter's `config.json` settles it** —
+`rg -n 'IsHybrid' vllm/model_executor/models/<family>.py` — so do not walk the
+`_model_info` → registry → `ModelInfo` chain any further: the recorded #7965 run spent
+seven source calls following it (`config/model.py:531`, `:1462-1470`, `registry.py:703`,
+`interfaces.py:830-833`, then the class headers) and still closed with the serve log's own
+line.
+
+The marker is **per class, and the text-only sibling family differs**: at vllm v0.18.0 it
+is on `qwen3_5.py:659` (`Qwen3_5ForConditionalGeneration`) and **not** on the text-only
+`Qwen3_5ForCausalLMBase` / `Qwen3_5ForCausalLM` / `Qwen3_5MoeForCausalLM` (`:539`, `:634`,
+`:638`) — a text-only Qwen3.5 serve keeps `B = 128` and can only lose 128 tokens per
+request — while text-only `Qwen3NextForCausalLM` **does** carry `IsHybrid`
+(`qwen3_next.py:1549-1556`), so "text-only ⇒ dense ⇒ `B = 128`" is not a rule. Read the
+arch class the paste names and re-grep the marker at any other pin.
 
 ## Check ladder (the first two rows are the whole answer)
 
@@ -129,6 +141,13 @@ marker before reusing this at another pin.
   percentage: the percentage depends on a reporter-side value (the derived block size) and
   an interval average mixes cold first passes in. A magnitude that does not reproduce is
   not a second mechanism.
+- **The reported magnitude is itself a probe for `B`, and it is the cheap one.** On the
+  dense path the exact-multiple minima are `1 − 128/L` (87.5 % at `L = 1024`, 93.8 % at
+  2048, 96.9 % at 4096), so a **single-digit** percentage at 1024·n lengths cannot be the
+  tail-block loss with `B = 128`; it needs a derived `B` of the order of `L` (at
+  `B = 2048`: 0 % at `L = 1024` and `2048`, 50 % at 4096) or the interval average over cold
+  passes. Settle it with step 1's log line and step 2's per-request `cached_tokens`, not by
+  ranking a second mechanism off the percentage.
 - No flag removes the tail loss. Lowering `--block-size` only moves the dense path, and on
   a hybrid model a value below the derived `attn_block_size` is overwritten
   (`patch_mamba_config.py:66`), so block-size tuning is not a fix to recommend.

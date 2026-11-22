@@ -153,7 +153,7 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   question before it is a numerics one.** Which top-k/top-p path ran is a per-release
   env fact and the name moved: the v0.9.1 gate is `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE`,
   while at v0.11.0 `VLLM_ASCEND_ENABLE_TOPK_TOPP_OPTIMIZATION` defaults to **`'1'`** and
-  swaps the whole `Sampler` (`worker/model_runner_v1.py:270-275`, `envs.py:104-108`), so
+  swaps the whole `Sampler` (`worker/model_runner_v1.py:269-277`, `envs.py:104-108`), so
   an empty `echo` of the older name closes nothing. The fused branch is also chosen
   **per batch** from `int(k.max())`, so one row without `top_k` sends every row to the
   portable sort path. Measure the rate at concurrency 1 against the reported concurrency
@@ -514,7 +514,9 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   One serve command and no works-vs-fails control means the hybrid `--block-size` /
   prefix-caching page does **not** apply yet; the page's #8350 section lists what stays open.
 - `quantized-sibling-score-gap.md` — "w8a8c8 scores N points below w4a8c8" on a
-  GLM-5.x/DSA-sparse family model in a multi-machine PD deploy: the variable count in
+  GLM-5.x/DSA-sparse family model in a multi-machine PD deploy (and the VL/agent-
+  grounding form, where the pin's tutorial lists no w4a8 at all and a 1.5-point
+  single-run gap is inside the noise band, #8179 — Step 2b): the variable count in
   the reporter's own table and the within-model control row, the two formats'
   non-interchangeable C8 recipes (`GLM5.2.md:211,261` vs `:505,579`) and the 4-node e2e
   split, the lane's documented 2-3 point run-to-run floor plus the DCP-symmetry rule

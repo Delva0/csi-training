@@ -58,15 +58,15 @@ Rank and ask in one message:
    line while the same page's image line still names `v0.10.0rc1-310p`), not the
    user.
 2. **The default-sized KV pool, not the tag.** That tab passes neither
-   `--max-model-len` nor `--gpu-memory-utilization`, so the pool is computed from
-   the checkpoint's maximum context at vLLM's default ratio on a card this pin calls
-   experimental. The traceback #4812 finally posted is exactly that allocation —
+   `--max-model-len` nor `--gpu-memory-utilization`, so the pool runs at the default
+   ratio — ~0.9 of the card — and the cast needs a second whole pool on a card this
+   pin calls experimental. The traceback #4812 finally posted is exactly that allocation —
    `initialize_kv_cache_tensors → _convert_torch_format → npu_format_cast`, then
    `Memory_Allocation_Failure(EL0004)` / `207001`, `507013`, `sdma copy error`, an
    SMMU Terminate, and **no rope or MRoPE frame anywhere**
-   (`../runtime-memory/kv-init-and-format-cast-alloc.md`, ladder
-   `--max-model-len` → `--gpu-memory-utilization` → the 300I
-   `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` line below). Whether a smaller
+   (`../runtime-memory/kv-init-and-format-cast-alloc.md`, ladder: the
+   `2 × pool` test → a **halved** `--gpu-memory-utilization` → the 300I
+   `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` line below). Whether a halved
    pool ends it is **not established**: no rerun was posted.
 3. **The documented status** (`faqs.md:18`, the 300I note) — one line of context,
    not cause 1; and a missing artefact for the host is a different page
@@ -320,7 +320,7 @@ mode.
 Say what comes next instead of "then it will work": that reporter's September
 follow-up on a source build is the KV-init format-cast allocation failure (`EL0004`
 + `507013` + SMMU Terminate), so the platform verdict ships with that page's
-pool-shrink ladder — `../runtime-memory/kv-init-and-format-cast-alloc.md`.
+`2 × pool` test and halving ladder — `../runtime-memory/kv-init-and-format-cast-alloc.md`.
 
 ## An image that carries triton-ascend cannot import the worker at all
 
@@ -518,7 +518,8 @@ pin, `--enforce-eager --max-model-len 4096 --gpu-memory-utilization 0.8` and **n
 `--dtype float16`** — loads weights and dies at **KV init**: `_convert_torch_format`,
 `Memory async copy failed … length=748683264`, `sdma copy error`, SMMU Terminate,
 `507013` (`../runtime-memory/kv-init-and-format-cast-alloc.md` has the peak arithmetic
-and the `--gpu-memory-utilization` ladder). Two consequences for a log-free
+and the `--gpu-memory-utilization` ladder; note the `0.8` — this sibling **already ran a
+trim** and died there, which is why that page's rung is a halving). Two consequences for a log-free
 "拉起失败" on this combination: that allocation-site family is the **first** ranked
 candidate, ahead of the bf16/eager gates; and fp16 is a *documented constraint*, not the
 ranked cause — a run without `--dtype float16` already reached KV init at this pin. The
@@ -939,7 +940,11 @@ status answer.
    idle) is visible only there, never in `npu-smi`.
 3. Shrink the budget (`--max-model-len`, `--gpu-memory-utilization`) before
    blaming the platform: 310P cards are small and the documented KV/profile
-   arithmetic in `../startup-failures/max-model-len-budget.md` applies unchanged.
+   arithmetic in `../startup-failures/max-model-len-budget.md` applies unchanged —
+   except when the frame is the KV-init `_convert_torch_format` cast, where
+   `--max-model-len` cannot move the pool and the test is `2 × pool + peak ≤ total`,
+   i.e. a **halved** `--gpu-memory-utilization`
+   (`../runtime-memory/kv-init-and-format-cast-alloc.md`).
 4. Then the documented-status sentence: v0.11.0rc2-310P is experimental, the
    project itself points at v0.10.0rc1 for 300I, and `#3316` / `#2795` are the
    open known issues the tutorial cites. Say explicitly that this is the

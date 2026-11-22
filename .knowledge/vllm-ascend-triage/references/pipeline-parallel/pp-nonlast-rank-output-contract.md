@@ -48,10 +48,12 @@ of the pair. `Worker_PP1` logs `Replaying aclgraph` too and reports nothing.
    lists "Pipeline parallel does not work with ray and graph mode: #1751 #1754"
    under v0.9.2rc1 Known Issues — the same PP × graph-mode pairing, filed a
    release before this report and never closed in the pinned tree.
-   Check: re-run the identical command with `--enforce-eager` — PP then runs the
-   model body directly and the assert disappears. `--compilation-config
-   '{"cudagraph_mode": "NONE"}'` is the same ablation in config form; prefer the
-   one-word flag first.
+   Check: re-run the identical command with `--enforce-eager` and require the
+   pin's own banner in the paste (`platform.py:175` `Compilation disabled, using
+   eager mode by default`) — the assert gone confirms this cause, while the same
+   assert at `:218` on a paste *carrying that banner* confirms cause 2 instead.
+   `--compilation-config '{"cudagraph_mode": "NONE"}'` is the same ablation in
+   config form; prefer the one-word flag first.
 2. **PP itself is broken on that model/hardware with or without graphs.** Check:
    the same `--enforce-eager` run — if it still fails at `:218`, the owner moves to
    the worker/runner PP plumbing and capture is irrelevant. Two data points
@@ -71,6 +73,20 @@ not W8A8, not the 8B checkpoint, not `vllm serve`. Quote it as reporter-confirme
 scope, and note the follow-up says "还没有解决" (no workaround found yet), so the
 `--enforce-eager` rung is a *diagnostic*, not a reported fix.
 
+**That offline run is not a graph ablation, so it does not retire cause 1**, and
+saying otherwise is the one correction this thread's follow-up needs.
+`vllm_ascend/platform.py` reads `enforce_eager` from the model config (`:170`), prints
+the eager banner only when it is true (`:175`), and maps the *unchanged* `PIECEWISE`
+level to `cudagraph_mode = PIECEWISE` (`:182-184`) at `048bfd5`; upstream sets that
+level for V1 whenever `enforce_eager` is false (`vllm/config.py:4439-4446` in this
+snapshot's v0.9.1 export — the working side, so cite the shape, not the line). Both
+entry points pass through the same `check_and_update_config`, so an offline `LLM(…)`
+without `enforce_eager=True` lands in the same `Replaying aclgraph` lane and excludes
+only the serve/OpenAI front end. The discriminating run is the *offline* one-command
+shape — `LLM(model=…, tensor_parallel_size=1, pipeline_parallel_size=2,
+enforce_eager=True)` plus one short prompt — cheaper than relaunching the server, and
+its own `Compilation disabled`/eager line is the proof the graph really was off.
+
 ## Delivery shape for this class
 
 Verdict + rung 1 in the first message ("this is the PP × aclgraph output path;
@@ -78,7 +94,10 @@ run it once with `--enforce-eager`"), then the two `path:line` anchors, then the
 CI-coverage sentence (`../pipeline-parallel/index.md` rule 2) and the documented
 status quote (`supported_features.md:22`). Three turns is enough; the recorded run
 spent its whole output budget inside `acl_graph.py`/`worker_v1.py` cross-reads and
-shipped no message at all, and a second session on the same issue repeated it.
+shipped no message at all, and a second session on the same issue repeated it. The
+**follow-up turn is a delta, never a re-issue**: 「离线也报错」 narrows the model,
+quantisation and entry point and leaves the ranking unchanged, so the whole message is
+the paragraph above (2-4 lines) plus the ask.
 
 ## Limits
 

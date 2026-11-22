@@ -27,7 +27,7 @@ condition, where the printed op name belongs to a *different* statement (Rule 1a
 |---|---|---|---|
 | v0.9.1 | `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE` | unset ⇒ native | only the patched `TopKTopPSampler.forward_native` (`patch/worker/patch_common/patch_sampler.py:104-106`) — `topk-logprob-negative-inf.md` |
 | v0.9.2rc1 (introduced) | `VLLM_ASCEND_ENABLE_TOPK_TOPP_OPTIMIZATION` | **`0`** — "we'll consider to enable it by default in the future" (`docs/source/user_guide/release_notes.md:374`, PR #1732) | the sampler swap below |
-| v0.11.0 (`2f1aed98ccdb`) | same name | **`'1'`** | the **whole** sampler: `worker/model_runner_v1.py:270-275` imports `AscendSampler` when `envs_ascend.VLLM_ASCEND_ENABLE_TOPK_TOPP_OPTIMIZATION`, else upstream `Sampler`; `envs.py:104-108` carries the comment "It's enabled by default. Please set to False if you hit any issue … once it's stable enough" |
+| v0.11.0 (`2f1aed98ccdb`) | same name | **`'1'`** | the **whole** sampler: the gate is `worker/model_runner_v1.py:269` (`if envs_ascend.VLLM_ASCEND_ENABLE_TOPK_TOPP_OPTIMIZATION:`) and the block runs to `:277` — `:271` imports `AscendSampler`, `:273` binds it, `:275-276` the upstream `Sampler`; `envs.py:104-108` carries the comment "It's enabled by default. Please set to False if you hit any issue … once it's stable enough" |
 | v0.12.0rc1 and later | same name | **removed**, feature **on by default** — so v0.11.x is the last release where the `=0` ablation exists | `../performance-throughput/upgrade-vs-older-baseline.md:60` (`release_notes.md:110`) |
 
 So at a v0.11.0 pin `echo $VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE` printing nothing does **not**

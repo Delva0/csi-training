@@ -75,6 +75,18 @@ the log's shape.
 
 ## Worked case #11863 — dense Qwen3.6-27B under the multi-node PD recipe
 
+**The first message is the verdict plus ladder A as a serve line, not the doc
+archaeology.** The paste that is this case already carries what the verdict needs —
+the sentence names a flag family, the `$3 … $7` skeleton is the MoE external-DP
+template, and the section it cites does not exist at the reporter's release
+(`## Doc drift` below: at v0.21.0rc1 the 27B page is single-node, `:108`). Rungs B and
+C are one clause each: C is this page's own hypothesis, so it is not owed the space of
+a validated step. Recorded cost of the other order (a replay of this very case): the
+page's arrow landed on the `#2973` entry, the run therefore read the wrong case, shipped
+a mechanism note on its 37th message and was cut at the 16 384-token output cap inside
+ladder option C, with no "what to send back" block — while the gate, the ladder and the
+doc verdict were all already written here.
+
 | Fact | Evidence (pin) |
 |---|---|
 | The gate: `data_parallel_size > 1 and data_parallel_external_lb and not model_config.is_moe` → the reported `ValueError` | vllm v0.21.0 `ad7125a4` `engine/arg_utils.py:1793-1805`; same code at vllm v0.24.0 `ee0da84a` `:1943-1952`, so re-grep per version |
@@ -264,7 +276,9 @@ identical.
 ## Doc drift: `/latest` docs are not the pinned version
 
 - A report that cites `docs.vllm.ai/.../latest/...#<section>` is quoting a doc
-  that may postdate the pinned release. Verify the section exists in the pinned
+  that may postdate the pinned release (`#11863`'s anchor is
+  `Qwen3.5-27B-Qwen3.6-27B.html#52-multi-node-pd-separation-deployment`, a page and a
+  section the pin's `docs/source/tutorials/models/` does not carry). Verify the section exists in the pinned
   tree before treating it as the instructions the reporter ran; if it is absent,
   say so, answer within the pinned version, and ask for the section text instead
   of assuming it.

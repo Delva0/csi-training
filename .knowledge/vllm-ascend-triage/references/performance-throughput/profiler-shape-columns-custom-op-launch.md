@@ -57,7 +57,12 @@ whose table is fine but whose numbers disagree with the service is the parent
    rows carry shapes. `mla_preprocess` is in **no** build list at v0.18.0, so there is
    no `aclnnMlaPreprocess` to call: "just use the aclnn entry point" is a build-list
    change plus an op_api registration, not a call-site change. Quote the script's
-   verdict as the check.
+   verdict as the check — its `raw-kernel-lane` line names exactly this lane, and read
+   its discriminator clause (the adapter never calls `EXEC_NPU_CMD`, so the lambda
+   launches the kernel itself) rather than its `SetCustomHandler` mention: quoting
+   "customHandler ⇒ no shape" back at the reporter re-installs the middle link rule 1
+   refutes on the same box (the recorded #9026 replay had to reconcile the two in-flight
+   and said so in its reasoning before shipping rule 1's framing).
 
 3. **The other customHandler sites show the same gap; fix it once.** At v0.18.0:
    `csrc/torch_binding.cpp:192,247,293,333,380` (LoRA/SD ops) and

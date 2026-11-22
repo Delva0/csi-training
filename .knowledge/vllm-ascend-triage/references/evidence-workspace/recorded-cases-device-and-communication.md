@@ -144,8 +144,10 @@ with the `NnopbaseExecutor*` chain, at `sfa_v1.py:804 forward → :559 exec_kv`.
 "做出如下修改：" is followed by nothing, i.e. the modification the reporter applied is not
 in the paste, and the later comments add the current `exec_kv` source and the operator
 owner's answer "算子侧认为为调度问题". Track: custom-op **attribute** rejection (nothing
-launched). The frame is the 1024-token-gated `exec_kv`, so MLAPO was off or the batch was
-a prefill chunk; `cos` is `[tokens,1,1,64]` from `rotary_embedding.py:107-119` and the
+launched). The 1024-token-gated `exec_kv` frame says nothing about the batch here:
+`VLLM_ASCEND_ENABLE_MLAPO` defaults to `'0'` at this pin (`envs.py:109-110`), so every
+batch takes that branch (the default flips to `"1"` by v0.14.0rc1, `envs.py:96` at
+v0.15.0rc1). `cos` is `[tokens,1,1,64]` from `rotary_embedding.py:107-119` and the
 rows can differ from the kv rows under graph buckets, the DSA-CP slice
 (`sfa_v1.py:205-236`) or the SP gather (`:790-796`). Same message family as #2732
 (DS-V3.1, torchair graph with `graph_batch_sizes:[32]`, DP2, `mla_v1.py` path) and, via

@@ -14,7 +14,11 @@ memory-profiling **device fault** lane, where this frame is a sync point, not th
 `../hccl-and-hardware/collective-error-chain.md` §Step 1a's `opapi` bullet (recorded
 #2105, cause open) and, for the code decodes, the topic entry
 `../hccl-and-hardware/index.md`. This page owns the `EOFError` shape only: no device code,
-`dist.broadcast_object_list` at the bottom frame.
+`dist.broadcast_object_list` at the bottom frame. **Not this page either when the frames
+are `_v1` ones** (`worker_v1.py` / `model_runner_v1.py`) and the raise is a device/HCCL
+one — a V1 rerun of this same setup died at communicator creation instead
+(`../hccl-and-hardware/comm-create-errors.md` §*Code 7 with the `tsd … check hdc service`
+line*), so read which engine the paste came from before reading the frame.
 
 Recorded case **#1579**: vllm-ascend `v0.9.1rc1` (`c30ddb8`), vllm `v0.9.1`
 (`b6553be`), torch_npu `v7.1.RC1.alpha002` (`d33df55`) / torch 2.7.1, image
@@ -42,8 +46,8 @@ non-CUDA hardware row then declines it. Exporting `VLLM_USE_V1=1` takes the
 Downstream the plugin accepts it: `AscendPlatform.supports_v1()` returns `True`
 unconditionally (`vllm_ascend/platform.py:254-258` at v0.9.1rc1), and
 `check_and_update_config` binds `vllm_ascend.worker.worker_v1.NPUWorker`
-(`platform.py:186`) — on 310P it only skips `compilation_config.custom_ops = ["all"]`
-(`:208-211`). So **the engine vintage is a live lever here**, and any failure whose
+(`platform.py:187`) — on 310P it only skips `compilation_config.custom_ops = ["all"]`
+(`:210-211`, the `if not is_310p()` guard). So **the engine vintage is a live lever here**, and any failure whose
 frames are `worker/worker.py` + `worker/model_runner.py` (no `_v1`) is a V0-only code
 path by construction.
 
@@ -122,7 +126,15 @@ works, I tested it" is the reporter's next message.
    whole failing stack is V0-only code. A third party on the reported issue said the same
    setup started for them with it (peer report, their environment unverified); the
    reporter's own later update says it was **not** resolved for them, so treat it as an
-   ablation, not a fix.
+   ablation, not a fix. **The rerun's frame is itself the result.** A second 310P ×8 paste
+   in that thread (2025-07-17) carries `model_runner_v1.py` frames and no `EOFError` at
+   all: the first TP all_reduce of the profiling dummy run died at *communicator creation*
+   (`vocab_parallel_embedding.py:63` → `dist.all_reduce` →
+   `hcclCommInitRootInfoConfig … error code is 7`, `… check hdc service`,
+   `driver and firmware packages do not match` at startup). So a V1 run that dies at
+   **another** frame closes this page's question (the `gather` emulation is V0-only) and
+   opens `../hccl-and-hardware/comm-create-errors.md` §*Code 7 with the `tsd … check hdc
+   service` line* — do not read the second paste as the same failure.
 2. `--tensor-parallel-size 2` (or 4): does the handshake fail at world_size 8 only? One
    run bounds "world-size dependent" vs "every NPU gather".
 3. Reproduce the primitive alone, same host, same torch_npu, no vLLM in the way:
@@ -133,14 +145,21 @@ works, I tested it" is the reporter's next message.
    shape/dtype is back in play and the `storage_offset` warning deserves the next look.
 4. `--max-model-len 4096` only *after* (1)-(3): the default 40960 the log warns about
    changes the dummy batch, not the sizes payload, so it is not a mechanism candidate.
-5. If V1 also dies at the same frame, quote the two ablated runs and hand it to
-   torch_npu with the `_gather` line number and the `hccl_test` result — no vllm-ascend
-   flag remains.
+5. If V1 also dies at the same `_gather`/`broadcast_object_list` frame, quote the two
+   ablated runs and hand it to torch_npu with the `_gather` line number and the `hccl_test`
+   result — no vllm-ascend flag remains. If V1 dies *elsewhere*, say what moved and put the
+   thread on that page instead: on 310P the recorded thread reached the first collective
+   and never got past it, and the reporter's working stack there was MindIE on a 310P T18
+   image (step 6).
 
 ## 6. What to ask the reporter for
 
 The exact `torch`/`torch_npu` pair inside the image (`pip show torch torch_npu`, or
 `python -c "import torch, torch_npu; print(torch.__version__, torch_npu.__version__)"`),
 the `VLLM_USE_V1=1` rerun's first 60 lines, and — if they moved to another stack instead
-— which one. #1579's reporter ended on MindIE on a 310P T18 image, so "V0+V1 both fail on
-310P" stayed open for vllm-ascend; do not report this shape as solved.
+— which one. When the rerun's first error is a `hcclCommInitRootInfoConfig … error code is
+7`, add the host's `cat /usr/local/Ascend/driver/version.info` and the `npu-smi info`
+version block: that frame is a pairing question, not an HCCL knob. #1579's reporter ended
+on MindIE on a 310P T18 image (「这个镜像可能要联系一下华为官方」), so "V0+V1 both fail on
+310P" stayed open for vllm-ascend; do not report this shape as solved, and do not offer the
+MindIE image as a vllm-ascend fix.

@@ -634,8 +634,12 @@ read the torch_npu frame by turn 5, then spent nine turns inside torch's own
 cap with zero answer text (14 turns, 16 384 completion tokens of reasoning). Public
 follow-up: a third party reported the same setup starting with `VLLM_USE_V1=1`, the
 reporter said they would try and later reported it **unresolved**, having moved
-Qwen3-32B to MindIE on a 310P T18 image. Page (new):
-`../startup-failures/profile-run-logits-gather-eof.md`.
+Qwen3-32B to MindIE on a 310P T18 image. A second 310P ×8 paste in that thread
+(2025-07-17) is a **V1** worker (`model_runner_v1.py`) that never reached `_gather` at
+all: its first TP all_reduce died at communicator creation (`hcclCommInitRootInfoConfig
+… error code is 7` + `check hdc service`), the driver/firmware lane — so a V1 rerun
+either closes the `EOFError` question or moves it, and its frame is the result. Page
+(new): `../startup-failures/profile-run-logits-gather-eof.md`.
 
 **#302** image `quay.io/ascend/vllm-ascend:v0.7.1rc1` (`Dockerfile:17` → CANN
 `8.0.0-910b`), 910B2 ×8, driver 24.1.rc3, `vllm serve Qwen/Qwen2.5-7B-Instruct

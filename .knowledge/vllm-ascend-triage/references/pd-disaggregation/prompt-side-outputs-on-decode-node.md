@@ -26,13 +26,16 @@ advanced:
 | `vllm/v1/outputs.py:94-113` | `LogprobsTensors.empty_cpu(…)` allocates `torch.empty(…, dtype=torch.int32)` — **uninitialised** |
 | `:5449-5455` | the else branch takes `num_logits = num_remaining_tokens` and still stores the tensor in `prompt_logprobs_dict` |
 | `:5456-5459` | `if num_logits <= 0: continue` → no `copy_` ever runs, the empty tensor ships |
-| `vllm/v1/engine/logprobs.py:147` → `vllm/tokenizers/detokenizer_utils.py:83,98` | `convert_ids_list_to_tokens` → `tokenizer.decode([<stale negative int32>])` → the `OverflowError` |
+| `vllm/v1/engine/logprobs.py:147` → `vllm/tokenizers/detokenizer_utils.py:83,100` | `convert_ids_list_to_tokens` → `tokenizer.decode([<stale negative int32>])` → the `OverflowError` |
 
 Two traps: the helper lives at `vllm/tokenizers/detokenizer_utils.py` (**not**
 `vllm/v1/tokenizers/…` — the recorded run quoted that nonexistent path, and
-`:83,98` are the `def` and the `tokenizer.decode` loop), and the `empty_cpu` int32
-field is uninitialised memory, so the id that ships is arbitrary — that the error is
-an `OverflowError` only tells you it fell outside the tokenizer's unsigned range.
+`:83,100` are the `def` and the `tokenizer.decode` call, with `:98` the `for token_id`
+line), and the `empty_cpu` int32 field is uninitialised memory, so the id that ships is
+arbitrary — that the error is an `OverflowError` only tells you it fell outside the
+tokenizer's unsigned range. A page whose `path:line` and the reporter's traceback differ
+by two lines on the *same* file is a stale anchor, not a second defect: one `sed -n`
+settles it and the answer quotes the file's own line.
 
 ## Step 2 — `echo` is the same request on both endpoints
 
@@ -52,6 +55,15 @@ are not available when `stream=True`"), which is why these reports are non-strea
   `choices[0].prompt_logprobs`. Populated and sane ⇒ the proxy-side harvest below is
   the whole fix; empty or garbage there too ⇒ the producer side carries the same
   upstream defect and no downstream mitigation can work.
+- `prompt_token_ids`: only if the prefill **request** asks for it. The response field
+  is gated by the request's own `return_token_ids`
+  (`chat_completion/protocol.py:368`, `completion/protocol.py:145`; the response
+  fields are `:122,152` and `:498,542` in those same two files), so a harvest that
+  reads it off a `build_prefill_request` copy without setting the flag gets `None`.
+  Set it on the prefill payload **only**: it also flips
+  `needs_detokenization=bool(self.echo and not self.return_token_ids)`
+  (`chat_completion/protocol.py:517`, `completion/protocol.py:209`), so forwarding it
+  to the decoder changes what the decoder's own response carries.
 - `prompt_text`: **chat schema only** at this pin (`chat_completion/protocol.py:125`,
   gated by the request's `return_prompt_text`, `:378`); `completion/protocol.py` has
   no `prompt_text` field at all, so a harvest plan that returns it from
@@ -61,17 +73,34 @@ are not available when `stream=True`"), which is why these reports are non-strea
 
 `rg -n 'prompt_logprobs|echo' examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py`
 returns nothing, so the companion change is **to be authored, not found** — say that
-instead of hunting a PR in the snapshot. The three sites:
+instead of hunting a PR in the snapshot. When the report already names the mitigation
+(harvest on the prefiller, strip before the decoder, merge back), the deliverable is a
+review of that plan against the four sites below, not a second design. In request order:
 
-- `build_prefill_request` (`:790`) copies the client body and overrides only
-  `kv_transfer_params` / `stream` / `max_tokens` / `min_tokens` (`:800-805`), called
-  from `send_request_to_service` (`:817`) — so `prompt_logprobs` *does* reach the
-  prefiller: that is the producer the harvest needs.
-- `assign_instances` (`:896`) reads **only** `kv_transfer_params` out of the prefill
-  response (`:925-927`) and drops everything else, prompt logprobs included.
-- the decoder request at `:1003` re-sends `req_data` unchanged, `prompt_logprobs`
-  included — the field it must never see. `req_data` is also the retry path, so a
-  strip has to be idempotent.
+- **producer** — `build_prefill_request` (`:790`) copies the client body and overrides
+  only `kv_transfer_params` / `stream` / `max_tokens` / `min_tokens` (`:800-805`),
+  called from `send_request_to_service` (`:817`) — so `prompt_logprobs` *does* reach
+  the prefiller: that is the producer the harvest needs, and it takes no strip.
+- **harvest** — `assign_instances` (`:896`) reads **only** `kv_transfer_params` out of
+  the prefill response (`:925-927`) and drops everything else, prompt logprobs
+  included. Carry the harvested dict on `InstanceInfo`, not on `req_data`:
+  `reassign_instances` (`:949`) re-enters `assign_instances` on the recompute retry, so
+  anything parked on `req_data` is re-sent to *both* legs.
+- **strip** — the decoder request at `:1003` re-sends `req_data` unchanged,
+  `prompt_logprobs` included, the field it must never see; `req_data` is the retry
+  carrier (mutated in place at `:1050-1058`), so the strip has to be idempotent. Two
+  consequences: strip `echo` as well (Step 2), and once the field is gone the server's
+  own `stream=True` refusal (`chat_completion/protocol.py:698`,
+  `completion/protocol.py:414`) can never fire — the proxy must raise that 400
+  itself, or a streaming client silently receives no prompt logprobs instead of a crash.
+- **merge** — and there is no plain JSON body to merge into: the proxy answers every
+  request with `StreamingResponse(generate_stream())` (`:1088`), `media_type` set to
+  `application/json` when `stream` is false (`:1087`), so the non-streaming body is
+  assembled out of the same chunk loop the decoder leg opens at `:1003`. The precedent
+  to copy is `if retry_count > 0 and not stream_flag:` (`:1059-1065`), which rewrites
+  `choice["message"]["content"]` / `choice["text"]` and re-serializes
+  `json.dumps(chunk_json)`; make an unconditional `not stream_flag` injection of the
+  harvested fields there. Streaming needs no merge — the field is refused upstream.
 
 The layerwise variant `load_balance_proxy_layerwise_server_example.py` (640 lines) has
 no `build_prefill_request`/`assign_instances`, so it cannot be patched by copy-paste;

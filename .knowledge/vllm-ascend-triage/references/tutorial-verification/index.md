@@ -47,7 +47,11 @@ page name (`Qwen3-32B-W4A4`, `Qwen3.5-27B`, `Qwen3-Omni-30B-A3B`,
 `tutorial-command-audit.md` bullet under *Conditional routes* below. A hit means the
 report's `资料验证` §1 is writable on turn 2 from the table; spend the rest of the
 budget on what the table does not have. The table is not exhaustive — it is the floor,
-not the ceiling.
+not the ceiling. On the hjh1/hjh2 rows that remainder is concrete: the deploy script's
+`docker run` line for the row's card count, the curl and bench blocks, the empty result
+slots and the FAQ — one `sed` slice of the page supplies the first three, while the
+defect rows come from the table and never from a second page read (the third #11739
+replay, `community-test-report.md`).
 
 Cost of skipping it (recorded #11759 rerun: v0.18.0 image, the same row as the second
 worked page, 15 assistant turns, `completed`): it read this index to `:120` and

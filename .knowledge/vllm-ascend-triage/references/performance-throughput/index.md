@@ -599,7 +599,9 @@ Not this topic, leave immediately:
 - `spec-decode-gain-accounting.md` — "MTP on is slower" with acceptance fine
   (#8967, Qwen3.5-35B-A3B w8a8 on one 910B3, `qwen3_5_mtp` K=3, vllm 0.18.rc1):
   tokens/step ≈ `ITL_p50 / TPOT_p50` = 53.8/16.2 ≈ 3.3 of a 4-token budget, step
-  3.62× against 3.32× tokens (per-token +9 %, the "30 %" is E2EL and TTFT), why a
+  3.62× against 3.32× tokens (per-token +9 %; E2EL +21.8 % decomposes into 166 ms of
+  TTFT — 3.6 % — plus 2.18 s of extra output and 2.16 s of dearer steps, and the title's
+  "30 %" reproduces on no axis, so ask which metric), why a
   14.8 ms step against a ~2 ms weight read is dispatch-bound so the verify tokens cost
   ~additive, the slope experiment (`num_speculative_tokens` 3→2→1→0) and concurrency
   row, the two one-grep refutations (`MTPModelTypes` → `"mtp"` normalization;

@@ -101,9 +101,11 @@ for op in "$@"; do
     echo "           built and reached through EXEC_NPU_CMD; the aclnn op executor registers the"
     echo "           tensors, so shapes in kernel_details.csv are expected"
   elif [ "$op_handler" -gt 0 ] && [ "$op_aclnn" -eq 0 ]; then
-    echo "  verdict: raw-kernel-lane -- the op's own adapter launches from a SetCustomHandler lambda"
-    echo "           and never calls EXEC_NPU_CMD, so no aclnn op executor and no op/tensor desc is"
-    echo "           registered with the profiler: N/A Input/Output Shapes are expected, not a dispatch bug"
+    echo "  verdict: raw-kernel-lane -- the op's own adapter has a SetCustomHandler site and never"
+    echo "           calls EXEC_NPU_CMD, so the lambda launches the AscendC kernel directly and no"
+    echo "           aclnn op executor / tensor desc is registered: N/A Input/Output Shapes are this"
+    echo "           lane's expected outcome, not a dispatch bug. The discriminator is what the"
+    echo "           lambda invokes, NOT SetCustomHandler itself (EXEC_NPU_CMD sets it too, line above)"
   elif [ "$op_aclnn" -gt 0 ]; then
     echo "  verdict: aclnn lane by binding -- the op's own adapter calls EXEC_NPU_CMD(aclnn<Op>, ...);"
     echo "           shapes are expected even though the macro itself goes through SetCustomHandler"

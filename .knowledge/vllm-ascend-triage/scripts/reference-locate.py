@@ -157,6 +157,10 @@ def run_rg(pattern, root, regex, case):
 # the id in its `#` heading (`# Device fault under MTP + … (#10700)`). A `#NNN`
 # quoted mid-entry cites another case, so it never starts an entry.
 CASE_HEADING = re.compile(r"^\s*(?:-\s+)?\*\*#(\d{3,6})\*\*|^#{1,4}\s.*#(\d{3,6})\b")
+# Any markdown heading, matched for its level: a topical page's id-less sections
+# (`## Doc drift: …`) close the previous case entry, while its `###` subsections
+# stay inside it.
+MD_HEADING = re.compile(r"^(#{1,6})\s")
 
 
 def case_pointers(abs_path, tokens, regex, case, limit=2):
@@ -258,25 +262,60 @@ def page_entries(path, tokens, regex, case, min_hits=2, limit=2):
     re-derived the `VLLM_TARGET_DEVICE=empty` mechanism that entry already held.
     Two shared tokens is the floor: one is noise, and a page this grades already
     shares the paste's wording.
+
+    Two window rules keep the arrow on the owner. An entry **ends** at the next
+    heading that either carries an id or sits at or above its own level: it used to
+    end only at the next id-bearing heading, so every id-less section below the last
+    case (`## Doc drift: /latest docs are not the pinned version`, a registry
+    section) was credited to it. Recorded #11863 was handed
+    `→ #2973:215 (3/3)` that way — the doc section quoting the same error string sat
+    inside #2973's span while this report's own `## Worked case #11863` (line 76)
+    graded 1-of-3 — and the run `sed`'d 195-240, read another case's ladder and
+    re-derived its own. And an entry is **credited for the line that names it**:
+    when a signature row quoting the paste says `(worked case: #11863)`, that block
+    scores the entry even though its section sits paragraphs lower.
     """
     try:
         lines = io_lines(path)
     except OSError:
         return []
-    spans = []
+    entries = []
     for idx, line in enumerate(lines):
         m = CASE_HEADING.match(line)
         if m:
-            spans.append((m.group(1) or m.group(2), idx))
-    if not spans:
+            head = MD_HEADING.match(line)
+            entries.append([m.group(1) or m.group(2), idx, len(lines),
+                            len(head.group(1)) if head else 1])
+    if not entries:
         return []
-    spans.append((None, len(lines)))
+    for ent in entries:
+        for idx in range(ent[1] + 1, len(lines)):
+            head = MD_HEADING.match(lines[idx])
+            if not head:
+                continue
+            if CASE_HEADING.match(lines[idx]) or len(head.group(1)) <= ent[3]:
+                ent[2] = idx
+                break
     pats = [re.compile(tok if regex else re.escape(tok), 0 if case else re.IGNORECASE)
             for tok in tokens]
     scored = []
-    for (cid, first), (_nxt, stop) in zip(spans, spans[1:]):
+    for cid, first, stop, _level in entries:
         body = "\n".join(lines[first:stop])
         hits = sum(1 for pat in pats if pat.search(body))
+        named = re.compile(r"#" + re.escape(str(cid)) + r"\b") if cid else None
+        if named is not None:
+            for idx, line in enumerate(lines):
+                if not named.search(line):
+                    continue
+                lo = hi = idx
+                while lo > 0 and lines[lo - 1].strip():
+                    lo -= 1
+                while hi + 1 < len(lines) and lines[hi + 1].strip():
+                    hi += 1
+                block_hits = sum(1 for pat in pats
+                                 if pat.search("\n".join(lines[lo:hi + 1])))
+                if block_hits > hits:
+                    hits = block_hits
         if hits >= min_hits:
             scored.append((-hits, first, cid))
     scored.sort()

@@ -234,9 +234,13 @@ Conditional routes:
 - A **quantized** model on 310P fails at the first quantized linear with an
   op-level dtype/layout complaint instead of a Python raise — e.g. `Bias dtype
   should be INT32, actual dtype is DT_FLOAT16` in the title alone: the
-  checkpoint artifact decides (310-suffixed conversion vs the generic `-w8a8`),
-  and the 310P `W8A8_DYNAMIC` scheme is the one path that forwards the model's
-  fp16 bias → `310p-quant-checkpoint-soc-match.md` (three checks, no engine walk).
+  checkpoint artifact decides (310-suffixed conversion vs the generic `-w8a8`).
+  A maintainer closed the recorded case with the swap itself
+  (`Eco-Tech/Qwen3.6-27B-W8A8-310P`), so lead with that id — noting it is a
+  *different model version* than a `Qwen3.8` report, which then has no confirmed
+  310P conversion — and keep the 310P `W8A8_DYNAMIC` fp16-bias path as the
+  explanation, not as the first rung → `310p-quant-checkpoint-soc-match.md`
+  (three checks, no engine walk).
 - A 310P W8A8 model dies **inside an int8 matmul kernel at start-up** — device DFX
   `QuantBatchMatmulV3_NZ_NZ_int8_int8_fp16_high_performance_*` + `runtime error: 507015` +
   `L0C read/write conflict` during `determine_available_memory -> profile_run`, on a

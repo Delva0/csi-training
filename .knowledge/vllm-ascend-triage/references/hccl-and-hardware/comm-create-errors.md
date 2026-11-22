@@ -169,6 +169,43 @@ started side by side on one host. Count cards per engine before anything else:
 the external-DP launcher gives every invocation cards from 0). Only after the card sets
 are provably disjoint does this reduce to the stale-process ladder above.
 
+### Code 7 with the `tsd … check hdc service` line (no `EJ0001`/`EJ0003`)
+
+A third owner for the same code, and the one a paste reaches when no previous process is
+involved. The whole block, in one paste: `RuntimeError: create_config …
+compiler_depend.ts:102 HCCL function error: hcclCommInitRootInfoConfig(numRanks,
+&rootInfo, rank, config, &(comm->hcclComm_)), error code is 7` raised from `dist.all_reduce`
+inside a `vllm_ascend` forward, then `[ERROR] (PID:…, Device:N, RankID:-1) ERR02200 DIST
+call hccl api failed.` → `E39999: Inner Error!` → `E39999: [PID: N] …
+tsd client wait response fail, hostpid:…, receive device response data failed, check hdc
+service.[FUNC:WaitRsp][FILE:process_mode_manager.cpp][LINE:270]` — while the same processes
+printed `[WARN]operator(),compiler_depend.ts:829:Feature is not supportted and the possible
+cause is that driver and firmware packages do not match.` from their first lines, before any
+model load.
+
+Neither section above applies: nothing in the launch script was rejected (that is `1`), and
+no `EJ0001`/`EJ0003` names a previous process. `tsd` is the device-side task-scheduler client
+and `check hdc service` names the host↔device agent, so the lane is the **driver/firmware
+pairing**, which the vendor warning already printed. Read it before any `HCCL_*`, rank-table
+or NIC theory: `cat /usr/local/Ascend/driver/version.info` on the host against the image tag's
+CANN base (`rg -n 'FROM ' Dockerfile*` at that tag), the `npu-smi info` version block (driver
+and firmware versions), and `asys health -d=$i` per die — `device-health-checks.md`'s rung 2
+is exactly this pairing. If the dies report healthy and the pairing matches, the same text is
+the host `dmesg` `hdcdrv_*` / `ts` lane on that page's §*Device lost*.
+
+Recorded instant: the 2025-07-17 comment on #1579's thread (the case owned by
+`../startup-failures/profile-run-logits-gather-eof.md`) — a *commenter's* box, not the
+reporter's — a 310P ×8 node whose **V1** worker
+(`worker_v1.py:145 determine_available_memory` → `model_runner_v1.py:838 profile_run` →
+`:804 _dummy_run` → `vllm_ascend/ops/vocab_parallel_embedding.py:63` →
+`tensor_model_parallel_all_reduce`) had already loaded 7.7085 GB per rank, then hit this
+block at the first TP all_reduce on all eight ranks within seconds. That paste carries
+neither an `hccl_test` result nor a driver version, so what it establishes is the lane: ask
+for the `version.info` / `npu-smi` block, not for HCCL parameters. The issue's original
+reporter answered in the same thread that the 310P Qwen3-32B case stayed **unresolved** on
+vLLM and that they moved to MindIE on a 310P T18 image (「这个镜像可能要联系一下华为官方」),
+so a device-vintage change alone does not close a 310P multi-die report.
+
 ## The no-config `create` sibling
 
 Code `2`, on a group owned by a third-party trainer rather than by `vllm_ascend/`.

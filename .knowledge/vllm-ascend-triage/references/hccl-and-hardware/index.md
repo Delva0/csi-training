@@ -60,7 +60,12 @@ line is not a script problem**: the vendor's table names it
 `HCCP_Process_Initialization_Failure` and its fix is "wait for 10s after killing the
 last training process", i.e. a **previous process of the same box is still alive** —
 sleep mode, an RL engine that never exited, a crashed leader whose HCCP stays up
-(`../runtime-memory/sleep-mode-multi-instance.md`). Any bare `<E-code>` in a paste is
+(`../runtime-memory/sleep-mode-multi-instance.md`). The same `7` with
+`E39999 … tsd client wait response fail … check hdc service` and no `EJ0001`/`EJ0003`
+is instead the **host driver/firmware pairing**: read the host's `driver/version.info`
+against the image tag's CANN base (and the `npu-smi info` version block) before any
+`HCCL_*` knob — `comm-create-errors.md` §*Code 7 with the `tsd … check hdc service` line*.
+Any bare `<E-code>` in a paste is
 one call: `bash <skill_root>/scripts/cann-error-lookup.sh <code>`.
 
 Order matters more than depth here:

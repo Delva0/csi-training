@@ -6,9 +6,12 @@
 (#14792, vllm-ascend/vllm 0.23.0, `npu-smi` `310P3`, CANN 9.1.0, torch_npu
 2.10.0.post4, `--dtype float16` implied): the body is a title and a `collect_env`
 dump, no traceback and no serve command. The string is **operator tiling output**,
-not a Python raise: `rg -rn "Bias dtype" /workspace/repos/<issue>` finds nothing in
+not a Python raise: `rg -n "Bias dtype" /workspace/repos/<issue>` finds nothing in
 vllm-ascend, vllm, cann or the `_310p/` subpackage — the emitting site lives in the
-CANN op implementation, which the snapshot does not export.
+CANN op implementation, which the snapshot does not export. **`-n`, never `-rn`:** `-r`
+is `--replace`, so `rg -rn "Bias dtype" .` rewrites every match with `n` and its empty
+output looks like the verified absence this paragraph describes. The recorded #14792
+replay copied `-rn` from this page, got nothing, and spent a turn re-running it.
 
 When a 310P report carries an op-level dtype/layout complaint on a quantized
 model, do not open the engine source first. The artifact decides.
@@ -23,17 +26,37 @@ Verified in the pinned tree and in the thread:
   "Atlas 300I DUO uses the W8A8SC-310 quantized weights from the Eco-Tech official
   ModelScope repository" (`:310`) and a serve line that loads a per-TP subdirectory
   (`:318`).
-- A maintainer's answer on #14792 was to replace the weights with
-  `https://www.modelscope.cn/models/Eco-Tech/Qwen3.6-27B-W8A8-310P`, and the
-  original reporter's follow-up ("没3.8的嘛") confirms there was **no 3.8 variant**
-  published — i.e. the resolution was an artifact swap, and the missing-variant
-  answer is part of the deliverable.
-- **Doc trap at v0.23.0:** the 300I DUO tab of the 27B tutorial still points
-  `MODEL_PATH` at the generic `Eco-Tech/Qwen3.6-27B-w8a8`
-  (`docs/source/tutorials/models/Qwen3.5-27B-Qwen3.6-27B.md:29`, command at `:384`),
-  while the 310P conversion is a separate publish. A reporter who followed that
-  page lands exactly on this failure — say it is a doc/artifact gap, not user
-  error, and give the `-310P` id.
+- **The resolution is an artifact swap, stated by a maintainer** (xxwei2026 on
+  #14792, 2026-08-24T07:26Z: "310p的权重要换成
+  https://www.modelscope.cn/models/Eco-Tech/Qwen3.6-27B-W8A8-310P"). Lead the answer
+  with that swap id, and keep the scheme table in Rule 2 as the *explanation* of why a
+  generic A2/A3 conversion cannot work — not as a rival cause to test first.
+- **That swap changes model version, and the reporter said so.** Their follow-up in
+  the same thread (2026-08-24T11:19Z) is the question "没3.8的嘛" — "isn't there a 3.8
+  one?". A question is not evidence of absence: what it establishes is that the only
+  310P 27B conversion named in this record is the **3.6** model. What the pin settles
+  is narrower: `rg -n 'Qwen3\.8'` over the whole v0.23.0 tree (`5cb98caa`) is empty —
+  no 3.8 tutorial, no model class — and the only 310-suffixed artifact rows are
+  8B/14B/32B (`Qwen3-Dense.md:46-48`). A publish is not a doc row either: the
+  maintainer's `...-W8A8-310P` naming appears nowhere in the pinned tree, so do not
+  conclude from an empty repo grep that the repo does not exist. So say three things:
+  the failing directory is the generic conversion; the 310P 27B publish is a
+  *different model version*, so swapping is only an option if the reporter may change
+  model; and a 310P conversion of **their** version is unconfirmed — check the
+  Eco-Tech ModelScope listing, otherwise it is a 310P-targeted W8A8SC export of their
+  own checkpoint, or a request to the maintainers. Never present the 3.6 repo as a
+  drop-in for a 3.8 checkpoint.
+- **Doc trap at v0.23.0 — now maintainer-contradicted.** The 27B tutorial says Atlas 300I
+  DUO support starts at `v0.23.0rc1` (`Qwen3.5-27B-Qwen3.6-27B.md:9`), lists
+  `Qwen3.6-27B-w8a8` as "… or Atlas 300I DUO" with the generic
+  `Eco-Tech/Qwen3.6-27B-w8a8` download (`:29`), and the Atlas 300I DUO tab exports
+  `MODEL_PATH=Eco-Tech/Qwen3.6-27B-w8a8` (`:348` is the tab, `:394` the export,
+  `:396` `vllm serve $MODEL_PATH`) — while the maintainer's answer is a separate
+  `-310P` publish. Whoever followed that tab lands on this failure: say it is a
+  doc/artifact gap, not user error, give the `-310P` id, and note the tab's other 310P
+  obligations (`--dtype float16` `:423`, `num_speculative_tokens: 1` `:424`,
+  `enable_npugraph_ex: false` `:428`) that a paste without a serve command cannot be
+  checked against.
 
 ## Rule 2 — why the op complains: the 310P scheme decides where `bias` comes from
 
@@ -89,6 +112,22 @@ model-artifact question and belongs on the ModelScope side (a `-310P` conversion
 or with the maintainers when no such artifact exists. Also do not re-raise
 `--quantization ascend` (`../startup-failures/quantization-method-gate.md`): on a
 310P msmodelslim set it is required and already assumed once weights load.
+
+## Answer shape and the ask
+
+1. First line: an artifact question, not a device, flag or CANN fault — then the swap
+   id for the 310P conversion (and, for the reporter's own version, whether one exists
+   at all).
+2. Then the ranking: the directory's `quant_type` (§Rule 2) and whether the repo id
+   carries `-310` / `-310P` / `w8a8sc-310`; a version mismatch is an answer, not a
+   footnote.
+3. Ask for exactly two things, because the recorded paste carries neither: the
+   `vllm serve` / `LLM(...)` line — *which ModelScope id or path was loaded* is the
+   decisive question — and `head -c 2000 <ckpt>/quant_model_description.json`. Do not
+   ask for `collect_env` output; the paste already is one.
+4. A source-level repair (pass `bias=None` into `npu_quant_matmul` and add the bias
+   after it) is untested at every pin: if it is worth offering, label it as unverified
+   and keep it below the swap, never as an equal rung.
 
 ## Limits
 

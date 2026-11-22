@@ -158,7 +158,16 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   few hundred bytes) is the log paste — recorded #9986 filed a startup warning
   with no pasted log, and the answer's only version-pinned evidence
   (`[envs.py:1717] Unknown vLLM environment variable detected: …`) sat in that
-  OCR unread; quote the scrambled line with the OCR caveat. A `*.json` is
+  OCR unread; quote the scrambled line with the OCR caveat. **A traceback
+  screenshot's line-number gutter arrives as a displaced block, so a number cannot
+  be paired with the nearest frame line**: recorded #3816's OCR prints four
+  `v1/engine/core.py` frames and then `791 728 754 283`, and the
+  `vllm_ascend/core/scheduler.py` `raise …` line and then `274` — the pin's own
+  source is what assigns a number (`core/scheduler.py:274` is that `raise`), and the
+  gutter may hold more numbers than there are frames. Mispaired, the same OCR reads
+  as a tree whose raise sits at 283, i.e. a version mismatch that is not there: quote
+  the line you verified in the pin and say the paste's own number is gutter-scrambled.
+  A `*.json` is
   usually a machine-readable **dump**, and its fields are the evidence: a chat
   request body (`tools`, `chat_template_kwargs`, `stream`), a rendered prompt
   (`/v1/chat/completions/render`), a tokenized request (`token_ids`,
@@ -171,7 +180,11 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   review discussion; if only issue titles/bodies are available, say that comments were not
   consulted. Issue bodies are frozen at snapshot time, so a later public reporter comment
   may be missing — when one is supplied, treat it as the newest evidence and say which
-  claim it supersedes.
+  claim it supersedes. One that carries **only an image, or re-pastes the launch
+  command the opening body already had**, supersedes nothing: the artefact the
+  answer asked for is still outstanding, and the delta turn says exactly that in a
+  line instead of re-running the classification off the re-paste
+  (`../hccl-and-hardware/cpython-fatal-error-abort.md` Step 0).
 
 ## Pages
 

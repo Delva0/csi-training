@@ -128,7 +128,13 @@ Three reads, all on the paste already in hand: the `HCCL_BUFFSIZE set by …` li
 the **same** plog window, `bufferSize[` for every rank of the group, and
 `execTimeOut[`. A **different `bufferSize` across the ranks of one group** is a
 candidate mechanism (`rg -n 'bufferSize\[' *.log | sort | uniq -c` decides it in one
-call). Keep the cause open: the recorded case has no resolution.
+call). When the pasted window carries no `set by …` line — recorded #8975's had only
+`[Load] comm config` — the value can still be settled without a rerun, because the
+stuck process is alive and its own environment is readable:
+`tr '\0' '\n' < /proc/<EngineCore pid>/environ | grep HCCL` on **each** node. A value
+that equals `bufferSize`/1 MiB closes the export-late hypothesis; a different value, or
+no `HCCL_BUFFSIZE` at all, points at the export site (a late `export`, a per-node script,
+another launch). Keep the cause open: the recorded case has no resolution.
 
 ## Step 4 — why there is no error text yet
 

@@ -44,8 +44,12 @@ that hides a lost tail. Since #12261 it also prints a per-tool-call **verdict** 
 and those map onto outcomes A/B/B2/C below: a `quote-gap` verdict is case C and a
 `head-lost` verdict is case B2, **neither** is a lost tail, so do not overrule
 either by hand. It also counts the chunks that carry neither `content` nor
-`tool_calls`: a buffering tool parser emits a run of them while it walks the
-model's XML, so the count alone is not a fault. It tolerates HTML/Excel clipboard
+`tool_calls` **and** no `finish_reason`/`stop_reason` — the terminal `delta: {}`
+chunk is excluded, so the count is the buffering steps: a buffering tool parser
+emits a run of them while it walks the model's XML, so the count alone is not a
+fault. When `stop_reason` and `finish_reason` arrive in *different* chunks it
+says so, because vllm sets both on one choice object (a re-serializer was in the
+path). It tolerates HTML/Excel clipboard
 wrappers, console prefixes (`decoded ok: data: {...}`) and `[REDACTED]`
 placeholders (those inject
 brackets, so read the braces and quotes, not the bracket pair).
@@ -54,7 +58,11 @@ Calibrations on the recorded pastes:
 
 | Paste | Result |
 |---|---|
-| #7580 opencode reproduction, 11 chunks, `num_speculative_tokens: 3` | one tool call, 10 fragments, assembled `{"filePath":"/…/K8sYamlAgent.java` — `{` 1 / `}` 0, odd quote count, `json.loads` → `Unterminated string starting at: line 1 column 13 (char 12)`, which is the reporter's own error verbatim. Tail missing while `finish_reason: "tool_calls"` follows. |
+| #7580 opencode reproduction, 11 chunks, `num_speculative_tokens: 3` | one tool call, 10 fragments, assembled `{"filePath":"/…/K8sYamlAgent.java` — `{` 1 / `}` 0, odd quote count, `json.loads` → `Unterminated string starting at: line 1 column 13 (char 12)`, which is the reporter's own error verbatim. Tail missing while `finish_reason: "tool_calls"` follows, and the two closing lines carry
+`"stop_reason":154829` then `"finish_reason":"tool_calls"` — one logical finish chunk split
+by the LiteLLM front end (`model: litellm-test`), and the int is a *declared* stop id
+(case B below), i.e. the engine ended generation inside the string — confirm on a
+proxy-free `curl -N`, since a re-serializer can add the field. |
 | #7682 GLM-5-w4a8 paste, 29 chunks (`delta: {}` × 28) | one tool call, **one** fragment, 2 chars: assembled `"}` — `{` 0 / `}` 1, 1 quote, `json.loads` → `Unterminated string starting at: line 1 column 1 (char 0)`. Head-lost, not a lost tail: the non-streaming body returns the complete `{"todos": "…"}` and the assembly is its last two characters. |
 | #8122 Qwen3-Next-80B-A3B-Instruct response dump, 97 chunks | one tool call, 95 fragments, assembled 268-char arguments, braces 1/1, brackets 1/1, 40 quotes (even), `json.loads` OK — **and a failing sample anyway**: the assembled values end `"guest_phone": "138123"}` where the request gave `13812345678`, so one *value* was cut while every piece of punctuation was present, and the closing `"}` arrived in the chunk that also carries `finish_reason: "tool_calls"`. Re-audited 2026-08 on the issue's own paste; the row previously read "the pasted stream is healthy — not one of the 大概率截断 requests", and a later session repeated that verdict to the reporter as `guest_phone` digits 全部到齐. |
 
@@ -82,6 +90,7 @@ one request: add `"return_token_ids": true` to the same body. The choice then
 carries vLLM's per-chunk `token_ids` (`vllm/entrypoints/openai/
 chat_completion/protocol.py:98`, filled only under `request.return_token_ids` at
 `chat_completion/serving.py:1307-1310`, vllm v0.17.0).
+
 - token ids also stop before the closing tokens → the engine emitted a short
   sequence: the model issued a stop token before closing the JSON. That is a
   decoding-correctness question, and with `num_speculative_tokens >= 3` it is the
@@ -89,6 +98,35 @@ chat_completion/protocol.py:98`, filled only under `request.return_token_ids` at
 - token ids complete but the text is short → the delta assembly in the serving
   path lost them; grep the tool parser's `extract_tool_calls_streaming` delta
   state and the `previous_text` slicing, not the sampler.
+
+**Read the finish chunk's own `stop_reason` before buying that re-run.** The chat
+choice carries a vLLM-only `stop_reason` (`protocol.py:120` on
+`ChatCompletionResponseStreamChoice`, set from `output.stop_reason` at
+`serving.py:1303`), and it is the *engine's* ending, while
+`finish_reason: "tool_calls"` is a **frontend label**: once any tool call was
+streamed the generator overwrites the engine's reason with `"tool_calls"`
+(`serving.py:1291-1300`, `auto_tools_called or tools_streamed[i]`), so a
+clean-looking `finish_reason` beside short arguments says nothing about why
+generation stopped. At vllm v0.17.0 (`b31e932`) the value's meaning is
+`vllm/v1/core/sched/utils.py:94-117`: last token `== sampling_params.eos_token_id`
+finishes with `stop_reason` left **None**; a token in `stop_token_ids` finishes
+with `stop_reason` = **that id**; a `max_model_len`/`max_tokens` cap leaves it
+None. So an **integer** `stop_reason` in the paste is the engine naming a
+*declared* stop id that ended the stream: the tail was never produced,
+`return_token_ids: true` cannot change it, and the next question is where that id
+came from (`--stop-token-ids`, or the checkpoint's `generation_config.json`
+`eos_token_id` list through `SamplingParams.update_from_generation_config`) —
+`../accuracy-benchmarks/early-eos-short-output.md` §*`stop_reason` names the
+token*, then ablations 3-4 below for *why* the model emitted it. A **string**
+`stop_reason` is a different owner: the recompute scheduler's `"recomputed"`
+empty completion, with no model output. **Envelope check:** vllm sets both fields
+on the same choice object and serializes with `model_dump_json(exclude_unset=True)`,
+so a paste showing `stop_reason` in one chunk and `finish_reason` in the next
+passed a re-serializer (a LiteLLM/proxy front end, a client SDK) — read the pair
+as one finish chunk and do not build a chunk-ordering or "two endings" mechanism
+on the split. One observation redirects the reading: if a direct `curl -N` to the
+engine (no proxy in front) shows no `stop_reason` field at all, the proxy added it
+and the id is not the model's.
 
 **B2. Head missing entirely** — the assembly is only the object's closing
 punctuation (`"}`; `{` 0 / `}` 1) while `stream: false` returns the full string,
@@ -194,8 +232,8 @@ report is about a version the topical page does not name.
 | Symptom in the paste | Owner |
 |---|---|
 | assembled arguments valid, client errors | client accumulation / proxy |
-| `stop_reason: <int>` on a chunk | upstream vLLM field carrying the stop token id |
-| `finish_reason: "tool_calls"` with short arguments | the stream ended early — engine or delta, decided by `return_token_ids` |
+| `stop_reason: <int>` on the finish chunk | the engine's own ending: a **declared** stop id (the `stop_token_ids` set, `vllm/v1/core/sched/utils.py:105-111` at v0.17.0 — a primary-eos stop leaves it None) ended generation there, so no tail exists to recover and `return_token_ids` is moot; compare the id with `--stop-token-ids` / the checkpoint's `generation_config.json`, then read `../accuracy-benchmarks/early-eos-short-output.md` and the `>= 3` block-verify ablation for why the model emitted it |
+| `finish_reason: "tool_calls"` with short arguments | the stream ended early — but `tool_calls` is only a frontend label (`serving.py:1291-1300`), so split engine from delta with that chunk's `stop_reason` first, and with `return_token_ids` only when it is absent |
 | arguments valid but the model answered only CoT / no `tool_calls` | parser+flag gate: `--tool-call-parser`, `--enable-auto-tool-choice`, `--async-scheduling` row |
 | assembled string is only the closing `"}` / `}` (more closing than opening braces), all other chunks `delta: {}`, `stream: false` clean | the delta **bookkeeping** length, in its extreme form: only a suffix was ever emitted — `suffix-only-arguments.md`; test `assembled == non_stream_args[-len(assembled):]` before any parser read |
 | balanced braces, odd quotes, no opening quote on a value, `stream: false` clean | the tool parser's delta arithmetic, keyed on the argument's declared schema type (`arg-type-gate-unquoted-value.md`) — upstream vLLM, not the model and not vllm-ascend |

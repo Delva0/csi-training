@@ -72,8 +72,8 @@ row.
 |---|---|
 | `vllm/entrypoints/openai/chat_completion/serving.py:299,313-316` | `render_chat_request` awaits `_preprocess_chat`; the `except (ValueError, TypeError, RuntimeError, jinja2.TemplateError)` branch logs exactly `Error in preprocessing prompt inputs` and returns an error response. The server survives; the request does not. |
 | `vllm/entrypoints/openai/engine/serving.py:1031-1044` | Per request, **only** when a tool parser is configured and `tool_choice != "none"`: `tokenizer = renderer.get_tokenizer()` (the *synchronous* tokenizer) and `tool_parser(tokenizer).adjust_request(...)`, executed on the **event-loop thread**, after `render_chat_async` returned. |
-| `vllm/tool_parsers/hermes_tool_parser.py:63,66,70-80` | The constructor encodes `<tool_call>` and `</tool_call>` and then decodes each id — 2+N tokenizer calls per chat request. `hermes`, `functiongemma` and `longcat` pre-encode in `__init__` at this pin. |
-| `vllm/utils/async_utils.py:24-50,105-141` | The same tokenizer object is driven by `AsyncMicrobatchTokenizer` (`ThreadPoolExecutor(max_workers=1)`) through `run_in_executor` — the **second thread**. |
+| `vllm/tool_parsers/hermes_tool_parser.py:63,66,70-80` | The constructor encodes `<tool_call>` and `</tool_call>` and then decodes each id — 2+N tokenizer calls per chat request. **Four** parsers pre-encode in `__init__` at this pin — `hermes`, `functiongemma`, `longcat` and `llama` (`llama_tool_parser.py:47`, which calls the plain `tokenizer.encode` for `<|python_tag|>`, not `model_tokenizer.encode`); this row said three until the #7197 replay's own ast run at these pins returned four. |
+| `vllm/utils/async_utils.py:24-50,105-141` | The same tokenizer object is driven by `AsyncMicrobatchTokenizer` (`ThreadPoolExecutor(max_workers=1)`) through `run_in_executor` — the **second thread**. The `get_async_tokenizer()` that installs it is in `vllm/renderers/protocol.py:60` at this pin: `vllm/renderers/` holds only `protocol.py`, `deepseek_v32.py` and `embed_utils.py` here, and `vllm/renderers/base.py` (the v0.17.0 row's home) does not exist — grep the symbol, never the path. |
 | `vllm/multimodal/processing/context.py:437-459` | The one place upstream catches this condition: `isinstance(exc, RuntimeError) and exc.args[0] == "Already borrowed"` → `time.sleep(0.5)`, up to 5 tries, comment `# See https://github.com/huggingface/tokenizers/issues/537`. |
 
 ## The chain at vllm v0.17.0 (`b31e9326a7d9`)
@@ -97,6 +97,13 @@ built in the event-loop thread. `--api-server-count > 1` gives each process its 
 tokenizer object, so it neither causes nor cures this.
 
 ## Pin the sites in one call (do this instead of trusting the line numbers)
+
+One bash block, and it earns its cost even when the report's pin equals a row's pin: it
+says which endpoint emitted the paste's message, and the ast probe is the only citable
+form of the parser list — the #7197 replay at **identical** pins spent it and came back
+with four v0.16.0 parsers where the row above had three. What a matched pin does buy is
+the rest of the chain: the construction site, the retry range and the renderer wrapper are
+cited from the table, not re-searched.
 
 ```bash
 cd <vllm-root>

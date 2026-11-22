@@ -189,10 +189,16 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   driver outranks every tiling theory.** `aclnnRmsNorm` / `aclnnAddRmsNorm` /
   `aclnnLayerNorm` and friends are CANN library ops reached through `torch_npu`
   (`vllm_ascend/ops/layernorm.py` calls `torch_npu.npu_rms_norm` /
-  `npu_add_rms_norm`); one `ls csrc` at the reporter's ref says whether *any*
-  vllm-ascend kernel with that name exists there (it does not at v0.12.0rc1, so the
-  `add_rms_norm_bias` map in this topic — verified at v0.19.1rc1 — is unusable for
-  that report). When the sentence is `aclnn<Op> operator execution error` with no
+  `npu_add_rms_norm`); `ls csrc` at the reporter's ref is the first cut, but it is too
+  coarse to *disown* an op: the registrations are the `ops.def("<name>", …)` lines in
+  `csrc/torch_binding.cpp` and each fused op's `csrc/<dir>/op_host/aclnn_<name>.h`, so
+  match the printed op name against those before calling it CANN's built-in — at
+  v0.12.0rc1 there is no `csrc/rms_norm` yet `csrc/matmul_allreduce_add_rmsnorm/` does
+  exist (an MC2 fused op reached as `aclnnMatmulAllReduceAddRmsNorm`, recorded #5236's
+  second run), while `RmsNorm*` text inside `csrc/mla_preprocess/op_kernel/*.hpp` is MLA
+  kernel internals, not a registration (the `add_rms_norm_bias` map in this topic —
+  verified at v0.19.1rc1 — stays unusable for that report). When the sentence is
+  `aclnn<Op> operator execution error` with no
   error code, no dump and no `csrc/` op at the pin, rank the **host driver / CANN
   pairing** first: `npu-smi info` header version, `cat
   /usr/local/Ascend/driver/version.info`, the image's CANN base — reporter-confirmed
@@ -518,8 +524,11 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   `w8a8.py:60-64,125-135`), the bf16 re-serve plus the two-dtype `torch_npu` probe,
   and why `--enforce-eager` cannot rule this lane out.
 - `setup-failed-call-site.md` — a bare `RuntimeError: setup failed!` (#393,
-  v0.7.3rc1 V0 rollouts): the four `setup failed!` surfaces, the branch derivation
-  that proves the engine set `enable_prefix_caching=True` with chunked prefill off,
+  v0.7.3rc1 V0 rollouts): the eight-row `setup failed!` surface table (it now carries
+  `PagedAttentionOperation` on an eager V1 engine, where the dumped `SchedulerOutput`
+  picks the branch and `chunked_prefill`/`prefix_caching` are V1 defaults — #2700), the
+  #393 branch derivation that proves the engine set `enable_prefix_caching=True` with
+  chunked prefill off,
   the hard-coded `128` compress mask at `attention.py:612-617` against the
   `query_lens`/`context_lens` the same branch can carry, and the two-flag ladder.
 - `atb-input-dim0-none.md` — `SelfAttentionOperation setup failed!` + the ATB log's

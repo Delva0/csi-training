@@ -11,7 +11,7 @@ layer construction or at the first attention call:
 |---|---|
 | `TypeError: <Ascend…Impl>.__init__() got an unexpected keyword argument '<kwarg>'` | upstream `Attention.__init__` → the backend impl's constructor (`q_lora_rank`, `kv_lora_rank`, `rotary_emb`, …) |
 | `TypeError: rope_forward_oot() got an unexpected keyword argument '<kwarg>'` | a `forward_oot` CustomOp shim vs the *downstream* call site (`mla_v1.py`, `attention_v1.py`) |
-| `AttributeError: 'RotaryEmbedding' object has no attribute 'cos_cached'` under `torch._dynamo` | an attribute name that the paired library never sets, read only on the traced/graph path or from a plugin-patched module |
+| `AttributeError: '<…>RotaryEmbedding' object has no attribute 'cos_cached'` | two shapes, and the frame decides: an **eager** `vllm_ascend/attention/` frame means the checkpoint built a rope class that never registers the DeepSeek-scaling buffers (`mla-cos-cached-requires-scaling-rope.md`); under `torch._dynamo` or from a plugin-patched module it is an attribute name the paired library never sets, read only on the traced/graph path (Rule 3) |
 | `TypeError: forward_native() takes from 3 to 4 positional arguments but 5 were given` | a **positional** over-supply: a downstream `forward_oot`/`forward` shim forwards an argument the upstream method's signature no longer has (Rule 5) |
 
 This is the *signature* half of drift. Neighbours: `patch-copy-vs-upstream.md` (a
@@ -75,19 +75,31 @@ not a version-pairing answer. If the *shim* passes a kwarg upstream's `forward` 
 longer takes, the direction is upstream's newer signature and the shim is stale: say
 which side moved and cite both signatures.
 
-## Rule 3 — an old attribute name shows up only where that code runs
+## Rule 3 — a missing rope buffer has two owners, and the frame decides
 
-`cos_cached`/`sin_cached` are pre-`cos_sin_cache` names; at vllm `v0.7.3`
-`RotaryEmbedding` carries only `cos_sin_cache`
-(`vllm/model_executor/layers/rotary_embedding.py`, `_set_cos_sin_cache`), so
-`AttributeError: … no attribute 'cos_cached'` under dynamo's static attribute
-resolution means some code that **only the traced path, or only a
-plugin-patched module, executes** still reads the old name — graph mode traces every
-attribute, while eager may never enter that branch. Candidate owners, one grep each
-in the reporter's image: `vllm_ascend/patch/**`, the OOT rope shim, and any installed
-accelerator plugin that patches vLLM model code (MindIE-turbo style adapters) — the
-plugin is the one that survives an image change and the one a reporter does not
-mention.
+`cos_cached`/`sin_cached` are **not** dead upstream names at every pin: at
+vllm-ascend `v0.11.0rc1` `AscendDeepseekScalingRotaryEmbedding` registers both
+(`ops/rotary_embedding.py:374-375`) for the MLA/SFA metadata builder, which reads
+them off the first layer's `rotary_emb` unconditionally
+(`attention/mla_v1.py:318-322`). Read the frame before the name:
+
+- **an eager `vllm_ascend/attention/` frame, no `torch._dynamo`, no plugin** — the
+  builder is fine and the *checkpoint* built a rope class that registers no such
+  buffers (plain `RotaryEmbedding`, or YaRN; upstream's `RotaryEmbedding`
+  base carries only `cos_sin_cache`, `rotary_embedding/base.py:48-49`). The class printed in the
+  message is the verdict, and the fix is the scaling rope, not a patch:
+  `mla-cos-cached-requires-scaling-rope.md` (recorded #5385, v0.11.0rc1).
+- **under dynamo's static attribute resolution, or from a module nothing in this
+  tree imports** — then some code that only the traced path, or only a
+  plugin-patched module, executes still reads an old name: graph mode traces every
+  attribute, while eager may never enter that branch. Candidate owners, one grep
+  each in the reporter's image: `vllm_ascend/patch/**`, the OOT rope shim, and any
+  installed accelerator plugin that patches vLLM model code (MindIE-turbo style
+  adapters) — the plugin is the one that survives an image change and the one a
+  reporter does not mention.
+
+`#5111` (`'AscendDeepseekScalingRotaryEmbedding' object has no attribute 'cos'`,
+ACL graph on, `--enforce-eager` fine) is the second shape; #5385 is the first.
 
 ## Rule 4 — a report whose rows span releases/images gets one row per line, early
 

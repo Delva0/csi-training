@@ -4,13 +4,14 @@
 
 Rule 15 of `SKILL.md` in full. The rule is short — a working sibling path in the
 reporter's own evidence constrains the cause, and a mechanism that also predicts the
-working path failing is not yet the answer. This page carries the five forms that
+working path failing is not yet the answer. This page carries the six forms that
 recurs, each with the recorded cost of getting it wrong, and the reasoning each one
 licenses:
 
 | Form | What it decides | Section |
 |---|---|---|
 | a sibling entry point, flag, model or card works | which mechanism is *excluded* before ranking | first |
+| the **same** server answers request 1 and dies on request 2 | the two requests' *scheduler input state* is the variable, and the dumped `SchedulerOutput` names it | *A first request that works* |
 | your own ablation (`--enforce-eager`, a spec/async toggle) | which *phase* was removed, and whether the paste proves it ran | *Your own ablations* |
 | a workaround named in the report's prose | which rung is first | *A named workaround* |
 | a tested-configuration matrix in the body | one verdict line per row, and which rows are the controls | *A matrix* |
@@ -33,6 +34,28 @@ compilation enabled on NPU` / `Compilation disabled, using eager mode by default
 plus the wheel's INFO line
 (`../image-dependency-faults/mindie-turbo-graph-break.md`); `enforce_eager=True` on
 the failing path is the one-line ablation.
+
+## A first request that works: the scheduler state, not a warm-up
+
+`首次推理正常，二次推理报错` is a control, and it is the most misread one: a mechanism
+that predicts the *first* request failing is excluded (the model loads, the op is
+registered, the driver opens the device, the mask builder is seeded), so the variable
+is what differs **between the two steps** — and on Ascend that is usually the
+scheduler's input state, not a flag, a warm-up or a capture. The engine dumps it: the
+`Dumping scheduler output for model execution: SchedulerOutput(…)` block carries
+`num_computed_tokens`, `num_scheduled_tokens`, `num_common_prefix_blocks`,
+`scheduled_encoder_inputs`, `scheduled_spec_decode_tokens` and `prefix_cache_stats`,
+and `model_runner_v1.py:1119-1138` turns those numbers into the attention state
+(`v0.10.0rc1`'s selection; the tests are the same shape on other refs, the line
+numbers are not). Read it before any source walk: `283 = 256 + 27` with 27 scheduled is
+`ChunkedPrefill` (recorded #2700, prefix-cache hit → `_npu_paged_attention_splitfuse`);
+`scheduled_spec_decode_tokens` present is `SpecDecoding` (recorded #4771, first request
+fine, second dies at the sampler's `int(k.max())` sync point); "the first
+prefix-cache hit after minutes of clean serving" is the same state change (recorded
+#2779). The ablation follows from the table, not from a flag list: whichever flag
+changes *that* cell (`--no-enable-prefix-caching`, one `num_speculative_tokens` step,
+`--max-num-batched-tokens` below the prompt length) is rung 1, and a mechanism that
+also predicts request 1 failing is not yet the answer.
 
 ## Your own ablations: an ablation only rules out a phase it removes
 
@@ -92,6 +115,19 @@ cudagraph-mode-sync / skipped-all-reduce argument that the report's own "DP1 fin
 116 requests" sentence refutes, shipping nothing. The resolution was KV-block reuse
 under `--async-scheduling`
 (`../scheduler-admission/kv-block-lifetime-async-scheduling.md`).
+
+**Then diff it against the failing launch line, flag by flag.** A workaround is an
+ablation only if it moves one thing: the recorded #17797 long-input embedding report
+says "entirely fixed by adding `--no-enable-chunked-prefill`", but the pasted working
+line also drops `--compilation-config '{"cudagraph_capture_sizes": [1024, 512]}'` and
+`--additional-config '{"ascend_compilation_config": {"fuse_norm_quant": false}}'`, so
+the fix moves the chunk accumulator, the graph geometry and a fusion knob together —
+and the ranking it licenses (accumulator) is only one of three. Reconstruct the
+failing line and hand back the one-flag isolation run (failing line + the blamed flag,
+everything else constant; the cheaper knob first). The same request applies when the
+working side is a different session, image or "earlier version": ask which of the
+changed flags the answer rests on before shipping a mechanism
+(`../pooling-embedding/chunked-prefill-vector-corruption.md`).
 
 ## A tested-configuration matrix in the body is the strongest form
 

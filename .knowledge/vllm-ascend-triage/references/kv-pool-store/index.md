@@ -43,6 +43,15 @@ transport topology to inspect.
   the segment size: `no-put-under-spec-decode.md` (spec decoding makes the runner defer
   connector finalization, and the defer half of that port is what runs). The row below is
   the *other* zero-store shape — it carries `HcclBatchPut … hccl_result = 4`.
+- The pool serves, then **one** instance's `vllm:kv_cache_usage_perc` climbs to ~0.999 and
+  never recovers until restart, with no traceback, no device code and lookups still answering:
+  the connector took the `delay_free` path and its `finished_sending` never arrives. At the pin
+  the send side reports through the **`stored_requests` counter**, so `set_finished_request`
+  (the hunk such reports usually propose, copied from the layer thread) is inert; the reachable
+  holes are a layerwise save and a preempted request, both of which leave the id with no counter
+  record at all → `ascendstore-held-blocks-never-finished.md`. The mirror symptom (a
+  `finished_sending` id that arrives late and trips `assert req_id in self.requests`) is
+  `../pd-disaggregation/prefill-scheduler-kv-xfer-assert.md`.
 - The request **succeeds** but nothing is stored: prefill logs
   `Failed to invoke HcclBatchPut, hccl_result = 4` (or `HcclBatchGet`) and
   `Failed to put N keys out of N. error_codes=[-1]`, while the master shows
@@ -174,6 +183,15 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   enqueue point for `pool_worker.py:329-352` — never runs. Carries the two-grep check, the
   one-line repair, the put/hit acceptance test, the layerwise and `kv_role` exceptions, and the
   general reading of a half-ported defer/finalize contract (absence is the evidence).
+- `ascendstore-held-blocks-never-finished.md` — the pool serves, then one instance's KV usage
+  climbs to 0.999 and never recovers (recorded #10098 at v0.20.2rc1 `367b8e6` / vllm v0.20.2
+  `bc150f5`): the full anchor table for the send-side completion contract (`finished_requests`
+  set vs `stored_requests` counter, and which one the worker reads), the two holes that leave a
+  delayed-free id with no counter record (layerwise `save_kv_layer`, preemption), the
+  `request_queue.join()` hang an exception in the thread turns into, why the report's
+  `set_finished_request` hunk is inert here, the repair that covers all three, the two greps
+  that decide the reporter's own build, and the "full pool hit does not leak on the
+  non-layerwise path" refutation.
 - `store-put-transfer-timeout-and-adxl-segfault.md` — puts land, then one ADXL peer
   times out every 10 s, `-800` on the keys, 60 s batch timeout, `OBJECT_NOT_FOUND` on
   the revoke and a crash in `processSliceList`: which lines are downstream (all of

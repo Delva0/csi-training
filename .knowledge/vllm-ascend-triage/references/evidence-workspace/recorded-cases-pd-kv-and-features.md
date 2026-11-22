@@ -449,3 +449,26 @@ the ranked verdict shipped on the 22nd of 24 assistant turns. Durable correction
 corpus is expected and is not a licence to escalate — the precedent ids are the page's own
 record, and a lexical search needs a lexical signature. Page:
 `../spec-decode-mtp/hybrid-mtp-prefix-cache-unvalidated.md`.
+
+**#10098** vllm-ascend `releases/v0.18.0` (also "confirmed on origin/main"); snapshot pins
+v0.20.2rc1 `367b8e6` + vllm v0.20.2 `bc150f5`, one commit per repo, so the reporter's own tree
+is not here. PD + KV pool (`AscendStoreConnector`, `MultiConnector` beside
+`MooncakeConnector`), P `DP2×TP8` + D `DP4×TP4`, GLM-5.1-w4a8; same deployment family as
+#11923 above (which names the `#7874/#10098` patches it carried). Symptom: after serving for a
+while **one** prefill instance's `kv_cache_usage_perc` reaches 0.999 and never recovers, new
+requests queue behind it, restart required; no traceback, no device code. Body carries two
+proposed hunks (a `set_finished_request` call in `KVCacheStoreSendingThread._handle_request` and
+a `can_save` field on `RequestTracker`). What the pin says: the send side's completion authority
+is the `stored_requests` **counter** (`pool_worker.py:755-788`), `finished_requests` has no
+send-path reader, so hunk 1 is inert — and it is the *layer* thread's own live-looking pattern
+(`kv_transfer.py:494-497`) that the reporter copied. The reachable holes are instead a layerwise
+save that never calls `add_stored_request` and a preempted request whose counter record was
+deleted at `:757-761`/`pool_scheduler.py:345` (gradual climb = the preemption loop, not
+layerwise, which leaks from the first requests); an `Error in KVCacheTransferThread` line means
+the `run()` handler skipped `task_done()` and the step itself is wedged at
+`wait_for_save`'s `request_queue.join()`. Delivery: no verification shipped beyond a 392-character
+first paragraph — 15 assistant turns, 14 of them reasoning-only, `output_truncated` with the
+answer still unfinished — and the reporter's public follow-up was "If you have any drafted patch, I am
+happy to test with it", i.e. the deliverable for a hunk-bearing report is the diff. Route:
+`../kv-pool-store/ascendstore-held-blocks-never-finished.md` (new); the review rule is rule 13 of
+`../code-change-requests/index.md`.

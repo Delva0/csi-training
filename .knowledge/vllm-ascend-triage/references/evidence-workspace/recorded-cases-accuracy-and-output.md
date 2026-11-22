@@ -11,6 +11,27 @@ Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
 family carries one line
 per case in this file.
 
+**#9430** vllm-ascend v0.19.1rc1 (`da421afa`) pinned, reporter on a **model-specific
+image** `quay.io/ascend/vllm-ascend:deepseekv4` labelled "框架版本：0.18.0": DeepSeek-V4-Pro
+w4a8, 4-node 2P2D PD, `MooncakeHybridConnector` with `prefill {dp2,tp16}` /
+`decode {dp8,tp4}`, `deepseek_mtp` 1 on both sides, hybrid KV manager on, prefix caching
+off, `recompute_scheduler_enable` on the decode side only, `VLLM_ASCEND_ENABLE_FLASHCOMM1`
+on the prefill side only, `USE_MULTI_GROUPS_KV_CACHE=1` / `USE_MULTI_BLOCK_POOL=1` on
+both. Symptom: *"响应中经常出现 hilabihan 特殊字段"* — fluent, correct-looking Chinese with
+an occasional inserted meaningless word; the pasted body is `prompt_tokens: 6`,
+`finish_reason: "stop"` and contains the title's token **nowhere** (both the title and the
+body were re-scanned for it, twice, before the shape was accepted). The recorded run
+found the sharpest fact — the pinned tree carries none of the stack
+(`MooncakeHybridConnector`, `deepseek_v4`, `USE_MULTI_GROUPS_KV_CACHE` all empty; tutorials
+stop at DeepSeek-V3.2), i.e. the reporter's branch is unverifiable here — but used it only
+as a caveat: it shipped six reporter-side ablations (eager, EP off, MTP off, recompute off,
+P/D TP parity, weight md5) and **never offered the image change**. The reporter's later
+comment on the issue (*"v0.20的版本问题解决了"*) closes it as a version boundary, not any of
+the six. Lesson: absence of the whole feature stack from the pin is a rung-1 trigger, not a
+closing caveat (`version-contract.md` §*old-tag rung*, feature-image paragraph); and a
+title token that the body does not contain is the symptom's name, not a string to hunt
+(`../accuracy-benchmarks/short-prompt-corruption.md` §*Grade the symptom first*).
+
 **#5725** vllm 0.13.0 + vllm-ascend v0.13.0rc1 (`72506c9834` / `1b5d5abf865f`) pinned,
 reporter on the same pair, 910B4 x1, Qwen3-Embedding-0.6B `--task embed` with
 `--max-model-len 32000 --max-num-seqs 20 --tensor-parallel-size 1
@@ -210,6 +231,14 @@ characters of reasoning and zero message text. The reporter's later public comme
 supplied the deploy command (TP=4, `--max-model-len 8192`, `--enforce-eager`, no
 MTP/EP/quantisation), which is the narrowing the answer owed
 (`../accuracy-benchmarks/qwen3-next-gdn-numeric-path.md`).
+A later replay at the same pins answered in **7 assistant turns / 5.3 K completion
+tokens** (library grep → the entry → the page + the screenshot's `.ocr.txt` → one pin
+confirmation → the message), so the page was sufficient; what it still got wrong was
+delivery. It quoted the reporter's TP=4/`--enforce-eager` line as a mitigation and then
+asked for "your actual `vllm serve` command line" in the same message, and its opening
+sentence asserted the GDN path and "no config knob fixes this version" while its own
+table labelled cause 1 *mechanism-verified, not established as a defect*. Both edits are
+in the page's *Reporter-confirmed narrowing* section.
 
 **#13853** v0.20.2 + vllm-ascend v0.20.2rc1 Qwen3.5-0.8B on one 910B, 乱码 at
 `--block-size 2048` with a "正常" command at `--block-size 512 --enforce-eager` (two
@@ -293,6 +322,12 @@ exception (`vllm/multimodal/processing/context.py:440-459`, tokenizers#537), the
 serial-concurrency/retry ladder and the transformers-4.57 line-number gap; the
 prior-month history has no `Already borrowed` precedent at all
 (`../serving-frontend-faults/tokenizer-already-borrowed.md`).
+A later replay (same pins, one library grep for the exception text on its 2nd
+assistant turn) shipped the verdict and ladder in **6 assistant turns / 6.4 K completion
+tokens**. Its one paid call was the page's ast trio, which corrected the v0.16.0 parser
+list from three to four (`llama_tool_parser.py:47`); its `rg` of `vllm/renderers/base.py`
+exited 2, because that file exists only at v0.17.0 — at v0.16.0 `get_async_tokenizer()`
+is in `vllm/renderers/protocol.py:60`.
 
 **#7689** vllm-ascend v0.13.0rc1 (`1b5d5abf`) / vllm v0.13.0 (`72506c98`), dots.ocr
 on 2×910B4 (32 G) vs 910B3 (64 G) with an identical serve command: the B4 host answers

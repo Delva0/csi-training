@@ -104,6 +104,18 @@ leads were.
   is worse than no text: it turns the next turn into a re-write instead of an append.
   Drop the label, keep the confidence tag (`source-verified at <commit>` /
   `hypothesis`), and append each correction to the text already delivered.
+- **The entry shape sets what the first paragraph must carry, and a correct verdict can still
+  be an undelivered answer.** For a report that already contains a proposed hunk — a bug report
+  whose body writes the patch, a "I have a fix ready, should I open the PR", a reporter offering
+  to test — the payload is the diff, not the verdict about the diff: the verdict, "apply yours as
+  written" or the corrected hunk, and then the ranking, in that order and in message 1. Recorded
+  #10098 spent fourteen reasoning-only turns on source verification, began the answer with a
+  verdict paragraph that was right, was cut at 392 characters, and the reporter's next comment was
+  "If you have any drafted patch, I am happy to test with it" — the same failure as an empty
+  message, one step later. Review rule for the hunk itself:
+  `../code-change-requests/index.md` rule 13. The mirror shape is a report whose body is a **file
+  to produce** (a test report, a script): write the file's skeleton early, because a late
+  composition is what the cap eats.
 - **A gate the paste already answers needs no source read.** #4796 had its answer by
   turn 4 — v0.9.1 🟡 for the pooling task, fixed in v0.9.2rc1 #1359, two greps away —
   and spent 32 turns to the cap emitting **no message text**; minibatch sibling

@@ -47,7 +47,10 @@ reading any code:
 3. **The vectors are wrong for long inputs** while short inputs match the
    reference to > 0.999, the corruption is deterministic inside one serve
    session, and `--no-enable-chunked-prefill` removes it →
-   `chunked-prefill-vector-corruption.md`.
+   `chunked-prefill-vector-corruption.md`. Diff the failing and "fixed" launch
+   lines before crediting that flag: the recorded fix line also dropped
+   `--compilation-config` (non-default capture sizes) and `--additional-config`,
+   so the mechanism is only isolated by re-running with one flag moved.
 4. **It never gets past engine start, and the message is about the model class or
    the HF config type** — `TypeError: Invalid type of HuggingFace config.
    Expected type: <class '...Qwen3VLConfig'>, but found type: <class '...Qwen3Config'>`
@@ -205,7 +208,12 @@ weight-layout fault whose owner is the Python that chose the layout.
    equal to each other (`cos 1.0`) is a cache/reuse signature with a known ablation
    (class 7), and it is worth one line in the first message even when the reporter
    has not asked about caching — #5725 filed it as a numerical 误差 and the cache
-   was the answer.
+   was the answer. The cross-request form is one launch: a reporter who says the
+   broken sessions followed an earlier concurrent-load burst is describing state
+   carried **between** requests, so restart and embed a single request on an idle
+   server — a correct first vector retires the chunk-accumulation leads and points
+   at the slot/`pooling_states` lanes (`chunked-prefill-vector-corruption.md`,
+   `batch-index-desync.md`).
 6. **A start-up failure is a launch-input question, and the traceback already
    names the input.** `AutoWeightsLoader` is prefix-strict: it groups the
    checkpoint's names by their first dotted component and raises
@@ -224,7 +232,11 @@ weight-layout fault whose owner is the Python that chose the layout.
    from memory: the default differs between releases) compared against the
    reported N. If a sweep of that flag moves the boundary, the chunk boundary is
    the trigger and the owner is scheduling/accumulation/masking; if it does not
-   move, it is length-dependent numerics.
+   move, it is length-dependent numerics. And credit only a **one-flag**
+   ablation: in #17797 the "fixed" line changed three flags at once, so the
+   isolation run is the failing line plus the single blamed flag, with
+   `--compilation-config` / `--additional-config` / `--enforce-eager` held
+   constant across the sweep.
 
 8. **Ask encoder-only or decoder-based before any KV-cache arithmetic.** The split is
    one field — `architectures` in the checkpoint's `config.json` — and it moves the
@@ -277,9 +289,11 @@ Three scripts serve this topic's startup classes directly:
 - `chunked-prefill-vector-corruption.md` — class 3. Worked case vllm-ascend
   #17797 (v0.23.0-310p, `--runner pooling`, Qwen3-Embedding-0.6B): what the
   report proves, what is verified in the pinned tree, the three Ascend-specific
-  pooling branches (encoder-attention branch, fixed-size pooling masks, 310P
-  chunked-prefill dispatch), the ranked leads each with its deciding check, and
-  the ablation ladder an answer can be shipped from.
+  pooling branches (encoder-attention branch — pre-refuted on the v1 runner,
+  fixed-size pooling masks, 310P chunked-prefill dispatch), the ranked leads each
+  with its deciding check, why the reported workaround is a three-flag change, the
+  restart-variance controls, and the ablation ladder an answer can be shipped
+  from.
 - `prefix-cache-hit-embedding-drift.md` — class 7. Worked case vllm-ascend #5725
   (vllm 0.13.0 + vllm-ascend v0.13.0rc1, 910B4, Qwen3-Embedding-0.6B): first call
   `cos 0.9997` vs the reference, second `0.5855`, third+ bit-identical to the

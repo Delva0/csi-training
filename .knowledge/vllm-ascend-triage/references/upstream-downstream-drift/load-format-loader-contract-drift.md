@@ -95,6 +95,32 @@ release and the anchors above are citable as they stand.
    `wemaster/deepseek_mtp_main_random_bf16`) and carries no `load_format` variant,
    so dummy loading has no coverage — quotable as coverage, not as the cause.
 
+## `get_model(...)` is the loader call, not a constructor
+
+The question "does this component load its weights?" is answered at the *callee*, and
+at every pin in this snapshot `get_model` is the entry point that **loads**:
+`vllm/model_executor/model_loader/__init__.py:113-120` at vllm v0.11.0rc3 (`8ce5d31`)
+and `:126-138` at v0.17.0 (`b31e932`) both `return loader.load_model(vllm_config=…,
+model_config=…)`, and `BaseModelLoader.load_model` is `initialize_model` →
+`load_weights` → `process_weights_after_loading` (`base_loader.py:35-53` at
+v0.11.0rc3, `:40-77` at v0.17.0; `:16-46` at the v0.10.0 anchors above — the shape
+holds across all three, the line numbers do not). So a
+proposer whose `load_model` only calls `get_model(…)` **does** load its draft
+checkpoint: downstream `vllm_ascend/spec_decode/eagle_proposer.py:78-111` at v0.11.0rc0
+(`00ba071`) and its upstream counterpart `vllm/v1/spec_decode/eagle.py:792-801` (which
+shares `embed_tokens`/`lm_head` with the target and stops there). The neighbouring
+`mtp_proposer.py:72-104` at the same pin pulls weights by hand
+(`get_model_loader` → `get_all_weights` → `load_weights` →
+`process_weights_after_loading`) only because it instantiates the downstream
+`CustomDeepSeekMTP`/`TorchairDeepSeekMTP` class directly instead of going through the
+loader — so the difference between the two files is **not** evidence that eagle's draft
+weights are never loaded. Ask the callee one question (`rg -n 'def get_model' -A12
+vllm/model_executor/model_loader/__init__.py`) before reporting a missing `load_weights`
+as a defect. Recorded dead end: #3398 (eagle3 at v0.11.0rc0) spent its last turns and
+~6 K characters of reasoning concluding "`EagleProposer` never loads draft weights" —
+false at that ref, and orthogonal to its own symptom (a hang before any token) — and
+shipped no answer.
+
 ## General recipe for the next loader-method message
 
 Two calls, no model walk:

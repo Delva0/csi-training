@@ -58,6 +58,13 @@ Three consequences to state in the first paragraph:
   (`enable_sparse_sfa_c8`) has known issues, including performance degradation, and is
   **not recommended**" (#14011).
 
+The cheapest **pre-accuracy** observable of that asymmetric-DCP row needs no benchmark:
+the Mooncake handshake prints both `kv_group2layeridx` maps when they differ, and a pair
+whose only differing field is `sfa_dcp_replicated_indexer_size` is exactly this
+asymmetry (`mooncake_connector.py:1322-1327` at v0.23.0rc1, warning only —
+`../pd-disaggregation/kv-group-count-mismatch.md` §*the warning with one differing spec
+field*). Ask for that line, or for the two commands' `--decode/prefill-context-parallel-size`.
+
 So the verdict is not "a new mystery": a GLM-family DCP × sfa_c8 accuracy report lands
 on a documented known-issue lane. Precedents to quote as one line each: `#12905`:
 v0.23.0rc1, GLM-5.2, DCP=8 + `enable_sparse_sfa_c8` → first curl 乱码 (cache-hit caveat

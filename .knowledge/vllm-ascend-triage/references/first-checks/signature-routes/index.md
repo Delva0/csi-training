@@ -41,6 +41,12 @@ the most specific row wins.
   front to back. **Unsure which page?** One grep over this directory searches all
   every row at once: `rg -n '<distinctive fragment>' references/first-checks/signature-routes/`
   — a token, not a category (SKILL.md rule 8).
+- `startup-and-load.md` is **at the per-file size cap** (~101 K characters), so a
+  write that would grow it is refused. Put a new startup-shaped row on the page
+  whose *topic* it also fits (a parallel or stateful launch →
+  `parallel-state-and-kv.md`, a device op → `device-ops-and-collectives.md`), or
+  split the target page by shape first, and keep the row's own wording specific
+  enough that the grep above still finds it.
 
 ## Tracks
 

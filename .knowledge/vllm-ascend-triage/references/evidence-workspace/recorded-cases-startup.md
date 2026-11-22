@@ -772,3 +772,18 @@ load-phase `expanded size` error**, only the DP-padding and EAGLE-hidden ones. I
 unasked artefact is the checkpoint's `quant_model_description.json`, i.e. the
 `version`/`group_size` pair it inferred from the error —
 `../startup-failures/quant-aux-param-tp-shape-mismatch.md` (new).
+
+**#3543** image `quay.io/ascend/vllm-ascend:v0.11.0rc0` (vllm-ascend v0.11.0rc0
+`00ba071` + vllm v0.11.0rc3 `8ce5d31`), 910B3, `Qwen3-VL-30B-A3B-Instruct`, TP4, no
+`--max-model-len`: lane A whose paste holds only the parent wrapper, the death-monitor
+line and the TBE complaint. The recorded run reached the reporter-confirmed answer (the
+omitted flag) in 20 steps, but six of them sat in a recorded-cases detour it entered
+because a `head -40`-capped `rg -l` bag list over `references/` looked "too broad" —
+both owning pages were on that list (SKILL.md rule 8, the `-l` paragraph). Its rung 4
+offered the `latest` image tag on the strength of another Qwen3-VL-30B-A3B case at the
+same pin pair whose symptom was degenerate output, i.e. a precedent shared by model and
+pin only. The follow-up turn carried the maintainer's same-version non-reproduction;
+the discriminating variables are the card's HBM × utilization − profiling peak and the
+checkpoint's advertised context (`../startup-failures/environment-correspondence.md`
+§*Reporting a non-reproduction*) — `../startup-failures/max-model-len-budget.md`,
+`../startup-failures/silent-worker-exit.md`.

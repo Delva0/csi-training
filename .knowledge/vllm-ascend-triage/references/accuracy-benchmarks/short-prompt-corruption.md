@@ -40,6 +40,14 @@ VL page does not apply (Step 0b).
   load-balancing proxy, no concurrent traffic), and only then read the text as
   the engine's output. Do not spend an ablation ladder on a body that may belong
   to another in-flight request.
+- **Fluent text with one inserted meaningless word is its own grade**, and the title's
+  token is often not in the paste: #9430's title names `hilabihan`, while its body is a
+  clean self-introduction (`prompt_tokens: 6`, `finish_reason: "stop"`, coherent
+  paragraphs) — a recorded run re-scanned the body for the string twice and spent two
+  reasoning blocks on it. Accept the title as the symptom's name, grade from the body's
+  own numbers, and read the inserted token as a corrupted row of state/KV or an accepted
+  draft token, not sampling. The rung that closed #9430 was the image, not an ablation —
+  `../evidence-workspace/version-contract.md` §*old-tag rung*, feature-image paragraph.
 - Degenerate from the first tokens and never recovering — repeated function
   words, one token cluster looping — is corruption. Truncation, a stop-string
   mismatch or a budget limit produce short or empty output, not fluent nonsense.

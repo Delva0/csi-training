@@ -620,7 +620,13 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   that states the rule (Kimi-K3 §5.2 / FAQ `:886`), the DEBUG-only handshake report
   that hides it, the ranked causes (spec asymmetry, draft-config geometry, HMA parity,
   peer image skew) and the four-row ladder. Reporter-confirmed #16177 at v0.26.0rc1
-  `f2f74a16`.
+  `f2f74a16`. The same `:1322` comparison's **non-crashing face** is on the same page:
+  a `WARNING Remote kv_group2layeridx is inconsistent with local` whose two dicts differ
+  only in a KV-spec scalar (`sfa_dcp_replicated_indexer_size` = the dcp-derived
+  replicated-indexer size, `utils.py:125-136` / `model_runner_v1.py:454-456` at
+  v0.23.0rc1 `f4a08bdd`), which means the two serve commands disagree on DCP/PCP — the
+  `qli` page-bytes arithmetic, the documented "DCP on both sides or neither" statement
+  (#14322) and the one output comparison that retires it (#12681, GLM-5.2 1P1D).
 - `structured-output-draft-placeholder-assert.md` — the decode node's EngineCore dies
   on `assert accepted` with `-1` draft ids under structured output + spec decode: the
   three readings of the paste (seeded placeholders, backend-agnostic upstream assert,

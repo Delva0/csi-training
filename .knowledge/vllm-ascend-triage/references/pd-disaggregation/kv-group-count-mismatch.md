@@ -1,4 +1,4 @@
-# Decode-side `IndexError: list index out of range` in `_get_kernel_block_ids`
+# Mooncake `kv_group2layeridx` handshake: the decode `IndexError` and the warning-only spec-diff face
 
 ## When this page applies
 
@@ -15,11 +15,85 @@ IndexError: list index out of range
 ```
 
 This is a **host-side Python index on a metadata list**, not a transport, device or
-rank-table failure: no plog, no `npu-smi`, no HCCL read belongs in the answer. The
+rank-table failure: no plog, no `npu-smi`, no HCCL read belongs in the answer.
+The *same* `:1322` comparison also prints a **non-fatal** form with no traceback —
+`Remote kv_group2layeridx is inconsistent with local …` at WARNING (v0.23.0rc1) —
+whose answer is a launch asymmetry, not a crash: read §*First split* below before
+the ladder, because the printed dicts decide which of the two pastes you have. The
 line numbers are v0.26.0rc1 (`f2f74a16`); they drift, the function names do not.
 Recorded #16177 (Kimi-K3 + DSpark, A3 8-node PD, "仅关闭 prefill 节点 dspark 投机"),
 where the reporter's own follow-up confirmed the cause: *"kv group 不一致导致的，
 decode 与 prefill 需要保持同步开启投机"*.
+
+## First split — which face of the comparison is in the paste
+
+The connector compares its own `kv_group2layeridx` with the peer's at every handshake
+(`mooncake_connector.py:1322` at v0.23.0rc1). Two different questions arrive at this one
+emitter, and the printed dicts decide which one you have:
+
+| What differs between the two printed dicts | Face | Where |
+|---|---|---|
+| the group **count** or the per-group **layer list** | the decode side indexes an empty remote tuple later in the request → `IndexError` | Steps 1-4 below |
+| **only a KV-spec scalar** (`sfa_dcp_replicated_indexer_size`, block size, head sizes, the `cache_sparse_*` flags), same groups and same layers | no raise at all; the line is a P/D launch asymmetry and the request completes | next section |
+
+Do not apply the `IndexError` ladder to a paste that has no traceback, and do not call
+the warning "normal" without reading which field moved.
+
+## The warning with one differing spec field (no traceback)
+
+Recorded #12681 (vllm-ascend **v0.23.0rc1** `f4a08bdd`, GLM-5.2, 1P1D PD, DCP == TP == 1
+on the decode instance, reporter's own question: "是否正常"): the decode instance's first
+request prints
+
+```
+(WARNING) [mooncake_connector.py:1323] Remote kv_group2layeridx is inconsistent with
+local. remote={0: ({... 'sfa_dcp_replicated_indexer_size': 2 ...}, [0..78])},
+local={0: ({... 'sfa_dcp_replicated_indexer_size': 1 ...}, [0..78])}
+```
+
+79 identical layer names, one group on each side, every other spec field equal.
+
+| Anchor (v0.23.0rc1 `f4a08bdd`) | Fact |
+|---|---|
+| `mooncake_connector.py:1322-1327` | `if agent_meta.kv_group2layeridx != self.kv_group2layeridx:` → `logger.warning(...)` only: no raise, no return, no state change |
+| `:1329-1333` | the remote map, base addrs and `block_size_scale` are recorded unconditionally, so connect/transfer continue |
+| `utils.py:125-136` | `enable_sfa_dcp_replicated_indexer()` = `model_uses_sfa_sparse(model) and decode_context_parallel_size > 1 and prefill_context_parallel_size == 1` (the `pcp` term is absent at v0.26.0rc1, `utils.py:122-129` — re-grep per pin) |
+| `worker/model_runner_v1.py:454-456` | the field is `self.dcp_size` when that gate holds, else `1` (`core/kv_cache_interface.py:64` default) |
+| `core/kv_cache_interface.py:79,97` | the value multiplies the indexer (`qli`) bytes inside `page_size_bytes` |
+
+So `remote=2 / local=1` is a **DCP/PCP asymmetry between the two serve commands**, printed
+by the connector's own consistency check: a decode side at `dcp=1` cannot print anything
+but `1`, so the peer was launched with `decode_context_parallel_size > 1` and
+`prefill_context_parallel_size == 1` (same-pin gate; an image skew between the peers
+also produces it — rank that second). With the paste's numbers (`block_size=128`,
+`num_kv_heads=1`, `sparse_head_dim=(656,0,128)`, `cache_sparse_li_c8=False`, int8 ckv /
+bf16 qli) the `qli` term is 65 536 B against 32 768 B per 128-token page — the two sides
+do **not** lay the indexer cache out identically, and which side's layout a pull uses
+cannot be settled statically: `:891` gates on the *local*
+`enable_sfa_dcp_replicated_indexer` and `block_size_scale[layer_idx][cache_idx] > 1`,
+where `block_size_scale = tensor_num_blocks // self.num_blocks` (`:2317`) and the peer's
+scale is shipped at `:1333`. Answer the intra-page question with one output comparison,
+not with a code walk.
+
+Verdict to hand back: the line is **non-fatal** (warning only, handshake intact, the
+request completes) but it is not noise — it is the cheapest observable of the
+asymmetric-DCP condition the project later documents as an accuracy risk: release notes
+v0.26.0rc1 `:260` (#14322) *"DCP must be enabled on both prefiller and decoder nodes or
+disabled on both. Asymmetric DCP configuration can cause accuracy issues"*
+(`../dsa-sparse-attention/dcp-c8-accuracy-garble.md` Rule 2), while every validated 1M row
+keeps DCP equal on both sides — `docs/source/tutorials/models/GLM5.2.md:1220` (Prefill
+`DP4 PP1 TP8 PCP1 DCP8`, Decode the same), and both P and D scripts pass
+`--decode-context-parallel-size` (`:1306`, `:1362`). The comparison is DEBUG-only at
+v0.26.0rc1 `:1427-1434`, i.e. maintainers later demoted it — precedent for the level,
+not a fix for the asymmetry.
+
+Checks, cheapest first: (1) diff the two serve commands' `--decode-context-parallel-size`
+and `--prefill-context-parallel-size` — that alone confirms the field; (2) one fixed-seed
+prompt under symmetric DCP, compare the bodies — identical output retires the accuracy
+worry and the line can be ignored; (3) `VLLM_LOGGING_LEVEL=DEBUG` and compare both
+`kv_group2layeridx=…` maps plus `block_size_scale=…` only if the asymmetry is
+unavoidable. Only if both sides carry identical parallel configs and the warning still
+prints is it a connector defect (the `:1322` compare should then ignore spec detail).
 
 ## Step 1 — read the index: local group id against a remote list
 
@@ -54,9 +128,13 @@ answer before a code answer — `docs/source/tutorials/models/Kimi-K3.md` §5.2
 "set `DRAFT_MODEL_PATH` on both Prefill and Decode nodes, and pass the same
 `--speculative-config` to both. Prefill must retain `--enforce-eager`".
 
-The mismatch is **silent at INFO**: the handshake compares the two maps and logs at
-DEBUG only (`:1427-1434`, "Remote kv_group2layeridx differs from local … remote=%s,
-local=%s", no raise), so nothing in a default-level paste hints at it.
+The mismatch is **silent at INFO at this page's v0.26.0rc1 pin**: the handshake compares
+the two maps and logs at DEBUG only (`:1427-1434`, "Remote kv_group2layeridx *differs*
+from local … remote=%s, local=%s", no raise), so nothing in a default-level paste hints at
+it — while at v0.23.0rc1 the same comparison is a `logger.warning` with the wording
+"*is inconsistent with* local" (`:1322-1327`). Same code path, two levels: the paste's
+level and wording date it, and a caught WARNING line means the asymmetry was already
+printed for you (§*the warning with one differing spec field*).
 `VLLM_LOGGING_LEVEL=DEBUG` on either side prints both maps — that is the 100 %
 confirmation and costs one restart.
 

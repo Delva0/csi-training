@@ -56,6 +56,14 @@ The downstream side of the pin is `requirements.txt:16-18` (`torch==2.9.0`,
 `setup.py:459-476,517` (`_read_requirements` → `install_requires`; `--` lines skipped),
 which is why the second command downgrades torch and pip can only warn.
 
+The printed line also quotes the requirement's **environment marker verbatim**, which
+names the file on its own: a `torch==X; platform_machine == "ppc64le" or platform_machine
+== "aarch64"` line is the CPU requirements file (`requirements/cpu.txt:13` at vllm
+v0.9.2, read in the #1796 snapshot) and therefore says the vllm wheel was a **CPU**
+build on an aarch64/ppc64le host, while the cuda file's `torch==X` carries no marker at
+all — so one warning line reports both the torch demand and the reporter's platform
+(`pip-index-visibility.md` §A, recorded #1796).
+
 ## B. The pair the tag *documents* is a third fact
 
 `docs/source/conf.py:75-76` (`pip_vllm_ascend_version: 0.17.0rc1`,
@@ -92,6 +100,13 @@ partner" is what leaves "does vllm 0.18.0 run on torch 2.9.0?" unanswerable (#82
   `outlines_core == 0.2.11` (`common.txt:23`) and the stale `outlines` is older than
   that; `pip install -U outlines` (or drop it and use `xgrammar`, downstream
   `requirements.txt:20 xgrammar>=0.1.30`).
+- `llamafactory 0.9.2 requires pandas>=2.0.0 … tokenizers<=0.21.0,>=0.19.0 …
+  transformers<=4.49.0` — an unrelated third-party package that happens to be installed;
+  these are *its* requirements. They are not a missing module (do not route to
+  `pip-index-visibility.md` §B: nothing here needs `pandas` to be installed), not a
+  downgrade to perform (its `transformers<=4.49.0` may contradict the tree's own
+  `transformers==` pin), and not evidence about the vllm pair. Recorded #1796, where
+  three of this block's six lines are these.
 - `opencv-python-headless` — a deliberate, permanent divergence: upstream floor
   `>= 4.13.0` (`common.txt:35`) against downstream cap `<=4.11.0.86 # Required to avoid
   numpy version conflict with vllm` (`requirements.txt:22`) under `numpy<2.0.0`
@@ -105,7 +120,7 @@ broken — `python -c "import torch, torch_npu, vllm, vllm_ascend; print(...)"` 
 tree's own `examples/offline_inference_npu.py` (the CI gate above). Ladder:
 
 1. that import + offline example;
-2. the two unrelated leftovers of §C;
+2. the unrelated leftovers of §C;
 3. if a warning-free environment is required: the tag's documented pip pair
    (`conf.py:75-76`) or the prebuilt image, or vllm from source with
    `VLLM_TARGET_DEVICE=empty` as `Dockerfile:52-56` does;

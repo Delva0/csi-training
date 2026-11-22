@@ -77,7 +77,7 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   load whenever the NZ gate converts it. Still not an operator or install fault — the
   owner is the gate's missing shape test, and the lever is the NZ mode
   (`../startup-failures/nz-weight-format-refusal.md`). Read the text after `EZ1001`
-  before choosing between (a)-(e): all five arrive in the same wrapper.
+  before choosing between (a)-(f): all six arrive in the same wrapper.
   (e) **output dtype**: the same `161002` but the named tensor is **`y`** —
   `GMM:y dtype does not match with required dtype[DT_BFLOAT16]` beside
   `Tensor … dtype is DT_BFLOAT16 but found DT_INT32` on `aclnnGroupedMatmulV5`. The
@@ -86,6 +86,17 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   quantize them — check both before any kernel/driver theory; rule 5 of
   `quant-scale-dtype-gate.md` (v0.10.1rc1 anchors, `ep_size < 16` forcing the
   non-quantizing permute, the `--enforce-eager` control and the e2e coverage gap).
+  (f) **quant-parameter dtype, MX variant — and this one is not the caller's fault**:
+  the same `161002` wrapper with `AclNN_Parameter_Error(EZ1001): Tensor x1Scale not
+  implemented for DT_FLOAT8_E8M0, should be in dtype support list [DT_FLOAT,]` on
+  `npu_transpose_quant_batchmatmul` (also a `DT_FLOAT4_E2M1FN` operand on an A5 fused
+  op). The **length of the printed list decides the side of the gate**: a multi-entry
+  list that omits only the model dtype is (c), while a **one-entry** list means this
+  kernel build carries the non-MX scale variant only, so the caller (an A5 o_proj /
+  a W8A8-MXFP8 method handing over `…view(torch.float8_e8m0fnu)`) is doing what an MX
+  checkpoint requires and a cast to fp32 is an experiment, not the fix. Owner:
+  installed kernel × SoC die — see rule 0 of `quant-scale-dtype-gate.md` and
+  `../soc-platform-paths/a5-mxfp-refusal-and-die-coverage.md`.
   **A tiling line whose verb is `not support <mode>`, not `… is invalid` and not `must be
   equal`, is a toolkit-release question.** `When layout is TND, not support Page Attention`
   (`RunBigKernelTilingWithParams`, `prompt_flash_attention_tiling.cpp`) says the installed

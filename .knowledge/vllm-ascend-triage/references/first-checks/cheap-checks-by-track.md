@@ -91,6 +91,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   is next, and `_warm_up_model` (`worker.py:325-326`) captures nothing at that ref.
   Then ask for the exact `vllm serve` line, the container exit code, `dmesg` OOM
   lines and `npu-smi` **during** the stall (`../startup-failures/silent-stall-after-weight-load.md`).
+  That line also *sizes* the phase: the dummy prefill runs `max_num_batched_tokens`
+  tokens (unset: `max(max_model_len, 2048)` on V0, chunked prefill off by default),
+  so a long `--max-model-len` keeps "the profiling forward is too big" live while
+  `--max-num-seqs` only re-splits the same total.
   The log's `model_runner.py:<line>` vs `model_runner_v1.py:<line>` fingerprints
   V0 vs V1; use it as evidence, not proof.
 - `NPU out of memory` raised **while building the model** (`get_model` →
@@ -114,8 +118,11 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   `reasoning_tokens: 0`: the serve command's `--reasoning-parser` is the
   answer before any model/device theory, and the chat field is `reasoning`,
   not `reasoning_content` (checked at vllm v0.19.1 and v0.22.1 — name the
-  field the reporter's version emits)
-  (`../accuracy-benchmarks/reasoning-output-routing.md`).
+  field the reporter's version emits). The `reasoning_tokens` value itself is
+  **not** a second finding and not evidence the parser ran: the chat usage
+  schema is patched process-wide downstream while only the MiniMax count is
+  filled, so stop after one read instead of hunting its populator
+  (`../accuracy-benchmarks/reasoning-output-routing.md` §*inverse shape*).
 - Native null-string abort at engine init (`std::logic_error` /
   `basic_string::_S_construct null not valid`, no Python frame): stock-model
   run on the same host/image, then the three `python -c` probes, then

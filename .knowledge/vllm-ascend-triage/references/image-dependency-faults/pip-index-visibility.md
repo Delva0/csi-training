@@ -156,12 +156,53 @@ The reporter's second message is the same defect from the other side: installing
 `vllm 0.9.2 requires torch==2.7.0 … but you have torch 2.5.1 which is incompatible`
 (plus torchvision/torchaudio lines). pip does not hold the installed vllm's metadata
 when it resolves a later command, so a downgraded torch is a warning, not an error.
-That warning block is the cheapest proof of the torch line the reporter landed on.
+That warning block is the cheapest proof of the torch line the reporter landed on, and
+it is reporter-confirmed (2025-07-15): the `torch-npu` wheel really does drive torch
+down and the broken environment stays "installed".
+
+**Read that warning block by its markers, and drop the lines that are not this pair.**
+The `vllm 0.9.2 requires torch==2.7.0; platform_machine == "ppc64le" or
+platform_machine == "aarch64"` line carries the marker of the requirements file the
+installed wheel's metadata came from — `requirements/cpu.txt:13` on an aarch64/ppc64le
+host, plain `torch==2.7.0` from `requirements/cuda.txt:9` on an x86 CUDA host — so it
+names vllm's torch demand **and** the reporter's platform in the same line, without
+asking. The `torchvision`/`torchaudio` lines are the same pair (`cpu.txt:18-21`). The
+rest of the block (here `llamafactory 0.9.2 requires pandas>=2.0.0 … tokenizers<=0.21.0
+… transformers<=4.49.0`) belongs to unrelated third-party packages the reporter happens
+to have installed: it is neither a missing module (§B) nor a version to change — drop it
+instead of ranking it (`pip-resolver-warning-block.md` §C is the line-level rule).
+
+**"I cannot install it with `pip install` *or compile it from source*" is one fault at
+this pin, not two.** The same dev pin is declared twice — `pyproject.toml:15-17`
+(`[build-system] requires`: `torch-npu==2.5.1.post1.dev20250619`, `torch>=2.5.1`,
+`torchvision<0.21.0`) and `requirements.txt:13,27`, which `setup.py:341,388` folds into
+`install_requires` — so an sdist/editable build raises the *same* `Could not find a
+version that satisfies the requirement torch-npu==…` out of the build-deps subprocess
+(§D's `× pip subprocess to install build dependencies did not run successfully`, but
+with the dev pin instead of the `+cpu` pair, and §D is where the torch pair exists
+**only** in the build requirements). Do not open `setup.py`/`CMakeLists.txt` for it:
+the source leg has the same two levers as the wheel leg — the index (`export
+PIP_EXTRA_INDEX_URL=https://mirrors.huaweicloud.com/ascend/repos/pypi`, which the build
+subprocess inherits; §D records that pip also forwards `-i`/`--extra-index-url`) or
+`pip install -e . --no-build-isolation` (`installation.md:174`), which reuses the
+host's torch pair.
 
 Later trees show the invariant that was missing: at `v0.11.0rc2` the same file is
 `torch==2.7.1` (`:13`) + `torch-npu==2.7.1` (`:28`, mirror lines commented out) +
 `torchvision` uncapped (`:14`) — the `torch-npu` version prefix **equals** the torch
 version prefix. Check that equality first; it is the whole pairing in one line.
+
+**The same class where pip succeeds, so no resolver error exists to route on.** When
+the unpublishable pin is a plugin rather than a torch pair, a public `pypi/simple`
+index serves a *lookalike* and the install exits 0 — the failure then waits until the
+first kernel compile. vllm-ascend v0.13.0rc1 is the recorded instance: its
+`requirements.txt` names no `triton-ascend`, the hand-install `.dev` wheel lives only
+in the `vllm-ascend.obs.cn-north-4.myhuaweicloud.com` bucket, and
+`pip install triton-ascend -i https://example.invalid/pypi/simple` brought
+`3.2.0rc4`, which that release was never tested with (maintainer-confirmed, #5750).
+The discriminator is the same one this page uses — the release's own pin — read in
+`requirements.txt`/`pyproject.toml`; the ladder and the version where the pin becomes
+final are in `triton-ascend-pair.md`.
 
 ### Answer shape (A)
 
@@ -236,11 +277,16 @@ First paragraph: the message is upstream's placeholder text, the two real module
 container `pip install pandas` can only end in `No matching distribution found` — the
 fix is a wheel carried in, not a different pandas. Ladder:
 
-1. Say which dataset name needs what: `--dataset-name custom` (and `spec_bench`) needs
-   **pandas** only; `random`, `sharegpt`, `sonnet`, `prefix_repetition` touch neither;
-   the `hf`/`conversation`/`vision_arena`/`instruct_coder`/… family needs
-   **datasets**. So a run that only needs custom data is one wheel away, and a
-   no-dependency smoke test is `--dataset-name random`.
+1. Two opening statements, and the index one comes first when the report says
+   离线 / air-gapped: **`pip config list` (+ `pip config debug`) and `ls
+   /root/.cache/pip`** — the image baked its index in at build time, so in an offline
+   pod every later `pip install <missing dep>` is already decided and the reporter must
+   not be sent to try another index or another version. Then name the module: with
+   `--dataset-name custom` (and `spec_bench`) it is **pandas** only; `random`,
+   `sharegpt`, `sonnet`, `prefix_repetition` touch neither; the
+   `hf`/`conversation`/`vision_arena`/`instruct_coder`/… family needs **datasets** —
+   so the zero-install smoke test is `--dataset-name random` and a custom-data run is
+   one wheel away.
 2. Build the wheelhouse on a networked host with the **image's** interpreter and arch:
    `pip download pandas datasets -d /tmp/wh --only-binary=:all:
    --platform manylinux2014_aarch64 --python-version 3.11 --abi cp311` (v0.11.0rc2's
@@ -457,7 +503,11 @@ build-deps command.
   `setup.py:341` + the two upstream pins. The session's own reasoning reached the
   right facts (the metadata pin, the `torchvision<0.21.0` contradiction) and then
   spent the budget on whether `torch-npu 2.5.1.post1` was rebased onto torch 2.7.1,
-  which no local file can settle.
+  which no local file can settle. A later session on the same report took §A's ladder
+  straight out of this page and shipped the verdict in four tool calls — §A's four
+  facts plus one `pip-pairing-check.sh` run are enough; the reporter's public
+  follow-ups since then are the two comments §A already predicted (hand-installing
+  `torch-npu` only warns), so the page needs no further confirmation work.
 - **#2838** (snapshot v0.10.1rc1 `7e16b4a7cdb1` + vllm v0.10.1.1 `1da94e67`; the
   report's own `v0.9.1` is not in that tree): the "README says `>=`, pyproject says
   `==`" question, answered in 13 tool calls with the mirror-comment pair, the
@@ -470,9 +520,12 @@ build-deps command.
   all delivered. The gap the reporter's later comment exposes: the answer offered
   `pip download … ; pip install --no-index --find-links=wheelhouse pandas` as ladder
   item 1 without first naming the **index hypothesis**, and the reporter's next
-  message is exactly `No matching distribution found for pandas`. Put the
-  `pip config list` / unreachable-index check in the opening paragraph when the
-  deployment is described as offline.
+  message is exactly `No matching distribution found for pandas`. A later session on
+  the same report repeated that order — wheelhouse first, index check only in the
+  evidence table — although the report's own title said 离线环境, and its next message
+  was again the reporter's `pip install pandas` failure. So the check is not a cause to
+  rank: `pip config list` is ladder step 1 (`§B Answer shape` above, rewrite of that
+  step) and the opening paragraph says the container's index is baked in.
 
 - **#446** (v0.7.3rc2 `00459ae` + vllm v0.7.3; `[Installation]`, two screenshots, the
   rc1 one a success log and the rc2 one the build-deps conflict): 580 K cumulative prompt
@@ -519,11 +572,13 @@ build-deps command.
 
 ## Not verified
 
-- The huaweicloud Ascend mirror was not reachable from any recorded session, so
-  neither run confirms which `torch` a `torch-npu 2.5.1.post1.dev*` wheel pins; the
-  claim rests on the sibling `2.7.1` branch's `setup.py:625` and on the reporter's
-  own `pip` warning block. Treat "the pin set is unsatisfiable" as source-verified and
-  "that dev wheel would have installed" as untested.
+- The huaweicloud Ascend mirror was not reachable from any recorded session, so no run
+  confirms which `torch` the **dev** build `torch-npu 2.5.1.post1.dev20250619` pins. The
+  sibling `2.7.1` branch's `setup.py:625` and the #1796 reporter's own `pip` warning
+  block both say "the matching release torch line", and their hand-install of released
+  `torch-npu==2.5.1` did remove torch 2.7.1 — so the mechanism is reporter-confirmed and
+  only the dev build's exact pin is untested. Treat "the pin set is unsatisfiable" as
+  source-verified, "that dev wheel would have installed" as untested.
 - Whether the released `v0.9.2rc1` **image** is internally consistent: its
   `Dockerfile` runs the same editable install, so the build would have accepted the
   torch downgrade with only a warning. Check `pip show torch torch-npu` inside the

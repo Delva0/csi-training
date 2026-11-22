@@ -83,7 +83,14 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 ray start --address=<node0-ip>:6379 --
 Ray snapshots the environment at `ray start`, so `ASCEND_RT_VISIBLE_DEVICES`
 (the platform's `device_control_env_var`) has to be exported in **that node's**
 shell, not in the driver's — same per-process rule as
-`environment-correspondence.md`'s ray section. Then `ray status` shows
+`environment-correspondence.md`'s ray section. The same per-node rule is the
+owner of a different text — `107001` + `EE1001 … Set visible device failed, invalid
+device=<n>, input visible devices:1` from `worker.py:185 init_device`, with
+`Overwriting environment variable ASCEND_RT_VISIBLE_DEVICES from '<one id>'` above it:
+there Ray narrowed each actor to its single assigned card while vLLM indexes the node's
+whole list by `local_rank`, and the launch line that prevents it is
+`RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1`
+(`ray-visible-devices-local-rank.md`). Then `ray status` shows
 `NPU: 16` for two 8-card nodes and the same serve command starts.
 
 ## Not the causes, and say so

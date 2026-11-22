@@ -29,6 +29,42 @@ quantized dense linear (`deepseek_v2.py` `gate_up_proj` → `ops/linear.py` →
 `method_adapters.py` → `w8a8_dynamic.py`), i.e. before any request and before any
 flag can matter.
 
+A second signature is the same gate on an **MX operand**, and it is the one case where
+the caller is right (rule 0 below):
+
+```
+RuntimeError: npu_transpose_quant_batchmatmul:
+  ../third_party/op-plugin/op_plugin/ops/opapi/StructKernelNpuOpApi.cpp:4005
+NPU function error: device error type 0, error code is 161002
+AclNN_Parameter_Error(EZ1001): Tensor x1Scale not implemented for DT_FLOAT8_E8M0,
+  should be in dtype support list [DT_FLOAT,].
+```
+
+## Rule 0 — the printed support list's length decides which side of the gate you are on
+
+The same `161002` / `EZ1001` wrapper covers both, and the *number of entries* in
+`should be in dtype support list [...]` separates them before any source read:
+
+| Paste | Owner |
+|---|---|
+| a multi-entry list whose only missing member is the model dtype — `Tensor scale not implemented for DT_FLOAT16, should be in dtype support list [DT_UINT64, DT_BFLOAT16, DT_INT64, DT_FLOAT]` | the Python that built the scale: rules 1-5 below, the caller is wrong |
+| a **one-entry** list with an MX operand — `Tensor x1Scale not implemented for DT_FLOAT8_E8M0, should be in dtype support list [DT_FLOAT,]` on `npu_transpose_quant_batchmatmul` (`x1_scale=` / `x2_scale=` arriving as `….view(torch.float8_e8m0fnu)`), or a `DT_FLOAT4_E2M1FN` weight on an A5 fused op | the installed kernel × the running SoC die: this build carries the non-MX scale variant only, while the caller is doing exactly what an MX checkpoint requires |
+
+For the second row, **do not run rules 1-3**: they would "repair" a correct MX
+launch. An E8M0 block-32 scale cast to fp32 makes the call leave this gate, but
+nothing in the tree or the message says the non-MX path applies block-32
+grouping to a float scale, so the cast is an experiment whose acceptance is one
+real completion against a bf16 reference — never the recommendation. The
+`hasattr`-only probes in `vllm_ascend/device/mxfp_compat.py` (`:21-40`, callers in
+`quantization/methods/w8a8_mxfp8.py:55,202` and `quantization/quant_parser.py:63-65`)
+all pass in that case, so "the symbol exists" is not "the kernel has it".
+Recorded #13904 (v0.23.0rc1, DeepSeek-V4-Flash w8a8 MXFP8, 4× Ascend950PR): the
+A5 o_proj branch (`attention/dsa_v1.py:1560-1577`, twin at
+`attention/context_parallel/dsa_cp.py:1231-1241`) is selected by device type
+alone with no capability probe and no fallback, and no launch flag reaches it —
+the die-vs-CANN-build ladder is
+`../soc-platform-paths/a5-mxfp-refusal-and-die-coverage.md`.
+
 ## Rule 1 — a float32 copy existing is not the path *using* it
 
 At v0.17.0rc1 (`e20f0b1a0d2f`) the linear method already creates the right tensor
@@ -152,6 +188,11 @@ the full plog block with `ASCEND_LAUNCH_BLOCKING=1`).
 
 ## Scope and recheck
 
+Rule 0's MX member is source-verified at vllm-ascend v0.23.0rc1
+(`f4a08bddd0cc`) with vllm v0.23.0 (`0fc695fc`), where the aclnn kernel's own dtype
+table is not in the export (`Ascend/op-plugin` carries 103 files and no `opapi/`
+directory, and `cann/ops-transformer` is unavailable) — so the die-versus-CANN
+question is answered on hardware, not locally.
 Source-verified at vllm-ascend v0.17.0rc1 `e20f0b1a0d2f` (vllm v0.17.0
 `b31e9326a7d9`); the MoE second occurrence is reporter-confirmed on #7443, not
 executed here (no NPU in the case view). Recheck condition: re-run the audit script

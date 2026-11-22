@@ -326,11 +326,21 @@ DeepSeek-V3.2-w8a8, failure during an HLE evaluation.
 | In-window first error: `EZ9999 ... 2026-05-13-15:29:05.818 ... error from device(chipId:3, dieId:1) ... fftsplus aivector error ... The DDR address of the MTE instruction is out of range` | same |
 | Then `507011` at 15:29:07 from `_get_valid_sampled_token_count` / `get_output`, then `ERR02005` + HCCL watchdog terminate; `shm_broadcast ... 60 seconds` at 15:28:39 on all four EngineCores | same |
 | Three chips hit the same `pc start` in the same two seconds (see step 5) | same |
+| What each ask produced: the request for versions got 「vllm-ascend和vllm版本 这些The output of `python collect_env.py`输出的信息里不都有吗？」 (the body's own block already prints `vLLM Version: 0.18.0`, `vLLM Ascend Version: 0.18.0rc1`); the request for the fuller first error produced the two-date traceback above; the request for the plog produced `plog-188432_20260515021316221.log` | reporter comments 2026-05-26 `#issuecomment-4539003016`, 2026-05-18 `#issuecomment-4474949456` |
+| The body's block and the traceback share **pid 983** (`RUNTIME(983)` in the first, `Worker_DP2_TP2_EP10 pid=983` in the second): one long-lived worker spans both days, which is why the re-printed record reads as "the same crash again" | body `<!-- Failed to upload "plog-983_20260512035017922.log" -->`; `#issuecomment-4539074892` |
 
 State of the conclusion: **unresolved** — no maintainer diagnosis or fix is in the
 record. What the timestamps settle is the ownership split: the reported failure is
 a device-side aivector/MTE-address exception inside the window, and the `107030`
 capture-mode block is the previous day's crash and cannot anchor the diagnosis.
+The case is a *repeat*, not one bad process: pid 983 appears on both days and the
+reporter later posted `plog-188432_20260515021316221.log`, a third run starting
+`20260515-02:13:16` — read that run's `chipId` lines before crediting one card. A
+plog file name is `plog-<pid>_<YYYYMMDDHHMMSS>.log`, so the pid and start time **in
+the name** select the run: the body's `Failed to upload
+"plog-983_20260512035017922.log"` is exactly the plog of its own pasted block, so
+re-ask for that file by name instead of for "a plog", and for the other runs'
+pids likewise.
 Next asks for the reporter, in this order: which kernel/op ran at 15:29:05 on that
 chip (plog lines above the `EZ9999` block, tiling `I`-line if the op is an AscendC
 custom op), the same failure with `--enforce-eager`, then with

@@ -13,6 +13,13 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   `/workspace/attachments/<issue>/`) and investigation-time views
   (`/workspace/repos/<owner>/<repo>`, `/workspace/history/<issue>.md`,
   `/workspace/attachments/`). Match what directory listing shows; never hard-code either.
+- **A grep result that does not parse as source text is a `--replace` artifact, not
+  evidence.** `rg -rn '<pattern>' <path>` reads as "recursive + line numbers", but `r`
+  is `--replace`: every match is rewritten with `n`, so `backend_kwargs["lazy_init"]`
+  came back as `backend_kwargs["n"]` in the recorded #16111 run and cost a re-run
+  (`rg` is recursive by default; `rg -n` is the intended command). Re-run before
+  quoting any mangled identifier, truncated string or line that lost its variable name —
+  a corrupted match must never become a quoted fact in the answer.
 - `SOURCES.json` is the version contract: `repo`, `ref`, `commit`, `basis`, `mode`
   (`one_commit_git` vs `content_export`), file counts, `complete_regular_files`,
   `runtime_commit_verified`. `runtime_commit_verified: false` means the source is the named

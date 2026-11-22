@@ -165,6 +165,18 @@ leads were.
   already opened — and still shipped no verdict (13 assistant turns, 763
   characters, cut at 16 384 with the ranking in hand:
   `../performance-throughput/prefill-queue-and-throughput.md`, second half).
+- **A magnitude that does not reproduce is not a second mechanism when the formula
+  carries a reporter-side parameter.** Once the owner and the formula are settled, the
+  reporter's exact number is their input, not a test of the verdict. #7965 (v0.18.0rc1
+  `99e1ea0f`, Qwen3.5-9B, "1024·n 输入长度时 prefix cache 命中率个位数") held the mechanism by
+  its 6th turn — `max_cache_hit_length = num_tokens − 1` plus block rounding, so a whole
+  block is lost at exact-multiple lengths, and the reporter's own later comment is exactly
+  that one sentence — then spent six turns trying to make "个位数" agree with a candidate
+  block size (1024 vs 2048) that only the reporter's serve log can supply: 13 assistant
+  turns, ~48 K characters of reasoning against ~1.7 K of message text, `output_truncated`
+  with **no answer**. Ship `rate(L) = B·floor((L−1)/B)/L` with their `L`, name the one log
+  line that carries the missing `B`, and stop
+  (`../performance-throughput/prefix-cache-hit-rate-at-block-boundary.md`).
 - **Every assistant turn carries message text, not only a tool call.** A gate only
   binds if the text exists to be cut. #5295 is the clean case: 16 assistant turns,
   every one of them a bare tool call, ~46 K characters of reasoning (≈12 K of a 16 K

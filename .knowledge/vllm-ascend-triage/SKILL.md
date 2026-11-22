@@ -446,8 +446,12 @@ the turn the shape is classified, not a second copy of it here.
    nothing: quote the page's pin and facts instead of re-opening the id, and never
    drop the script's only message with `2>/dev/null | head` — #6533 read the empty
    stdout as an empty body, then spent a GitHub call on a 404 and disowned the
-   same-pin #8590 precedent it had. Make one grep for the distinctive token (op
-   name, error string, dataset
+   same-pin #8590 precedent it had. A raw `head -1` of
+   `/workspace/history/<id>.md` with stderr dropped is the same trap: absent and
+   empty print identically, and this is the one id that is reliably absent (the
+   page's own case is newer than the corpus) — #10495 spent a call there after its
+   owning page had already matched its body line for line. Make one grep for the
+   distinctive token (op name, error string, dataset
    name), read 2-3 hits, then stop: **for a corruption report the distinctive token
    is the pasted output itself** — the repeated character run (`-b '!!!'`) or the
    exact answer text — not the category word. #3547 searched titles for
@@ -841,9 +845,14 @@ the turn the shape is classified, not a second copy of it here.
     remains is model×mode support at that ref or a defect fixed after it. Three
     checks, then deliver: (a) which models the pinned tree validates for that mode —
     `rg -n 'cudagraph_mode.*FULL_DECODE_ONLY' <ascend>/tests/`, then confirm a
-    `.github/workflows` file runs that test **and sets the mode it names**
-    (v0.11.0rc1: the wired `test_mtp*_correctness_full_graph` cases pass `FULL`,
-    which `platform.py:237-242` sends to `NONE`; §3 of
+    `.github/workflows` file runs that test **and sets the mode it names**, and read
+    the markers above the case: a wired file is not coverage when the case is
+    `@pytest.mark.skip`-ped (v0.11.0rc1 and v0.11.0rc2 `a2e4c3f`:
+    `tests/e2e/singlecard/test_aclgraph.py:103-108` skips "it fails intermittently
+    and needs investigation" on the file's only `FULL_DECODE_ONLY` case, so that
+    line's full-graph coverage was a multicard file no workflow referenced) —
+    v0.11.0rc1 also has wired `test_mtp*_correctness_full_graph` cases that pass
+    `FULL`, which `platform.py:237-242` sends to `NONE`; §3 and the #4326 section of
     `hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`); (b) whether the
     reporter's own control
     works — a default-mode success on the same command makes the *mode* the lever;
@@ -880,7 +889,16 @@ x86 host whose index does not carry the `+cpu` label is the §D build-dependency
 `ERROR: Cannot install torch-npu==X and torch>=X … torch-npu X depends on torch==X+cpu` under
 `× pip subprocess to install build dependencies did not run successfully` — whose cure is one
 flag (`--no-build-isolation`, which the same pin's `installation.md:168` names, or
-`--extra-index-url …/whl/cpu`). Then the first message carries that rung, and the title's
+`--extra-index-url …/whl/cpu`). **A report that says it also cannot *compile from
+source* has not added a second fault when both legs carry the same pin** — at `v0.9.2rc1`
+`pyproject.toml:15` (`[build-system] requires`) and `requirements.txt:27` (→
+`install_requires` through `setup.py:341,388`) name the same
+`torch-npu==2.5.1.post1.dev20250619`, so the sdist/editable leg re-raises the identical
+`Could not find a version …` from the build-deps subprocess and the levers are the wheel
+leg's two (`PIP_EXTRA_INDEX_URL`, or `--no-build-isolation`); only §D's shape, where the
+torch pair lives *only* in the build requirements, is a build-specific conflict
+(`references/image-dependency-faults/pip-index-visibility.md` §A). Then the first
+message carries that rung, and the title's
 "x86 systems cannot install through pip" is the reporter's **premise, not a finding**: that
 pin's own pip tab tells x86 users to add the CPU index (`installation.md:126,129`), so the
 project documents the path and the `+cpu` label — not a missing arch wheel — is the usual
@@ -1215,7 +1233,18 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   the rows the verdict needs and move the rest into "what to send back".
 - Version and hardware scope of the conclusion, plus what to send back (full
   per-rank log, plog, tiling I-line, raw request/response dumps, `npu-smi info`,
-  `asys health` output, `dmesg` OOM lines, both PD serve commands).
+  `asys health` output, `dmesg` OOM lines, both PD serve commands). **The ask list is
+  the complement of the paste, not a repetition of it.** The template's `<details>`
+  *Your current environment* block is a `collect_env.py` dump and already prints
+  `vLLM Version:`, `vLLM Ascend Version:`, the torch/torch_npu/CANN versions, the
+  launch env vars and a full `npu-smi` table, so "which vllm / vllm-ascend version"
+  or "run collect_env.py" is answered before you ask: on #9183 that request drew
+  「vllm-ascend和vllm版本 这些The output of `python collect_env.py`输出的信息里不都有吗？」
+  (2026-05-26), while the two asks that moved the case were the plog at the failure
+  second and the full first-error block. The same block's `npu-smi` is a *startup*
+  table, so `No running processes found` / `Health OK` on every chip says nothing
+  about the failure minute — ask for health **at** that minute
+  (`npu-smi info -t health -i <id>`), not for the table again.
 - What you could not verify locally and which questions remain open, stated as
   such.
 

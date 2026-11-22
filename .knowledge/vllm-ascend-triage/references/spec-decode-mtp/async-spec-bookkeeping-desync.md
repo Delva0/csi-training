@@ -17,10 +17,13 @@ and `--speculative-config` in the same launch**:
    amounts` at `v1/spec_decode/metrics.py:208`
    (`counter_spec_decode_num_accepted_tokens.inc(...)`).
 
-The recorded trigger words are `--temperature 0.6` (or any value in `(0,1)`),
-`--temperature 0` or no temperature runs fine, model DeepSeek-V4-Flash-w8a8-mtp,
-MTP `num_speculative_tokens: 1`, `--data-parallel-size 4` + TP 4 + EP, 48-way
-concurrency over 144 prompts.
+The recorded trigger words are `--temperature 0.6` — and, per the branch below, *any*
+temperature at or above `1e-5`, so read a reported `0.6` as one tested value rather
+than as a window — `--temperature 0` runs fine (`vllm bench serve` also sends `0.0`
+when the flag is absent, while a raw client's omitted field arrives as `1.0`, so ask
+which client produced the working run), model DeepSeek-V4-Flash-w8a8-mtp, MTP
+`num_speculative_tokens: 1`, `--data-parallel-size 4` + TP 4 + EP, 48-way concurrency
+over 144 prompts.
 
 ## One provenance, not three bugs
 
@@ -52,18 +55,38 @@ copy is why the traceback names vllm-ascend. Verify with
 `../upstream-downstream-drift/patch-copy-vs-upstream.md` before saying "upstream
 bug" — the diff is what earns the claim.
 
-## Temperature, precisely
+## Temperature: one boundary (greedy vs stochastic), not a `(0,1)` window
 
-Only `0 < temperature < 1` reproduces, `0` behaves. The vllm-ascend rejection
-sampler returns early on the all-greedy path
-(`sample/rejection_sampler.py:119,155`) and otherwise falls through to
-`generate_uniform_probs` / `sample_recovered_tokens` (`:158` onward) writing the
-stochastic entries of the padded `(batch, max_spec_len + 1)` buffer. Which branch
-runs therefore decides the row's placeholder pattern, and the placeholder pattern
-is what `valid_sampled_tokens_count` counts. That much is source-verified; **the
-step at which a row becomes `discard`-ed in the reporter's run is not** — say so,
-and name the one instrumentation that settles it (`self.num_discarded_requests`
-per step).
+The stack has exactly one temperature branch, so the title's range is the range the
+reporter happened to try, not a source boundary. The vllm-ascend rejection sampler
+returns early on the all-greedy path (`sample/rejection_sampler.py:42,119,155`;
+`all_greedy` == no request above `_SAMPLING_EPS`, i.e. every request
+`temperature < 1e-5` — `vllm/v1/worker/gpu_input_batch.py:355-361,961-962`,
+`vllm/sampling_params.py:21,520-525` at the pin) and otherwise
+scales logits by `temperature` (`:46-54`) and falls through to
+`generate_uniform_probs` / `sample_recovered_tokens` (`:158` onward), which writes
+the stochastic entries of the padded `(batch, max_spec_len + 1)` buffer — and that
+pattern is what `valid_sampled_tokens_count` counts. Prediction: **any
+`temperature >= 1e-5` reproduces, `0` does not**, so `--temperature 1.0` is the run that
+tests this reading; a clean `1.0` run means the greedy flag is not the trigger and
+the discard condition is the thing to instrument.
+
+Two controls this changes:
+
+- **"no `--temperature`" on `vllm bench serve` is the greedy lane, not a second
+  control.** The flag defaults to `None` and the body is then filled with
+  `"temperature": 0.0` (`vllm/benchmarks/serve.py:1398,1412-1413` at the same pin,
+  vllm v0.13.0), so it is the same launch as `--temperature 0`.
+- **A raw OpenAI client that omits the field is *not* greedy**: the server falls
+  back to the model's generation config, else `1.0`
+  (`vllm/entrypoints/openai/protocol.py:390,406-408` at that pin). "Works without
+  temperature" reported from a curl or a third-party harness therefore means "works
+  at 1.0" and contradicts the reading above — ask which client produced the working
+  run before quoting any range.
+
+Still open: **the step at which a row becomes `discard`-ed in the reporter's run is
+not established** — say so, and name the one instrumentation that settles it
+(`self.num_discarded_requests` per step).
 
 ## Ladder
 
@@ -71,11 +94,14 @@ per step).
    bookkeeping and the discard-driven lookup in one launch.
 2. `--speculative-config` off: the MTP row, and the cheapest split between
    "sampling/verify" and "everything else" (`index.md` rule 1).
-3. `num_speculative_tokens 1` → `2`, and `temperature 0.6` with an explicit
-   `seed`, to show the trigger is the temperature *range*, not the request body.
-4. Only then the DP/EP axis: the same batch reaches all four DP workers, which is
+3. `--temperature 1.0`, then `0.6`, with an explicit `seed`: shows the trigger
+   is any non-zero temperature, not one value (and is the row that can refute the
+   greedy/stochastic reading above).
+4. `num_speculative_tokens 1` → `2`: whether the lookahead budget, not the mode,
+   is the trigger.
+5. Only then the DP/EP axis: the same batch reaches all four DP workers, which is
    why all four frames appear at once — DP is not the cause.
-5. Patch proposal for upstream: `prev_req_id_to_index.get(req_id)` with the
+6. Patch proposal for upstream: `prev_req_id_to_index.get(req_id)` with the
    request skipped (and `max(num_accepted, 0)`), not something to hand the
    reporter as a fix.
 

@@ -104,7 +104,9 @@ the CPU-dispatch library; its ownership is in *Limits* below), so `IndexPut` =
 write this page lists lives in the GDN/FLA path, which PaddleOCR-VL, GLM-OCR and MinerU
 never enter — move the grep to the generic path (`vllm_ascend/worker/`,
 `_310p/model_runner_310p.py`'s mrope position building, the vision tower, `patch/**`)
-instead of re-reading `gdn_310.py`.
+instead of re-reading `gdn_310.py`. Then go **upstream of the plugin**: on an image request the
+first indexed write the generic forward makes is vLLM's own `_merge_multimodal_embeddings`
+(next section), which `vllm_ascend/` never overrides.
 
 **One candidate that looks right and is not: the sampler's Triton-absent penalty
 fallback.** The first sampling step prints `[sample/sampler] Triton not available,
@@ -137,6 +139,92 @@ unreachable for a default-sampling request.
    with the Qwen3.6 row below: here the pinned docs *do* validate the model on Atlas
    300, so "unsupported" is not the answer.
 5. The plog `[AIC_INFO] fault kernel_name=` block, `npu-smi info`, the full log.
+
+## A VL model on 310P: the owner is upstream's multimodal-merge write
+
+Recorded **#12086**: image `quay.io/ascend/vllm-ascend:v0.22.1rc1-310p` (pin vllm-ascend
+**v0.22.1rc1** `5f6faa0` ↔ vllm **v0.22.1** `0decac0`), 2×310P1, `Qwen3-VL-4B-Instruct-
+w8a8s-310` and `Qwen3-VL-8B`, both `--tensor-parallel-size 2 --dtype float16
+--max-model-len 8192 --enforce-eager --no-enable-prefix-caching`. The serve comes up, a
+**text-only** chat answers normally, and every request that carries an image kills
+EngineCore. The two pastes look unrelated — one headline is `QuantBatchMatmulV3 … x1
+format should be ND`, the other `kernelName=IndexPut` — and they are **one fatal site, in
+upstream vLLM, not in `vllm_ascend/`**:
+
+```text
+File "/vllm-workspace/vllm/vllm/model_executor/models/utils.py", line 477, in _merge_multimodal_embeddings
+    inputs_embeds[is_multimodal] = mm_embeds_flat.to(dtype=input_dtype)
+File ".../utils.py", line 490, in _merge_multimodal_embeddings
+    raise ValueError("Error during index put operation") from e
+```
+
+`inputs_embeds[is_multimodal] = …` is a **boolean-mask** indexed write, i.e.
+`aten::index_put_` — the same failure family as the rest of this page — but the statement is
+upstream (`_merge_multimodal_embeddings`, `utils.py:456`, write `:477` at vllm v0.22.1)
+and `vllm_ascend/` carries **no** substitution for it (`rg -n '_merge_multimodal_embeddings'
+vllm_ascend/` → release-note prose only), so no plugin patch and no env knob moves it off
+the CPU/AICPU library. Only image requests reach the write: a text-only prompt returns
+before the merge, which is exactly why the reporter's text test passed. Consequences:
+
+- **Grep the upstream tree before the plugin's "generic path".** One command at any pin
+  (`rg -n 'inputs_embeds\[is_multimodal\]|_merge_multimodal_embeddings'
+  <vllm>/vllm/model_executor/models/utils.py`). The `except RuntimeError` four lines below
+  re-raises `ValueError("Error during index put operation")` (`:490`), or
+  `Attempted to assign <expr> = N multimodal tokens to M placeholders` (`:485`) when the
+  counts differ. So that `ValueError` beside an aicpu / `507018` block **is this fallback,
+  not a placeholder-count bug** — read the frames above it before routing the case to
+  `../multimodal-inputs/index.md`.
+- **When the paste already carries upstream frames with line numbers, the statement is
+  named** and rung 1 of *Ranked actions* is moot. Here the 8B log names it on both ranks
+  (`utils.py:477` → `:490` → `embed_input_ids`) beside the same-second
+  `Aicpu kernel execute failed … soName=libpt_kernels.so, funcName=RunCpuKernel,
+  kernelName=IndexPut, errorCode=0x2a`.
+
+### The quantised model's `QuantBatchMatmulV3` block is a start-phase latch
+
+The 4B-w8a8s half of #12086 leads with
+`E69999 op[QuantBatchMatmulV3], Input x1 format should be ND, actual format is FRACTAL_NZ
+… [FUNC:CheckDtypeOnOnlyL0c2ub][FILE:quant_batch_matmul_v3_tiling.cpp][LINE:173]`, and the
+report reads it as that model's own failure. Two tells say otherwise, and both are in the
+paste:
+
+1. **That log has zero `kernelName=` lines** (`grep -c 'kernelName=' 4b-.txt` → 0), so no op
+   is attributed to the failing request at all — while the second log has two.
+2. **The block's own stamp is from the init window.** `2026-07-15-06:38:12` sits between
+   `Encoder cache will be initialized with a budget of 16384 tokens, and profiled with 1
+   image items …` (06:36:56) and `init engine (profile, create kv cache, warmup model) took
+   92.46 s` (06:38:20), i.e. inside the encoder `profile_run`; it is *printed* at 06:39:27
+   by `CopyKernelOpApi.cpp:58 Warning: E69999`, beside a request fault whose traceback is
+   the same merge line. Read `[W… <now> …] Warning: E<code>` against the block's own
+   `time=` before calling the block the request's owner; the device-side form of the same
+   masking is in `../hccl-and-hardware/latched-runtime-error-masking.md`.
+
+The int8→NZ half is real but is not that request's owner, and it is not switchable off:
+`_should_trans_nz` returns `True` at `if is_310p():` (`vllm_ascend/utils.py:219-221` at
+v0.22.1rc1) **before** it reads `config.weight_nz_mode`, so `VLLM_ASCEND_ENABLE_NZ=0` cannot
+stop the int8→FRACTAL_NZ cast on 310P. Grep `is_310p()` in that function before offering the
+env lever.
+
+So the answer to "why do the two models differ" is: one fatal site, and the difference is
+only **which op the log names** — the fp16 model's fault block names `IndexPut`, the
+quantised one names nothing and re-prints a profile-stage tiling refusal.
+
+### Capability verdict and the sizing question
+
+At v0.22.1rc1 `docs/source/user_guide/support_matrix/supported_models.md:87` lists
+`Qwen3-VL` with **A2/A3** in the `Supported Hardware` column,
+`docs/source/tutorials/hardwares/310p.md:405` is the closing early-access note (Qwen3-VL →
+#7394), the only validated 310P quant rows are the three dense `Eco-Tech/Qwen3-{8B,14B,32B}-w8a8sc-310`
+dense conversions, and `docs/source/tutorials/models/Qwen-VL-Dense.md` has **no** 300I/310P
+section (`rg -n -i '300i|310p|duo'` → 0 hits). So a "which Qwen3-VL size fits 2×310P1"
+question has **no validated row at this pin**, and memory is not the binding constraint —
+the 8B log reports `Loading model weights took 9.6286 GB` per rank at TP2 and 13.4 GiB KV
+against 43 GiB/die, so one die holds it. Say that in one sentence, name the operator
+coverage as the limit, and do not invent a supported size.
+
+The only workaround is a **code** substitution in *upstream* vLLM, applied inside the image
+(rewrite the merge without a bool-mask write: `index_select` + `copy_`, `scatter`, or
+pre-built indices). Label it unverified; nothing in `_310p/` is involved.
 
 ## The GDN family on 310P: prefill-only indexed writes, and the CI row that decides the verdict
 

@@ -345,7 +345,12 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   and the report/launch script contains a `pip install triton-ascend` or an extra
   BiSheng/AscendNPU-IR `.run` over the image → `triton-ascend-pair.md`. The phrase
   "Failed to compile custom operators with Triton Ascend" is usually the reporter's
-  paraphrase; it is not the AscendC custom-op lane.
+  paraphrase; it is not the AscendC custom-op lane. **The repair is decided by that
+  release's `triton-ascend` pin, not by the launch script**: absent from
+  `requirements.txt`/`pyproject.toml` (≤ v0.13.0rc1) means the hand-install `.dev`
+  wheel its docs name is required, a final pin (v0.14.0rc1 `==3.2.0`) means the image
+  already has it and the manual install is the damage — so read the pin before
+  offering "remove the install", and put the release move first.
 - A Triton-Ascend **extension op returns wrong values** although the engine is
   healthy — bf16 `extract_slice` at a non-32-byte-aligned start yielding foreign
   values and zeros, `insert_slice`/`extract_slice` pairs in a hand-written kernel,

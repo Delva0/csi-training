@@ -51,7 +51,9 @@ dodges it — that is what the answer turns on. #1895, at `b5b7e0e`:
 custom kernel is `get_ascend_config().torchair_graph_config.enabled` (`:42-48` →
 `forward_native`), which does **not** cover the ACL-graph path, and the branch at
 `:60-70` needs `query.dtype == torch.float16 and neox_style and head_size % 32 == 0
-and enable_custom_op()` (`:29-31`). The reporter's log carried
+and enable_custom_op()` (`:29-31`) **and `not is_310p()`** (`:60-61` — on a 300I/310P die
+the branch is never taken, so the same text there is a SoC question, not this one:
+`../soc-platform-paths/index.md`). The reporter's log carried
 `Casting torch.bfloat16 to torch.float16` and `dtype=torch.float16`, so an fp16
 launch selected the branch, and Qwen2's `head_dim` 128 with neox-style satisfied
 the rest. The other shim is not a fallback: `register_dummy_fusion_op`

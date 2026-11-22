@@ -140,6 +140,11 @@ listed as the open gap. Later-ref correspondence added from #8590's tree: v0.14.
 moved the op to `_C_ascend` and registers Python Meta impls
 (`vllm_ascend/meta_registration.py:108-111`, imported at `utils.py:255-258`) plus
 `csrc/torch_binding_meta.cpp` — `../startup-failures/meta-kernel-missing.md`.
+Re-run later against that page itself: the same report cost 5 assistant turns with the
+verdict and ladder in the message at turn 3 and only the page's two version-marked greps
+re-run — the shape rule 1 asks for. The one drift it found is now on the page: the gate
+line reads `custom_rotary_embedding_enabled(...) and not is_310p()` (`:60-61`), so the
+branch is 300I/310P-excluded.
 
 **#4309** vllm-ascend v0.11.0rc1 (`c5fe179cef7f`) + vllm v0.11.0
 (`b8b302cde434`), 8×910 64 GB, `Qwen/Qwen2.5-7B-Instruct-1M` served with
@@ -695,6 +700,26 @@ message text**. The decisive pair is `qwen3_vl.py:1327-1332` (a literal
 `"language_model.lm_head."`): the key the engine asks for cannot exist in a
 mapper-rewritten description, so the fix is the model file, not the export —
 `../startup-failures/empty-prefix-quant-keyerror.md` §*The renamed-prefix variant*.
+
+**#3494** vllm-ascend v0.11.0rc0 (`00ba071`) + vllm v0.11.0rc3 (`8ce5d31`),
+`Qwen2.5-72B-Instruct-w8a8` with `--quantization ascend --max-model-len 32768` (the body
+says TP4, the attached log's command is TP2), V1 + ACL graph: engine start dies at model
+construction with `KeyError: 'model.embed_tokens.weight'` on every rank —
+`quant_config.py:147 is_layer_skipped_ascend`, reached from `:115 get_quant_method` →
+`ops/vocab_parallel_embedding.py:81` → `qwen2.py:309`. The key is **correctly prefixed**
+(qwen2 passes `prefix=f"{prefix}.embed_tokens"`, `qwen2.py:308-312` at vllm v0.11.0rc3),
+so neither the empty-prefix page nor §E's FP8 release owns it, and §C-ii's
+"description this ref never reads" is out of date at this pin
+(`get_config_filenames()` returns `["quant_model_description.json"]`,
+`quant_config.py:76-77`). Two descriptions can be in that slot: `config.json`'s
+`quantization_config` marker, which upstream returns **before** globbing the directory
+(`weight_utils.py:249-250`), or a description that was read and omits the module. Run:
+15 assistant turns (47 K characters of reasoning against **164 characters** of message
+text) on that derivation; the answer began in the last turn and was cut two lines in at
+the 16 384-token cap, so nothing reached the reporter. Owed by turn 2: the ranked pair
+plus the one-directory census — `../startup-failures/quantization-method-gate.md` §C-iii
+(open: no reporter reply; the log prints `vLLM API server version 0.10.2` against the
+pin's v0.11.0rc3 pairing).
 
 **#14467** image `quay.io/ascend/vllm-ascend:qwen3.8-a5`, Ascend 950PR ×1, vllm and
 vllm-ascend 0.23.0, `Qwen/Qwen3.8-27B-FP8` served with `qwen3_5_mtp` spec decode and

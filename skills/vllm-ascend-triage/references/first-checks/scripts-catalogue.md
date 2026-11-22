@@ -255,13 +255,17 @@ after that keeps the header, not this text.
   reporter's `torch_npu` include root and CANN root; `--sources` runs the same
   check against the pinned exports. Owner: `../image-dependency-faults/host-cxx-compile-header-conflict.md`.
 - `scripts/card-budget.sh --params P [--dtype] [--tp] [--gmu] [--hbm] [--cards]
-  [--stage-gmu] [--stage-devices]` — weights-per-card vs budget and the gmu sum
-  over processes sharing a device (#9335; the `--stage-*` half is the 3-stage omni
-  layout of #8068). `P` is **billions** of parameters (`671`, not `671e9`); the
-  script exits 2 on a raw count rather than printing arithmetic that inverts the
-  verdict, and it has no default per-stage gmu — those values come from the
-  reporter's stage yaml, because a 2-card deploy can pass once `devices` are
-  re-pinned (`../deploy-sizing/card-budget-and-device-visibility.md`).
+  [--stage-gmu] [--stage-devices] [--stage-params]` — weights-per-card vs budget
+  and the gmu sum over processes sharing a device (#9335; the `--stage-*` half is
+  the 3-stage omni layout of #8068). `P` is **billions** of parameters (`671`, not
+  `671e9`); the script exits 2 on a raw count rather than printing arithmetic that
+  inverts the verdict, and it has no default per-stage gmu — those values come
+  from the reporter's stage yaml, because a 2-card deploy can pass once `devices`
+  are re-pinned (`../deploy-sizing/card-budget-and-device-visibility.md`).
+  `--stage-params` is the per-stage footprint; without it each stage is charged a
+  full copy of `--params` and the printed per-device `weights` column over-states a
+  one-checkpoint pipeline (vllm-omni's talker/code2wav), which the script says in a
+  note line — the **gmu sum** is the decision either way.
 - `scripts/kv-page-size-arithmetic.py --layout {legacy,v023} --mode {li_c8,sfa_c8}
   [--soc A3|A5] [--dcp D] --k-head-dim L --v-head-dim R --index-head-dim I
   [--block-size 128] [--num-kv-heads 1] [--pages N]` — the DSA/sparse-C8 KV page
@@ -647,3 +651,16 @@ after that keeps the header, not this text.
   `../feature-enable-recipes/per-soc-recipe-and-quantized-weights.md` §*Prune the flags
   that provably do nothing*. It reports sites, not causes: a `LIVE` verdict only says the
   knob is reachable.
+
+- `scripts/cpu-bind-plan-audit.py <serve.log …> | -` — inverts every
+  `The CPU allocation plan is as follows:` / `NPU<n>: main=[…]  acl=[…]  release=[…]`
+  block of one or more serve logs and prints, per NPU, the pool `cpu_binding.py`
+  actually built (`allocate()` trims it: `main = pool[2:-2]`, `pool[0..1]` reserved for
+  the sq/cq IRQs, `acl = pool[-2]`, `release = pool[-1]`), the IRQ cores, the
+  `[migrate]` NUMA anchor and a `disjoint` / `overlap N cpus` / `IDENTICAL pool` verdict
+  per pair of plans — so "two instances bind the same cores" is one call instead of
+  eyeballing two 44-number lists. Reads the `[cpu_bind_mode]` line too, and reports
+  `Skip binding cpu` as a finding (no plan line at all ⇒ binding never ran). Originating
+  case #8600 (`../performance-throughput/cpu-binding-multi-instance-overlap.md`, pin
+  v0.18.0rc1 `99e1ea0`, `cpu_binding.py:352-372`). Exit 0 when a plan was parsed, 2 when
+  nothing was (say which lines you searched for; do not report "no overlap").

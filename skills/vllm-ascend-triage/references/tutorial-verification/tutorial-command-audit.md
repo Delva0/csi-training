@@ -57,6 +57,24 @@ Recorded #12562 upgraded this row to "破坏命令" and scored 正确性 2/5 on 
 "breaks the command" claim needs a second option sharing the prefix, or an
 `allow_abbrev=False` hit, and nothing else.
 
+**Anchor the pattern on the quoted flag, never on `add_argument(` plus the name.** vLLM
+declares most options as `parser.add_argument(\n        "--model",` — the name sits on the
+*next* line — so `rg -n 'add_argument\("--model"' vllm/benchmarks/serve.py` matches only the
+one option shaped on a single line (`--port`, `:1255`) and reads as "the flag does not
+exist". Two greps cover a whole `vllm bench serve` line at v0.18.0, in one tool block:
+
+```bash
+rg -n -- '"--(backend|model|served-model-name|max-concurrency|request-rate)"' vllm/benchmarks/serve.py
+rg -n -- '"--(dataset-name|num-prompts|random-input-len|random-output-len)"' vllm/benchmarks/datasets.py
+```
+
+`:1241 --backend`, `:1286 --model`, `:1512 --served-model-name`, `:1272
+--max-concurrency`, `:1342 --request-rate`; dataset names and `--num-prompts` live in
+`datasets.py` (`:1344`, `:1350`), not in `serve.py`. Recorded #11737 spent two tool
+blocks re-deriving this from `add_argument(` patterns before it could write §3, and
+the 16 384-token cap then cut the append that carried §2-§5 — see
+`community-test-report.md`'s Qwen3-Coder row.
+
 **The bench's `model` field is a second, separate contract** — the argument
 *names* parse in check 2, but the name *it sends* must be the name the page's own
 serve line publishes: `--served-model-name` on the serve line makes every other
@@ -503,6 +521,31 @@ each candidate, then composed the report inside a reasoning block and started on
 `cat > … <<'EOF'` heredoc for the deploy script; the cap cut that command
 mid-argument, so nothing was written and nothing was sent. Every row above was
 already verified before that turn — see `community-test-report.md`, the seventh run.
+
+## Seventh worked page: Qwen3-Coder-30B-A3B at v0.18.0 (recorded #11737)
+
+Page `docs/source/tutorials/models/Qwen3-Coder-30B-A3B.md` (105 lines — the shortest
+model page under `tutorials/models/`), pinned vllm-ascend v0.18.0 `e18643f8` + vllm v0.18.0
+`bcf2be96`. Row `cjw1`: 4×Atlas 800I A2, 1 T RAM, 300 G disk, HDK 25.5.0.B078, image
+`quay.io/ascend/vllm-ascend:v0.18.0`, weights `Qwen/Qwen3-Coder-30B-A3B-Instruct`
+(ModelScope). 任务问题和需求 is 「测试通过」 — no 已知问题 field, so the FAQ comes from
+precedents. Verified findings, each `path:line` at that pin, tiered:
+
+| Tier | Finding | Evidence |
+|---|---|---|
+| 正确性 (stale image) | the container block declares `:substitutions:` and then hardcodes `export IMAGE=quay.io/ascend/vllm-ascend:v0.11.0rc1`, so a tester following the page pulls a release seven minor versions before the row's 蓝区镜像; the three sibling model pages all substitute (`\|vllm_ascend_version\|`) | page `:30`, `:32`; `Qwen3-30B-A3B.md:11,13`, `Qwen3-Next.md:31,33`, `Qwen3-Dense.md:62,64,125`. Grade *not substituted*, and note the value the substitution renders at this tag is itself `v0.17.0rc1` (`docs/source/conf.py:72`) — a page quoting v0.18.0 instead would be the worse fix |
+| stale baseline | the only accuracy number is labelled `vllm-ascend:v0.11.0rc0` ("for reference only"), with no card count, CANN or TP, seven releases before the row's image | page `:95` (one `openai_humaneval … 94.51` row) |
+| 完整性 | `## Performance` is one AISBench referral and nothing else; the sibling `Qwen3-Dense.md:281-302` carries `### Using vLLM Benchmark` with the `latency`/`serve`/`throughput` subcommands and a worked `serve` example. An in-tree-precedent defect, not a tree-wide convention | page `:101-105` vs `Qwen3-Dense.md:281+` |
+| 完整性 (open item) | the serve line passes no `--max-model-len`, while the Introduction advertises "extended context support of up to 1M tokens" and the sizing advice covers only card memory; on the 32 GB half of `:63` the default budget is the risk. Do **not** call it a failure: the checkpoint's `config.json` is not in the snapshot | page `:69`, `:14`, `:63`; close it with a `config.json`/`max_position_embeddings` dump from the tester |
+| 易用性 | the only request example is `curl` (`:77`) and the image's own apt list has no curl (`Dockerfile:36`: git vim wget net-tools gcc g++ cmake numactl libnuma-dev libjemalloc2); four sibling pages print a `requests`/`openai` client (`MiniMax-M2.md`, `PaddleOCR-VL.md`, `Qwen3_reranker.md`, `Qwen3-VL-Reranker.md`). Phrase as an open item with `command -v curl` in the container — the base image may carry it | page `:77`; `Dockerfile:36` |
+| pass (say so) | `--enable_expert_parallel` parses (`_`↔`-` mapping), the curl body's `top_k`/`max_completion_tokens` are both real fields, `VLLM_USE_MODELSCOPE=True` resolves because the image pip-installs modelscope, the `#execute-performance-evaluation` anchor exists, the matrix row is A2/A3 ✅, the four `/dev/davinci0-3` devices match `--tensor-parallel-size 4` and the row's 4 cards, and `:25`'s `v0.10.0rc1` gate is below the row's image | `vllm/utils/argparse_utils.py:244`; `chat_completion/protocol.py:164`, `:191`; `envs.py:18`; `Dockerfile:95-96`; `using_ais_bench.md:249`; `support_matrix/supported_models.md:25` |
+
+FAQ material from the corpus: `#2175` (`v0.10.0+empty Qwen3-Coder-30B`, empty output),
+`#6572` (A2 v0.14.0rc1 Coder-Next: TP4 raises, TP8 OOMs — the sizing answer is `:63`),
+`#4450` (EP on the 480B-A35B variant errors). The run itself ended
+`output_truncated` after writing §1 **and** the deploy script — the first of these runs
+to land both — so what is left for the next one is §3-§5 and the closing message;
+see `community-test-report.md`.
 
 ## What a finding must carry
 

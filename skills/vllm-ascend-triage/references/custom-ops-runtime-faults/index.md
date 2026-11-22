@@ -102,7 +102,11 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   (`RunBigKernelTilingWithParams`, `prompt_flash_attention_tiling.cpp`) says the installed
   CANN's prompt tiling has no path for that layout × paged-KV pair, so the pin's documented
   CANN floor versus the reporter's `version.cfg` is the first check and the caller's arguments
-  are not — `tiling-capability-refusal-cann-release.md`.
+  are not — `tiling-capability-refusal-cann-release.md`. **Read what a `must be equal`
+  sentence compares before calling it bookkeeping**: `queryD(256), keyD(256) and valueD(256)
+  must be same equal 192/128/64` (`CheckInputShapeWhenLayoutIsTND`) prints the model's head dim
+  against the tiling's set, so the owner is a 256-dim model reaching the paged-TND path and
+  the lever is the batch state, not the toolkit release — `fia-tnd-head-dim-refusal.md`.
   A **built-in** op dying the same way before launch (`call aclnnArange failed …
   EZ9999 … Parse dynamic kernel config fail`, `AclOpKernelInit failed opType`,
   `<Op>AiCore ADD_TO_LAUNCHER_LIST_AICORE failed`) is not a custom op at all: the
@@ -503,6 +507,15 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   (`installation.md:15`, `CANN >= 8.3.RC1` at v0.11.0rc1) before any caller walk; #4373 is
   reporter-confirmed solved by CANN 8.3, and the launch pair (`attention_v1.py:540-554`, TND +
   `block_table` + `sparse_mode=3`) is what the plugin intends, so chunking avoidance is only a sidestep.
+- `fia-tnd-head-dim-refusal.md` — the **head-dim** member: `queryD(256), keyD(256), valueD(256)
+  must be same equal 192/128/64` (`CheckInputShapeWhenLayoutIsTND`, `LINE:3701`) under
+  `aclnnFusedInferAttentionScoreV3 … 561002`, from `_forward_v1_style` (`attention_v1.py:539-553`).
+  The paste's own `Dumping scheduler output` line decides it (a batch with a partially computed
+  prefill ⇒ `ChunkedPrefill` ⇒ the paged-TND call, `model_runner_v1.py:1576-1600`, budget
+  `DEFAULT_MAX_NUM_BATCHED_TOKENS=2048`), `_forward_v1_style` escapes only `head_size == 192`
+  (`:503-518`), Qwen3-Next is `head_dim=256`, and an image-launched run cannot be below the
+  CANN floor (`Dockerfile:18`) so the `not support Page Attention` upgrade rung does not apply —
+  recorded #4135, which verified all of it and shipped no text.
 - `aclnn-error-dump-reading.md` — field-by-field reading of the Ascend device dump and what
   each line does/does not pin down; its step 0 is the check that an op-map page at the same
   pin already answers the tiling question, which the #8944 forward skipped before

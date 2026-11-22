@@ -153,7 +153,13 @@ of only ~115 MB per `/usr/local/python` on the cards. Read it as **the ranks
 never got to weight load** (a 30B bf16 checkpoint at TP=8 would hold ~7 GiB of
 weights per card, KV aside) — not as "the cards were fine, so it was the
 model". Host allocations are invisible to `npu-smi` at any point, before or
-after the crash.
+after the crash. Two more things that paste settles: those 8 residual pids are
+the previous attempt's workers, still listed against the dies, so **reap them
+before the retry** or the next launch stacks a second set of eight masks
+(ranked cause 2 below); and the same command killing a **second** machine
+("It has already crashed two of my machines!!!") is the control that retires a
+one-off host/DIMM flake — ask for both hosts' `free -g`, since a smaller-RAM
+box lowers the ceiling before anything in the command changes.
 
 ## Recorded instance where the flag was simply omitted: #3314
 

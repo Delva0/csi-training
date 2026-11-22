@@ -376,6 +376,32 @@ Two lessons, both already stated above and now gated in `index.md` rule 6:
   once, on the last turn, and never executed. When a page is the protocol you are about to follow, read it
   whole; its heading is not its rule.
 
+## #11737, the Qwen3-Coder-30B-A3B row: both files landed, the tail did not
+
+Row `cjw1` (4×Atlas 800I A2, image `v0.18.0`, page `Qwen3-Coder-30B-A3B.md`, 105 lines,
+任务问题和需求 「测试通过」). Thirteen assistant turns, `output_truncated`. It is the
+first run of this shape to put the graded §1 **and** the deploy script into files
+before the cap — 3.4 K characters of 资料验证 (defect table + the three scores), then
+2.4 K of `deploy_*.sh` that it syntax-checked with `bash -n` — so "graded section
+first" now has a recorded success, and its verified defect set is
+`tutorial-command-audit.md`'s *Seventh worked page*: a next run on this row writes §1
+from that table on turn 2.
+
+What it lost is #11753's tail: §2-§5 and the closing message never existed. Budget:
+**33.7 K characters of reasoning (~70 %)**, 10.2 K of tool-call arguments (the two
+heredocs), 4.4 K of message text. Two of its thirteen turns were a flag re-lookup —
+`rg -n 'add_argument("--model|…)'` matched only `--port`, because vLLM writes the
+option name on the line *after* `add_argument(` — and the next turn was the one
+heredoc carrying every remaining section.
+
+So the rule for the next run is not "write §1 first", it is **after the deploy script
+lands, the next turn is §3 plus the closing message**: §3's bench line is
+`tutorial-command-audit.md` check 2's two greps (one tool block), §4/§5 are empty
+result slots with their filling command and 2-3 precedent lines, and nothing in them
+needs an audit. This run also re-verified that `--swap-space`/`--disable-log-request`
+are absent at v0.18.0 — settled here since #11739; a settled fact is not worth the
+turn that the message gets written in.
+
 ## What the report must not do
 
 - Present doc numbers as measurements of this environment, or fill a slot with

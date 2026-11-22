@@ -25,6 +25,22 @@ there is no bad flag, no OOM and no collective error in the paste:
   software address/shape problem, not several cards
   (`../hccl-and-hardware/error-report-timestamps.md` step 5).
 
+**The same fault prints in two frame shapes on one build — the second is not a
+different bug.** The reporter's first paste (2026-06-18) has **no** `acl_graph.__call__`
+frame at all: `[rank6] OpParamMaker.cpp:454` → `operator(): ../third_party/op-plugin/
+op_plugin/utils/op_api_common.h:192 NPU function error: call failed, error code is
+507011` → `AclNN_Runtime_Error(EZ9903): aclrtLaunchKernelWithHostArgs failed: 507011`,
+and under the device block `Failed to submit kernel task, retCode=0x7150050` /
+`kernel launch submit failed` / **`Kernel launch from cache failed.` + `OpExecCache run
+fail.`** — the platform's own words for "this kernel came out of the ACL-graph op-exec
+cache", i.e. the replay claim the dummy-batch frame only implies. All eight ranks,
+`serial number is 6`, one `pc start 0x1308593b547c`, same `aic error mask`; the finer
+dump reading is `../custom-ops-runtime-faults/aclnn-error-dump-reading.md` row 1. That
+paste carries **no** capture-mode `rtMemcpy` record and no `execute_dummy_batch`, so the
+init-window argument below rests on the later plog of the same report, not on it.
+The 06-24 plog then shows the dummy-batch shape, and v0.22.1rc1 the same with
+`fftsplus aivector` instead of `aicore` — line numbers drift, the signature does not.
+
 Recorded #10700: v0.21.0rc1 `80610e4` (+ vllm v0.21.0 `ad7125a`), 2× Atlas 800I-A2,
 GLM-5.1, DP2 × TP8 + EP, `--max-num-seqs 8 --max-model-len 200000`,
 `--async-scheduling --enable-prefix-caching`, `num_speculative_tokens: 3`,
@@ -117,6 +133,16 @@ between is not evidence that the trigger was a request. Read
 `../hccl-and-hardware/error-report-timestamps.md` ("A record from this process's own
 init is not a stale replay") before calling the block a replay.
 
+**Which init pass, read off the same plog:** `10:01:23` sits *before* that log's
+`Available KV cache memory: 21.26 GiB` (`10:01:37`) and `Graph capturing finished in
+34 secs` (`10:02:13`) — inside the **profiling** pass, not the final capture. Since
+v0.21.0 ACL-graph memory profiling is on by default (its banner offers
+`VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0` to disable it) and it runs decode dummy
+passes first, which execute the same captured forward. So a later `Graph capturing
+finished` banner does not establish "capture was clean", and disabling the estimation
+moves where the record first appears rather than removing the fault (the replay path
+re-executes the same forward).
+
 ## Ranked candidates, one cheap check each
 
 1. **MTP draft forward captured into the graph, replaying a capture-mode-hostile
@@ -181,9 +207,16 @@ init is not a stale replay") before calling the block a replay.
 
 - Traced at v0.21.0rc1 / vllm v0.21.0 and reproduced by the reporter on v0.22.1rc1;
   re-grep the graph gates after an upgrade, they move between releases.
-- Unresolved in the record: the failing kernel name on the reporter's own run (no
-  plog), whether the draft or the target graph was replaying, the CANN/torch_npu
-  version, and whether the 200 K context boundary participates.
+- Unresolved in the record: the failing kernel name on the reporter's own run, whether
+  the draft or the target graph was replaying, the CANN/torch_npu version, and whether
+  the 200 K context boundary participates. The reporter's 06-24 plog (server stderr)
+  and the later `aaa.log` carry the `EE9999` device block but **no** `[AIC_INFO]
+  fault kernel_name=` / `origin_op_name`, so a plog request alone did not settle the op
+  — the sibling report's op name came from `torch_npu` npugraph_ex's own message,
+  `The Inner error is reported as above. … the current working operator name is
+  aclnnAddRmsNormBias`, printed from `npu_fx_compiler.py` → `fx_run_eagerly`. Ask for a
+  grep of the server log for `current working operator name` **before** asking for
+  plog files: one line, same pass, no log shipping.
 - "You deviated from the validated command" is **not** available as an answer for
   #10700: the tutorial's A2 multi-node GLM-5 block
   (`docs/source/tutorials/models/GLM5.md`, A2 tab) and the nightly
@@ -192,7 +225,11 @@ init is not a stale replay") before calling the block a replay.
   `VLLM_ASCEND_ENABLE_FLASHCOMM1` on vs absent, prefix caching on vs
   `--no-enable-prefix-caching`, `--async-scheduling` present vs absent) and on
   `max-num-seqs` / `max-model-len`. List them as ablation rows; nothing there is a
-  cause of a device address fault.
+  cause of a device address fault. A recorded session led with "drop
+  `--async-scheduling`" on the strength of exactly that diff; nothing in the later
+  record confirms it, while the two levers the reporter confirmed are the spec-scoped
+  `enforce_eager` (stable, several× slower) and MTP off (the sibling report's stable
+  baseline). Order the ladder by that, not by distance from the CI config.
 - Ask for, in this order: the plog covering **both** the init window and the report
   minute for one chip, with the `[AIC_INFO] fault kernel_name=` / `task_id` lines;
   the per-rank first `[E…]` line; the request bodies live in the report minute; and

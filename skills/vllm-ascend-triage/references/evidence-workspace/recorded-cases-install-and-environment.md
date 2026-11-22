@@ -220,6 +220,27 @@ and the `pip install transformers==4.51.0` line against the image's own
 `../tutorial-verification/community-test-report.md` for the page's verified
 defect set and the write-granularity rule this run cost.
 
+**#11737** the Qwen3-Coder-30B-A3B community-test row (row `cjw1`, image
+`quay.io/ascend/vllm-ascend:v0.18.0`, 4×Atlas 800I A2, page
+`docs/source/tutorials/models/Qwen3-Coder-30B-A3B.md`, 105 lines): the page hardcodes
+`export IMAGE=…:v0.11.0rc1` inside a block that declares `:substitutions:` while
+`Qwen3-30B-A3B.md:11,13`, `Qwen3-Next.md:31,33` and `Qwen3-Dense.md:62,64` all
+substitute (grade *not substituted*; `conf.py:72` renders `v0.17.0rc1` at this tag, so a
+page literal `v0.18.0` would be the worse fix), its only accuracy number is labelled
+`vllm-ascend:v0.11.0rc0` (`:95`), `## Performance` (`:101-105`) is a single AISBench
+referral against `Qwen3-Dense.md:281+`'s worked `vllm bench` section, the serve line
+(`:69`) carries no `--max-model-len` against a 1M-context Introduction, and the only
+request example is `curl` (`:77`) while `Dockerfile:36`'s apt list has no curl
+(open item, `command -v curl`). Verified as passing: `--enable_expert_parallel`
+underscore form, the curl body's `top_k`/`max_completion_tokens`, `VLLM_USE_MODELSCOPE`
+(`Dockerfile:95-96` installs modelscope), the AISBench anchor, the A2/A3 matrix row and
+the 4-device/TP4 match. This run wrote §1 (3.4 K) **and** a `bash -n`-checked deploy
+script (2.4 K) before the cap, then lost §2-§5 and the closing message (13 turns, 33.7 K
+characters of reasoning, 10.2 K of tool-call arguments, `output_truncated`); its two
+wasted turns were a `vllm bench` flag hunt under `add_argument("--model"` — vLLM writes
+the name on the next line. Pages `../tutorial-verification/tutorial-command-audit.md`
+(*Seventh worked page*) and `../tutorial-verification/community-test-report.md`.
+
 **#11751** the third community-test row of that family (v0.18.0 image,
 hjh2-Qwen3-VL-8B-Instruct on 1×Atlas 800I A2, HDK 25.5.0.B078, page
 `Qwen-VL-Dense.md`): the report file *was* written this time — a 4.3 K skeleton
@@ -893,3 +914,27 @@ libs), the in-process one by torch_npu — so "I already set the visible devices
 never a finding, and `docker inspect -f '{{.Config.Env}}'` versus the shell's `export`
 was the missing one-line discriminator. Route: `../deploy-sizing/card-budget-and-device-visibility.md`
 (§*Two visibility variables at two moments*).
+
+**#1813** image `quay.io/ascend/vllm-ascend:v0.9.2rc1-310p` (pin v0.9.2rc1 `b5b7e0e`) +
+vllm v0.9.2 (`a5dd03c`), 4×Atlas 300I Duo inside a container (`--device
+/dev/davinci2 … /dev/davinci5`), `/models/Qwen3-30B-A3B` served with
+`--tensor-parallel-size 4 --enable-expert-parallel --enforce-eager --dtype float16
+--max-model-len 32768 --max-num-seqs 32`: weights load on all four ranks
+(`Loading model weights took 14.2915 GB`), then `WorkerProc hit an exception` in
+`determine_available_memory` → `profile_run` → `_dummy_run(2048)` →
+`Qwen3MoeSparseMoeBlock.forward` → `final_hidden_states.view(orig_shape)` with
+`RuntimeError: shape '[2048, 2048]' is invalid for input of size 16777216`, and
+`EngineCore failed to start`. The quotient `16777216/(2048*2048) = 4` is the paste's
+own EP rank width, not a token count: `is_310p()` sends the unquantized MoE to
+`fused_experts_moge`, whose only combine is `reshape(bsz, top_k // ep_size, -1).sum(1)`
+with no dispatch, while the real EP state machine (`AscendFusedMoE`,
+`get_fused_moe_state`) sits in the same file behind a class this path never builds
+(`CustomQwen3MoeForCausalLM` keeps upstream's sparse block and the monkey-patched
+`forward_oot`). The recorded run held the verdict plus causes 1–2 and was cut inside
+cause 3 by the 16 384-token cap, so its ladder and ask list never shipped — but the
+cheapest action (the identical command minus the flag) had been written into the
+first paragraph, which is what made the truncated message usable. It also over-claimed
+"no 310P doc at all at this pin" from `rg --files docs/source | rg -i 310` → empty;
+the 300I tutorial is `docs/source/tutorials/single_node_300i.md` (and the Qwen3-MoE
+recipe it copied is the A2-scoped `multi_npu_qwen3_moe.md:44`). Route:
+`../soc-platform-paths/310p-moe-expert-parallel-shape.md`.

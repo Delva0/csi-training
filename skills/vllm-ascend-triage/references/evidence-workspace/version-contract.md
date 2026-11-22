@@ -44,6 +44,14 @@ A reference page states the pins it was verified at: when those equal the refs i
 `SOURCES.json`, its `path:line` are citable as they stand — re-grep only what the
 page itself marks as version-specific, and spend the saved turns on the delivery.
 
+When you do re-grep one, **grep the cited symbol bare, never `def <symbol>`**: a page
+cites call sites, imports and kwarg lines as often as definitions, so
+`rg -n 'def vit_torch_sdpa_wrapper'` over vllm v0.23.0's
+`vllm/model_executor/layers/attention/mm_encoder_attention.py` returns nothing while
+the page's `:521` is correct (the import is `:36`, the call `:521`). Recorded #13699
+read that empty result as "the claim is stale" on a correct line and spent a further
+call re-deriving it; one `rg -n '<symbol>' <file>` would have shown it.
+
 ## A dependency's patch release is part of the contract
 
 `torch_npu` (pta) `2.8.0` leaks memory and `2.8.0.post1`/`.post2` fix it — the

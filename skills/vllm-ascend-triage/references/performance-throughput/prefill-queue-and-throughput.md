@@ -64,7 +64,7 @@ duration 8206.37 s, 204065 input / 369494 output tokens, output 45.03 tok/s,
 mean/median/P99 TTFT 3754758.86 / 3593202.68 / 7717673.05 ms, mean/median TPOT
 596.96 / 457.58 ms, mean/median ITL 580.53 / 42.91 ms.
 
-Two properties of the driver decide the answer before any source:
+Three properties of the driver decide the answer before any source:
 
 - **The arrival rate is open loop and the prompt count is fixed.** `--request-rate`
   sleeps a gamma interval between sends, `burstiness=1.0` → exponential
@@ -74,6 +74,20 @@ Two properties of the driver decide the answer before any source:
   (`vllm/benchmarks/endpoint_request_func.py:124-125`, same at `:226-228`,
   `:337-339`), so it contains the whole queue wait; ITL/TPOT are pooled across
   successful requests (`serve.py:151-179,231-234`).
+- **`--enable-prefix-caching` cannot hit on `--dataset-name random` unless the
+  driver sends a shared prefix at all.** `RandomDataset.sample` builds every prompt
+  as `prefix_token_ids + (offsets[i] + i + arange(input_len)) % vocab_size`, with
+  `offsets[i]` drawn per request and `prefix_token_ids` empty unless
+  `--random-prefix-len > 0` — default `0` (`vllm/benchmarks/datasets.py:319-372`,
+  `:338` `prefix_token_ids`, `:358` `offsets`, `:362` `inner_seq`;
+  `serve.py:800-806` and `:1008` at the v0.9.1 export). So a random-driver
+  `Prefix cache hit rate: 0.0 %` is the **driver's**, not the model's and not a
+  vllm-ascend gate: the hybrid-model gate in the sibling page
+  (`zero-prefix-cache-hit-hybrid.md`) is Qwen3-Next-only and does **not** extend to
+  a dense model. To measure prefix caching at all, add `--random-prefix-len` ≥ one
+  block. **Trap:** `datasets.py:694`'s `token_ids = [(i + j) % vocab_size …]` reads
+  like this construction but belongs to `BurstGPTDataset` (`:640-706`); a recorded
+  answer for #3112 cited it as the random dataset's own line.
 
 Then three derived numbers, one call:
 
@@ -125,7 +139,7 @@ work: 200 × 2048 output tokens is ~2.5 h at 45 tok/s on any card of that class.
 
 | Reporter's complaint | Lever | Effect | Note |
 |---|---|---|---|
-| TTFT / 排队 | total prompt tokens per wave (client concurrency, prompt length, prefix reuse) | linear in prompt tokens | prefix reuse is unavailable on this model at this version — see the sibling page |
+| TTFT / 排队 | total prompt tokens per wave (client concurrency, prompt length, prefix reuse) | linear in prompt tokens | prefix reuse only exists if the driver sends one: `--dataset-name random` shares no prefix while `--random-prefix-len` is 0 (third driver bullet above); the hybrid-model gate is the *sibling* page only |
 | TTFT on an arrival-rate table, offered rate ≫ capacity | total **output** tokens requested (`--random-output-len × --num-prompts`) and `--request-rate` | the wall time is `output tokens ÷ aggregate rate`; TTFT ≈ half of it | the queue is decode-bound here, not prefill-bound; the lever is the load, then capacity |
 | TTFT / 排队 | `--max-num-batched-tokens` up (e.g. 8192) | slightly higher prefill throughput (bigger matmuls), fewer, longer steps | inter-token latency for already-running requests gets *worse* |
 | inter-token latency during prefill | `--max-num-batched-tokens` down (the project's Qwen3-Next tutorial uses `4096`, `docs/source/tutorials/Qwen3-Next.md:64` at v0.14.0rc1) | shorter steps, decodes advance more often | total prefill time grows a little |

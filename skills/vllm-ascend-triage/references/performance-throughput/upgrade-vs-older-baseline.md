@@ -80,8 +80,12 @@ and at v0.22.1rc1 it is read as `additional_config.get("enable_cpu_binding", Tru
 processes, or cards hidden from the process view) can bind two instances onto
 overlapping CPU ranges — the bug class of release notes `:486`/`:515` ("Avoid A2 CPU
 binding overlap from hidden NPUs", #8792) and `:455` ("Defer CPU binding until worker
-warmup", #7829), and of history **#8600** "A2 相同亲和性的 NPU 分别执行单卡推理时绑核范围
-重合导致性能下降".
+warmup", #7829). The **multi-instance** form of that overlap (two single-card processes
+computing the same pool, recorded #8600 at v0.18.0rc1) is its own page —
+`cpu-binding-multi-instance-overlap.md` — and this case's prior-month corpus
+(`/workspace/history/8600/`, 1115 issues) has no precedent for it: a title search for
+`绑核|affinity|cpu_binding|cpuset` returns 0 and the body hits are incidental
+`"enable_cpu_binding": true` launch lines, so do not spend a call looking for one.
 
 Cheapest one-launch A/B on the **new** image, no code read: add
 `--additional-config '{"enable_cpu_binding": false}'` and compare per-token time

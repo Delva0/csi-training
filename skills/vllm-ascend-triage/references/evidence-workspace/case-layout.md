@@ -139,9 +139,9 @@ one hang). Read them by counting, never by printing:
 
 ```bash
 cd /workspace/attachments/<issue> && cat ATTACHMENTS.txt          # 5-10 lines
-wc -l *.txt                                                       # size per file
-rg -c 'fftsplus|Heartbeat Lost|ERR02005|error cqe' *.txt          # tokens per file
-rg -o 'timeout=[0-9]+s' *.txt | sort | uniq -c                    # how many incidents
+ls -la .; wc -l *                                                 # every file, any extension
+rg -c 'fftsplus|Heartbeat Lost|ERR02005|Segfault|died unexpectedly' *  # death markers/file
+rg -o 'timeout=[0-9]+s' * | sort | uniq -c                        # how many incidents
 ```
 
 Three properties of the recorded format decide every later grep:
@@ -161,6 +161,21 @@ Three properties of the recorded format decide every later grep:
   first, so `head` and `tail` are the two ends of a 10-14 h span and a lower line
   number can be a *later* instant. Locate a window by its timestamp string; do not
   interpolate line numbers.
+
+**Never glob an extension you assumed, and never read absence off a listing.**
+The dump's extension follows no convention: in a recorded two-node segfault case
+(#16079) the launch and load-driver scripts were `.txt` while **both node logs were
+`.log`**, so `wc -l *.txt` showed 3 of the 5 attached files and the session
+concluded the server logs were "not in the snapshot" — then asked the reporter to
+send the very logs the case view held
+(`../hccl-and-hardware/worker-segfault-no-python-frames.md`). Two further counts
+to distrust: an `ATTACHMENTS.txt` grep proves nothing about what the issue attaches,
+and a one-level `search_files (target='files')` on `/workspace` is **capped** — it
+returned `total_count: 102` on two recorded runs and omitted files that exist. One
+`ls -la /workspace/attachments/<issue>/` (or `wc -l *`) is the existence test, and
+it is the one directory listing this skill allows; a client-side log that ends in
+`ConnectionReset`/`ConnectionRefused` while the report names node logs means those
+node logs are the evidence, so list them before writing the artefact ask.
 
 One file per (node, engine restart) means a dump set can hold two incidents plus
 the restarts between them: anchor each incident on its own window (see

@@ -240,8 +240,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
 - Degenerate output whose trigger the reporter names as *token content* ("only when
   these special tokens are in the prompt", identical across several releases, one
   model only): refute or confirm that claim from the paste before any source read —
-  same ids on both input routes means the ids are not the mechanism, and the
-  checkpoint's own `Using max model len N` is the cheap non-engine check
+  same ids on both input routes means the ids are not the mechanism, and
+  `Using max model len N` is the cheap non-engine check — but it is the checkpoint's
+  length only when the command has no `--max-model-len`, so ask for the serve command
+  before concluding the `config.json` is non-stock
   (`../accuracy-benchmarks/short-prompt-corruption.md` step 0, #8590).
 - Python attribute error whose frame is an **upstream** vllm file (or the
   reporter asks whether vllm-ascend's ops were ever reached): the Ascend

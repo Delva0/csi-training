@@ -174,7 +174,9 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   env dump's `torch_npu==`/`transformers==` line, the image tag or the reporter's own
   older-release control is part of the ranking.
 - `case-layout.md` — concrete commands for orientation, source reading at a pinned commit,
-  and history search; what to quote in the final answer.
+  history search, and the **attachment inventory** (list the issue's directory, never a
+  `*.txt` glob: a recorded case's node logs were the `.log` files); what to quote in the
+  final answer.
 - `recorded-cases/index.md` — the per-issue index behind rule 1: version, symptom,
   track, and how each recorded session ended (delivered early, delivered late, cut
   mid-answer, or shipped nothing). Read it to place a new report beside a precedent,
@@ -184,9 +186,10 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   `accuracy-and-output.md`, `memory-and-throughput.md`, `pd-kv-and-features.md`
   and `brief-mentions.md` (the lines that list several issues at once) — one index
   line per case, while the detail (mechanism, checks, per-session sizes) stays in
-  the seven family pages `recorded-cases-startup.md`,
+  the eight family pages `recorded-cases-startup.md`,
   `recorded-cases-install-and-environment.md`,
-  `recorded-cases-device-and-communication.md`,
+  `recorded-cases-device-and-communication.md` and its HCCL half
+  `recorded-cases-hccl-and-watchdog.md`,
   `recorded-cases-accuracy-and-output.md`,
   `recorded-cases-memory-and-throughput.md`,
   `recorded-cases-pd-kv-and-features.md` and `recorded-cases-brief-mentions.md`.

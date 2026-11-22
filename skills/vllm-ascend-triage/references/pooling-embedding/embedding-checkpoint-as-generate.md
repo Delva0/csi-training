@@ -138,7 +138,15 @@ vLLM does not know at all).
 1. **Same tree, one added flag**: `vllm serve <dir> --task embed --dtype float16
    --enforce-eager` (+ 310P env: `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256`,
    `../soc-platform-paths/atlas-300i-310p.md`), then `POST /v1/embeddings`.
-   Nothing is converted and no weights change.
+   Nothing is converted and no weights change. **Carry the reporter's own
+   `--gpu-memory-utilization` through unchanged** (here `0.08`); do not raise it in
+   the line you hand back. It is a fraction of *total* device HBM, and this paste's
+   `npu-smi` already shows `41146` MB of the chip's `44280` MB held by an unrelated
+   `java` process, so `0.9` asks the profiler for ~40 GB on ~1.8 GB of free HBM and
+   the next stop is `No available memory for the cache blocks` rather than a
+   pooling result. Put the free-chip step in the same paragraph whenever the paste
+   shows an occupied device — `ASCEND_RT_VISIBLE_DEVICES=<idle id>` or stop the
+   other process.
 2. **If the vectors look wrong afterwards**: the pooling type. `Qwen3-Embedding`
    pools the last token; if `config_sentence_transformers.json` is absent the
    default comes from vLLM, so compare one vector against a reference before

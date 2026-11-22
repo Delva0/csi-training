@@ -181,7 +181,7 @@ metadata, not numerics — and it is cheaper to test than any source walk:
    per-rank first-request path.
 
 **Separate the allocator confound before blaming the pool.** At v0.18.0,
-`vllm_ascend/platform.py:519-541` injects `PYTORCH_NPU_ALLOC_CONF=expandable_segments:True`
+`vllm_ascend/platform.py:518-534` injects `PYTORCH_NPU_ALLOC_CONF=expandable_segments:True`
 only when `enable_sleep_mode` is **False** ("NOTE: We should not set this
 environment variable in RL (sleep mode) scenarios"), so the `sleep=False` row
 changes two variables at once. The discriminant row is `sleep=True` **with**

@@ -250,6 +250,18 @@ Conditional routes:
   81 characters of text, no answer) → `atlas-300i-310p.md` (its v0.14.0rc1 bullets) and
   `kernel-package-vs-card.md`; for the assert's inner `Check` lines,
   `../custom-ops-runtime-faults/index.md` (sixth pre-launch wording).
+- A 310P **MoE** dies at **launch** with a *Python* shape error instead —
+  `RuntimeError: shape '[2048, 2048]' is invalid for input of size 16777216` from
+  upstream `qwen3_moe.py` `final_hidden_states.view(orig_shape)`, inside
+  `determine_available_memory` → `profile_run` → `_dummy_run(2048)`, on a serve that
+  passes `--enable-expert-parallel`: divide `M/(T×H)` — a quotient equal to the
+  paste's own **EP rank width** (its rank lines say `EP rank k` in world size 4) means
+  the moge body returned `ep_size` copies of the rows, because at v0.9.2rc1
+  `is_310p()` routes the unquantized MoE to `fused_experts_moge`, whose only combine
+  is `reshape(bsz, top_k // ep_size, -1).sum(1)` with no dispatch step. Rung 1 is
+  removing the flag; the EP state machine in the same file belongs to a class this
+  path never reaches → `310p-moe-expert-parallel-shape.md` (#1813). With a traceback
+  this page; with an `aclnn`/`EZ1001` line and no Python frame the bullet above.
 - The question is a **capability/status one at an older rc** with no log — "does
   `vllm-ascend:v0.9.1rc1-310p` support 300I Duo + MRoPE, e.g. qwen2.5-vl-7b and
   qwen2.5-vl-32b?" (#1684): the pin's docs are laid out differently (flat

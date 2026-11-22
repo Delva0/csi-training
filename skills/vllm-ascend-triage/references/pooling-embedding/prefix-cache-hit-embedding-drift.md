@@ -12,7 +12,12 @@ launch line: `python3 -m vllm.entrypoints.openai.api_server --convert embed
 `:803`), which is what puts this request on the path below. No
 `--no-enable-prefix-caching` in the line, and `enable_prefix_caching` defaults
 `True` (`vllm/config/cache.py:76`). One ~1.2 K character Chinese prompt, 1024-dim
-vectors.
+vectors. **That line is the whole command** — it is the reporter's own follow-up
+comment (2026-01-08) and it already rules out `--enforce-eager`, `--no-enable-prefix-caching`
+and a `--task`/`--runner` flag, so restate it in the answer instead of listing "the
+full `vllm serve` command" under *send this back* (the recorded #4057 replay did
+exactly that for a command its page already quoted); ask only whether a later run
+changed it.
 
 ## Reporter-confirmed evidence, all of it load-bearing
 
@@ -26,9 +31,13 @@ vectors.
 - the reporter's own first reading — "似乎是命中缓存了" — was right;
 - **`--no-enable-prefix-caching` removes it completely** (reporter, after a
   maintainer's hint, 2026-03-23) — this is the confirmed fact;
-- the defect is **not** a single-rc regression: the reporter re-tested
-  v0.14.0rc1 and v0.15.0rc1 and it persisted, so a version bump is not the fix and
-  no official repair is in this snapshot.
+- the defect is **not** a single-rc regression: the reporter re-tested the
+  `releases/v0.13.0` branch (2026-02-04, at a maintainer's suggestion), v0.14.0rc1
+  (2026-02-04) and v0.15.0rc1 (2026-03-04) and it persisted — so the behaviour is
+  still there on the 0.13 release branch past rc1, a version bump is not the fix,
+  and no official repair is in this snapshot. (Neither the branch tip nor
+  v0.15.0rc1 is in the snapshot, so no `path:line` here is quoted for them; the
+  line numbers below are the two pins that are.)
 
 First-call-correct / second-call-wrong / thereafter-frozen is the whole
 classification: a numerical or kernel defect does not improve on the first call, and
@@ -128,6 +137,18 @@ aggregator hardcodes `num_cached_tokens=0` (`:572-577`) — an absent or zero fi
 there is not evidence either way. The local evidence for "the second call hit" is
 the nonce ablation, plus the engine's own interval line `Prefix cache hit rate: …`
 (`vllm/v1/metrics/loggers.py:228`) or `/metrics` counters around the two calls.
+
+## The follow-up's repro script is not in this snapshot
+
+The reporter's `embedding_test.py` (2026-02-04) is **not** among the case's
+attachments — `/workspace/attachments/<issue>/` holds only the first post's
+`test.txt` (the prompt) and `vector.txt` (the vectors), and `ATTACHMENTS.txt` lists
+just those two. So the follow-up answer cannot be read off the file: judge the
+described script from the mechanism instead — one engine reused across two embeds
+of the same string hits the cache, a fresh engine per call cannot reproduce, and
+"consistently reproduces" therefore says the engine is reused — and ask for the two
+things the file would have shown (the printed cosines, and the nonce control above)
+rather than for the script again.
 
 ## Version and hardware scope
 

@@ -325,8 +325,16 @@ the turn the shape is classified, not a second copy of it here.
    often split across adjacent literals, so grep the shortest clause (or `-A1`); a
    `--glob '!<dir>/**'` exclusion is matched against the path you passed; a piped
    `sed -n 'A,Bp' | rg -n` numbers the stream (`A + n - 1`); scope every grep to one
-   repo; never list a directory or dump a whole file; attachments are the exception —
-   open the files the issue links (a manifest grep is not an existence test).
+   repo; never list a directory or dump a whole file, with **one** exception: a
+   single `ls -la /workspace/attachments/<issue>/` (or `cat ATTACHMENTS.txt`) as soon
+   as the report names a log you have not located. Attachment dumps carry no settled
+   extension — a recorded segfault case kept its scripts as `.txt` and **both node
+   logs as `.log`**, so a `*.txt` glob showed 3 of 5 files and the session asked the
+   reporter for logs the case view already held — and a one-level
+   `search_files (target='files')` is capped (returned `total_count: 102` twice), so
+   neither a glob nor that listing is an existence test
+   (`references/evidence-workspace/case-layout.md` §*Attached log dumps*). Then open
+   the files the issue links; a manifest grep is not an existence test either.
    **A `| head -N` on a reference grep can cut the page that owns the case.** These
    pages sit in large topic directories, so `rg -n -i '<feature token>'
    references/<topic>/ references/<other>/ | head -60` can spend all sixty lines in
@@ -336,7 +344,8 @@ the turn the shape is classified, not a second copy of it here.
    `pd-disaggregation/hybrid-state-transfer.md:165` — the page holding that exact
    case's refuted top rank — then re-derived the recipe from the tutorial and
    re-shipped the refuted claim. `rg -l` over `references/` first, pick the page by
-   its title and stack, then read it; raise the cap only after reading the file list.
+   its heading's issue id, its title and its stack, then read it; raise the cap only
+   after reading the file list.
 8. **The prior-month corpus is not evidence of absence, and a lexical accident is
    not "no precedent".** Search titles with **one** distinctive token — an op name,
    an error string, a numeric code, a fault kernel, a model id — never the failure
@@ -583,7 +592,13 @@ the turn the shape is classified, not a second copy of it here.
     `ascend-toolkit/latest/version.cfg` against the pin's own documented CANN floor
     (`docs/source/installation.md:15`) is rung 1 and the caller's arguments are not — reading the
     launch pair instead costs the fix (reporter-confirmed #4373, CANN 8.3;
-    `references/custom-ops-runtime-faults/tiling-capability-refusal-cann-release.md`).
+    `references/custom-ops-runtime-faults/tiling-capability-refusal-cann-release.md`). **The same
+    op and code with dims printed** — `queryD(256), keyD(256) and valueD(256) must be same equal
+    192/128/64 … [FUNC:CheckInputShapeWhenLayoutIsTND]` — is not that form: it compares the
+    model's `head_dim` (Qwen3-Next is 256) with the tiling's set, so the owner is which batch
+    state reached the paged-TND call (`ChunkedPrefill`; the paste's own `Dumping scheduler output`
+    line proves it) and the upgrade rung is inert for an image run whose `Dockerfile` base already
+    is the floor — `references/custom-ops-runtime-faults/fia-tnd-head-dim-refusal.md` (#4135).
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the title's sentence can be a day older than the
@@ -624,7 +639,14 @@ the turn the shape is classified, not a second copy of it here.
     #8984 re-ask came a day *after* a verdict-first answer that ran that search only
     at turn 40 of 45, so late that it could not shape the answer. Any launcher you
     still hand back must also fit the reporter's cards, by the model tutorial's own
-    node count for that weight set. Then map each
+    node count for that weight set, **and its `--gpu-memory-utilization` with the
+    HBM the paste's own `npu-smi` rows already show held by other processes** — the
+    flag is a fraction of *total* device HBM, so on an occupied device a *raised*
+    ratio buys a `No available memory for the cache blocks` stop instead of a fix:
+    hand back the reporter's own value and put the free-chip step
+    (`ASCEND_RT_VISIBLE_DEVICES=<idle id>`, or stop the other process) in the same
+    paragraph (`references/pooling-embedding/embedding-checkpoint-as-generate.md`
+    step 1, recorded #5549 replay). Then map each
     enforced constraint to the error text it raises, so the reporter can place their
     own two errors, and stage the experiment one axis per launch. Three turns,
     `references/feature-enable-recipes/index.md`. Two traps: a pinned doc's narrower
@@ -789,7 +811,9 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
 ## Procedure
 
 1. One level of `/workspace` (`search_files (target='files')`) — that level only,
-   never the history or attachments directory (rule 7) — then run
+   never `history/` and never a sweep of an attachments directory (the one allowed
+   read is the single `ls -la /workspace/attachments/<issue>/` when the paste names a
+   log, rule 7) — then run
    `bash <skill_root>/scripts/sources-summary.sh` for the `SOURCES.json` version
    contract; note which repos/refs are present and which are partial exports. The
    layout differs per case (flat `/workspace/history/<issue>.md` vs
@@ -853,12 +877,44 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    or three most distinctive strings (the error sentence, the op or kernel name, the
    numeric code) and run `rg -n -l '<token>' <skill_root>/references/`: the library
    is keyed on the reporter's own wording, so this is the call that finds the page —
-   or the case — already holding it. **A hit in
+   or the case — already holding it. **Put the task's own issue id in that same
+   call**: a page that records a case carries the id in its heading (`# Device fault
+   under MTP + a captured decode graph (#10700)`), so `rg -n '#<id>'
+   <skill_root>/references/` answers "has this very issue been worked, and which page
+   owns it" in one call — open the page whose **heading** carries the id and start
+   from its ranked candidates and its ablation order; the id on another page's body
+   line is a citation, not ownership, and no hit is the useful "this case is new"
+   (the id is never in `history/`, rule 8). Recorded #10700: the token grep had
+   already listed `spec-decode-mtp/draft-graph-capture-device-fault.md` — heading
+   `(#10700)` — fifth of thirty, but the session opened
+   `hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` and led its ladder with
+   "drop `--async-scheduling`", the CI-config delta that the owning page's own Scope
+   disowns, while that page's first ablation (spec-scoped `enforce_eager`) was the
+   lever the reporter had already confirmed.
+
+   **Run the tokens as a per-token loop and keep the
+   intersection**: `for t in '<op>' '<env var>' '<numeric code>' '<symptom phrase>'; do
+   echo "== $t"; rg -l "$t" <skill_root>/references/; done` — one call, and the page on
+   **every** list is the owning page while a page on one list is its periphery. That
+   intersection is the grade a bare `-l` list cannot give itself (rule 8): membership in
+   one list means the page shares a word with the paste, membership in all of them means
+   it shares the case. Recorded #18315 — `MoeDistributeDispatch`,
+   `HCCL_OP_EXPANSION_MODE`, `PYTORCH_NPU_ALLOC_CONF`, `107020`, lists of 13-20 pages
+   each — left `hccl-and-hardware/aiv-mc2-env-ablation.md` as the only page on all four:
+   owning page read on turn 3, answer delivered on turn 7. Recorded #13699
+   (`AscendMMEncoderAttention|_run_vit_fia|npu_fused_infer_attention_score` = 21 pages,
+   `sparse_mode` = 8) had `custom-ops-runtime-faults/attention-op-numeric-errors.md` on
+   both. An **empty** intersection is not "no page": one token is spelled differently in
+   the library — an op-name suffix (a paste's `aclnnMoeDistributeDispatchV4` against the
+   pin's `npu_moe_distribute_dispatch_v2`) or a Chinese phrasing — so read the shortest
+   list by hand. **A hit in
    `references/evidence-workspace/recorded-cases*` is opened first** — but that glob
    spans **two or more files per family**, `recorded-cases/<family>.md` (the condensed
    index line) and its `recorded-cases-<family>.md` detail page(s) — the startup
    family splits into `recorded-cases-startup.md` and
-   `recorded-cases-install-and-environment.md` — so one case carries different line
+   `recorded-cases-install-and-environment.md`, and the device family into
+   `recorded-cases-device-and-communication.md` and its `hccl-and-hardware`-owned half
+   `recorded-cases-hccl-and-watchdog.md` — so one case carries different line
    numbers per file: re-read the exact `file:line` `rg` printed and nothing else. A
    number borrowed from the sibling file lands on another case — recorded #3543 ran
    `sed -n '80,105p'` of the detail page for a hit in the index, read
@@ -867,7 +923,7 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    grep: an entry matching the report's versions, model and
    stack *is* the case history, and its ladder is the message. Both halves were paid
    for in one minibatch: #6275's second session had
-   `recorded-cases-device-and-communication.md`, carrying #6275's own entry, in its
+   `recorded-cases-hccl-and-watchdog.md`, carrying #6275's own entry, in its
    turn-3 hit list and read two route pages instead (16 turns, 20 tool calls, cut
    inside ranked cause 1); #11863 skipped this grep, went straight to the two repos,
    and re-derived what `startup-failures/arg-validation-errors.md:8` already held
@@ -917,7 +973,12 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    - **A host-side `RuntimeError: shape '[N, -1]' is invalid for input of size M`
      is a division, then one grep — never a model-constant hunt.** `M` splits into a
      row width and a row count: divide it by the paste's own widths and read the
-     result as *padded* or *real*. If the tensor is a **process-global** rather than
+     result as *padded* or *real*. A quotient equal to a **parallel size** is the
+     third reading, and it stops a token-count hunt: the paste's own rank lines carry
+     the number (`EP rank k` in world size N), so a MoE layer whose output is
+     `ep_size` rows too wide is a combine with no dispatch, not a graph pad
+     (`references/soc-platform-paths/310p-moe-expert-parallel-shape.md`). If the
+     tensor is a **process-global** rather than
      a per-call one, the count belongs to whichever forward wrote it last, so
      `rg -n '<writer>' vllm_ascend/` over the whole package (not one file) and treat
      an **absence** as the finding: the rope cos/sin slice
@@ -971,7 +1032,18 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    (`references/startup-failures/environment-correspondence.md`). Read the
    release's own `tests/vllm_ascend_v<ref>_test_conclusion.md` when the tree has
    one: it names the models that release validated and its unresolved known
-   issues with issue ids. Claim "model unsupported" only after checking
+   issues with issue ids. **Then grep the same pin's `docs/source/user_guide/
+   release_notes.md` for the feature the report names, before any source walk**:
+   its `### Known Issues` rows are the project's own admission and outrank a
+   derivation — the #8600 CPU-binding overlap is stated twice (`:547` under
+   `## v0.11.0`, `:650` under `## v0.11.0rc2`, "doesn't work for multi instance
+   case … We'll fix it in the next release") while the recorded run re-derived it
+   from `cpu_binding.py` and never opened the file
+   (`references/performance-throughput/cpu-binding-multi-instance-overlap.md`).
+   Quote the row with its own `## vX` header, and check whether the later fix the
+   same file lists actually covers the reporter's path — there the non-overlap fix
+   (`global_slice`, #6945) is A3-only, so the row stays accurate on A2.
+   Claim "model unsupported" only after checking
    `vllm_ascend/models/__init__.py` registration and the upstream model file, and
    claim a *method or feature* unsupported only after the consumer grep plus the
    tree's own test for it (`rg -n '<feature>' tests/`) — a

@@ -15,7 +15,12 @@ answering 404/500 although the reporter configured it. The pure capability form 
 same question — **"where do I read KV-cache size / utilization"**, `curl metrics` 有没有
 相关的统计, a dashboard gauge stuck at `0` — is the same class: the numbers are two
 startup lines plus `/metrics` gauges, and nothing has to be grepped
-(`kv-cache-capacity-and-usage-metrics.md`).
+(`kv-cache-capacity-and-usage-metrics.md`). So is the **warning-only** report: a paste
+whose entire content is a line the reporter quotes with no error in it, e.g.
+`[WARNING] Please DO NOT tune args ['num_warps']!` on a hybrid GDN serve
+(`triton-autotune-tune-args-warning.md`) — the deliverable is a verdict plus one
+provenance check, and its trap is that the same block can sit directly above a real
+crash.
 
 Leave this topic when the server printed an error and died
 (`../startup-failures/index.md`, `../hccl-and-hardware/index.md`) — **except the two
@@ -106,6 +111,20 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    the startup block, and cap the class at ~3 calls
    (`kv-cache-capacity-and-usage-metrics.md`).
 
+7. **A warning the reporter quotes as the whole report is a verdict, not a mechanism
+   hunt.** `[WARNING] Please DO NOT tune args ['num_warps']!` / `['num_warps',
+   'num_stages']!` on a Qwen3-Next/Coder-Next serve is the triton autotune layer
+   refusing to tune those keys: the bracketed lists are upstream vLLM's two
+   `@triton.autotune` config shapes (`fla/ops/l2norm.py:23` warp-only vs
+   `chunk_o.py:33` warp+stages at vllm v0.14.1), vllm-ascend v0.14.0rc1 has **zero**
+   `autotune` in its own tree, and the string is in **no** exported tree — it prints
+   from the installed wheel, which is why it carries no timestamp and no
+   `[file.py:line]` that every vLLM `logger` line has. Answer "harmless, nothing to
+   change", hand over the one grep, and read the paste for an error *below* the block
+   before ranking anything: #3548's identical block sits above a real
+   `coreDim … UINT16_MAX` failure. Cap at ~3 calls
+   (`triton-autotune-tune-args-warning.md`).
+
 Conditional routes:
 
 - "怎么查看当前HBM上kvcache的使用情况 / 总量、已使用量", `curl metrics` 有没有 kvcache
@@ -158,6 +177,10 @@ Conditional routes:
   patch level works — one cross-patch control plus the release's own
   `torch-npu==` pin decide it; do not walk the profiler source:
   `online-profiler-stop-segfault.md`.
+- Warnings only, no error anywhere — `[WARNING] Please DO NOT tune args ['num_warps']!`
+  / `['num_warps', 'num_stages']!` per worker on a hybrid GDN model whose serve is
+  returning 200s → `triton-autotune-tune-args-warning.md` (benign; the provenance
+  grep; and #3548, the case where the same block precedes a real grid-limit crash).
 - The missing text is a *stage* of startup rather than a flag (silence between
   "Starting to load model" and the first error) → `../startup-failures/index.md`
   and, for the graph-capture stage, `../startup-failures/acl-graph-capture.md`.

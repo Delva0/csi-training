@@ -52,6 +52,16 @@ Downstream install (vllm-ascend `v0.7.1rc1`):
   `init_worker_distributed_environment` (`:461`) but never `vllm_ascend.ops`;
   `vllm_ascend/model_runner.py` has no `vllm_ascend` import at all (checked by
   `rg -c 'from vllm_ascend|import vllm_ascend'`).
+- `vllm_ascend/patch/__init__.py:18` is one line,
+  `from vllm_ascend.patch import patch_commnicator` — so that `worker.py:461`
+  import does **not** pull `vllm_ascend.ops` in. Read this before accepting the
+  obvious objection "the worker already imports a patch module, so the ops patch
+  must be live there too".
+- `vllm_ascend/ops/__init__.py:17-20` imports four op modules
+  (`ops.activation`, `ops.layernorm`, `ops.rotary_embedding`, `ops.fused_moe`), so
+  the absent import removes **all four** patches from that worker and MoE is only
+  the first one reached. After the fix, expect the rope / layernorm / activation
+  replacements to change too — "nothing else moved" would refute this diagnosis.
 
 So the patch exists only where a `VllmConfig` was built. Workers in a **fresh
 interpreter** — Ray actors, or `VLLM_WORKER_MULTIPROC_METHOD=spawn` — never run
@@ -106,6 +116,14 @@ second prints `vllm_ascend.ops.fused_moe` once the import is forced.
   **driver-only** hook is absent from any worker that gets a fresh interpreter.
   Ask which process ran the hook (fork / spawn / Ray actor) before believing any
   patch is live in the process that crashed.
+- The fix exists in later releases: at vllm-ascend `v0.18.0` (`e18643f8`, the
+  #10985 pair) the worker's own `__init__` carries
+  `from vllm_ascend import ops` (`vllm_ascend/worker/worker.py:101`, beside
+  `adapt_patch()` and `ops.register_dummy_fusion_op()`), so no fresh-interpreter
+  worker is left unpatched. A 0.7.x report is therefore also a *version* finding —
+  say the pairing is old, not that the current release has this hole. The release
+  that first carried the worker-side import is not pinned here; read it off the
+  tree with `rg -n 'from vllm_ascend import ops' vllm_ascend/`.
 - Version pinning trick that worked: the reporter's frames
   (`worker.py:226` `determine_num_available_blocks`, `model_runner.py:1139`,
   `custom_op.py:63`, `layer.py:156`) matched this commit exactly, which is how the

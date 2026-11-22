@@ -301,7 +301,10 @@ already in hand. Its first `skill_view` also paid 107 KB for one `SKILL.md` body
 (the whole catalogue is 25 K tokens per call) — the reason the support-entry
 catalogue is now a topic table. Later reporter follow-ups (same issue, not replies
 to these investigators): full graph is not the differentiator (they run it on many
-models), and the model was not retested on a newer release.
+models); BF16 on 64 GB caps at gmu ~0.60 for TP8 against TP4 at 0.80, and a W8A8
+checkpoint on 32 GB cards needs TP4 gmu 0.85 (more will not start, less does not fill
+256K) — both measured points now live in the owner page; and the model was not
+retested on a newer release.
 
 **#6611** vllm-ascend `v0.13.0` (`6281c12`) + vllm `v0.13.0` (`72506c9`), as reported
 (`collect_env`: transformers 4.57.6, torch 2.8.0, torch_npu 2.8.0.post2,
@@ -736,3 +739,25 @@ ref, so the v0.8/v0.9 lever lists must not be carried back. Recorded run: loaded
 shipped **no message text after its second turn** — 20 assistant turns / ~875 K
 cumulative prompt tokens, cut at the output cap with the ranked answer unsent. Page
 `../performance-throughput/pre-0.8-vl-vs-transformers.md` (new).
+
+**#8600** vllm-ascend **v0.18.0** reported (pin v0.18.0rc1 `99e1ea0`, vllm v0.18.0
+`bcf2be961200`), A2(A+K) 910B host, Qwen3.5-35B-A3B at TP2/DP1 with
+`--additional_config '{"enable_cpu_binding": true, "multistream_overlap_shared_expert":
+true, "enable_shared_expert_dp": true}'`: "A2相同亲和性的NPU分别执行单卡推理时绑核范围重合
+导致性能下降". The body carries `npu-smi info -t topo` (its `CPU Affinity` column pairs
+cards: 144-167 for NPU0/NPU2, 0-23 for NPU1/NPU3, 96-119 for NPU4/NPU6, 48-71 for
+NPU5/NPU7) and two single-card plan blocks — `NPU0` and `NPU2` both
+`main=[146 … 189] acl=[190] release=[191]`, i.e. the same 48-core pool 144-191, and
+both `[migrate] … -> NUMA [6]`. The recorded run derived the whole mechanism from
+source (`topo_affinity` sizing the pool from the *visible* card's band plus
+`extend_numa`'s next NUMA node, `average_distribute` only inside one process, no
+cross-process state, A2 not on `global_slice`) and shipped a complete ranked answer in
+its final turn — but **no message text until that turn**, and it never read the pin's
+own `release_notes.md`, whose two `Known Issues` rows (`:547` at `## v0.11.0`, `:650`
+at `## v0.11.0rc2`) say the CPU-bind feature does not work for the multi-instance case.
+That pair outranks any source derivation (the project admits the shape), so a
+feature-perf report owes one `rg -n 'Known Issues' -A20 release_notes.md`-style pass
+before the code walk. Page `../performance-throughput/cpu-binding-multi-instance-overlap.md`
+(new); check `scripts/cpu-bind-plan-audit.py`. No follow-up arrived in the snapshot, so
+the mechanism is source-verified + the paste's own arithmetic, not reporter-confirmed.
+

@@ -11,6 +11,12 @@ EE1001: [PID: 38630] … The argument is invalid.Reason: coreDim=68888 can't be 
 RuntimeError: The Inner error is reported as above. … the current working operator name is layer_norm_fwd_kernel.
 ```
 
+**The `[WARNING] Please DO NOT tune args …` lines above that traceback are not part of
+it.** They are the triton autotune notice on the same paste (present in #3548's own
+body) — attribution and the body-search route in
+`../observability-and-logs/triton-autotune-tune-args-warning.md`. Reading them as a
+cause costs rule 2's arithmetic.
+
 This is **lane C, a host-side launch-geometry refusal** — the same family as
 `gather-index-out-of-range.md` (an argument number out of range), not a CANN/driver
 fault, not an aclnn registry or tiling rejection, not HBM. It is also not the

@@ -166,7 +166,13 @@ Grep the page for the release tag next to its result blocks: both the accuracy
 and the performance block of the Qwen3-Omni page say "in `vllm-ascend:0.13.0rc1`
 for reference only" (`:255`, `:296` v0.18.0) while the task image is v0.18.0.
 Tier **stale baseline**: keep it as a baseline to beat, never as the expected
-result, and never re-publish it as a measurement. When one of its numbers looks
+result, and never re-publish it as a measurement. **A doc number that looks *below*
+the project's own floor is a comparison question first**: `tests/e2e/models/configs/*.yaml`
+`metrics.value` is an `np.isclose(ground_truth, measured, rtol=0.05)` target
+(`tests/e2e/models/test_lm_eval_correctness.py:10`, `:138-140`), not a minimum, so
+compute the band before writing "below the project's gate" — that tier was shipped
+twice on the Qwen-VL-Dense row and is false (eighth worked page;
+`accuracy-benchmarks/harness-vs-engine-attribution.md:13`). When one of its numbers looks
 anomalous, check the precedent before blaming the doc
 (e.g. `#5991: Qwen3-Omni-30B-A3B-Thinking, when max-concurrency >= 2, TPOT only
 100ms` against the page's ~99 ms mean TPOT).
@@ -554,6 +560,44 @@ FAQ material from the corpus: `#2175` (`v0.10.0+empty Qwen3-Coder-30B`, empty ou
 `output_truncated` after writing §1 **and** the deploy script — the first of these runs
 to land both — so what is left for the next one is §3-§5 and the closing message;
 see `community-test-report.md`.
+
+## Eighth worked page: Qwen-VL-Dense (row `hjh2`, Qwen3-VL-8B-Instruct) at v0.18.0 (recorded #11740)
+
+Page `docs/source/tutorials/models/Qwen-VL-Dense.md` (578 lines), pinned vllm-ascend
+v0.18.0 `e18643f8` + vllm v0.18.0 `bcf2be96`. Row: 1×Atlas 800I A2, 1 T RAM, 300 G
+disk, HDK 25.5.0.B078, image `quay.io/ascend/vllm-ascend:v0.18.0`, weights
+`Qwen/Qwen3-VL-8B-Instruct` (ModelScope), 交付件 = 测试报告. This is the row
+`community-test-report.md` names in the #11739/#11751/#11759 runs, and until this
+table it carried **prose only**, so #11740 audited it again from scratch. The rows
+below are that audit re-verified line by line; a future run on this row writes
+资料验证 §1 from them:
+
+| Tier | Finding | Evidence |
+|---|---|---|
+| breaks the script (Python API) | the 32B multi-NPU offline tab calls `SamplingParams(max_completion_tokens=512)`, a keyword `SamplingParams` does not have at vllm v0.18.0 — the documented script raises `TypeError: ... unexpected keyword argument 'max_completion_tokens'` at construction. The 8B tab in the same offline tab-set is correct | page `:241` vs `:145`; field list `vllm/sampling_params.py:215` (`max_tokens: int \| None = 16`). **The token is real elsewhere in `vllm/`** (`entrypoints/serve/render/serving.py:150`, `benchmarks/lib/endpoint_request_func.py:305`) — it is a request-body key, so a bare `rg -n 'max_completion_tokens' vllm/` hit does not validate the offline call; test the `SamplingParams` field list. (The Seventh worked page's "the curl body's `max_completion_tokens` is a real field" is that other surface — citing it here would downgrade a real `TypeError`.) |
+| 正确性 (stale image) | `export IMAGE=quay.io/ascend/vllm-ascend:\|vllm_ascend_version\|` renders **v0.17.0rc1** at the v0.18.0 tag, one release behind the row's 蓝区镜像; the same substitution dict's `ci_vllm_version` is **v0.18.0**, the in-file proof this tree *is* the v0.18.0 release | page `:49`, `:77`; `docs/source/conf.py:72` vs `:80`; rank with `docs-version-space-and-image-tag.md:62-70`, do not present it as a new finding |
+| stale baseline | `:9` "This tutorial uses the vLLM-Ascend `v0.11.0rc3-a3` version"; both accuracy blocks are labelled `vllm-ascend:0.11.0rc3` (`:504`, `:534`) and print `mmmu_val` **0.5389** (8B, `:508`) / **0.5744** (32B, `:538`), five releases before the task image | page `:9`, `:504-508`, `:534-538` |
+| **not** a defect — a tier this row was over-graded on twice | 0.5389 is *inside* the v0.18.0 in-tree gate, because a config's `metrics.value` is an `np.isclose` target, not a floor: `np.isclose(0.55, measured, rtol=0.05)` gives the band **0.5225-0.5775**, and the doc value sits in it | `tests/e2e/models/configs/Qwen3-VL-8B-Instruct.yaml` (`0.55`, `hardware: Atlas A2 Series`, no `tensor_parallel_size` key, `max_model_len: 8192`, `batch_size: 32`, `gpu_memory_utilization: 0.7`), wired into the A2 accuracy group at `.github/workflows/schedule_nightly_test_a2.yaml:168`; `tests/e2e/models/test_lm_eval_correctness.py:10` `RTOL = 0.05`, `:138-140` `np.isclose(ground_truth, measured_value, rtol=RTOL)`. Grade **stale baseline** and hand the tester that band. "Below the project's own 0.55 gate" is the inflation `#12562` paid for, and both recorded runs of this row shipped it |
+| completeness | `## Performance` (`:543`) prints two `vllm bench serve` lines and ends the page on "After about several minutes, you can get the performance evaluation result." (`:578`, the last line): no table, no log, no screenshot, while the 交付件 demands 性能截图 and sibling pages carry result tables | page `:543-578` |
+| completeness (coverage) | both bench lines pass `--dataset-name random`, which synthesizes text-only prompts, so a VL checkpoint's vision tower is never exercised; `random-mm` exists at this pin and is handled by the same branch | page `:564`, `:572`; `vllm/benchmarks/serve.py:1715` (`args.dataset_name in ("random", "random-mm")`). Say what the documented number measures; do not call the line wrong |
+| cosmetic (settled — do not re-open) | `--random-input 200` for `--random-input-len`: parses as an unambiguous long-option prefix (check 2 above) | page `:564`, `:572`; `vllm/benchmarks/datasets.py:1565,1571` |
+| completeness (minor) | §Model Weight gives eight `Download model weight` links and no download command (`:21-34`), while the 交付件 asks 使用权重 / 获取模型权重; the container mounts `-v /root/.cache:/root/.cache` (`:63`) and `:105` exports `VLLM_USE_MODELSCOPE=True`, so the serve line auto-downloads — ask for the command, do not call the step broken | page `:21-34`, `:63`, `:105` |
+| cosmetic (prose, not sizing) | `:21` "require 1 Atlas 800I A2 (64G x 8) node or 1 Atlas 800 A3 (64G x 16) node" on a 1-card row is check 5's enablement-sentence species (`Qwen3-VL-30B-A3B-Instruct.md:18`): one sentence, then move on. 8B bf16 (~16 GB of weights) on one 64 GB die is arithmetically fine, and the A2 nightly accuracy group this model is wired into runs it on the same one-node `a2b3-1` label | page `:21`; the yaml and workflow lines above |
+| pass (say so) | the single-NPU tab maps one die (`--device /dev/davinci0` + manager/svm/hdc, `:54-57`) and publishes `-p 8000:8000` (`:64`); the serve line (`:324-327`, `--dtype bfloat16 --max-model-len 16384 --max-num-batched-tokens 16384`) needs no missing flag and the `:330` note explains the `--max-model-len` shrink; the 8B offline script uses `max_tokens` (`:145`); the matrix row is A2/A3 ✅ | page `:54-64`, `:324-330`, `:145`; `support_matrix/supported_models.md:82` |
+
+Two habits this row pays for. **Re-verify every line number with `rg -n` on the file
+itself, never inside a `sed -n 'A,Bp'` slice**: the recorded #11740 message shipped
+`:242`, `:516`, `:540`, `:52`, `:81` for what are `:241`, `:508`, `:538`, `:49`, `:77`
+at the same pin, because those numbers came from piping `sed` into `rg -n`
+(slice-relative, `200 + 42`). **And grade a number against the gate's comparison, not
+the gate's constant**: one `rg -n 'RTOL|isclose' tests/e2e/models/` separates "stale
+baseline" from the louder, false "below the project's gate".
+
+Delivery: this run wrote §1 first (4.2 K characters) then two appends, and shipped a
+10.5 K file (above the ≤8 K target) plus a 2.1 K closing message carrying the verdict,
+the three 完整性/易用性/正确性 scores and six tiered rows — the first run on this row to
+ship both. The file went over target on the defect table and the FAQ, which the table
+above now supplies.
 
 ## What a finding must carry
 

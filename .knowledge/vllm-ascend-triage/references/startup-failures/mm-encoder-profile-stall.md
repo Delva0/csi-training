@@ -18,6 +18,22 @@ every minute. Recorded **#10872**: vllm-ascend `v0.21.0rc1` (`80610e44`), image
 and the only log evidence was a screenshot OCR (`budget of 65536 tokens … profiled
 with 4 image items … [gpu_model_runner.py:592]`).
 
+**Scope variant — the same stall with no worker log at all** (`#12985`, v0.23.0rc1
+`-310p` image, 4×300I Duo = 8 dies, Qwen3.5-35B-A3B at TP8/100 K): the paste is
+screenshots/OCR whose text is only EngineCore's repeated watchdog line plus "2 卡能
+部署 / 4 卡不行", so the encoder line above cannot be checked at all. Then the answer
+is the *phase* and the request, not a mechanism: the watchdog line means EngineCore is
+waiting on a worker busy in `profile_run`/capture (never HCCL, never the card); ask for
+the per-rank line the worker stopped on **and** `npu-smi info` taken during the stall
+(rising AICore = an enormous dummy forward, flat with no HBM growth = a deadlock), and
+rank this page's dummy forward below `FULL_DECODE_ONLY` capture at TP>1 and the 100 K
+mask/KV budget on a 310P box (`../soc-platform-paths/atlas-300i-310p.md`, ranked
+actions 2-3). **Do not spend turns proving the checkpoint is multimodal from upstream
+source** — `architectures` lives on the reporter's disk and `--mm-processor-kwargs` /
+one question settle it, while the ladder is the same either way; the second VL
+checkpoint reported on that issue (Qwen3-VL-32B, "是硬件的问题么") retires the card
+question, which is the one a report of this shape always asks.
+
 Not this topic: a **traceback** out of the same line (→
 `../hccl-and-hardware/collective-error-chain.md`); silence that starts at `Loading
 model weights took X GB` with no encoder line (→ `silent-stall-after-weight-load.md`);

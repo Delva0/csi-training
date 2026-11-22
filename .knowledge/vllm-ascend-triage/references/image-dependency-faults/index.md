@@ -337,7 +337,8 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   the pin's own requirements table **before** any version advice, and read a
   `multiple definition` from the `recompile:` line's own object list — one
   `csrc/kernels/*.cpp` under two absolute prefixes means the tree was compiled under
-  two path spellings, not that the kernel source is wrong (#1774, reporter-confirmed
+  two path spellings (one `stat -c '%d:%i'` on the two printed prefixes says alias or
+  copy), not that the kernel source is wrong (#1774, reporter-confirmed
   「Thanks a lot. Solved!」 on the skip-the-build rung). Do not open `csrc/<op>/` or the
   CANN toolchain source here.
 - The build dies **before any CMake work** in pip's isolated env: `usage: __main__.py

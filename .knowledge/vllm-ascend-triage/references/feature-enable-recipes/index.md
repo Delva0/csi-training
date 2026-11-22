@@ -329,8 +329,10 @@ Pages:
   on `running_in_graph`, not `torchair_graph_enabled`.
 - `torchair-mla-head-count-tp-gate.md` — the `queries per kv … only support
   {32, 64, 128}` gate at layer construction, worked for #1451 (v0.9.1rc1,
-  DeepSeek-V3 TP8×PP4 ray + torchair, title naming V2-Lite): the heads-per-rank
-  arithmetic (16 at TP8), the three sites at that pin, the eager×graph mutex and the
+  DeepSeek-V3 TP8×PP4 ray + torchair, title naming V2-Lite) and for #1458's
+  `ACL Graph does not support deepseek` refusal at TP16, where the refusal's own
+  torchair advice is already closed by the same division (128/16 = 8): the
+  heads-per-rank arithmetic (16 at TP8), the three sites at that pin, the eager×graph mutex and the
   ACL-graph-deepseek refusal, the single graph e2e row (TP=4, mp, no PP), the
   FAQ-only documentation of the rule, and the fact that the Python assert is
   **deleted by v0.10.0rc1** while the FAQ and the kernel check remain.

@@ -533,8 +533,10 @@ from the acceptance numbers.
   `config/compilation.py:1126-1138`), the crash-vs-silent-corruption table over request
   counts, why the rope width (head size vs `partial_rotary_factor`) must not be hunted
   through a truncated `transformers` export, the 1/2/3-request confirmation and the
-  ladder, and the recorded #6449 row (GLM-4.7 `mtp`, TP16, v0.14.0rc1; the recorded run
-  shipped no message text).
+  ladder, the tree's own GLM-4.x tutorial block as the *same* launch shape (so the doc's
+  recipe, not an exotic command, is the way this arrives — and its capture list leaves
+  the same gap), and the recorded #6449 row (GLM-4.7 `mtp`, TP16, v0.14.0rc1; the
+  recorded run shipped no message text).
 - `draft-full-graph-metadata-unwired.md` — `AttributeError: 'ForwardContext' object
   has no attribute 'draft_attn_metadatas'` on a **dense** drafter with `FULL_DECODE_ONLY`:
   the five-site chain at v0.14.0rc1 (helper accepts the list, `acl_graph` and the

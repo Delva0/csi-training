@@ -43,6 +43,16 @@ Inherit the rules in SKILL.md. Conditional routes:
   `ValueError: layers.N.engram.embed.weight: expected BF16 source for bf16` is the
   printed serve command missing the engram keys (row 1 — one
   `--additional-config '{"enable_engram":true,"engram_storage":"int8"}'`).
+- Nothing raised, EngineCore repeating `[shm_broadcast.py:…] No available shared memory
+  broadcast block found in 60 seconds`, and **no worker log at all** in the paste
+  (screenshots/OCR whose only text is that sentence, usually with the reporter's own
+  "2 卡能部署 / 4 卡不行") → the phase is still the answer, but on a 310P/300I Duo box
+  rank the graph capture at TP>1 and the context-sized mask/KV budget **above** the
+  encoder page (`../soc-platform-paths/atlas-300i-310p.md`, ranked actions 2-3), ask
+  for the per-rank stop line and `npu-smi info` *during* the stall, and do not derive
+  the checkpoint's multimodal-ness from upstream source — `architectures` is on the
+  reporter's disk, and only an `Encoder cache will be initialized with a budget of …`
+  line moves the case onto `mm-encoder-profile-stall.md` (recorded #12985).
 - The start **does** raise, from the multimodal budget before any EngineCore or NPU
   init — a stack through `encoder_budget.py`/`registry.py get_dummy_mm_inputs` →
   the model file's `get_dummy_mm_data`/`get_dummy_text` ending in a `transformers`

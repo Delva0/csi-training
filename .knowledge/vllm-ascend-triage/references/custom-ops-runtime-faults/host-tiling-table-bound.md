@@ -42,8 +42,56 @@ and v0.18.0rc1 (`99e1ea0`):
 So the index is the **first dim of the tensor the caller passed**, and the caller
 (`sfa_v1._v_up_proj`) passes `x.view(-1, self.num_heads, kv_lora_rank)` — the first dim
 being the batch's **token count** (`num_heads` and `local_num_heads` coincide wherever the
-custom op is reachable, §3). `batchIdx 1024` therefore means 1025 tokens in one forward: a
-prefill chunk or mixed batch larger than the table, not a spec-decode bucket.
+custom op is reachable, §3). `batchIdx 1024` therefore means 1025 tokens in one forward —
+not a spec-decode bucket, and (on DP>1) not this rank's batch either: §2a.
+
+## 2a. The rows are `num_input_tokens` — on DP>1 that is the DP-wide padded width
+
+The count that reaches the op is not the rank's scheduled tokens. `sfa_v1.mla_forward`
+sizes its buffers from `attn_metadata.num_input_tokens` (`torch.empty((num_input_tokens,
+self.q_lora_rank))` at `sfa_v1.py:703-704`, `q_pe` at `:698`, the `mla_preprocess` call
+below them) and hands `npu_sparse_flash_attention`'s TND output straight to `_v_up_proj`
+(`:848`), so `m` is the **model input's** token dim. At the reported pins that dim has
+already been replaced by the maximum over DP ranks:
+
+| Anchor (v0.13.0rc1 `1b5d5ab`) | Fact |
+|---|---|
+| `worker/model_runner_v1.py:475-484` | `max_tokens_across_dp = torch.max(num_tokens_across_dp).item()` in `_sync_metadata_across_dp` |
+| `:644-649` | `num_input_tokens = maybe_padded_num_tokens` — the DP-wide max, **unconditionally**, in eager and in both graph modes |
+| `:870` (`:771-772` for positions) | the model input is `input_ids.gpu[:num_input_tokens]` and the tail positions are zero-filled from the local total: the extra rows are **padding**, not a request |
+| `:1055` / `sfa_v1.py:179` | `num_actual_tokens = slot_mapping_size = total_num_scheduled_tokens` is **local**, and `has_prefill = any(query_lens_cpu > self.decode_threshold)` is computed over the local per-request lengths |
+
+That closes the arithmetic the recorded #8390 run left as a hypothesis. Taking the custom
+branch means `has_prefill` was False, so *every* local request carried ≤
+`1 + num_speculative_tokens` tokens and the local batch was ≤ `max_num_seqs × (1 + n)` —
+64 at that launch (`--max-num-seqs 16`, `n=3`) — while `m` was 1025. The rows the op saw
+therefore came from a **sibling DP rank's prefill chunk** (≤ `--max-num-batched-tokens`,
+4096 there) padded onto this rank; the reporter's "total token count of the batch" is right
+about the dim and wrong about the owner, and its "only in `piecewise`" control is confounded
+with FlashComm1 (last bullet of §3). Nothing here is `piecewise`-specific: the FULL
+uniform-decode block rewrites `query_start_loc` before the metadata is built
+(`:1032-1050`), so `has_prefill` reads False on a `FULL_DECODE_ONLY` launch too, and a DP>1
+box then shows the same op refusal on either mode.
+
+One print at the call site decides it: `x.shape[0]` (and `attn_metadata.num_input_tokens`)
+against `attn_metadata.num_actual_tokens`. Greater means padding — the DP-wide max when
+DP>1 (compare it with that step's sibling-rank `num_scheduled_tokens`), otherwise the local
+cudagraph bucket from `pad_for_cudagraph` (`model_runner_v1.py:614-615`) — and a bucket is a
+round capture size, so an odd width like `1025` is the DP max and not a bucket, which is what
+retires the recorded run's "piecewise bucket" variant. Equality would mean
+the rows *are* the local batch, which this branch bounds at `max_num_seqs × (1 + n)` (64 at
+#8390), so an equal-width print beside `batchIdx` ≥ the constant means the launch itself
+differs (a larger `max_num_seqs`, or the `else` branch running with a wide layout) — not a
+table that needs to grow.
+
+Two consequences for the ladder. Rung 1 of §6 works *because* of this: capping
+`--max-num-batched-tokens` at the constant caps each rank's padded contribution, hence the
+DP max, while a per-rank `--max-num-seqs` cut does not touch it. And a
+`--data-parallel-size 1` launch cannot produce this signature through the custom branch at
+all, unless `max_num_seqs × (1 + n)` itself exceeds the constant — which makes DP size a
+cheap attribution test instead of another source read. The same DP-wide max is the number
+in `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §10's host `RuntimeError`
+(`63` vs `6151`), so one sibling rank's prefill chunk explains that lane and this one.
 
 ## 3. Find the caller's guard — and check the reporter's release, in both directions
 
@@ -101,7 +149,8 @@ reaches the op at all:
   (`local_num_heads = num_heads × tp_size`, `:378-382`) — which the same `if` excludes. So
   `batchIdx 1024` is 1025 tokens, not `tokens/4` or `tokens/8`; deriving a factor from
   `kv_lora_rank`/`v_head_dim` (the recorded #8390 run spent three blocks there) buys
-  nothing the paste cannot already say.
+  nothing the paste cannot already say. *Which* token count it is — the padded
+  `num_input_tokens`, not the local schedule — is §2a.
 - **`piecewise` in such a launch is forced, and that also fixes who can reach the op.**
   `enable_sfa_cp = enable_sp() and hasattr(hf_config, "index_topk")` (`:148-150`) and an
   assert forbids FlashComm1 with `FULL_DECODE_ONLY` (`:152-156`, *"Please set graph_mode to
@@ -132,7 +181,9 @@ it — which impl class the model selects, and whether that impl's `_v_up_proj` 
 ## 6. Ladder, with the threshold arithmetic that makes the workaround cheap
 
 1. Pick the threshold = the constant. `--max-num-batched-tokens 1024` (equal, not 512) keeps
-   every chunk legal; the reporter's estimate of 512 came from the wrong bound.
+   every chunk legal — including the DP-wide padding of §2a, which is why this lever works
+   while a `--max-num-seqs` cut does not; the reporter's estimate of 512 came from the wrong
+   bound.
 2. Add the caller guard, copied from the newer tree, when their release really lacks it.
    The `else` branch already exists, so it is the two-line diff.
 3. Do **not** enlarge `MAX_CAPTURE_NUM` in `csrc/`: the buffer is a device allocation of

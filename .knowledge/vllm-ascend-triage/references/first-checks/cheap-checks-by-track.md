@@ -39,13 +39,17 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   paste is caught for free.** `EngineCore_DP<N>` / `Worker_DP<N>_EP<N>` names exist
   only when that parallel size is > 1 (`vllm/v1/engine/utils.py:136,151` at vllm
   v0.22.1), so `EngineCore_DP2` beside a command carrying `--data-parallel-size 1`
-  is two different runs — #11300 pasted exactly that pair. When the disagreement is
-  *which hardware tab* the block came from (one page, A2 dp1/tp8+`enable_dsa_cp` vs
-  A3 dp4/tp4+`--api-server-count`, and a `-a3` image), one call gives the diff and
-  the closest tab: `uv run --no-project python scripts/recipe-tab-diff.py --page
-  <page> --section 5.1 --command <reporter script>`. Step 0 of
-  `../image-dependency-faults/native-string-abort.md` is where that lands for a
-  startup abort; a config-review task can use the same output as the finding.
+  is two different runs — #11300 pasted exactly that pair. The number after `TP`/`DP`
+  is a **rank index, not a size** (`_TP{tp_rank}` = `rank_in_group`,
+  `vllm/v1/executor/multiproc_executor.py:843-857` at vllm v0.14.1): `Worker_TP10` on
+  16 chips is TP16's rank 10 and cannot come from a TP10 launch at all, which is how
+  #6449's `Worker_TP10` paste was later confirmed to be the TP16 case it resembled.
+  When the disagreement is *which hardware tab* the block came from (one page, A2
+  dp1/tp8+`enable_dsa_cp` vs A3 dp4/tp4+`--api-server-count`, and a `-a3` image), one
+  call gives the diff and the closest tab: `uv run --no-project python
+  scripts/recipe-tab-diff.py --page <page> --section 5.1 --command <reporter script>`.
+  Step 0 of `../image-dependency-faults/native-string-abort.md` is where that lands
+  for a startup abort; a config-review task can use the same output as the finding.
 - Image / bundled-native-module abort (no vllm-ascend frame, glibc allocator
   text): which copy is imported, then allocator interposition, then the
   installer-vs-upstream dependency diff — steps 1-3 of
@@ -179,9 +183,10 @@ as the finding (rule 10). One axis per launch when you propose an ablation.
   link), check the reported CANN/torch/torch-npu trio against the pin's own
   `installation.md` table, and read a `multiple definition` off the `recompile:`
   line's object list — one source under two absolute prefixes is one tree compiled
-  under two path spellings, so `rm -rf build` from `pwd -P` (or install without
-  `COMPILE_CUSTOM_KERNELS`) is rung 1
-  (`../image-dependency-faults/custom-op-build-stage.md`, #1774).
+  under two path spellings, so `rm -rf build` from one spelling (or install without
+  `COMPILE_CUSTOM_KERNELS`) is rung 1; one `stat -c '%d:%i %n' <prefix1> <prefix2>` on
+  the paste's own two prefixes says whether they are one directory under two names or
+  two copies (`../image-dependency-faults/custom-op-build-stage.md` §Step 2, #1774).
 - Startup `ValueError` whose text names a parallel size inside
   `kv_connector_extra_config` (`KV transfer 'prefill' config has a conflicting
   data parallel size. Expected 1, but got 2.`): one grep for the string decides

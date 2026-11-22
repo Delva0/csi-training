@@ -79,7 +79,17 @@ builds it; `pad_for_cudagraph` is `:4335-4340`): **1 → 1**, 2-7 → 8, 8 → 8
 single decode request replays the **size-1 bucket** — the bucket that the
 concurrency case never uses — while eight tokens replay the size-8 bucket that is
 known good on the same deployment. `scripts/dp-single-request-bucket.sh` prints
-the map and the per-step branch for the reported command.
+the map and the per-step branch for the reported command — one call, with the
+launch's own list pasted in:
+
+```bash
+bash <skill_root>/scripts/dp-single-request-bucket.sh \
+    --capture-sizes '{"cudagraph_capture_sizes": [8,1]}' --dp 8 --tp 2
+```
+
+The flag takes the bare list (`8,1`) or the pasted `--compilation-config` value,
+and a bare positional works too; run it with `bash`, not
+`uv run --no-project python <script>.sh`.
 
 Ranked candidates:
 
@@ -123,7 +133,16 @@ capture banner is a `tqdm` description, `Capturing ACL graphs (<mode>, <uniform>
 `model_runner_v1.py:2873`, so take the bucket list from the startup config echo or
 a `../startup-failures/graph-mode-not-applied.md` grep rather than from the banner). That is a complete answer; a
 derived-but-unproven collective mismatch is not worth a session
-(`rpc-watchdog-timeouts.md`'s own warning).
+(`rpc-watchdog-timeouts.md`'s own warning). With this page in the library the
+recorded replay of the same paste shipped that ablation on its 7th assistant turn
+in 5 tool blocks — and two of those five were lost to the bucket script's
+invocation (the JSON value, then `uv run python` on the `.sh`), with the pad map
+then re-derived by hand from `vllm/config.py`; that is why the call above is
+printed with its flags and accepted value shapes. Note what such a report
+adds over the recorded #3128 launch — here `CPU_AFFINITY_CONF=2`,
+`VLLM_CPU_BINDING=1` and a jemalloc `LD_PRELOAD`, none of which the recorded paste
+carried: they are rung 4's variables, so ablate them one per launch, and do not
+promote them above the bucket/graph rows on that ground alone.
 
 ## Scope
 

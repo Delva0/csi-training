@@ -132,12 +132,17 @@ error if deployment still fails — rule 14 of `SKILL.md`: the next attempt surf
 ## Contributor-path docs: run what the page names
 
 Do not read the contributor prose, run the script or image step it points at.
-Items that paid off at v0.23.0:
+`testing.md` is `docs/source/developer_guide/contribution/testing.md` at v0.23.0
+(374 lines) — it is under `contribution/`, and `docs/source/developer_guide/testing.md`
+does not exist, so locate it with `rg --files docs/source | rg 'testing'` rather
+than guessing the directory. Items that paid off at v0.23.0:
 
 | Claim in the report | What the tree says | Tier |
 |---|---|---|
 | "`bash format.sh ci` is not the test suite" | `format.sh:43` = `pre-commit run --all-files --hook-stage manual`; `docs/source/developer_guide/contribution/index.md:35` still titles that section "Run CI locally", command at `:59` | misleading |
 | "mounting a checkout hides the image's `vllm-ascend`" | `setup.py:189` writes `vllm_ascend/_build_info.py` **into the source tree** (called from `build` `:204` / `build_py` `:210`), and `vllm_ascend/utils.py:836` imports it — a fresh clone does not carry it, so a bind-mount over `/vllm-workspace/vllm-ascend` reproduces `ImportError: cannot import name '_build_info'` until `pip install -e .` | breaks the command |
+| "the page says run UT but never how to test **my** checkout" | the Single-card tab's `docker run` (`testing.md:76-92`) mounts only `dcmi` / `npu-smi` / `driver` / `.cache` and then `cd`s into the image's own `/vllm-workspace/vllm-ascend` (`:101-102`), so a contributor has to add `-v <checkout>:/vllm-workspace/vllm-ascend` — and that one edit is what trips the `_build_info` row above, so name both edits and `pip install -e . --no-build-isolation` | breaks the command |
+| "`pip install` dies on `HTTP 403` / the recommended pip mirror does not serve the package" | one page, two mirrors: `testing.md:99` sets `mirrors.tuna.tsinghua.edu.cn/pypi/web/simple` while the same file's own container block (`:33-34`) uses `mirrors.huaweicloud.com` for apt **and** pypi. The inconsistency is the reportable defect — point at `:33-34`; the 403 itself is the reporter's network and is never checkable from the tree | misleading |
 | "the UT commands never `source set_env.sh`" | the image sources both `set_env.sh` **inside `RUN` only** (`Dockerfile:30`, `:67-68`); what persists is `LD_PRELOAD`/`LD_LIBRARY_PATH` in `~/.bashrc` (`:75-76`). But `ENV SOC_VERSION` *is* baked (`:57-60`) and the CPU tab already sets it (`testing.md:59-61`) — so split the item: right for CANN/NNAL, refuted for `SOC_VERSION` | breaks the command / refuted |
 | "the image already contains vLLM" | `Dockerfile:42` `ARG VLLM_TAG=v0.23.0` + `:49` clone it, while `contribution/index.md` tells the reader to build vLLM separately | inconsistent |
 | "the page says `nightly-main`" | `testing.md:77`,`:116` say `quay.io/ascend/vllm-ascend:main` — a literal tag where every other page substitutes `|vllm_ascend_version|`; the reporter's tag is main-branch drift | version drift |
@@ -177,4 +182,8 @@ which they missed — then the defect table with `path:line` and tier, then the
 minimal patch per page, then version scope and open items (a registry 403 or a
 mirror's reachability cannot be checked from the tree). For #14423 the verdict
 was "issue valid, but both anchors the report cites are wrong", which is the
-whole deliverable and needed no source walk.
+whole deliverable and needed no source walk. A later run of #17718 on the same
+pin re-verified every row of the table above and added two defects the reporter
+had not listed — the page's two mirrors (`testing.md:99` vs `:33-34`) and the
+Single-card tab's missing source mount — so treat the table as the floor and
+spend the remaining budget on what it does not carry.

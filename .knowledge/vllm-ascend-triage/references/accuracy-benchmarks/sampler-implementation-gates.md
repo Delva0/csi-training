@@ -98,6 +98,23 @@ missing line: `ERR00100 … PTA call acl api failed` with **no** `error code is 
 inner block above `The Inner error is reported as above` was cut out of the paste, and that
 block is what separates an aicore exception from a parameter refusal — request it first.
 
+**Two ranks naming different operators needs no mapping at all.** Recorded #3468
+(vllm-ascend v0.11.0rc0 `00ba071` + vllm v0.11.0rc3, Atlas 800I A2, Qwen3-VL-30B-A3B,
+`--tensor-parallel-size 2 --enable-expert-parallel`, one **video** request) ends at the
+same `sampler.py:32` frame with `… current working operator name is aclnnSwiGlu` on
+`Worker_TP1_EP1` and `aclnnMatmul` on `Worker_TP0_EP0`, one second apart in the same
+step: no single statement launches both, so the pair is stream residue by construction
+and neither names the statement that failed — locating `aclnnSwiGlu` in the MoE code
+(or the video path) proves only that such a call site exists, which it always does.
+That paste also dates the fault from its own dump — the scheduler record beside the
+traceback is a `CachedRequestData` with `num_computed_tokens=[2048]` and
+`num_scheduled_tokens=2048`, i.e. a continuation chunk of the request's first prefill,
+so the fault belongs to ops an earlier chunk submitted, not to the sampling step — and
+the two deliverables stay `ASCEND_LAUNCH_BLOCKING=1` on that same request plus the
+missing first-error block. The recorded run instead spent its remaining tool turns
+diffing the Ascend Qwen3-VL vision tower against upstream for a video-path shape
+mismatch, which cannot outrank an error whose owning operator is still unknown.
+
 ## Rule 2 — the lane is chosen per *batch*, so the same request can run two different samplers
 
 Upstream stores `top_k` per request: `0 < top_k < vocab_size` registers the request,

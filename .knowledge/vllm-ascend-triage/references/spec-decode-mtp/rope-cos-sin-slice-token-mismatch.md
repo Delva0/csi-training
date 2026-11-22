@@ -25,6 +25,17 @@ Every frame above the reshape is model code (`glm4_moe_mtp.py` → `glm4_moe.py`
 forward reached rope — the model, the checkpoint and `partial_rotary_factor` are not
 the owner. `num_tokens` is `q.shape[0]`; the `size` is `cos.numel()`.
 
+**The paste's `(Worker_TP<n> pid=…)` prefix is a *rank index*, not a size**, so it
+never turns a matching case into "a different TP". `Worker_TP10` on a 16-chip box is
+TP16's rank 10, and a rank number that reaches the world size at all proves the
+deployment is at least that large (a TP10 launch has no rank 10 to print). Read sizes
+from the reporter's own command or the group lines, not from the prefix — the segment
+is `_TP{tp_rank}` with `tp_rank = get_tp_group().rank_in_group`
+(`vllm/v1/executor/multiproc_executor.py:843-857` at vllm v0.14.1, `:1016-1030` at
+v0.23.0; `../hccl-and-hardware/error-report-timestamps.md:179`); the recorded #6449
+triage shipped "re-filed at TP10 instead of TP16" for a paste whose command says
+`--tensor-parallel-size 16`.
+
 ## One division names the two counts
 
 `cos` is the **process-global** slice returned by `get_cos_and_sin_slice()` — not a
@@ -103,6 +114,21 @@ number to ask about is **that step's scheduled token count**, not the batch: `6`
 the whole classification, and the request count above is only how a decode step
 reaches it.
 
+**The tree's own GLM-4.x tutorial block is this launch shape**, so a reporter who
+followed the docs is the *expected* way to hit it, not an exotic command. At
+v0.14.0rc1 it is `docs/source/tutorials/GLM4.x.md:81-102`: `dp1tp16` (`:91`),
+`--max-num-seqs 16` (`:96`), mtp `num_speculative_tokens: 1` with `model` = the
+target directory (`:99`), `--compilation-config '{"cudagraph_capture_sizes":
+[1,2,4,8,16,32], "cudagraph_mode": "FULL_DECODE_ONLY"}'` (`:100`),
+`--async-scheduling` (`:101`) — plus the same `HCCL_BUFFSIZE` / `OMP_NUM_THREADS=10` /
+`PYTORCH_NPU_ALLOC_CONF=expandable_segments:True` / `HCCL_OP_EXPANSION_MODE=AIV`
+exports. Run the same division on its list and the clean request counts are exactly
+`1, 2, 4, 8, 16` and anything above 16; `3`, `5-7` and `9-15` raise
+(`scripts/rope-cos-sin-slice-check.sh --capture-sizes 1,2,4,8,16,32 …`). So one
+`rg -n 'cudagraph_capture_sizes' docs/source/tutorials/<page>.md` at the pin answers
+"is this the tree's own recipe?" before anything is asked of the reporter — and for a
+doc-audit of that page the same division *is* the finding.
+
 ## Do not derive the rope width from a model export
 
 The width (`head_size` vs `head_size × partial_rotary_factor`) decides only whether
@@ -136,7 +162,11 @@ or the ladder. Two facts keep this from becoming a source hunt:
    crash. Cheapest unblock; costs the async-scheduling win.
 3. **Cover every count you serve:** `cudagraph_capture_sizes` listing the actual
    `1+K` multiples (for `K = 1`, every even value up to `2 × --max-num-seqs`) leaves no
-   bucket gap. Each capture costs time and memory, so state that.
+   bucket gap. The list holds **token** counts, so a concurrency `C` needs `2C` in it,
+   not `C` — the tree's own advice ("we always ensure that the concurrency is actually
+   included in the cudagraph_capture_sizes list",
+   `docs/source/tutorials/Qwen3-Dense.md:395` at v0.14.0rc1) invites the wrong reading.
+   Each capture costs time and memory, so state that.
 4. **Repair (for a PR, not for the reporter):** refresh the global inside
    `MtpProposer._propose` after `num_input_tokens` is final, with the same slice the
    draft forward is about to use — `update_cos_sin(self.positions[:num_input_tokens])`
@@ -182,13 +212,19 @@ the usual cost. Check which of the two the paste's command uses before crediting
 `--async-scheduling`, `--max-num-seqs 16`,
 `--speculative-config '{"num_speculative_tokens": 1, "method": "mtp", …}'` and
 `--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY", "cudagraph_capture_sizes":
-[1,4,8,16]}'` — i.e. exactly the pad gap in the table above, with `512 = 8 × 64`
-matching a padded count and the `glm4_moe` rotary width, and `6` the failing step's
-scheduled tokens. What that step *was* is not in the paste (a decode step of 3
-in-flight requests at `1 + K = 2` tokens each, or a prefill/mixed step of 6 scheduled
-tokens), and the crash arrived one second after the engine's first `200 OK`, so do not
-present either attribution as reporter-confirmed: the derivation is "6 scheduled
-tokens, padded to 8", and rung 1 below is the confirmation.
+[1,4,8,16]}'`. That is the tree's own tutorial block (§ *Why the two counts differ*)
+with the capture list cut to `[1,4,8,16]` and
+`--max-model-len 131072 --gpu-memory-utilization 0.9 --served-model-name GLM-4.7
+--reasoning-parser glm45 --tool-call-parser glm47 --trust-remote-code` added; its
+`--speculative-config` `model` is the target directory (the in-checkpoint MTP head, not
+a standalone draft), and the paste's `(Worker_TP10 pid=281)` is rank 10 of 16. So the
+paste is exactly the pad gap in the table above, with `512 = 8 × 64` matching a padded
+count and the `glm4_moe` rotary width, and `6` the failing step's scheduled tokens.
+What that step *was* is not in the paste (a decode step of 3 in-flight requests at
+`1 + K = 2` tokens each, or a prefill/mixed step of 6 scheduled tokens), and the crash
+arrived one second after the engine's first `200 OK`, so do not present either
+attribution as reporter-confirmed: the derivation is "6 scheduled tokens, padded to 8",
+and rung 1 below is the confirmation.
 
 The recorded triage run spent its whole 16 384-token output budget on the width
 question (`_cos` 64 vs 128 wide, hunting a `glm4_moe` config in a truncated

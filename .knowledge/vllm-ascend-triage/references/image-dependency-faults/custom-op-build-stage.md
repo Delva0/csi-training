@@ -177,28 +177,40 @@ appears twice, as two `.o` files under two absolute prefixes of one tree. It say
 the tree was compiled under two path spellings, not that the kernel source, the C++
 or the version set is wrong.
 
-Why that lands on the build directory, not on the tree (source-verified at the pin):
-`CMakeLists.txt:46-47` is `file(GLOB KERNEL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/csrc/kernels/pos_encoding_kernels.cpp)`
+Why that lands on the build directory, not on the tree: `CMakeLists.txt:46-47` is
+`file(GLOB KERNEL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/csrc/kernels/pos_encoding_kernels.cpp)`
 — an exact path, not a wildcard — feeding `ascendc_library(vllm_ascend_kernels SHARED …)`
-(`:49`), and `setup.py:112` derives the source dir with `os.path.abspath(ROOT_DIR)`
-(physical). **One configure therefore yields exactly one source entry**, so two
-spellings must come from outside it: a `build/` tree left by an earlier compile under
-the other path, or one directory reachable under two names (symlinked/bind-mounted
-home). The pin's `setup.py` also configures the same `build_temp` twice (`:205` and
-`:210-215`), so stale objects are never re-derived — worth one line in the answer,
-labelled an observation, not the cause.
+(`:49`), so **one configure yields exactly one source entry**; what a configure records is
+the *spelling* of the name it was handed, and the pin hands it two different expressions.
+`setup.py:112` passes `os.path.abspath(ROOT_DIR)` as the source dir, where `ROOT_DIR` is
+`os.path.dirname(__file__)` (`:43`), while the extension's `cmake_lists_dir` default is
+`os.path.abspath(".")` (`:71-78`) and the second call passes that one (`:209-212`).
+`os.path.abspath` only normalizes `.`/`..` — it resolves **no** symlink and no bind mount —
+and an absolute `argv[0]` keeps its own spelling (`python /<alias>/setup.py` records
+`/<alias>`, while `cd <alias> && python setup.py` records the physical path, because a
+*relative* `argv[0]` is joined to the kernel-resolved `getcwd()`, and a **bind-mounted**
+home keeps its own spelling there). So how the tree was entered at configure time is what
+its prefix records: do not tell the reporter setup.py can only have written one name. The
+pin never removes the object tree either, so objects from whichever spelling configured
+first stay under `…host_bisheng_obj/` and are re-linked — which is why `rm -rf build` is
+rung 1 and why the two minters (a second name for this tree, or a `build/` carried over
+from another directory) cannot be separated from the paste alone.
 
-Three lines from the reporter decide which:
+Three lines from the reporter's own two prefixes decide which. The paste's second prefix
+is the **home directory, redacted as `[HOME_DIRECTORY_1]`** — `$HOME/work/<user>/projects/…`,
+not a literal path component — so compare the two roots instead of `pwd`:
 
 ```bash
-pwd; pwd -P; readlink -f .        # logical vs physical cwd
-env | grep '^PWD='
-grep -c 'csrc/kernels/pos_encoding_kernels.cpp' \
-  build/temp*/CMakeFiles/vllm_ascend_kernels.dir/*/link.txt   # 2 = duplicated
-ls build/temp*/vllm_ascend_kernels_host_dir/objects-Release/host_bisheng_obj/  # two roots = stale
+stat -c '%d:%i %n' /efs/<user>/projects/vllm-ascend "$HOME/work/<user>/projects/vllm-ascend"
+findmnt -T "$HOME/work/<user>/projects/vllm-ascend"   # a bind mount is the one alias getcwd() preserves
+ls build/temp*/vllm_ascend_kernels_host_dir/objects-Release/host_bisheng_obj/  # two roots = stale objects
 ```
 
-When `build/` is already gone, the paste is the record and the shape above is enough.
+Same `dev:inode` ⇒ one directory reached under two names; different ⇒ a second copy of the
+tree, or a `build/` carried over. Both `.o` files are already named as inputs of that one
+link command, so the duplicate object set itself needs no confirmation: the answer does not
+wait for these, and rung 1 is the same either way. When `build/` is already gone, the paste
+is the record and this shape is enough.
 
 ## Step 2b — the build *finished*, and `csrc/build/compat/liboptiling.so` 指向无效
 
@@ -354,7 +366,10 @@ reporter-confirmed only at the level of 「Thanks a lot. Solved!」.
 
 - Which side minted the second spelling: CANN's `ascendc.cmake` /
   `recompile_binary.py` are not in the snapshot, so never publish "symlinks are the
-  cause"; give the three-line check above instead.
+  cause"; give the `stat`/`findmnt` check above instead. Also unverified (cmake is
+  neither exported by a snapshot nor runnable here): whether CMake refuses a second
+  configure that names another spelling of the same tree — that decides only whether one
+  build can mint both prefixes, not the rung.
 - Whether `install(FILES <dangling symlink>)` preserves the link or aborts the `package`
   step: cmake is not in the snapshot and #10792's follow-up never listed the staged
   `op_tiling/liboptiling.so` or the produced `.run`, so keep that escalation open instead

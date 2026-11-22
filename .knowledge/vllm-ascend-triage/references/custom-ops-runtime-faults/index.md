@@ -365,7 +365,10 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   `batchIdx = tensorAShape[0] - 1` against `constexpr MAX_CAPTURE_NUM = 1024` — the **token**
   dim, not `max_cudagraph_capture_size` and not any request-count knob. Reconcile the
   printed number with the reporter's named parameter first (their 128 vs the printed
-  1024 refutes their mechanism in one line), then read the caller's guard
+  1024 refutes their mechanism in one line), and read the dim as the **padded**
+  `num_input_tokens`: on DP>1 that is the DP-wide max, so a ≤64-token local decode batch
+  presents 1025 rows while a sibling rank runs a prefill chunk (`x.shape[0]` vs
+  `num_actual_tokens` is the one-line check) — then read the caller's guard
   **in the reporter's release, not only in the pin** — absent at v0.13.0rc1, where it is a
   `not has_prefill` proxy the tree's own TODO calls a bug — and stop: nothing launches, so
   `cudagraph_mode` / drafter-eager / capture-size ablations cannot move it —
@@ -577,7 +580,9 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   (`BMM_TRANS_MAX_SUPPORTED_TOKENS`) exists at v0.13.0 and v0.18.0rc1 but **not** at
   v0.13.0rc1 (`1b5d5ab`, `not has_prefill` + a TODO calling it a bug) — so grep the
   reporter's exact build instead of inferring either way — plus the token-vs-heads
-  polarity that keeps `m` equal to the token count, the layout mismatch that survives the
+  polarity that keeps `m` equal to the token count, the rows being the *padded*
+  `num_input_tokens` (the DP-wide max when DP>1, so a sibling rank's prefill chunk supplies
+  the overflow), the layout mismatch that survives the
   guard, the host-side `TORCH_CHECK` implication for graph-mode ablations, and the
   FlashComm1/`FULL_DECODE_ONLY` assert that explains why `piecewise` appears (and why the
   op is unreachable with SP on).

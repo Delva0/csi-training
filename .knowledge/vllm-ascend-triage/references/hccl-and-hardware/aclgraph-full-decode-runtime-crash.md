@@ -34,7 +34,13 @@ family and whose command sets the row's mode is *answered by the row*: quote it,
 the tracked PR, name the release to try, and keep the mechanism below as the
 explanation rather than the verdict. That is what #5076 was (Qwen3-Coder-480B-A35B,
 `{"cudagraph_mode":"FULL_DECODE_ONLY"}`, DP4×TP8, `--max-num-seqs 64`); the reporter
-later confirmed **0.13.0rc1 fixed it**, which is "next release" as the row promised.
+retested 0.13.0rc1 and confirmed **that release fixed it** (issue comment, 2025-12-30,
+after the maintainer's "try 0.13.0rc1 to see if the issue is fixed"), which is "next
+release" as the row promised. Quote that as *reporter-confirmed by re-test* — the fix
+commit is not identifiable from such a confirmation, so do not name one and do not spend
+calls hunting the diff in a snapshot that has no 0.13.0rc1 tree; a later report on
+≤ 0.12.0rc1 therefore gets the upgrade rung with this attribution, and the mode drop stays
+rung 1 on the release that has no fix.
 The row itself is already recorded in this library for the **accuracy** context
 (`../accuracy-benchmarks/qwen3-next-gdn-numeric-path.md` §v0.12.0rc1, "quote the release's
 own statements"); what is new here is reading it as the *first* check on a **crash** of
@@ -592,6 +598,11 @@ else the block is skipped) **and** a sibling DP rank whose step carries more tok
 never shows the line, why the failure arrives "when concurrency is large" rather than on
 the first request, and why no single rank's log explains it: the DP-wide max is the
 input. Nothing about the model, the quantization or the cards is involved.
+
+The same DP-wide max reaches a second lane on a DSA model: it is the padded token dim
+that overflows `batch_matmul_transpose`'s table (`../custom-ops-runtime-faults/host-tiling-table-bound.md`
+§2a, recorded #8390/#8392), so one sibling rank's prefill chunk explains a `63/6151`
+`RuntimeError` here and a `batchIdx is out of range: 1024` there.
 
 Ladder: drop the `--compilation-config` (rung 1; the block is `decode_mode() == FULL`
 only) → `--enforce-eager` → if it must be reported, the two numbers plus

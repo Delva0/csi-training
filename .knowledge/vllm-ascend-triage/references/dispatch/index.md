@@ -31,9 +31,10 @@ used.
   states the rule that decides the track — the paste's last frames name the failing
   *stage*, the stage names the owner, and the cheapest working install is rung 1. Open
   it at the classification step when the paste is an install report.
-- `controls-and-ablation.md` — rule 15 of SKILL.md in full: the six forms of a
+- `controls-and-ablation.md` — rule 15 of SKILL.md in full: the seven forms of a
   control (a working sibling path, a first request that works while a later one dies,
-  your own ablation, a workaround named in the report's prose, a tested-configuration
+  your own ablation, a workaround named in the report's prose, a ranked diagnosis the
+  report itself pasted, a tested-configuration
   matrix, an asserted control or a repro over lower-level primitives), what each one
   proves, the pin splits that make an
   `--enforce-eager`/spec rerun inert, and the recorded cost of getting each wrong.

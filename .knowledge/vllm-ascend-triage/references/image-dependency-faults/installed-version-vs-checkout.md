@@ -36,8 +36,10 @@ the source dir, not the packaging defect reported beside it (#3793: the real one
 `vllm_ascend/` reads it —
 `rg -n "__version__" vllm_ascend/` at that ref has exactly one hit,
 `utils.py:283-295` `vllm_version_is()`, which loads `envs.VLLM_VERSION` or
-`vllm.__version__` (vLLM's, never vllm-ascend's); at v0.26.0rc1 the same grep returns two,
-`utils.py:586` and `profiling_config.py:31`, both `vllm.__version__`. The compatibility gates
+`vllm.__version__` (vLLM's, never vllm-ascend's); at v0.26.0rc1 the same grep returns three,
+`utils.py:586` and `profiling_config.py:31` (both `vllm.__version__`) plus
+`compilation/compiler_interface.py:244` (`torch_npu.__version__` in a dump dict) — none of
+the three is this package's. The compatibility gates
 are keyed on vLLM's version, so a vllm-ascend string that disagrees with the checkout name
 nothing that gates behaviour — say that before explaining the derivation.
 

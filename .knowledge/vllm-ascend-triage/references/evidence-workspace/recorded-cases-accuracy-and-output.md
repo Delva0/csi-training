@@ -580,7 +580,10 @@ ranked the drafter-graph leg first on the spec-scoped A/B (correct) but presente
 that rung as the cheap one and kept MC2/AIV and SFA rows above the plog request;
 the page now carries the measured cost and the frame's real meaning (a DP dummy
 pass runs the target **and** the drafter, so the traceback alone does not
-discriminate).
+discriminate). Its 2026-07-01 comment is also the reporter's own `问题分析报告`
+(ACL-graph compile defect first, `VLLM_ASCEND_ENABLE_ACL_GRAPH=0` as the fix): grade
+each lever before quoting it — `../dispatch/controls-and-ablation.md`, *A ranked
+analysis the reporter pasted*.
 
 **#12261** vllm v0.20.2 (`bc150f5`) + vllm-ascend v0.20.2rc1 (`367b8e62`), GLM-5.1
 (`GLM_5_1_MEP-1.0.0`) w4a8/w8a8 on 910C 560T, `stream: true` only: the client's
@@ -1137,9 +1140,15 @@ the run rather than the run —
 answers 全是感叹号, with the body's own two controls — "使用llamafactory推理是正常的，在v100上
 也是正常的" — and a screenshot as the only "log". Track: VL degeneration, but the
 controls put it in the numerics lane. **The reporter closed it themselves (public
-comment, 2025-04-23): 「已解决，将精度改为 bfloat16 就可以了」**, and an intermediate
-thread had already sent them to `INF_NAN_MODE_ENABLE=0`, which the maintainer corrected
-to `INF_NAN_MODE_FORCE_DISABLE=1` for the current device. The recorded run (38
+comment, 2025-04-23): 「已解决，将精度改为 bfloat16 就可以了」**. Two later public facts from
+the same thread: the post-SFT weight was asked for on 2025-04-21 and **declined** ("Sorry,
+this model weight is not open to the public"), so the reporter's two controls can never be
+re-run here and "the weight" does not belong on a send-back list; and on 2025-04-22 an
+intermediate comment sent them to `INF_NAN_MODE_ENABLE=0` (MindIE experience), the reporter
+answered "Okay, thanks. I'll try it", and a maintainer corrected the advice the same day —
+`INF_NAN_MODE_ENABLE shouldn't be set to 0 on the current device … please export
+INF_NAN_MODE_FORCE_DISABLE=1` — on a `2.5.1.dev20250320` build, i.e. the guard is a **build**
+fact, not a version-number one. The recorded run (38
 messages — 16 assistant turns — cut at the output cap) verified the right structural fact — at that pin
 `Qwen2_5_VLForConditionalGeneration` is upstream's, so the padding family and
 `USE_OPTIMIZED_MODEL` cannot apply — and then ranked `--tensor-parallel-size 1` and
@@ -1148,8 +1157,10 @@ refute, planning the whole answer inside its final reasoning block and shipping 
 text. Three harness rules came from it: the pinned tutorial's own `--dtype bfloat16`
 (`docs/source/tutorials/single_npu_multimodal.md:147`) is the axis to diff first, bf16
 is available on every 910B SKU (`IsBF16Supported()`), and the `INF_NAN_MODE_*` name is
-era-scoped (`INF_NAN_MODE_ENABLE` on torch_npu 2.5.x; it aborts with
-`shouldn't be set to 0 on the current device` on 2.8.x) —
+build-scoped, not version-scoped (the 2024-era 2.5.1 tree reads only
+`INF_NAN_MODE_ENABLE=0`; guarded builds — 2.7.1 verified, 2.8.x reported, and this
+reporter's 2.5.1.dev build per the maintainer — abort on that with a message naming
+`INF_NAN_MODE_FORCE_DISABLE=1`) —
 `../accuracy-benchmarks/precision-dtype-degeneracy.md` (new).
 
 **#7365** vllm-ascend v0.17.0rc1 (`e20f0b1a0d2f`) + vllm v0.17.0 (`b31e9326a7d9`), one

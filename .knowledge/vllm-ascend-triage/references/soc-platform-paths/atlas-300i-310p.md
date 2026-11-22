@@ -822,9 +822,9 @@ status answer.
    (`docs/source/tutorials/hardwares/310p.md:20-30` at v0.23.0rc1) — so a
    "2 cards fine, 4 cards stall" report takes `--enforce-eager` and
    `cudagraph_capture_sizes: [1]` before any HCCL theory. The same stall across a
-   **different checkpoint** retires every model lane (`#12985`: Qwen3.5-35B-A3B,
-   then Qwen3-VL-32B, reporter asking "是硬件的问题么" — the answer is these
-   documented platform limits, not a broken card). The cheapest discriminator is
+   **different checkpoint**, reported by a second commenter on the same issue, retires
+   every model lane (`#12985`: Qwen3.5-35B-A3B, then Qwen3-VL-32B with "是硬件的问题么"
+   — the answer is these documented platform limits, not a broken card). The cheapest discriminator is
    already in the report: the reporter's own *working* command, usually a
    screenshot whose OCR carries it (`../evidence-workspace/index.md`). The recorded
    pair differed on exactly three axes — `--enforce-eager` + 60 K

@@ -133,10 +133,13 @@ healthy; (2) the request geometry — prompt tokens vs `--max-num-batched-tokens
 `--disable-chunked-mm-input`, and `--no-enable-prefix-caching` (`--enforce-eager`
 only if a graph mode is on); (3) **the release is a first-class answer**: #3810's
 reporter posted the same serve answering `The information in this picture is` on
-`0.11.0rc0`, reported `0.12.0` still failing (that log is not in the snapshot), and
-then confirmed the **v0.13.0rc0 image** answers the identical request correctly. A
-post-pin fix exists, so no source walk at the pinned ref can find it — say that,
-and hand over the two ablations as the interim workaround.
+`0.11.0rc0` (a base64 data-URL image plus `What is the text in the illustrate?`, so
+a data-URL request is the same lane as a URL one), reported `0.12.0` still failing
+— from a **`uv` venv inside a `gpustack 0.7.2` image**, not an `ascend/vllm-ascend`
+image, so that datum is a source/pip install and not a tag — and then confirmed the
+**v0.13.0rc0 image** answers the identical request correctly. A post-pin fix exists,
+so no source walk at the pinned ref can find it — say that, and hand over the two
+ablations as the interim workaround.
 
 ### When the built-in kernel is a sampler mask op
 

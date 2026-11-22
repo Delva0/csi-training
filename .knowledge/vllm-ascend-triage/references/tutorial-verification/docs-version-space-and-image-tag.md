@@ -2,7 +2,9 @@
 
 Verified at vllm-ascend v0.26.0rc1 (`f2f74a16c3c5`) + vllm v0.26.0
 (`568afb3a1380`); recorded for #16954, whose resolution came from the maintainer
-and the reporter after the fact.
+and the reporter after the fact. Also verified at vllm-ascend **v0.22.1rc1**
+(`5f6faa0cb883`) + vllm v0.22.1 (`0decac0d96c4`) for #11238 — §2's syntax rule
+and §7 (the tab that prints the other generation's image).
 
 Use this page when a `[Doc]` report's defect is a **version disagreement**: the
 page says `vllm-ascend 0.X.Y`, the pasted command fails on exactly that image, or
@@ -49,13 +51,28 @@ defect to report, with §3's correction site.
 **The substitution has two homes, and which one exists is a property of the tree.**
 Older releases build the same docs with **Sphinx + myst**: there is no
 `mkdocs.yml` at all, the keys live in `docs/source/conf.py` → `myst_substitutions`,
-and a page writes the pipe form `export IMAGE=…/vllm-ascend:|vllm_ascend_version|`
-(verified at v0.11.0rc0 where the value is `v0.11.0rc0`, and at v0.18.0). At v0.18.0
-the dict carries six keys (`vllm_version` `:68`, `vllm_ascend_version` `:72`,
-`pip_vllm_ascend_version` `:75`, `pip_vllm_version` `:77`, `cann_image_tag` `:79`,
-`ci_vllm_version` `:80`); the `{{ … }}` form and `mkdocs.yml extra` belong to the
-mkdocs era (§2's v0.26/v0.27 pins), and neither syntax renders in the other build. So name both
-files in the one grep — `rg -n 'vllm_ascend_version|pip_vllm_ascend_version'
+and the command blocks use the pipe form
+`export IMAGE=…/vllm-ascend:|vllm_ascend_version|` (verified at v0.11.0rc0 where
+the value is `v0.11.0rc0`, at v0.18.0, and at v0.22.1rc1 `5f6faa0cb883`,
+`conf.py:73-97`). At v0.18.0 the dict carries six keys (`vllm_version` `:68`,
+`vllm_ascend_version` `:72`, `pip_vllm_ascend_version` `:75`, `pip_vllm_version`
+`:77`, `cann_image_tag` `:79`, `ci_vllm_version` `:80`).
+
+**In that build both spellings are live and the choice is positional, not a
+version marker.** `{{ key }}` is myst's inline form — `myst_enable_extensions`
+includes `"substitution"` (`conf.py:64`, dict at `:73`) — so it renders in prose
+and table cells: v0.22.1rc1's `docs/source/installation.md:257-262` hardware table
+is the braces form, and so is a plain sentence in
+`docs/source/tutorials/features/pd_disaggregation_mooncake_single_node.md:7`. The
+pipe form is `sphinx_substitution_extensions`' form inside a `{code-block}`
+carrying `:substitutions:` (116 such markers, 52 pages using the pipe form, at
+that pin). A tree mixing
+the two is therefore **not** a defect, and "the braces form will not render" is a
+claim `make -C docs html` has to support before it ships — recorded #11238 priced
+it as a possible finding in `installation.md` and correctly declined to assert it.
+`mkdocs.yml extra` is the mkdocs era's home (§2's v0.26/v0.27 pins), where the
+braces form is a macros substitution instead. Name both files in the one grep —
+`rg -n 'vllm_ascend_version|pip_vllm_ascend_version'
 mkdocs.yml docs/source/conf.py` — and treat an empty result as "this tree uses the
 other build", not as "the page prints a literal".
 
@@ -199,3 +216,54 @@ not ask for a `latest` rebuild.
    `DeepSeek-V4-Pro.md`; nav `mkdocs.yml:232-233`). Say it in the first message,
    grade the nearest page *as* the nearest page (`index.md` rule 3), and ask for the
    linked page's §4.1 text before grading its wording.
+
+## 7. The substitution is right and the hardware suffix is missing
+
+Verified at vllm-ascend **v0.22.1rc1** (`5f6faa0cb883`) + vllm v0.22.1
+(`0decac0d96c4`); recorded for #11238, in the reporter's own wording:
+「Qwen3-30B-A3B 部署指引 … 4.1 Docker Image Installation → Atlas 800I A3 →
+`export IMAGE=quay.io/ascend/vllm-ascend:v0.22.1rc1` 此处镜像提供错误」.
+
+Not the stale-substitution family above: `conf.py:81` `vllm_ascend_version` equals
+the tag the page prints, so nothing about the build is stale — the page prints the
+**A2** image inside its A3 tab. One call decides it:
+
+`uv run --no-project python <skill_root>/scripts/recipe-tab-diff.py --page
+docs/source/tutorials/models/<Page>.md`
+
+Its per-tab `IMAGE=` lines are the finding: when the `Atlas 800I A3` tab and the
+`Atlas 800I A2` tab print the **same** tag, the A3 tab is the A2 template with the
+suffix dropped (`Qwen3-30B-A3B.md:66` vs `:119`, byte-identical). Match the tag,
+not the tab label: `A3 series` / `Atlas 800I A3` / `800 A3` all occur across
+releases.
+
+The hardware↔suffix authority is the pin's own two tables, one grep each:
+`docs/source/installation.md:257-262` (bare `{{ vllm_ascend_version }}` → Atlas A2 /
+Ubuntu, `-openeuler` → A2, `-a3` → Atlas A3 / Ubuntu, `-a3-openeuler` → A3 /
+openEuler, `-310p` / `-310p-openeuler` → Atlas 300I) and
+`.github/workflows/schedule_image_build_and_push.yaml:73-88`, the same six
+`suffix:` matrix rows, with `_schedule_image_build.yaml:337` applying `[-suffix]`
+to every published tag. The bare tag is an A2/910b image by construction:
+`conf.py:87` `cann_image_tag` is `9.0.0-910b-ubuntu22.04-py3.12`, the A3 nightly
+base is the `-a3` image
+(`.github/workflows/dockerfiles/Dockerfile.nightly.a3:19`), and A3 CI runs on
+`cann:9.0.0-a3-…` (`push_build_csrc_cache.yaml:68`).
+
+**Batch or single page, one line** (the §2 census, per tab — the `IMAGE=` line
+sits 6 lines under the tab opener, so `-A2` returns nothing and reads as "no such
+tab"):
+`grep -A6 '{tab-item} Atlas 800I A3' docs/source/tutorials/models/*.md | grep 'export IMAGE='`.
+At v0.22.1rc1 three pages carry an `Atlas 800I A3` tab and **all three** print the
+bare tag — `Qwen3-30B-A3B.md:66`, `Qwen3-Coder-30B-A3B.md:66`,
+`Qwen3-Omni-30B-A3B-Thinking.md:67` — while 17 of the 40 tutorial pages carry
+`|vllm_ascend_version|-a3` and `quick_start.md:48-51` shows the A2/A3 pair side by
+side. One template copied three times, not three typos: the correction is those
+three lines plus the pattern.
+
+**Two outcomes, and the reporter's registry picks between them.** If
+`docker pull quay.io/ascend/vllm-ascend:<ver>-a3` succeeds, the defect is the text
+lines. If it answers `manifest unknown` (or `skopeo list-tags docker://…` lists no
+`-a3` for that rc), the rc never published an A3 image: a release gap — a release
+known-issue plus the "Build from Dockerfile" route — and editing the tabs would
+only bury it. No snapshot reaches quay, so put both commands in the answer and
+label the branch you could not check.

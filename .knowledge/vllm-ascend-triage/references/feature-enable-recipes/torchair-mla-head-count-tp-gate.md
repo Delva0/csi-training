@@ -97,8 +97,15 @@ either form; recorded case: #1451 (v0.9.1rc1, DeepSeek-V3 TP8×PP4, ray + torcha
 ## What to send back
 
 - Rung 1 (eager): does the engine start and does the first request return tokens?
-  Nothing in-tree proves the eager `_npu_paged_attention_mla` path accepts 16 heads
-  at 128 heads/TP8 — no Python gate exists on it, so the reporter's run is the only
-  evidence, and it is the one open item this page cannot close.
+  Nothing in-tree proves the eager `_npu_paged_attention_mla` path accepts a
+  heads-per-rank **below 32** — 16 at TP8 (#1451) or 8 at TP16 on a 128-head model
+  (recorded #1458: v0.9.1rc1, `DeepSeek-R1-w8a8`, `--quantization ascend`, the
+  `ACL Graph does not support deepseek` paste under a reporter's own
+  `export ENFORCE_EAGER=1`) — no Python gate exists on it, so the reporter's run is
+  the only evidence, and it is the one open item this page cannot close. Say in the
+  same paragraph that the refusal's own advice is already spent at that layout: the
+  message recommends torchair, and the division above refuses it too, so
+  `--enforce-eager` is the only *startable* route and the TP layout is the second
+  question.
 - Rung 2 (TP ≤ 4): the capture lines (banner, `Graph capturing finished …`) and the
   full serve command, since PP/ray on top of graph mode is outside CI coverage.

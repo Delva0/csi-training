@@ -164,5 +164,13 @@ finished on every rank, the mode took effect and the request path is the questio
 
 Recorded case: #6972 (Qwen3-Omni-30B-A3B via `vllm serve --omni`, vllm-ascend
 v0.14.0rc1, 8×910) — the yaml route is explained by `level: 1` at this ref; the CLI
-route needs the per-stage line. The recorded session consumed the full output budget
-with no answer emitted (see `../evidence-workspace/recorded-cases-startup.md`).
+route needs the per-stage line. The first recorded session consumed the full output
+budget with no answer emitted
+(`../evidence-workspace/recorded-cases-startup.md`); a later replay of the same paste
+answered it in 6 assistant turns / 8 tool calls on this page's route alone — locate
+call → Step 0 → the `compilation.py` `level→mode` grep → the `platform.py`
+`{NONE, VLLM_COMPILE}` grep — with the yaml route source-verified, the CLI route left
+a hypothesis
+(vllm-omni absent from the snapshot) and both answers in the same paragraph. So the
+budget the first run lost was the page's absence, not the paste's difficulty: deliver
+verdict + rung 1 before touching the merge question.

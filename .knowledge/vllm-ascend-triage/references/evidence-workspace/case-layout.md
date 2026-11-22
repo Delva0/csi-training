@@ -97,6 +97,22 @@ characterise its comment thread or closure, which the snapshot does not carry. R
 #4148 read `history/4148.md` (empty, `No such file`), then told the reporter their own
 case "只被致谢、没有闭环" — an unobservable claim dressed as precedent.
 
+**A listing from a compound `ls` is not evidence about its first path.** The recorded
+#11923 run issued `ls -la /workspace/attachments/ 2>/dev/null | head -20; ls -la
+/workspace/history/ 2>/dev/null | head -5`: the attachments directory did not exist, its
+error went to `/dev/null`, and the ids printed by the *second* command were read as the
+attachments directory's contents — so the next two calls went to
+`/workspace/attachments/<id>*` and `history/<id>.md`, neither of which that layout has.
+Name the path beside each listing, or test first (`test -d <dir>`):
+
+```bash
+for d in /workspace/repos /workspace/history /workspace/attachments; do
+  echo "== $d"; ls -la "$d" 2>&1 | head -5
+done
+```
+
+and read `No such file or directory` as the layout fact it is.
+
 **A `not found` id is usually newer than the corpus, not a missing precedent.** Each
 case view's corpus stops at the highest `<id>.md` it carries (at the #6533 view:
 6436), while this skill's own pages and the recorded-cases index cite ids past that

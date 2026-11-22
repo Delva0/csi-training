@@ -23,12 +23,17 @@ is a different class (`index.md`, `aclnn-error-dump-reading.md`); a
    Recorded #13699 (`v0.23.0rc1`, `f4a08bdd`): the vision encoder is the **only**
    non-paged, long-seq, unmasked, `q_len > 1` FIA site
    (`vllm_ascend/ops/mm_encoder_attention.py:153 _run_vit_fia`, kwargs
-   `:169 atten_mask=None`, `:171 input_layout="TND"`, `:172 block_size=128`,
-   `:178 sparse_mode=0`). Other FIA `sparse_mode=0` sites are paged / BNSD decode
-   or draft-graph paths (`attention/attention_v1.py:748,776,836,860`), and
-   non-causal *prefill* goes to `npu_fusion_attention` instead — "unique caller"
-   is the fact that turns the report into an owner split, so state the
-   combination, not just the flag.
+   `:169 atten_mask=None`, `:171 input_layout="TND"`,
+   `:172 block_size=FIA_BLOCK_SIZE` (the 128 is `:44 FIA_BLOCK_SIZE: int = 128` —
+   quote the constant, not a number), `:178 sparse_mode=0`). That sweep returns
+   ~60 `sparse_mode=` sites; the other `sparse_mode=0` **FIA** callers are paged /
+   BNSD decode or draft-graph paths (`attention/attention_v1.py:748,776,836,860`,
+   `worker/encoder_acl_graph.py:245`), and `device/utils.py:56` is also an
+   unmasked, non-causal, TND `sparse_mode=0` prefill — but on
+   `npu_fusion_attention` (`:74`), i.e. step 3's counter-example rather than a
+   second FIA caller. So "unique caller" survives the listing only when the
+   sentence names the op as well as the flags: state the combination, not just the
+   flag.
 3. **Look for the op the framework already prefers for that gravity.**
    `vllm_ascend/device/utils.py:27-70` (`npu_large_head_prefill_attention`) sends
    non-causal TND prefill to `torch_npu.npu_fusion_attention` with the comment
@@ -52,7 +57,10 @@ is a different class (`index.md`, `aclnn-error-dump-reading.md`); a
 6. **Name the upstream semantics the downstream class replaced.** At the paired
    vLLM version (`v0.23.0`, `0fc695f`) upstream still has
    `vllm/model_executor/layers/attention/mm_encoder_attention.py:504
-   _forward_sdpa`, `:521 vit_torch_sdpa_wrapper`, `:698 forward_native`. A
+   _forward_sdpa`, `:521 vit_torch_sdpa_wrapper(...)`, `:698 forward_native`. The
+   wrapper is **imported** at `:36`, so `rg -n 'def vit_torch_sdpa_wrapper'`
+   returns nothing on either tree — read `:521` as the call site and do not spend a
+   second grep on "the symbol disappeared". A
    native/sdpa fallback is therefore the semantics-preserving fix, and FIA is a
    downstream performance optimization without a guard.
 7. **Count the fix sites before proposing a patch.** The same kwargs are
@@ -98,6 +106,12 @@ contract — re-grep both callers at the pinned commit. A second pass checked th
 whole list at `f4a08bdd` / `0fc695f` (`:153`, `:169`, `:171`, `:172`, `:178`; capture
 kwargs `:254-266`; `encoder_acl_graph.py:245`; upstream `:36`, `:504`, `:521`,
 `:698` — all as written, and the UT stub `:44-51` returns `torch.zeros_like`), so
-those are citable as they stand. If the release has a native
+those are citable as they stand. A third pass at the same pin (a #13699 replay)
+kept every line and refined two readings — `:172` is the constant
+`FIA_BLOCK_SIZE`, not the literal 128 (`:44`), and upstream `:521` is the call site
+of a symbol imported at `:36` — so the standing one-call re-check is
+`rg -n 'FIA_BLOCK_SIZE|def _run_vit_fia|def _forward_eager_fia' vllm_ascend/ops/mm_encoder_attention.py`
+plus `rg -n 'vit_torch_sdpa_wrapper|def _forward_sdpa|def forward_native'
+vllm/model_executor/layers/attention/mm_encoder_attention.py`. If the release has a native
 or `npu_fusion_attention` path for the encoder, the "no fallback" claim is stale
 and the report changes shape; say which release you checked.

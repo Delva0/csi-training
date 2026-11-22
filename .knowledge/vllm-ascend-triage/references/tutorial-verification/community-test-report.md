@@ -246,9 +246,19 @@ plus the whole defect table) and the cut landed inside that table. Lost: the
 last defect row, the three sub-scores and the FAQ. Kept: verdict, the deploy
 script, five of six defect rows (the 32B tab's `SamplingParams(max_completion_tokens=512)`
 → `TypeError` at vllm v0.18.0, the `v0.11.0rc3-a3` stale baseline, the missing
-performance result, the doc's 0.5389 reference below the project's own 0.55 e2e
-gate, and `--random-input` for `--random-input-len`). The audit was not the
+performance result, the doc's 0.5389 reference against the in-tree 0.55 e2e gate,
+and `--random-input` for `--random-input-len`). The audit was not the
 problem; the write and message sizes above were.
+
+One correction and one shortcut for a later run, both re-checked at the pin. The 0.5389 row is
+**not** "below the gate": a config's `metrics.value` is an
+`np.isclose(ground_truth, measured, rtol=0.05)` target
+(`tests/e2e/models/test_lm_eval_correctness.py:10,138-140`), so 0.55 accepts
+0.5225-0.5775 and 0.5389 sits inside it — grade it stale baseline and quote the band
+(`accuracy-benchmarks/harness-vs-engine-attribution.md:13`). And the row's **full**
+verified defect set at v0.18.0, with `path:line`, is now the eighth worked page in
+`tutorial-command-audit.md`, so a future run on row `hjh2` writes 资料验证 §1 from that
+table instead of auditing the page again (#11740 did, and reproduced this list).
 
 ## #11771, the fourth run: the graded table was never written
 

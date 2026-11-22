@@ -69,6 +69,7 @@ is not automatically in the fatal set either: check whether its forward reaches
 | Image builds set `COMPILE_CUSTOM_KERNELS=${{ cache-hit == 'true' && '0' \|\| '1' }}` and restore `vllm_ascend/_cann_ops_custom`, `vllm_ascend/*.so`, `vllm_ascend/lib`, `vllm_ascend/include` before `docker/build-push-action` | `.github/workflows/_schedule_image_build.yaml:225-234`, `:250` |
 | The image `COPY . /vllm-workspace/vllm-ascend/` then `pip install -e` — so a cache **hit** compiles nothing and its only extension is the restored file carried by `COPY` | `Dockerfile.310p:57`, `:62` |
 | The cache is written by a separate workflow that runs `uv pip install -e .` and saves the same four paths, keyed by `IMAGE_TAG` (the restore keys on the Dockerfile's `FROM` tag) | `.github/workflows/push_build_csrc_cache.yaml:177-186`, `:189-209` |
+| The restore is the **same job for nightly and release**: the release workflow calls `_schedule_image_build.yaml`, and the key is `vllm-ascend-build-v1-<ARCH>-<BASE_IMAGE_TAG>-<CSRC_HASH>` — so "nightly restores the cache, release does not" is not a pipeline difference at this pin, and the failing run's own `cache-hit` value is the evidence | `.github/workflows/_schedule_image_build.yaml:222-233`, `schedule_image_build_and_push.yaml:98,145` |
 
 Two mechanisms follow, and the `ls` below separates them:
 
@@ -77,18 +78,38 @@ Two mechanisms follow, and the `ls` below separates them:
 2. **Cache miss whose compile lands outside the source tree** (the `develop`-only
    install prefix): the build succeeded, the artefact is under `build/lib…/vllm_ascend/`.
 
+**The Dockerfile's `ARG` is not inert, and that is what keeps mechanism 1 live.**
+`Dockerfile.310p:52` declares `ARG COMPILE_CUSTOM_KERNELS=1` and the
+`RUN … python3 -m pip install -e` at `:62` never names the variable again — but an
+`ARG` declared in a stage **is** in the environment of every later `RUN` of that stage,
+which is exactly how the workflow's `build-args: COMPILE_CUSTOM_KERNELS=…` line reaches
+`envs.COMPILE_CUSTOM_KERNELS` — the same file proves the pattern two lines up, where
+`ARG VLLM_COMMIT=""` (`:37`) is read straight inside `RUN … if [ -n "$VLLM_COMMIT" ]`
+(`:38`) with no `ENV` anywhere, and the workflow passes it only as a `build-arg`
+(`_schedule_image_build.yaml:251`). Recorded #17713's replay read that missing
+`ENV`/inline assignment as "the build-arg cannot suppress the compile at this pin",
+demoted mechanism 1 and built a "what changed in the 310P recipe between 0.23 and 0.26"
+story on top of the demotion; the failing build's `cache-csrc` output decides mechanism
+1 directly, with no Docker-semantics reasoning at all.
+
 ## Step 3 — the two commands that decide it
 
 ```bash
 docker run --rm --entrypoint bash quay.io/ascend/vllm-ascend:<tag> -c \
-  'ls -l /vllm-workspace/vllm-ascend/vllm_ascend/*.so; ls -l /vllm-workspace/vllm-ascend/build 2>&1 | head'
+  'ls -l /vllm-workspace/vllm-ascend/vllm_ascend/*.so /vllm-workspace/vllm-ascend/vllm_ascend/_cann_ops_custom 2>&1; ls -l /vllm-workspace/vllm-ascend/build 2>&1 | head'
 ```
 
 plus the release build job's `cache-csrc` step output (`cache-hit`) and its resolved
 `build-args` line. A `.so` under `build/` only is mechanism 2; no `.so` anywhere is
 mechanism 1; and the reporter's own control — rebuilding *inside the same container*
 with the same `pip install -e . --no-deps --no-build-isolation` — refutes mechanism 2
-when it produces an importable extension, so ask for it before ranking.
+when it produces an importable extension, so ask for it before ranking. The
+`_cann_ops_custom` listing rides along because the save/restore steps name both paths
+(`:230-231`): the aclnn directory present with no `.so` anywhere is a **partial archive**
+of mechanism 1, not a third cause — and on a tag newer than the snapshot's pin it is
+also the first place a *separate prebuilt ops package* would show (recorded #17713 cites
+#17390 "installs a prebuilt ops package into the 310P image" for that possibility; this
+tree cannot show it, so say so instead of ranking it above the `ls`).
 
 ## Step 4 — the fix belongs in the pipeline, keyed on the artefact
 
@@ -214,4 +235,8 @@ tag and say which release the evidence came from.
 
 The reporter's own table (which earlier `-310p` tags carry
 `vllm_ascend_C.cpython-*.so`) is the strongest artefact in such a report: it is
-per-tag evidence from images, and one row per tag is cheaper than any source walk.
+per-tag evidence from images, and one row per tag is cheaper than any source walk. Read
+it as evidence about the **failing** tag, though: the good rows went through the same
+restore step (the job is shared), so "this release has the `.so` and that one does not"
+does not by itself rank the two mechanisms — reproduce the failing row with the one `ls`
+above rather than opening a release-to-release diff the pin cannot answer.

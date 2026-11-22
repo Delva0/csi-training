@@ -38,21 +38,38 @@ reported (#302 comment 2716169193, 2025-03-12).
 
 ## What the two log facts mean
 
-- `SetPrecisionMode` is torch_npu's own init step; no vLLM flag reaches it. At the
-  pinned export (`Ascend/pytorch` `v7.1.RC1.alpha002-pytorch2.7.1`, `d33df559`)
-  `torch_npu/csrc/framework/LazyInitAclops.cpp:150-157` derives the string from the
-  SoC it believes it is on — `GetSocVersion() >= SocVersion::Ascend910B1 ?
-  "must_keep_origin_dtype" : "allow_fp32_to_fp16"` — and hands it to
-  `AclSetCompileopt(aclCompileOpt::ACL_PRECISION_MODE, …)` at `:156`. Both are
+- `SetPrecisionMode` is torch_npu's own init step; no vLLM flag reaches it. It
+  derives the string from the SoC it believes it is on — `GetSocVersion() >=
+  SocVersion::Ascend910B1 ? "must_keep_origin_dtype" : "allow_fp32_to_fp16"` — and
+  hands it to `AclSetCompileopt(aclCompileOpt::ACL_PRECISION_MODE, …)`. Both are
   **parameters of an init that already failed**: `500001` is ACL's internal error,
   so no `--dtype`, `--compilation-config`, `--enforce-eager` or precision knob the
   reporter passes can cause or repair it. Do not rank them.
-- The same init just resolved the SoC:
-  `torch_npu/csrc/core/npu/sys_ctrl/npu_sys_ctrl.cpp:157-159` `AclGetSocName()` →
-  `SetSocVersion(soc_name)`, then `:167-169` `InitAclops()` (when `ACL_OP_INIT_MODE`
-  is 0, its default). So the `SocVersion <name>` in the `PlatformInfoInit` line is
-  **what the runtime resolved for the device it opened**, and it is the first thing
-  to read.
+- **Quote the emitting site at the report's pin: the file moves between release
+  lines, and a path/line borrowed from another export is a wrong claim about the
+  reporter's image.** A recorded replay of #302 answered a `v0.7.1rc1` paste with
+  `LazyInitAclops.cpp:150-157`, which is not that snapshot's file at all. The three
+  steps, per `Ascend/pytorch` export:
+
+  | pin | where the init lives |
+  |---|---|
+  | `v6.0.0.alpha001-pytorch2.5.1` (`a3b75fc0a6d6`; the export behind the `v0.7.1rc1` / #302 image) | `torch_npu/csrc/core/npu/sys_ctrl/npu_sys_ctrl.cpp` — `:234` `AclGetSocName()` → `:236` `SetSocVersion(soc_name)`, `:245-246` the `Ascend910B1` ternary, `:247` `NPU_CHECK_ERROR(at_npu::native::AclSetCompileopt(aclCompileOpt::ACL_PRECISION_MODE, precision_mode))`, `:252` `GetAndSetDefaultJitCompileByAcl()` (`:81`). `rg -l 'LazyInitAclops' <that export>` → nothing, and the sequence there is complete; the export is `1133/1134` files, so what is verified is the sequence, not the later file's non-existence in the release |
+  | `v7.1.RC1.alpha002-pytorch2.7.1` (`d33df559`) | the same steps in `torch_npu/csrc/framework/LazyInitAclops.cpp` (`:150-157`, call at `:156`) |
+  | `v7.2.0.1-pytorch2.8.0` (`da848bbc39f4`) | same file, shifted: `:167-175`, the `AclSetCompileopt` at `:175` — so between these two, quote the function, not the number |
+
+  The `SocVersion <name>` in the `PlatformInfoInit` line is **what this same init
+  resolved for the device it opened** (`:234-236` at the 2.5.1 pin,
+  `npu_sys_ctrl.cpp:157-159` in the 2.7.1 export), and it is the first thing to read.
+- **At the v0.7.1-era pin the code is the call's own status.** `NPU_CHECK_ERROR` is
+  `NPU_CHECK_ERROR_CHECK_UCE`, which binds `auto Error = err_code;` and prints it
+  (`torch_npu/csrc/core/npu/NPUException.h:146-168`), and `AclrtPeekAtLastError`
+  occurs nowhere in that export — so the thread-latch masking of
+  `../hccl-and-hardware/latched-runtime-error-masking.md` §1 does not reach a
+  v0.7.x paste and `500001` needs no second-guessing. The two lines under
+  `ERR00100 PTA call acl api failed` are that same macro's table lookup for the code —
+  `NPUErrorCodes.h:194-195` holds exactly one entry for `500001`,
+  "The internal ACL of the system is incorrect." plus "Rectify the fault based on
+  the error information in the ascend log.", so they are one report, not three.
 
 ## Read the SoC line against the card
 
@@ -146,12 +163,22 @@ per-device `--device`) is a follow-up experiment, not this diagnosis.
   no source in any export. Cap it at ~4 calls — a recorded run (#2315) spent its
   whole session in `LazyInitAclops.cpp`, the `SocVersion` enum and vllm-ascend's
   `is_310p()` and never sent a message.
-- **Do not rank the neighbouring Triton lines.** `Failed to import triton_utils_v2
-  with ModuleNotFoundError("No module named 'vllm._C'")` and `Triton not installed
-  or not compatible; certain GPU-related functions will not be available.` are
-  normal in this image: `Dockerfile.310p:42-44` and `Dockerfile:42-44` remove triton
-  on purpose at v0.9.2rc1 ("in Ascend, triton doesn't work correctly"; the same block
-  is at `:45-47` / `:53-55` by v0.14.0rc1).
+- **Do not rank the neighbouring Triton / `vllm._C` lines — but give the reason at
+  the report's pin, because it changes.** `Failed to import from vllm._C with
+  ModuleNotFoundError("No module named 'vllm._C'")` and `Triton not installed or
+  not compatible; certain GPU-related functions will not be available.` are normal
+  output, and which mechanism makes them normal depends on the tag:
+  - **v0.9.2rc1 → v0.14.0rc1**: the Dockerfile removes triton on purpose —
+    `Dockerfile.310p:42-44` and `Dockerfile:42-44` ("in Ascend, triton doesn't work
+    correctly"), the same block at `:45-47` / `:53-55` by v0.14.0rc1.
+  - **v0.7.1rc1 — the #302 image on this page — there is no removal step to cite.**
+    `Dockerfile:40` installs vLLM with `VLLM_TARGET_DEVICE="empty"` and
+    `requirements.txt:6` is `torch==2.5.1` alone, so triton was never installed and
+    upstream's `vllm/triton_utils/importing.py:8-15` prints the line whenever
+    `find_spec("triton") is None`; the missing `vllm._C` is the same empty-target
+    install, warned at `vllm/_custom_ops.py:15-19` (the paste's `_custom_ops.py:19`).
+    Telling a v0.7.1rc1 reporter "the Dockerfile uninstalls triton" is a wrong claim
+    about their image — a recorded replay of #302 shipped it.
 - **Do not date the install from an OCR'd path.** #2315 states its log came from a
   screenshot. `worker_vl.py` is `worker_v1.py`, `vllm/ascend/…` is `vllm_ascend/…`,
   and `vllm-0.4.0-…egg` is not a vLLM release: pinned vllm v0.9.2 has no

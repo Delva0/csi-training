@@ -479,15 +479,25 @@ token whenever `<|im_start|>`/`<|im_end|>` are in the prompt; reporter later con
 reasoning in one block and every message a one-line status note. The paste already
 carried both discriminators it never used in message text: the printed `Input ids` are
 identical on both input routes (so token ids cannot be the mechanism), and
-`Using max model len 131072` is the checkpoint's own value
-(`vllm/config/model.py:1545`, `_get_and_verify_max_len` at `:1898`), which stock
-Qwen2.5-1.5B does not declare. Real findings, source-read and never delivered:
+`Using max model len 131072` (`vllm/config/model.py:1545`,
+`_get_and_verify_max_len` at `:1898`) is longer than the 32768 stock Qwen2.5-1.5B
+declares. That second one is a lead, not a verdict: the line returns the user's
+`--max-model-len` verbatim when the command carries one (`:175` default `None`,
+returned at `:2026`; above the derived length it raises unless
+`VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`, `:1999-2026`), and this body has **no serve
+command at all**, so the flag is not excluded — "your checkpoint is not stock" is
+only the first of two branches. Real findings, source-read and never delivered:
 no id-keyed branch in `vllm_ascend/` at that ref and no `vllm_ascend/models/` at all;
 `AscendVocabParallelEmbedding._forward_origin` skips the mask at `tp_size == 1`
 (`ops/vocab_parallel_embedding.py:174-184`), so an out-of-range id reaches the
 embedding call instead of being zeroed; and Qwen2.5-1.5B *generation* has no e2e coverage (only the pooling
 checkpoint at `tests/e2e/singlecard/pooling/test_classification.py:10`). Lane:
-`../accuracy-benchmarks/short-prompt-corruption.md` step 0.
+`../accuracy-benchmarks/short-prompt-corruption.md` step 0. A **third** run on the
+same pin and body shipped an answer at last — assistant turn 16, 15 tool-only
+messages in front of it, 978 891 prompt tokens, 6.7 K characters of answer cut inside
+its ask-back section, and it opened with the "not a stock checkpoint" branch above as
+if it were settled; the page's step 0 now makes that branch conditional on the serve
+command, which the run never asked for.
 
 **#17797** vllm-ascend `v0.23.0` (`5cb98ca`) + vllm `v0.23.0` (`0fc695f`), image
 `quay.io/ascend/vllm-ascend:v0.23.0-310p`, Ascend 310P; `Qwen/Qwen3-Embedding-0.6B`

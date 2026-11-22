@@ -74,7 +74,11 @@ alongside `lib64`, not inside it.**
 2. `namei -l <that path>` — a permission gap on any component prints the same
    "does not exist" sentence, and in SPOD/K8s the job's UID is not the image's user.
 3. `ls <that path>/<SoC>.ini` (`Ascend910B2.ini` for 910B2) — the *next* call site
-   (`:1213`) needs it even after the directory is fixed.
+   (`:1213`) needs it even after the directory is fixed. **Remap a bare `Ascend910`
+   first**: `InitRuntimePlatformInfos()` rewrites `SOC_VERSION_ASCEND910` to
+   `SOC_VERSION_ASCEND910A` before building the name (`:1209-1213`), so a paste whose
+   `SocVersion = Ascend910` needs `Ascend910A.ini` and an `ls …/Ascend910.ini` that
+   misses proves nothing.
 4. **Is the tree partial?** A host install mounted piecewise (`lib64`, `opp`, `tools`,
    `compiler`) leaves `data/` behind, and a `volumeMount`/`subPath` **on a parent path
    shadows** whatever the image had there. One call decides:

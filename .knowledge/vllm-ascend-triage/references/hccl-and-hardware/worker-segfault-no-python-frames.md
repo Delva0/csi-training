@@ -52,14 +52,24 @@ missing cause, but the text looks like an ordinary Python error, so read
    ready while its peers are serving (`vllm/v1/engine/core.py:2055` and
    `has_unfinished_requests_dp` → `should_execute_dummy_batch` at
    `llm_engine.py:196-203`, vllm v0.26.0 `568afb3a`), and vllm-ascend serves it
-   with `_dummy_run(uniform_decode=True)`
-   (`vllm_ascend/worker/worker.py:1079-1086` at `f2f74a16`), which reaches the
-   DP-group `all_reduce` above. So the recorded benchmark's `--parallel 1`
-   against `--data-parallel-size 4` keeps three of the four ranks in that loop,
-   and its first timestamped error (13:57:56, `DP1_TP6` on the master) is a rank
-   that is most likely dummy-stepping reporting a peer death, ~45 s before the
-   slave's own engine noticed the death — read it as the messenger, not the
-   origin. That is also the cheapest ablation on the reporter's own harness:
+   with `execute_dummy_batch`
+   (`vllm_ascend/worker/worker.py:1079-1087`, whose `:1082` calls
+   `self.model_runner._dummy_run(num_tokens, uniform_decode=True,
+   skip_gdn_state_update=True)`), which reaches the DP-group `all_reduce` above.
+   The recorded paste's own master traceback is that chain end to end —
+   `_dummy_run` (`worker/model_runner_v1.py:3305`) →
+   `_determine_batch_execution_and_padding` (`:2837`) → `_sync_metadata_across_dp`
+   (`:725`, `dist.all_reduce(packed_tensor, group=get_dp_group().cpu_group)`, all
+   at `f2f74a16`); `cpu_group` is why the message is **gloo**'s
+   `pair.cc:547 Connection closed by peer` and not an HCCL error. So the recorded
+   benchmark's `--parallel 1` against `--data-parallel-size 4` keeps three of the
+   four ranks in that loop, and its first timestamped error (13:57:56, `DP1_TP6`
+   on the master) **is** a dummy-stepping rank reporting a peer death, ~45 s
+   before the slave's own engine noticed it (13:58:41, `EngineCore_DP2`:
+   `VllmWorker-6 died unexpectedly (exit code: None)`) — read it as the messenger,
+   not the origin. The master then only shuts down (`SIGTERM` 13:58:07, force kill
+   13:58:12, `ApiServer_1 … died with exit code None`), so its block is not a
+   second crash. That is also the cheapest ablation on the reporter's own harness:
    rerun at `--parallel` ≥ `--data-parallel-size` (their script already sweeps
    `--parallel 1 4 8 16 32 48` and dies in the first stage) so no rank is left
    dummy-stepping.
@@ -152,7 +162,8 @@ a real code defect. What settles it is the **plog**
 (`$HOME/ascend/log/…`, that second) plus a rerun of the release's validated
 command on a small model — not more of the dump.
 
-## Ranked candidates for the runtime variant (all unverified in #16079)
+## Ranked candidates for the runtime variant (the peer's call site is in the
+paste; the segfaulting rank's is not)
 
 **Send this section's ladder before working the table.** Every row's check is a
 reporter-side rerun, an ablation or a plog, so no row can be closed from the
@@ -192,6 +203,14 @@ asking them for a version list.
 Classification (rank dies by signal, no Python cause in the paste) + timestamps +
 the ranked candidates with one check each + the artefact list (plog for that
 second, the dying rank's own log, `npu-smi info`, `pip show
-vllm vllm-ascend torch torch_npu`, both launcher scripts). The Python call site
-is *not* derivable from a C-only dump, so the first answer is already complete
-without it — do not open `dsa`/attention sources hoping the stack reappears.
+vllm vllm-ascend torch torch_npu`, both launcher scripts). The *segfaulting* rank's Python
+call site is not derivable from a C-only dump, so the first answer is already
+complete without it — do not open `dsa`/attention sources hoping the stack
+reappears. **The dying rank's log may already be attached**: in #16079's case view
+both node logs are present as `*.log` (the segfault dump in the slave's, the
+dummy-batch traceback in the master's), so list
+`/workspace/attachments/<issue>/` with `ls -la` before asking the reporter for a
+log (`../evidence-workspace/case-layout.md` §*Attached log dumps* — a `*.txt` glob
+hides exactly those files). Ask only for what the paste and the case view do not
+carry: the plog for that second, `npu-smi info -t health` at that minute,
+`pip show vllm vllm-ascend torch torch_npu`, and the working-versions launcher.

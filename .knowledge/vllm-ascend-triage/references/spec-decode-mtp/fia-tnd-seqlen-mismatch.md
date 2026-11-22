@@ -35,6 +35,12 @@ under `call aclnnFusedInferAttentionScoreV3 failed, error code is 561002` contai
 toolkit's tiling has no paged-TND path and the CANN release is rung 1
 (`../custom-ops-runtime-faults/tiling-capability-refusal-cann-release.md`, #4373).
 
+A **third** sibling prints dims instead of counts — `queryD(256), keyD(256) and
+valueD(256) must be same equal 192/128/64, or queryD and keyD equal 192 and valueD equal
+128[FUNC:CheckInputShapeWhenLayoutIsTND]` — so `must be equal` there compares head dims and
+the owner is a 256-dim model whose batch reached the chunked-prefill path
+(`../custom-ops-runtime-faults/fia-tnd-head-dim-refusal.md`).
+
 A **second launch reaches the same refusal through a different lane**:
 `cudagraph_mode: "FULL"` with `--speculative-config '{"method": "ngram",
 "prompt_lookup_max": 2, "prompt_lookup_min": 2, "num_speculative_tokens": 3}'`

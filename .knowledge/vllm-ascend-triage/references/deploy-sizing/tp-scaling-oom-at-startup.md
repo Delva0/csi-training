@@ -267,11 +267,25 @@ footprint from the warning text.
    cap the pool with `--num-gpu-blocks-override` (sub-shape B) or drop
    `--gpu-memory-utilization` in ~0.05 steps and quote the resulting
    `GPU KV cache size` line; two TP4 instances instead of one TP8 (the
-   framework-agnostic answer the #6572 reporter reached themselves — BF16 at 64 GB:
-   TP8 ceiling ≈ 0.6, TP4 works at 0.8); then the capture ablation; then a
-   quantised checkpoint.
+   framework-agnostic answer the #6572 reporter reached themselves — the two measured
+   points below); then the capture ablation; then a quantised checkpoint.
 5. Gaps: the version/image pairing, `config.json` head counts, and the full
    startup log (block size, KV size, frame of the failing allocation).
+
+### Reported `--gpu-memory-utilization` ceilings on this class
+
+Both points are the #6572 reporter's own tests of Qwen3-Coder-Next at
+`--max-model-len 262144`, and they are a curve in (dtype, card), not a constant:
+
+| Checkpoint | Card | TP | What starts | The other bound |
+|---|---|---|---|---|
+| BF16 | 910B3-64G | 8 | ≈0.60 is already the most that starts | TP4 runs at 0.80; the reporter's verdict was that **two TP4 instances beat one TP8** |
+| W8A8 | 32 GB A2 | 4 | 0.85 | 0.85 is a *floor* as well: any less and the 256K window is not filled ("多了拉不起来，少了开不满256K") |
+
+Read the second row whenever the report is quantized: a W8A8 checkpoint on 32 GB cards
+does **not** buy the 256K window cheaply — its required gmu sits *above* the BF16/64 GB
+figure — so "it is only W8A8, gmu can be low" is not the answer. Quote both numbers as
+*reported*, per dtype/card/context, never as a default for another combination.
 
 ## Stop rule — this class does not need an allocator mechanism
 
@@ -308,5 +322,5 @@ for a later ref), `get_num_kv_heads`, whether the block-size clamp exemption for
 `qwen3_next` still exists (`utils.py:1139`), and — for B — whether
 `initialize_kv_cache_tensors` still allocates per layer instead of sharing per
 `kv_cache_tensor` (upstream `gpu_model_runner.py:_allocate_kv_cache_tensors`). The
-reporter's gmu ceilings are one host's measurements on one checkpoint, not a
-constant.
+reporter's gmu ceilings are one host's measurements on one checkpoint (two points:
+BF16/64 GB and W8A8/32 GB), not a constant.

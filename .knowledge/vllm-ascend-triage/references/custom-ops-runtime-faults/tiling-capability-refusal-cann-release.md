@@ -25,6 +25,7 @@ about the installed toolkit's tiling — not an argument invariant.
 | padding bookkeeping disagrees | `queryT(N) must be equal to the last element of actualSequenceLengthQ(M)` | `../spec-decode-mtp/fia-tnd-seqlen-mismatch.md` |
 | caller's tensor dims must agree | `cos or sin shape is invalid`, `<tensor> shape is invalid` (`GetShapeAttrsInfo`) | `tiling-attribute-rejection.md` |
 | caller-built mask is the wrong rank/shape | `atten mask dim should be 2 or 4, but got 3`, `get unsupported atten_mask shape` (`AnalyzeOptionalInput`) | `fa-tiling-argument-refusals.md` |
+| the model's **head dim** is outside the tiling's set | `When layout is TND, queryD(256), keyD(256) and valueD(256) must be same equal 192/128/64 …` (`CheckInputShapeWhenLayoutIsTND`) — prints dims, so `must be equal` here compares `*D`, not sequence lengths | `fia-tnd-head-dim-refusal.md` |
 
 `RunBigKernelTilingWithParams` in `prompt_flash_attention_tiling.cpp` is the
 *prompt / big-kernel* tiling path, so the refused object is a mode combination that
@@ -37,6 +38,13 @@ only that path builds (here `sparse_mode`/TND with a paged KV cache) — a check
    vllm lines (recorded #4373's `collect_env` block is exactly `vllm 0.11.0+empty` +
    `vllm_ascend 0.11.0rc1`), so this is the missing fact, not a detail:
    `cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg` plus `pip show torch_npu`.
+   **A run inside a vllm-ascend image already answers it**: `rg -n '^FROM' Dockerfile*` at
+   the pin names the base — v0.11.0rc1 builds from
+   `quay.io/ascend/cann:8.3.rc1-910b-ubuntu22.04-py3.11` (`Dockerfile:18`), i.e. the
+   documented floor itself, and the documented `docker run` mounts only the driver — so
+   for that report the upgrade rung is inert and the owner is the caller/state
+   (`fia-tnd-head-dim-refusal.md` covers the 256-dim form; #4373's own fix was the
+   upgrade, so its toolkit was below the floor — not that image).
 2. **Compare against the pin's own documented floor**, not against a recalled default:
    `docs/source/installation.md:15` at vllm-ascend **v0.11.0rc1** (`c5fe179`) reads
    `| CANN | >= 8.3.RC1 |`, and `:82-93` is the full `8.3.RC1`
@@ -69,8 +77,11 @@ reporter's fix was one upgrade.
 ## Rules
 
 - Classify on the **verb**, before any source read: `not support <mode/cache kind>` ⇒
-  toolkit release; `must be equal` ⇒ bookkeeping; `… is invalid` ⇒ caller tensor.
-  `561002` / `ERR00100` / `E89999` are shared across all three and name no lane.
+  toolkit release; `must be equal` ⇒ bookkeeping **only when the compared names are
+  sequence lengths** (`queryT` vs `actualSequenceLengthQ`); `… is invalid` ⇒ caller tensor.
+  A `must be same equal <set>` over `queryD`/`keyD`/`valueD` compares the model's head dim
+  with the tiling's accepted set and is its own page, `fia-tnd-head-dim-refusal.md`.
+  `561002` / `ERR00100` / `E89999` are shared across all four and name no lane.
 - Do not offer `--enforce-eager` or `ASCEND_LAUNCH_BLOCKING=1` as the mechanism: nothing
   launched, so error attribution is already complete and both are inert here. Eager is
   still a legitimate *unblock* only if it changes which attention call runs — check the

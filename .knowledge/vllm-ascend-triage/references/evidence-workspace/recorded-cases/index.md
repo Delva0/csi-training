@@ -53,7 +53,11 @@ procedure step 2b).
   other owner puts it in the install family page. Detail: `../recorded-cases-startup.md`
   and `../recorded-cases-install-and-environment.md`.
 - `device-and-communication.md` — device, HCCL/cluster, graph-capture and
-  multi-instance faults. Detail: `../recorded-cases-device-and-communication.md`.
+  multi-instance faults. Two detail pages: `../recorded-cases-device-and-communication.md`
+  (device, op-store and capture faults, mixed-batch) and
+  `../recorded-cases-hccl-and-watchdog.md` (every case whose owning page is
+  `../../hccl-and-hardware/`: collectives, communicator creation, transport/link,
+  MC2/AIV dispatch, RPC watchdog, executor teardown, multi-instance).
 - `accuracy-and-output.md` — accuracy gaps, degeneration, garbled/truncated output,
   logprobs and sampler faults. Detail: `../recorded-cases-accuracy-and-output.md`.
 - `memory-and-throughput.md` — OOM, KV budget, sizing, performance and scheduling

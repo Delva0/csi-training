@@ -130,6 +130,20 @@ is a verdict on *their* patch: find the padding gate one block above the slice
 who assigns that state enum before trusting its name, and recommend extending the
 gate rather than deleting the guard — `graph-mode-slower-than-eager.md`.
 
+**And this topic:** several `vllm serve` processes share one ARM host — one card each,
+or several DP instances — and the complaint is that running them *together* is much
+slower than one alone, usually with two `The CPU allocation plan is as follows:` blocks
+in the paste. Then the host-side affinity policy is the suspect, not the cards:
+`topo_affinity` mode (A2/310P) sizes each pool from the **visible** NPU's topo band, so
+two processes whose cards sit in one band compute the *identical* pool, the
+`average_distribute` guard never fires, and both instances' IRQ cores land on the same
+two CPUs — the pin's own release notes call the multi-instance case broken and the
+non-overlap fix (`global_slice`) is A3-only. Read
+`cpu-binding-multi-instance-overlap.md`, invert the plan lines with
+`scripts/cpu-bind-plan-audit.py`, and answer with the card pairing before any tuning
+lever. The single-instance `[migrate]` hang on an offload serve is a different page
+(`../feature-enable-recipes/engram-offload.md`).
+
 Not this topic, leave immediately:
 
 - Requests eventually answer but the **scores** differ between runs → accuracy
@@ -239,6 +253,12 @@ Not this topic, leave immediately:
   count is derivable from it: ask for the tool plus its config (the concurrency
   ladder, input/output length) instead of OCR-reconstructing transposed small
   fields, and compare only the header's aggregate rate.
+  EvalScope's `Avg Input Tokens` / `Avg Output Tokens` cells are its own
+  accounting, not the engine's: recorded #16079's script asked for
+  `--prefix-length 130048` with 1024-in / 2048-out while the summary printed
+  `65536` / `1024` (both exactly half, over 2 of 5 requests succeeding), so never
+  size a KV pool or an HBM budget from those two rows — take the server's own
+  prompt/prefill count or the `PrefixCacheStats` line.
 - The reporter's serve command is the first missing artefact: defaults differ per
   usage context and per device size, and vllm-ascend rewrites some of them
   (`refresh_block_size`, the `ascend_config` alignment). Ask for the startup line
@@ -577,6 +597,17 @@ Not this topic, leave immediately:
   the release note points at and why its `torchair_graph_config` block raises on
   `glm4_moe`, the absent MTP proposer, and the four-rung ladder that puts EP back on
   both nodes before any tuning.
+- `cpu-binding-multi-instance-overlap.md` — several single-card instances on one
+  A2/310P host whose CPU binding ranges coincide (#8600, v0.18.0rc1): the pin's own
+  `Known Issues` rows that admit the multi-instance case is broken
+  (`release_notes.md:547`, `:650`) and why the later `global_slice` fix (#6945/#6889)
+  is A3-only, the `topo_affinity` pool (the card's topo band **plus** `extend_numa`'s
+  whole next NUMA node), the intra-process-only `average_distribute` guard, the
+  plan-line inversion that recovers the pool (`main = pool[2:-2]`) and the band table
+  that decides which card pairs are safe, the shared IRQ cores and the host-wide
+  `irqbalance` stop, the silent `Skip binding cpu` degradation under a narrow cpuset,
+  and the ladder (pair different bands → disable and `taskset`/`numactl` by hand →
+  group over the full topo table).
 - `upgrade-vs-older-baseline.md` — "新镜像比 0.7.3 慢" with no numbers (#6119,
   910B 32G, Qwen2.5-72B BF16, vLLM 0.13.0rc1 image): the cumulative-notes grep that
   dates every default flip, the silent no-op table for a 0.7.3-era command

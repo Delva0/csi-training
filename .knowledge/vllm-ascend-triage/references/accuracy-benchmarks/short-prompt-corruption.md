@@ -117,15 +117,34 @@ prompt, "same from 0.14.0rc1 to 0.18.0rc1", "works on CPU/GPU", Qwen3-0.6B fine.
   masked to zero — it reaches the embedding call itself, where the expectation is a
   loud error rather than silent corruption. Drop the "silent zero embedding" theory
   before asking for vocab arithmetic.
-- **`Using max model len N` is the checkpoint's own number.** It is printed from
-  `_get_and_verify_max_len(hf_text_config, …)` (`vllm/config/model.py:1545`,
-  function at `:1898`) — not from the launch command — so a value that does not
-  match the public model card means the local `config.json` differs (edited,
-  rope-extended, merged, or paired with another tokenizer). That is the cheapest
-  non-engine explanation for degeneration that survives every release, and it costs
-  one CPU run: the same directory through `transformers`, same chat template,
-  `do_sample=False`. Ask for `config.json`'s `vocab_size`,
-  `max_position_embeddings`, `rope_scaling` and `architectures` alongside it.
+- **`Using max model len N` is the *resolved* length, so read the command before the
+  number.** It is printed from `_get_and_verify_max_len(hf_text_config, …)`
+  (`vllm/config/model.py:1545`, function at `:1898`; vllm `d7de043d`), and that
+  function returns **the user's `--max-model-len` verbatim whenever the command
+  carries one** — `max_model_len` is `Field(default=None)` (`:175`), and the value is
+  returned after only a bound check (`:2026`) — and only otherwise the length derived
+  from the checkpoint (derived key, or `original_max_position_embeddings × factor` for
+  a YaRN/rope-scaled config, `:1959-1974`). A user value *above* the derived length
+  cannot be launched at all: `ValueError: User-specified max_model_len … is greater
+  than the derived max_model_len …` unless `VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`
+  (`:1999-2026`). So two branches, and the paste decides which:
+  - **The command has no `--max-model-len` (or `-1`)** ⇒ the number is the
+    checkpoint's. A value that disagrees with the public model card then means the
+    local `config.json` differs (edited, rope-extended, merged, or paired with another
+    tokenizer) — the cheapest non-engine explanation for degeneration that survives
+    every release, and it costs one CPU run: the same directory through
+    `transformers`, same chat template, `do_sample=False`. Ask for `config.json`'s
+    `vocab_size`, `max_position_embeddings`, `rope_scaling` and `architectures`
+    alongside it.
+  - **The command carries `--max-model-len N`** (recorded #8590's body has *no* serve
+    command at all, so this branch is live, not hypothetical) ⇒ the line only echoes
+    the flag, the checkpoint may be perfectly stock, and the override itself becomes a
+    candidate: above the derived length it implies `VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`,
+    whose own warning is that positions past `derived_max_model_len` give NaN under
+    RoPE — position-dependent, so a 30-token prompt makes it a low-ranked candidate,
+    not a dismissal.
+  In both branches the ask is the same and it is cheap: the **serve command** first,
+  then `config.json`. Do not open the answer with "your checkpoint is not stock".
 - **Version-invariance is evidence, not noise.** "Tried 0.14.0rc1 through
   0.18.0rc1, same" removes a version-specific downstream code path from the ranked
   list and promotes the checkpoint/config (and any op shared by both) — so step 5 of
@@ -135,6 +154,20 @@ prompt, "same from 0.14.0rc1 to 0.18.0rc1", "works on CPU/GPU", Qwen3-0.6B fine.
   (`tests/e2e/singlecard/pooling/test_classification.py:10`), so this dense
   generation config has no e2e/nightly row. State it as a gap: it raises the prior
   for a model-specific defect and proves none.
+- **Stop rule for this profile.** The deliverable is the two branches above, the
+  three-prompt matrix (plain prompt / chat prompt with the special ids replaced / the
+  same ids through `prompt_token_ids`) and the one CPU run of the same directory —
+  nothing else in the tree changes it. #8590 has three recorded runs: two shipped no
+  answer (11 and 3 assistant turns), the third answered only on its 16th assistant turn
+  after 15 tool-only messages and 978 891 prompt tokens, and its last four tool calls
+  went into `has_rope` (`utils.py:918`) **after** the answer was in hand. That dead end
+  is closable in one line: the flag only decides whether `set_cos_and_sin`
+  (`ops/rotary_embedding.py:56-103`) preallocates the `_cos`/`_sin` slices behind the
+  fused `npu_apply_rotary_pos_emb` fast path (`:207-216`); when they are absent — which
+  is the case for every VL model (`:86` tests `not is_vl_model`) and for a config
+  without `rope_parameters` — the forward takes the op's own rope from
+  `self.cos_sin_cache` (`:256-266`), so it is a preallocation/performance branch and
+  not an available corruption source.
 
 ## Step 0b — a text-only request on a VL-capable checkpoint (#6533)
 

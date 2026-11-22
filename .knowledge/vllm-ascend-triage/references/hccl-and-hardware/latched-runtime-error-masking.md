@@ -56,6 +56,22 @@ clears them, and **any later failure on that thread prints the latched code inst
 own**. A capture-window refusal is the extreme case because the thread that captured is
 usually the thread that later steps the engine.
 
+**The peek is not universal, so date the macro before discounting a code.** Two exports
+carry it — `v7.2.0.1-pytorch2.8.0` (`da848bbc39f4`, `NPUException.h:135-147`) and
+`v26.0.1-pytorch2.10.0` (`8751b36d`, `:121-200`) — while
+`v6.0.0.alpha001-pytorch2.5.1` (`a3b75fc0a6d6`, the `vllm-ascend:v0.7.1rc1` era) does
+**not**: `NPU_CHECK_ERROR_CHECK_UCE` opens `auto Error = err_code;` and prints `Error`
+(`NPUException.h:146-168`), and `AclrtPeekAtLastError` appears in that export only as
+its declaration/stub under `third_party/acl/` plus three call sites in
+`torch_npu/csrc/framework/OpParamMaker.cpp` — never in the exception macro. So a
+pre-2.8-era code is the call's own status — the `500001` of
+`../startup-failures/acl-init-500001-and-soc-version.md` is
+`AclSetCompileopt`'s return, and its `[Error]: The internal ACL of the system is
+incorrect.` + `Rectify the fault …` pair is that file's `{500001, …}` entry
+(`torch_npu/csrc/core/npu/NPUErrorCodes.h:194-195`) printed by the same macro, not a
+second report. One grep of the snapshot's `NPUException.h` settles the era; a missing
+`.h` in a truncated export settles nothing.
+
 ## 2. Three consequences that change the answer
 
 - **The code is not the op's status; judge it by whether this op could mint it.**

@@ -45,11 +45,12 @@ at v0.11.0 (`cli_args.py:280-281`), so it is not diagnostic of the version.
 | Endpoint does not log outputs at all | `vllm/entrypoints/openai/generate/api_router.py:144-152` constructs `OpenAIServingCompletion(...)` **without** `enable_log_outputs`; `completion/serving.py` contains no `log_outputs` call. Chat (`chat_completion/serving.py:122,291,1045,1245,1626`), `/v1/responses` (`responses/serving.py:881-889`) and `ServingTokens` (`generate/api_router.py:177-183`) do take the flag | `/v1/completions` **can never** print generations at v0.18.0 — say so; the reporter must re-test on `/v1/chat/completions`. `enable_log_deltas` (default True, `cli_args.py:149-152`) additionally decides whether streaming logs per-delta or only the complete text |
 
 Two environmental traps worth one line each: vllm-ascend's own CI exports
-`VLLM_LOGGING_LEVEL: ERROR` (`.github/workflows/_e2e_test.yaml:41` and five more
-job blocks at v0.18.0), so a launch script copied from CI or from
-`examples/external_online_dp/run_dp_template.sh:5` (`info`) starts one level too
-quiet; and vllm-ascend documents no `--enable-log*` flag anywhere in `docs/`, so
-the upstream flag docs are the only authority for the reporter's version.
+`VLLM_LOGGING_LEVEL: ERROR` (`.github/workflows/_e2e_test.yaml:41` plus six more
+lines in that file, and `_unit_test.yaml:26`, at v0.18.0), so a launch script
+copied from CI or from `examples/external_online_dp/run_dp_template.sh:5` (`info`)
+starts one level too quiet; and vllm-ascend documents no `--enable-log*` flag
+anywhere in `docs/`, so the upstream flag docs are the only authority for the
+reporter's version.
 
 ## Which implementation is actually live (the only downstream surface)
 
@@ -103,6 +104,13 @@ configuration and the answer is the checklist above.
   exported and v0.10.2 is not, so the flag name for the reporter's exact `0.10.2`
   is inferred from the deprecation shim's wording — have them run the
   `--help | grep log-request` probe before quoting it back as verified.
-- `--enable-log-outputs` is spelled with a trailing `s`; report the exact flag
-  the reporter typed. Do not claim FlexibleArgumentParser accepts abbreviations
-  unless the installed version's parser source says so.
+- `--enable-log-outputs` is spelled with a trailing `s`, but the missing `s` is
+  **not** a cause at v0.18.0: `rg -n allow_abbrev vllm/` is empty and
+  `FlexibleArgumentParser.__init__` (`vllm/utils/argparse_utils.py:64-72`) forwards
+  its kwargs to `argparse.ArgumentParser`, so argparse's default abbreviation
+  matching stands and `--enable-log-output` is an unambiguous prefix of the real
+  option — it parses. Keep spelling off the ladder (recorded #10985 replay put it
+  back in as rung four after this line told the run not to claim abbreviations);
+  the rung is whether the flag reached the **serve command line**. Recheck on
+  another pin with that same `rg`: a hit such as `allow_abbrev=False` makes exact
+  spelling mandatory, and only then does the reporter's spelling become a cause.

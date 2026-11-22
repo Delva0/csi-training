@@ -19,7 +19,8 @@ usage() {
   cat <<'EOF'
 
 usage: card-budget.sh --params P [--dtype bf16] [--hbm 64] [--gmu 0.9] [--tp 1]
-                      [--cards N] [--stage-gmu <s0>,<s1>,<s2>] [--stage-devices '0,1;2;2']
+                      [--cards N] [--stage-gmu <s0>,<s1>,<s2>]
+                      [--stage-devices '0,1;2;2'] [--stage-params <p0>,<p1>,<p2>]
 
   --params P         total parameters IN BILLIONS, not a raw count: 30.5 for
                      Qwen3-Omni-30B-A3B, 671 for DeepSeek-R1 (671e9 params).
@@ -34,6 +35,13 @@ usage: card-budget.sh --params P [--dtype bf16] [--hbm 64] [--gmu 0.9] [--tp 1]
   --stage-gmu L      comma-separated per-stage gpu_memory_utilization, read
                      from the reporter's stage yaml — there is no default
   --stage-devices L  per-stage device lists, ';'-separated ('0,1;2;2')
+  --stage-params L   per-stage parameters in BILLIONS, comma-separated. Omit it
+                     and every stage is charged a FULL copy of --params, which is
+                     only right when the stages are separate checkpoints: a
+                     vllm-omni pipeline's stages 1+2 are one checkpoint's
+                     talker/code2wav sub-models, so the weights column then
+                     over-states by the thinker's footprint. The gmu-sum line,
+                     not the weights column, is the decision
 
 examples:
   bash card-budget.sh --params 30.5 --tp 2 --gmu 0.9 --cards 2
@@ -43,10 +51,13 @@ examples:
   bash card-budget.sh --params 30.5 --cards 2 --stage-gmu <s0>,<s1>,<s2> \
        --stage-devices '0,1;0;1'          # the same pipeline on 2 cards: passes only if
                                         every device's summed gmu stays <= 1.0
+  bash card-budget.sh --params 30.5 --cards 2 --stage-gmu <s0>,<s1>,<s2> \
+       --stage-devices '0,1;0;1' --stage-params 30.5,3,0.5  # when stages 1+2 are
+                                        sub-models of the same checkpoint
 EOF
 }
 
-params=""; dtype="bf16"; hbm="64"; gmu="0.9"; tp="1"; cards=""; stage_gmu=""; stage_dev=""
+params=""; dtype="bf16"; hbm="64"; gmu="0.9"; tp="1"; cards=""; stage_gmu=""; stage_dev=""; stage_par=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --params) params="${2:-}"; shift 2 ;;
@@ -57,6 +68,7 @@ while [ $# -gt 0 ]; do
     --cards) cards="${2:-}"; shift 2 ;;
     --stage-gmu) stage_gmu="${2:-}"; shift 2 ;;
     --stage-devices) stage_dev="${2:-}"; shift 2 ;;
+    --stage-params) stage_par="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -72,7 +84,7 @@ case "$dtype" in
 esac
 
 awk -v P="$params" -v B="$bytes" -v HBM="$hbm" -v GMU="$gmu" -v TP="$tp" \
-    -v CARDS="$cards" -v SG="$stage_gmu" -v SD="$stage_dev" '
+    -v CARDS="$cards" -v SG="$stage_gmu" -v SD="$stage_dev" -v SP="$stage_par" '
 function gb(x) { return sprintf("%.1f", x) }
 BEGIN {
   # Unit guard. The single most common misuse is passing the parameter COUNT
@@ -108,9 +120,20 @@ BEGIN {
 
   n = split(SG, g, ",")
   m = split(SD, d, ";")
+  if (SP != "") {
+    nsp = split(SP, sp, ",")
+    if (nsp != n) {
+      printf("error: --stage-params needs one value per --stage-gmu entry (%d vs %d)\n", nsp, n)
+      exit 2
+    }
+  }
   printf("\nper-device over-subscription (sum of gpu_memory_utilization):\n")
   if (m != n)
     printf("  note: %d stage-gmu values vs %d stage-device lists — pairing by index\n", n, m)
+  if (SP == "")
+    printf("  note: weights below charge EVERY stage a full copy of --params; pass " \
+           "--stage-params when the stages are sub-models of one checkpoint. The " \
+           "gmu sum is the decision, not this column\n")
   worst = 0
   for (i = 1; i <= n; i++) {
     k = split(d[i], dev, ",")
@@ -118,7 +141,8 @@ BEGIN {
       name = dev[j]; gsub(/[ \t]/, "", name)
       if (name == "") continue
       sum[name] += g[i] + 0
-      w[name] += (total / k) + 0        # this stage shards its weights over its devices
+      stage_total = (SP != "" ? sp[i] * B : total)
+      w[name] += (stage_total / k) + 0  # this stage shards its weights over its devices
       seen[name] = 1
       if (CARDS != "" && (name + 0) >= (CARDS + 0))
         printf("  stage %d names device %s but --cards %s has indices 0..%d — " \

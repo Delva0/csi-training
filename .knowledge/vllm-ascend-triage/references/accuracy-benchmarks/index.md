@@ -613,9 +613,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   nothing, and a `reasoning` that works a different question is a request↔response
   pairing question — #15939); then test the
   trigger claim in the paste first (identical ids on both input routes refute an id-driven
-  mechanism, and `Using max model len N` is the checkpoint's own number, so a mismatch
-  points at the local `config.json` before any kernel — #8590), then the
-  prompt shape (a repeated body at temperature 0 can collapse on its own), then the
+  mechanism, and `Using max model len N` is the *resolved* length — the command's
+  `--max-model-len` when it carries one, else the checkpoint's own — so with no flag
+  in the paste ask for the command before calling `config.json` non-stock (#8590),
+  then the prompt shape (a repeated body at temperature 0 can collapse on its own), then the
   MoE/EP/quantisation ablation rows (EP off, FLASHCOMM1, prefix caching, `--enforce-eager`,
   `max-model-len`, both nodes' weights and image), and the gateway/model-echo caveat.
   `usage.prompt_tokens`, not the size of the pasted request, decides which of the two

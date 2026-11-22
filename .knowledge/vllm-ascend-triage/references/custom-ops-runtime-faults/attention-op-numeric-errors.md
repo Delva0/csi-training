@@ -94,6 +94,10 @@ operator source is absent from the snapshot.
 ## Recheck conditions
 
 Line numbers move every release, and `sparse_mode` values are not a stable
-contract — re-grep both callers at the pinned commit. If the release has a native
+contract — re-grep both callers at the pinned commit. A second pass checked this
+whole list at `f4a08bdd` / `0fc695f` (`:153`, `:169`, `:171`, `:172`, `:178`; capture
+kwargs `:254-266`; `encoder_acl_graph.py:245`; upstream `:36`, `:504`, `:521`,
+`:698` — all as written, and the UT stub `:44-51` returns `torch.zeros_like`), so
+those are citable as they stand. If the release has a native
 or `npu_fusion_attention` path for the encoder, the "no fallback" claim is stale
 and the report changes shape; say which release you checked.

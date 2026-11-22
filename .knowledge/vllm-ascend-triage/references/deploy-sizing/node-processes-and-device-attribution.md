@@ -85,7 +85,11 @@ card":
   (`vllm_ascend/cpu_binding.py:148-180` at vllm-ascend v0.22.1rc1 `5f6faa0`), so a
   foreign PID on one of *your own* dies silently changes your binding, and a PID on
   a die outside your set is invisible to you. Pin the visible set before reading any
-  binding complaint.
+  binding complaint. **When the complaint is the binding overlap itself rather than a
+  stray PID** — several single-card instances whose `The CPU allocation plan is as
+  follows:` blocks are identical and whose throughput collapses — the owning page is
+  `../performance-throughput/cpu-binding-multi-instance-overlap.md` (`main = pool[2:-2]`
+  inverts the plan, `scripts/cpu-bind-plan-audit.py` compares the plans in one call).
 
 ## Rule 4 — then the layout: overlapping slices
 

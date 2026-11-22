@@ -41,7 +41,11 @@ config's own `devices` values, so the log says the shipped default gives stages 
 and 2 a **third** device — on a two-card host that id is outside the visible set,
 and the launch dies at the first device open
 (`vllm_ascend/worker/worker.py:109 check_ascend_device_type` →
-`utils.py:723 get_soc_version` → `aclInit 107001`), before weights, KV, capture or
+`utils.py:723 get_soc_version` at the recorded #8068 pin v0.18.0rc1 — re-grep the
+symbol, the line moves: at the #9335 pin v0.19.1rc1 it is `worker.py:114` and
+`utils.py:745 check_ascend_device_type()`, which calls
+`torch_npu.npu.get_soc_version()` inline, there being no vllm-ascend
+`get_soc_version` at that ref → `aclInit 107001`), before weights, KV, capture or
 any request. Editing the yaml is therefore the fix, not "get a third card".
 
 Still unverified, because vllm-omni is in no snapshot: the merge order of
@@ -151,7 +155,8 @@ missing), and a `107001` ends the vllm-ascend part of the case
 ```bash
 bash <skill_root>/scripts/card-budget.sh --params 30.5 --tp 2 --gmu 0.9 --cards 2
 bash <skill_root>/scripts/card-budget.sh --params 30.5 --cards 2 \
-     --stage-gmu <stage0>,<stage1>,<stage2> --stage-devices '0,1;0;1'
+     --stage-gmu <stage0>,<stage1>,<stage2> --stage-devices '0,1;0;1' \
+     --stage-params 30.5,<talker>,<code2wav>
 ```
 
 - ~30.5B params at 2 B/param ≈ **61 GB** for one full copy, against the
@@ -167,6 +172,17 @@ bash <skill_root>/scripts/card-budget.sh --params 30.5 --cards 2 \
   three-stage serve came up on two cards, so its edited yaml does **not** stack
   0.9 + 0.9 + 0.9 on a single device — "2 cards is infeasible" is a claim that
   requires reading the yaml, and it is not the first answer.
+- **The per-device `weights` column is a worst case, and the gmu sum is the
+  decision.** Without `--stage-params` the script charges *every* stage a full copy
+  of `--params` — right for three separate checkpoints, wrong for vllm-omni, whose
+  stages 1+2 are the same checkpoint's talker/code2wav sub-models. The recorded
+  #9335 run priced a 2-card split without it, read `weights 91.5 GB` per device,
+  and had to disclaim that number in its own answer before the ladder was usable;
+  one `--stage-params 30.5,3,0.5` on that `'0,1;0;1'` layout prints the honest
+  `36.5 GB` for the card that also hosts the talker and `31.5 GB` for the other
+  (`34.0 GB` averaged over the two; the sub-model sizes come from the checkpoint's
+  own tensor index, not from the model name). A gmu sum above 1.0 fails with or
+  without that flag.
 - A CI data point on the same family, not a contradiction: the Instruct variant's
   e2e config runs `tensor_parallel_size: 4`, `gpu_memory_utilization: 0.7`,
   `max_model_len: 8192`, `enable_expert_parallel: true`

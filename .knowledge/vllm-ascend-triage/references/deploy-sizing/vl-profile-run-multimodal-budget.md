@@ -59,7 +59,7 @@ With `LLM(model=…)` and no scheduler flags, the three inputs are:
 
 | input | value on #1617 | source |
 |---|---|---|
-| `max_model_len` | the checkpoint's own value (32768 for Qwen2.5-VL-7B) | `ModelConfig` resolves it from the HF config (`vllm/config.py`) |
+| `max_model_len` | the checkpoint's own value (32768 for Qwen2.5-VL-7B) — **only because this construction passes no `--max-model-len`**; a serve that carries the flag logs the flag instead | `ModelConfig` resolves it from the HF config (`vllm/config/model.py:1898-2026`: the user's value is returned verbatim when given, else the derived length) |
 | `max_num_batched_tokens` | `max(max_model_len, _DEFAULT_MAX_NUM_BATCHED_TOKENS = 2048)` = **32768** | `vllm/config.py:68, 1979-1983` |
 | `max_num_seqs` | **128** (then clamped by `max_mm_tokens`) | `vllm/config.py:1961-1965` |
 | `limit_mm_per_prompt` | empty ⇒ **1 item for every supported modality** | `vllm/config.py:2800-2808` (`999 if envs.VLLM_USE_V1 else 1`), `vllm/multimodal/processing.py:1038-1050` |

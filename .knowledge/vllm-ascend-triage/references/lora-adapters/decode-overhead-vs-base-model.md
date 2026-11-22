@@ -63,10 +63,13 @@ On A2/A3 the platform *can* compile and capture — but that only helps if the
 **adapter path is graph-visible**, and that is a property of the punica binding,
 not of the SoC. Where the binding is transitive PyTorch there is no graph to be
 had at any SoC: #1629's `VLLM_USE_V1=1` serve died in the profile run's first
-compiled forward, and the run that served was the eager one, paying the same
-per-slice dispatch as 310P. So a "LoRA is slow" report needs the SoC, the graph
-mode **and** the binding before any cause is ranked — and "A2 has ACL graph" is
-never by itself the reason an adapter would be cheap.
+compiled forward, so the run that served **must have been** the non-V1 (eager)
+one — an inference from the report's own contradiction (its env block still
+carries `VLLM_USE_V1=1` while the report says V1 will not start), not a line read
+from a log — and it pays the same per-slice dispatch as 310P. So a "LoRA is
+slow" report needs the SoC, the graph mode **and** the binding before any cause
+is ranked — and "A2 has ACL graph" is never by itself the reason an adapter
+would be cheap.
 
 Check the project's support claim while you are here: `LoRA | 🟢 Functional` in
 `docs/source/user_guide/support_matrix/supported_features.md:11` is a
@@ -83,7 +86,11 @@ Two different measurements, and only the second decides the mechanism:
 - **A base-only serve** (`vllm serve <model>` with no `--enable-lora`) is the
   upper bound and the lane gate: #1629's 10-12 tok/s there versus 2-3 tok/s with
   the adapter is what proves the LoRA path owns the cost. If this number is also
-  a few tok/s, leave this page for `../performance-throughput/index.md`.
+  a few tok/s, leave this page for `../performance-throughput/index.md`. **When
+  this page already holds the number — it does for #1629 (10-12 tok/s,
+  reporter-confirmed) — quote it and leave it out of the ask list**: requesting a
+  measurement that a paragraph of the same message reports reads as not having
+  read the report.
 - **A base-model *request* on the same `--enable-lora` server** is the mechanics
   test: send the identical prompt to the base model name. Base-only decode steps
   still enter the punica wrapper, and at v0.9.2rc1 (likewise v0.9.1rc1: guards
@@ -102,7 +109,10 @@ Two different measurements, and only the second decides the mechanism:
    and its `--enforce-eager` rung is the one line that gets the serve up.
 1. The base-only serve, then the base-model request on the LoRA server (above):
    2 minutes each, decide the lane and then per-step vs per-token, and tell the
-   reporter whether their base traffic is affected too.
+   reporter whether their base traffic is affected too. Where this page already
+   records the base-only rate for the case in hand (#1629), skip that measurement
+   and ask only for the base *request* on the `--enable-lora` server — the half
+   nobody has measured.
 2. Concurrency sweep (1 / 4 / 8 concurrent): dispatch cost is roughly constant
    per step, so aggregate tok/s should scale even while single-stream does not —
    if it does, the deployment is usable at batch > 1 without any change.

@@ -25,7 +25,10 @@ does the launch carry `--speculative-config` and `--async-scheduling`? If yes, r
 `../spec-decode-mtp/mtp-sampler-silent-stall.md` and rank its ablation ladder beside
 Steps 1-3 here — the two lanes' first checks are different artefacts (serve command and
 one flag vs the plog), and only the plog evidence in Step 1 above can promote this page
-back to first.
+back to first. **One answer flips the order: a build already carrying all three of those
+patches** (`pip show vllm-ascend` plus its cherry-pick list) has used up the sampler
+lane, so this page is first again on any release that ships them
+(`../spec-decode-mtp/mtp-sampler-silent-stall.md`, consequence 3).
 
 **A second competitor is decided by one line of the D-side log.** On a P/D deployment
 whose decode node is the one that stops, this page competes with the KV-transfer

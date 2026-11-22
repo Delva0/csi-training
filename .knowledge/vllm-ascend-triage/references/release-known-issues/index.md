@@ -24,6 +24,19 @@ about one release line. That one needs the feature's consumer at the pin plus th
 tree's own test and CI wiring, not the bulletin procedure: route to
 `highlights-bullet-vs-pinned-tree.md`.
 
+**Third shape, a bulletin with no log and no tracked id:** the maintainer files a
+*dependency* known issue as a reference for users — recorded #3819, "The lower
+version of Transformers does not recognize this architecture like `qwen3_vl`",
+body "Report a known issue to provide users with a reference on how to resolve it.
+You can fix it by `pip install --upgrade transformers` manually. Or wait vllm's
+Transformers upgrading to `4.57.1`", plus one serve block and the pydantic traceback.
+The graded object is the **resolution sentence**, and it is graded at the pin: the
+architecture gates of `../startup-failures/model-type-not-recognized.md` (which of
+transformers / the vllm config registry / the vllm model registry is actually
+binding) plus that page's requirement-line and claim-surface checks. Rules 1, 6 and 7
+here still apply — verdict plus cheapest next action first, the release's own rows
+quoted, one message.
+
 ## Rules
 
 1. **Claim-check, not a second root cause.** Deliver: which signatures the notice
@@ -97,11 +110,21 @@ tree's own test and CI wiring, not the bulletin procedure: route to
    v0.12.0rc1 `:42` "DeepSeek 3/3.1 and Qwen3 doesn't work with FULL_DECODE_ONLY graph
    mode … #4990" answered #5076 before any source read (reporter-confirmed fixed in
    0.13.0rc1; `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §0). The
-   same read answers a **GLM-5.x** graph crash: v0.21.0rc1 lists GLM-5.1 + Expert
-   Parallel + FULL mode with a workaround (`release_notes.md:181` at v0.22.1rc1),
+   same read answers a **GLM-5.x** graph crash: the v0.22.1rc1 tree lists GLM-5.1 + Expert
+   Parallel + FULL mode with a workaround (`release_notes.md:181`),
    so a `--enable-expert-parallel` + `FULL_DECODE_ONLY` launch is a declared
    combination before it is a mechanism — and read the row's own `## v…` heading,
    since the file is newest-first and the newest section does not restate it.
+   The 0.19 line's own row for this family is
+   **v0.19.1rc1 `:201`** — "When running GLM-5 / GLM-5.1 models in single-node
+   (non-PD-disaggregated) scenarios, incorrect results or runtime errors may
+   occur. See #8843 for details and workarounds" (`### Known Issues` `:199`,
+   section `## v0.19.1rc1 - 2026.04.30` `:3`; the same row is `:386` in the
+   v0.21.0rc1 tree, so search the wording, never the line) — and that scenario is
+   exactly what a device-fault paste from a single GLM-5.x box is, including the
+   documented `tp8`/`tp16` + EP + MTP + `FULL_DECODE_ONLY` recipe. The tracked
+   issue's own log names a **different** operator than the reporter's while
+   repeating the same device record: `glm5-single-node-runtime-fault-row.md`.
 
 7. **Budget one message per tracked issue.** A two-issue bulletin at the 16 K
    completion cap was cut mid-ladder (#15985: verdict + both ranked lists
@@ -111,4 +134,7 @@ tree's own test and CI wiring, not the bulletin procedure: route to
 
 Route: `bulletin-claim-check.md` for the worked case and its verified anchors;
 `highlights-bullet-vs-pinned-tree.md` for a feature a release note claims (three
-co-signs in the tree, then a dated answer — #2562 EAGLE-3 on v0.9.1rc3).
+co-signs in the tree, then a dated answer — #2562 EAGLE-3 on v0.9.1rc3);
+`glm5-single-node-runtime-fault-row.md` when a GLM-5/5.1 serve dies on an
+`aclnn<Op>` + `0x800000` MTE-DDR record and the row, not the operator name, is
+the discriminator (recorded #8944 / #8843 at v0.19.1rc1).

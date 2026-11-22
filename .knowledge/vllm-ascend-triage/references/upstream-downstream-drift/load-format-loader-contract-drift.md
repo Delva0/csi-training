@@ -119,7 +119,7 @@ vllm/model_executor/model_loader/__init__.py`) before reporting a missing `load_
 as a defect. Recorded dead end: #3398 (eagle3 at v0.11.0rc0) spent its last turns and
 ~6 K characters of reasoning concluding "`EagleProposer` never loads draft weights" —
 false at that ref, and orthogonal to its own symptom (a hang before any token) — and
-shipped no answer.
+shipped no answer. The ladder it owed is `../spec-decode-mtp/draft-phase-stall-watchdog-only.md`.
 
 ## General recipe for the next loader-method message
 

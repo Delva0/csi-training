@@ -7,16 +7,23 @@ Recorded #1865: vllm-ascend `v0.9.2rc1` (`b5b7e0e`), vllm `v0.9.2` (`a5dd03c1`),
 多进程卡间通讯超时 ("multi-process inter-card communication timeout").
 
 Read this page whenever the only failure text is a bare `TimeoutError` whose
-frames are `multiproc_executor.py` and `shm_broadcast.py`. It is not an HCCL
+frames are `multiproc_executor.py` and `shm_broadcast.py` — **or no traceback at all and
+only the INFO `[shm_broadcast.py:…] No available shared memory broadcast block found in
+60 seconds` line**, which is this same watchdog at the quieter level. It is not an HCCL
 or NIC timeout, and the paste usually cannot name the owner — so the deliverable
 is the classification plus the per-rank artefacts to request.
 
-Two conditional routes before the ranked list below:
+Conditional routes before the ranked list below:
 
 - **The trigger is the traffic shape** — one request at a time hangs at replay
   while concurrency is served normally, on `-dp N` with ACL graph on: the idle
   ranks run `execute_dummy_batch() -> _dummy_run(1)` and the pad target is not the
   suspect. `dp-aclgraph-single-request-hang.md` (recorded #3128).
+- **The launch carries `speculative_config` / `--speculative-config` and the reporter
+  names the draft phase** ("卡在草稿模型阶段"): their phase is a claim, the line names
+  none, and the pin prints drafter markers in a fixed order — take the per-rank log's
+  last line before ranking anything:
+  `../spec-decode-mtp/draft-phase-stall-watchdog-only.md` (recorded #3398).
 - **The graph mode's own banner printed and capture finished**, then the *first*
   request stalls (DP=1, so the dummy-batch route above cannot be it):
   `aclgraph-full-decode-runtime-hang.md` — the mode's request path, not the
@@ -27,6 +34,26 @@ Two conditional routes before the ranked list below:
   out in `../feature-enable-recipes/dp-moe-padding-and-owner-slice.md`. Read it
   instead of re-deriving shapes from source — that derivation is what has
   consumed sessions.
+- **The trigger is concurrency depth** (单并发正常 / 推大并发挂掉) and the paste
+  carries a `SchedulingOutput(… total_num_scheduled_tokens=…)` tail: **size the
+  stalled step from that number and diff the serve line against the pin's own
+  multi-node recipe before any source read.** Recorded #3784 at v0.11.0rc0
+  (`00ba071`; 2 nodes × 8×910B3, `--data-parallel-size 4
+  --data-parallel-size-local 2 --tensor-parallel-size 4 --enable-expert-parallel`,
+  both `additional-config` keys on, `HCCL_BUFFSIZE=1024`) stalled on a step of
+  **26 requests / `total_num_scheduled_tokens=6644`**, while the recipe its command
+  was copied from — `docs/source/tutorials/multi_node.md:132-139` (node0) and
+  `:173-179` (node1), verbatim down to `--data-parallel-rpc-port 13389` and the
+  config keys — validates `--max-num-seqs 16 --max-num-batched-tokens 4096
+  --max-model-len 32768`. 26 > 16 and 6644 > 4096: the stalled step cannot occur
+  under the validated numbers, so the first launch is the recipe's own values
+  (start with the batched-token cap, which is what admits the step), not a source
+  walk. **Read the whole block before writing "the only difference is …"**: the
+  recorded #3784 answer called `--max-num-seqs` the single diff, while
+  `--max-model-len` (8192 vs 32768) and `--max-num-batched-tokens` (8192 vs 4096)
+  had moved too. A missing `--data-parallel-start-rank 2` on node1 (`:166`) is not
+  the same class of diff — that launch came up and answered single requests, so rank
+  assignment worked at that pin.
 - **The step is deliberately slow, not stuck** — the launch carries a
   debug/profiling feature (precision dump through
   `--additional-config '{"dump_config_path": …}'` or `dump_config`, i.e. `msprobe`'s
@@ -158,6 +185,19 @@ into a whole-group stall and then into this 300 s `TimeoutError`. No exotic defe
 is required. Do not present this as proof of which rank; it is why the watchdog
 firing is expected in this configuration at all.
 
+**So the MoE communication method cannot differ per rank — do not spend turns
+re-deriving that.** The selector is fed the DP-wide maximum, never the local count:
+`num_input_tokens = maybe_padded_num_tokens` (`model_runner_v1.py:1298`, the
+`torch.max` over ranks in `_sync_metadata_across_dp` at `:827-837`) is what reaches
+`_select_moe_comm_method(num_input_tokens, …)` at `:1938`, and `_dummy_run` syncs the
+same way before its own call (`:2345-2349`) — verified at vllm-ascend v0.11.0rc0
+`00ba071`. A rank holding fewer local tokens therefore cannot enter ALLGATHER while a
+sibling enters MC2. What *does* change is the family itself between steps, as the
+batch crosses `mc2_tokens_capacity` (`:455`, 512 on A2): a decode step below it and a
+prefill step above it take different collectives — a code path shared by every DP+EP
+deployment, so it is a hypothesis the plog's per-step `newtag[…]` / operator names
+adjudicate, not something the paste can settle.
+
 ## Ranked causes, each with its one check (worked #1865)
 
 1. **One worker stopped on the device** (OOM, `EZ9999`, HCCL hang, silent death):
@@ -177,6 +217,11 @@ firing is expected in this configuration at all.
    node the DP flags may be dropped, but a wrong/missing socket-interface or an
    undersized `HCCL_BUFFSIZE` can hang a collective instead of erroring. Check:
    diff the command and env against the recipe it came from.
+   The **numeric** diff is the same check on the same block, and the numbers to
+   compare are the ones the paste itself prints: at v0.11.0rc0 that two-node
+   DeepSeek block is `docs/source/tutorials/multi_node.md:132-139`/`:173-179`
+   (`--max-num-seqs 16 --max-num-batched-tokens 4096 --max-model-len 32768`), and
+   the concurrency-depth route above sizes the stalled step against them.
 4. **A real collective timeout** (rare in this shape): only if the plog carries its
    own timeout/EI code inside the incident window — then this is lane C and
    `collective-error-chain.md` applies, not this page.

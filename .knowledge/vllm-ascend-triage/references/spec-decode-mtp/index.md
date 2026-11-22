@@ -15,6 +15,12 @@ at request time. The shapes:
   threshold** (a lower K works, K is above the validated 3, or the same K served on an
   older release), the K is the classification and the sweep is rung 1:
   `acceptance-zero-at-high-k.md` before `acceptance-collapse.md`'s code walk;
+- the **only** line is `[shm_broadcast.py:…] No available shared memory broadcast
+  block found in 60 seconds` and the reporter names the phase themselves ("卡在草稿
+  模型阶段"): the line is the ringbuffer watchdog and proves no reply arrived, so the
+  **last per-rank line** decides the phase and the paste cannot — one launch without
+  `speculative_config` and one with `enforce_eager=True` are the first two rungs:
+  `draft-phase-stall-watchdog-only.md`;
 - the **whole service** stops with no text at all — the worker log simply ends,
   no `ERROR`, no device dump, the API server still holding the port, and the process
   only dying much later ("run 1x hour, it will be Stuck"), on a launch with an MTP
@@ -418,6 +424,19 @@ from the acceptance numbers.
 
 ## Pages
 
+- `draft-phase-stall-watchdog-only.md` — a `method: eagle3|eagle` launch whose whole
+  evidence is the 60 s ringbuffer watchdog line plus the reporter's own phase claim: the
+  two emit sites and why the side (not the line number) is the finding, the pin's own
+  phase markers in order (`model_runner_v1.py:2644` `Loading drafter model...` →
+  `:2645 load_model` → `:2646-2648` the EAGLE3 aux-layer wiring, which *raises* when the
+  target lacks `SupportsEagle3` → `:2482-2483` dummy run/capture), which target classes
+  implement `SupportsEagle3` at vllm v0.11.0rc3, the upstream `eagle3_target_supported`
+  gate that the downstream `__post_init__` replacement (`patch_config.py:85,:312`)
+  drops, the draft's own `Eagle3LlamaForCausalLM` contract (`fc =
+  target_hidden_size * 3`), the single-card TP=1 e2e whose **workflow line is commented
+  out** (`_e2e_test.yaml:106-107`, "Fix me: OOM error"), the ranked causes with the
+  #2667 same-window device-dump precedent, the five-rung ladder and the ask list.
+  Recorded #3398 — two sessions, neither shipped a usable answer.
 - `mtp-sampler-silent-stall.md` — **silence**, not a traceback: a serve that stops
   dead after tens of minutes with the log just ending and the process dying hours
   later, on an MTP + `--async-scheduling` launch. The reporter-confirmed #8916 fix set

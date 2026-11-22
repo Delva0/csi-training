@@ -212,6 +212,22 @@ architecture (`hf-processor-contract-at-mm-budget.md` §0 carries the direction 
 
 ## vllm-ascend's own claim surface (reporter-checkable)
 
+**Settle "does the release claim this model" in one call over all three claim
+files, `rg -l -i '<family>|<model_type>' docs/ tests/`, before writing either
+verdict.** A claim present in one file and absent from another is a *document*
+defect to name; it is not "unclaimed". The recorded run for #3819 graded the
+bulletin off the matrix plus `release_notes.md` alone and asked for the missing
+matrix row, while v0.11.0rc0 (`00ba071`) also ships
+`docs/source/tutorials/index.md:19` → `docs/source/tutorials/multi_node_qwen3vl.md`
+(156 lines, `Qwen/Qwen3-VL-235B-A22B-Instruct`, two nodes DP2 × TP8 with
+`--enable-expert-parallel --max-model-len 32768 --gpu-memory-utilization 0.8
+--trust-remote-code` — a recipe for the 235B MoE only, with no single-die or
+smaller-model case) and **no** test at all
+(`rg -n -i 'qwen3.vl|qwen3_vl' tests/` = 0 hits). So the accurate ask is the matrix
+row plus one validated single-node case, and the empty `tests/` is a *coverage* gap
+(`../feature-enable-recipes/unsupported-model-row.md`), quotable as coverage — never
+as "the release does not claim this model".
+
 - `docs/source/user_guide/support_matrix/supported_models.md` — the per-release
   claim table (recorded v0.13.0 rows: `Qwen3`, `Qwen3-based`, `Qwen3-Coder`,
   `Qwen3-Moe`, `Qwen3-Next`, `Qwen3-Embedding`, `Qwen3-Reranker`, `Qwen2*`,
@@ -377,7 +393,17 @@ the strength of the two 0.17.0rc1 precedents above, and the release it led with
 was the one that failed.
 An earlier maintainer-authored reference issue for the same error class (#3819)
 resolves it as "upgrade transformers / wait for the vllm pin bump"; that is
-correct only when gates 2 and 3 already pass.
+correct only when gates 2 and 3 already pass. **The "wait for the pin bump" half is
+then two lines at the reported pin, and it usually dissolves**: at v0.11.0rc0
+vllm-ascend's `requirements.txt`, `Dockerfile` and `setup.py` name no `transformers`
+at all, while vllm v0.11.0rc3 `requirements/common.txt:10` reads
+`transformers >= 4.55.2` — a floor with no cap, so nothing upstream has to change
+for a newer transformers to be legal and the missing piece is an *install*. The
+durable fix is a floor pin in vllm-ascend's own requirement set or image, and the
+reporter's number is checkable with `pip show transformers` (the env dump prints
+versions, not that package's). An exact `==` pin or a `<` cap on the same line reads
+the opposite way — upstream must move first — and
+`hf-processor-contract-at-mm-budget.md` §2 holds that direction rule.
 
 ## Also check the surrounding stack once
 

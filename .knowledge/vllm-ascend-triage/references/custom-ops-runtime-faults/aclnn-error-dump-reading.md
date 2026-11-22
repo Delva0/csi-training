@@ -17,7 +17,23 @@ all this page needs from it, so do not spend a turn fetching the id):
 
 ## Reading order that pays off
 
-0. **Look for an op-map page at this pin before any source read.** `rg -l '<OpName>|aclnn<Op>'`
+0. **The reported release's own `### Known Issues` row comes before the op-map page, and
+   the op name in the paste does not decide where to look.** One call —
+   `rg -n -i 'known issue' -A12 <pin>/docs/source/user_guide/release_notes.md` — for the
+   model family the paste names. On this page's own issue the decisive fact was there and
+   not in any kernel: v0.19.1rc1 `:201` (section `## v0.19.1rc1 - 2026.04.30` `:3`,
+   `### Known Issues` `:199`) reads "When running GLM-5 / GLM-5.1 models in single-node
+   (non-PD-disaggregated) scenarios, incorrect results or runtime errors may occur. See
+   #8843 for details and workarounds", and the tracked issue's own log carries the *same*
+   `0x800000` MTE-DDR / `retCode=0x7150050` / `507011` block on **two other chips**
+   (`chipId:1`, `chipId:4`, `fftsplus aicore error`) while naming a **different** operator
+   (`rejection_greedy_sample_triton`). So the launcher's "current working operator name" is
+   whichever launch noticed the poisoned stream: rank the scenario row and the run's
+   `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` replay before any `csrc/<op>` arithmetic
+   (`../release-known-issues/glm5-single-node-runtime-fault-row.md`, with the row's scope and
+   its ladder; one recorded replay of #8944 followed it and answered from the release notes
+   plus the op-map page instead of re-deriving the kernel).
+   **Then look for an op-map page at this pin before any source read.** `rg -l '<OpName>|aclnn<Op>'`
    in this topic directory, or the topic index: when a map page was built from the tree at
    the pin `SOURCES.json` reports, it *is* the source walk — mode-selection order, buffer
    constants, arch guards and the python call sites are already evidence, and re-reading

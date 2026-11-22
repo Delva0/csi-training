@@ -25,7 +25,7 @@ map, source-verified at the pin in
 | Stage | prefill / mixed batch | pure decode |
 |---|---|---|
 | qkvzba split + reshape | `fused_qkvzba_split_reshape_cat` only when `num_v_heads//num_k_heads in [1,2,4]` **and** `is_cuda_graph` **and** `divide_grid < 65536` (`:58-60`) | same gate; otherwise the plain split/reshape chain, silently |
-| conv state | `causal_conv1d_fn` (`:180`) | `causal_conv1d_update` (`:189`) |
+| conv state | `causal_conv1d_fn` (`:176`) | `causal_conv1d_update` (`:188`) |
 | gating | `fused_gdn_gating_patch` (`:203`, taken when `num_prefills > 0 or spec_sequence_masks is not None`) | folded into the decode kernel below |
 | recurrent core | `chunk_gated_delta_rule` (`:248`) | `fused_sigmoid_gating_delta_rule_update` (`:279`) — gating + recurrent + `ssm_state` writeback in **one** launch |
 | decode inside a mixed batch | `fused_recurrent_gated_delta_rule` (`:263`) | — |
@@ -37,7 +37,7 @@ therefore slower" is refutable at the pin; (b) what actually differs is per-kern
 efficiency — Triton-Ascend tiling is bounded by the UB budget and vector-core count
 (`ops/triton/fused_gdn_gating.py` `UNIFIED_BUFFER_SIZE`/`get_vectorcore_num()`,
 `ops/triton/fla/chunk_delta_h.py` `assert K <= 256`, the grid cap comment at
-`patch_qwen3_next.py:56`). Re-grep those constants per pin; they are the *mechanism*
+`patch_qwen3_next.py:57`). Re-grep those constants per pin; they are the *mechanism*
 of the gap, not a stable fact.
 
 ## 2. Intent is not in the tree — label it and give the roadmap per lane
@@ -57,6 +57,16 @@ whose PR postdates the pin (nothing in the snapshot verifies it), and name the
 decode lane's plan as the open question with the PR/issue to watch. Do not present
 your own proposal (an AscendC op, a wider capture-safe ablation) as the project's
 roadmap.
+
+That question is where the public record we hold stops: the reporter's follow-up
+(2026-05-14) restates the maintainer line and asks for a decode plan, and **no
+decode-side answer follows it** — deliver it as "no decode plan stated as of that
+exchange; the announced op is prefill-side and decode keeps the Triton recurrent
+kernel", never as "planned". **Read an absence check as an absence**: `rg -in
+'mega'` over `vllm_ascend/` plus `docs/` at v0.15.0rc1 returns exactly one hit —
+the word "Megatron" in
+`docs/source/user_guide/feature_guide/sequence_parallelism.md:5` — and no op, so
+that hit is not evidence the fusion op shipped.
 
 ## 3. Deliverable: three pieces in one message
 

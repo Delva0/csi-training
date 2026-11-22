@@ -562,13 +562,32 @@ build-deps command.
   the tree declares **no `vllm` requirement at all** (`setup.py:323,359` reads only
   `requirements.txt`, which has no `vllm` line, so nothing pinned the reporter's vllm), the
   release's own pair is `v0.8.5.post1` (`docs/source/conf.py:66`, `Dockerfile:40`), and the
-  recipe never lets pip resolve torch — `VLLM_TARGET_DEVICE="empty"` (`Dockerfile:43`,
-  `installation.md:153`) makes `get_requirements()` read `common.txt` only (`vllm/setup.py:614-617`),
-  which has no torch line. So the verdict is "do not take vllm from PyPI on this release", with
-  the release image `quay.io/ascend/vllm-ascend:v0.8.5rc1` (`installation.md:195`, `conf.py:70,73`)
-  as rung 1. **Operational:** that run invoked the script as `pip-pairing-check.sh … | head -60`
+  documented **source** tab never lets pip resolve torch — `VLLM_TARGET_DEVICE=empty pip
+  install -v -e .` (`installation.md:153`, the command `Dockerfile:43` also runs) makes
+  `get_requirements()` read `common.txt` only (`vllm/setup.py:614-617`), and that file
+  has no torch line at all (`cuda.txt:2` includes it, so the CUDA wheel's torch demand
+  comes from `cuda.txt:9` alone). **The pip tab four lines above the source tab does
+  resolve torch** — `pip install vllm==|pip_vllm_version|` (`installation.md:138`) — and
+  a PyPI wheel is CUDA-built, so `_no_device()` is false and its metadata carries
+  `cuda.txt:9 torch==2.6.0` (source-derived from `setup.py:614-617`; no wheel was
+  read here): that tab is the reporter's conflict reproduced, not a recipe, and the
+  source tab is the working documented route at this pin. For the openEuler
+  reporter, rung 1 is the quick-start OS tab's own tag,
+  `quay.io/ascend/vllm-ascend:|vllm_ascend_version|-openeuler` (`quick_start.md:38,46` →
+  `v0.8.5rc1-openeuler`), not the `v0.8.4-openeuler` name the v0.8.4rc2 release note
+  mentions; the release image `quay.io/ascend/vllm-ascend:v0.8.5rc1`
+  (`installation.md:195`, `conf.py:70,73`) stays rung 1 for the Ubuntu case.
+  **Operational:** that run invoked the script as `pip-pairing-check.sh … | head -60`
   and the cut landed inside finding 1, dropping the cross-repo vllm↔vllm-ascend line that was the
   answer; the script now warns in its `== findings` header — read to `== end of findings`.
+  **Replay:** a later session on this paste had this page graded 3-of-4 by
+  `reference-locate.py`, but the line carried only the page summary, so no entry was
+  opened: the answer shipped the paste's own premise (`vllm-ascend==0.8.5rc1 depends
+  on … vllm==0.8.5`, which `requirements.txt:12-14` refutes) and re-derived the
+  `common.txt` mechanism over seven calls, while its one read of the page
+  (`rg '#1411|^## .*D' … | head -70`) matched only the navigation note at `:26-33`. A
+  graded page now prints `→ #<id>:<line>` for the entries it records, so `sed` that
+  range instead of grepping the page for a neighbour's id.
 
 ## Not verified
 

@@ -44,6 +44,19 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   as recipe advice (`../pd-disaggregation/hybrid-state-transfer.md` §3). The
   deliverable is the two serve commands diffed against the pinned tutorial, the
   MTP-off / PD-off ablation and the artefact ask (recorded #10961).
+  **The exclusion above is about an answer, not about a comparison.** A title that names
+  **two builds and one score** — `Version 0.18.0：Qwen3.5-moe pd disaggregation accurancy
+  is lower than version 0.18.0rc1 in dataset AIME`, `acc_score` 3.5 points apart, with
+  `<details>` still holding the template's `Your output of above commands here` (recorded
+  #8932) — is the *two-image* shape, not this one: nothing is garbled, both builds answer,
+  one scores lower. Open `harness-vs-engine-attribution.md` §*Two images* and §*When the
+  older image is the good one* first (items-per-point arithmetic, "is each side a tag",
+  the graph-fusion default ablation) and come back to the hybrid-PD page only once the
+  noise floor is sized or a per-request corruption symptom appears. One residual to keep
+  straight on a `0.18.0rc1` + cherry-pick build: recorded #8916's three-PR sampler set
+  (#8531/#7904/#8764) closed a **stall** and the reporter's accuracy defect outlived it
+  (#8932), so those patches are not an accuracy answer — do not hand them back as one
+  (`../spec-decode-mtp/mtp-sampler-silent-stall.md`).
 - A number printed while the checkpoint is being *converted* (per-layer
   `MSE loss`, an epoch table, a bad quantized artifact) is converter output and
   precedes any engine comparison — go to `quantized-checkpoint-conversion.md`.

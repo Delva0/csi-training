@@ -94,6 +94,11 @@ byte-identical rerun, with no warning. Two consequences:
 - `init_ascend_config` caches one global and returns it unless `refresh` is set
   (`:92-101`) — that is why the CI test passes `refresh: True`. A notebook/REPL run that
   flips the key and rebuilds `LLM` in the same process keeps the old value.
+- A reply of the form "that's weird — with the key set, that branch must be decode-only"
+  is the same cue, not a contradiction: the maintainer's impossibility argument on #1369
+  reasoned from the scheduler contract while the key quoted in the same thread was still
+  `asacend_scheduler_config`. When the code says the observation cannot happen, audit the
+  reporter's literal before ranking a defect.
 
 The cheap observable that the key *did* take effect is the state name: with the scheduler
 enabled, a prefill-carrying batch no longer takes the `ChunkedPrefill` arm at

@@ -28,8 +28,24 @@ survives only in `examples/external_online_dp/run_dp_template.sh:46`, and torcha
 NZ」 is a no. The reporter's follow-up was a textless 951×243 screenshot, so nothing was
 confirmed.
 
-**#8944** v0.19.1rc1
-`aclnnAddRmsNormBias` device fault; #10068 evalscope vs ais-bench MMLU-Pro gap;
+**#8944** v0.19.1rc1 (`da421afa`), GLM-5.1 on 8×910B3 (`--device=/dev/davinci0-7`, so the A2
+single-node shape), `aclnnAddRmsNormBias` + `fftsplus aivector error` / `error code = 0x800000`
+/ `The DDR address of the MTE instruction is out of range` / `retCode=0x7150050` / `507011`
+after the service had been answering: **the replay answered.** The decisive fact was the pin's
+own `### Known Issues` row — `release_notes.md:201`, "running GLM-5 / GLM-5.1 in single-node
+(non-PD) … runtime errors may occur. See #8843" — and that tracked issue's log carries the same
+device record on **other** chips (`chipId:1`, `chipId:4`, `fftsplus aicore error`) while naming
+`rejection_greedy_sample_triton`, so the paste's operator name is a victim, not the owner
+(`../release-known-issues/glm5-single-node-runtime-fault-row.md`; the dump reading is
+`../custom-ops-runtime-faults/aclnn-error-dump-reading.md`; the op surface
+`../custom-ops-runtime-faults/add-rms-norm-bias-op-map.md`, whose closed-question list it used
+instead of re-reading the kernel). It still ended **output-truncated** (16 384 completion
+tokens, 921 K prompt) with the request list and evidence table cut: the 138 KB skill body, the
+65 KB `first-checks/signature-routes/device-ops-and-collectives.md` read, and three 14–16 KB
+windows of the #8843 body — two would have done, that body holds no workaround paragraph —
+spent the budget before the answer's tail.
+
+**#10068** evalscope vs ais-bench MMLU-Pro gap.
 
 **#3543** v0.11.0rc0 silent worker death; #7477 v0.17.0rc1 HCCL allreduce ending in
 an HCCS link fault; #11661 v0.22.1rc1 missing `attention_type` on a patched
@@ -151,7 +167,11 @@ reporter quotes (Qwen3-0.6B 1 card / Qwen2.5-7B-Instruct 2 cards / Pangu-Pro-MoE
 cards) is a later ref's page: `Pangu` occurs in no file at this pin. Answered at its 9th
 assistant turn from that grep, the unconditional `qwen2_5_vl` registration, and the move to
 a `-310p` tag; #1383 (v0.9.1rc1, `TransData` op-store refusal on a 0.5B text model) is why
-the ladder must not promise the upgrade fixes it — `../soc-platform-paths/atlas-300i-310p.md`.
+the ladder must not promise the upgrade fixes it. A replay took this `[case]` arrow and
+shipped the same verdict at its 3rd assistant turn, with the "or any VLM?" half answered
+from the pin's own matrix (`supported_models.md:38-47`, no hardware column) and
+`single_npu_multimodal.md:1` as the A2 recipe —
+`../soc-platform-paths/atlas-300i-310p.md`.
 
 **#8920** vllm-ascend v0.18.0 (`e18643f8`) + vllm v0.18.0, Qwen3.5 MoE under PD "per the
 docs", curl answer mixes Chinese and English, **no** env dump / serve command / log. One

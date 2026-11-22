@@ -97,7 +97,14 @@ Re-verified against `da421afa` after a recorded forward (#8944, the GLM-5.1 / A2
   macros). A "rstd stays uninitialised" report on another arch is that `#if`, not tiling.
 
 **Deliverable for a #8944-shaped dump** (op named, one rank/chip, runs a while before
-faulting): the failing rank's tiling I-line (`Tiling Key` / `Block Dim` /
+faulting). Rung 0 is not in this tree: at v0.19.1rc1 the release's own `Known Issues` row
+declares that GLM-5/5.1 runs "in single-node (non-PD-disaggregated) scenarios" may produce
+runtime errors (`release_notes.md:201`, tracked as #8843), and that issue's log repeats this
+paste's whole device record on **other** chips while naming `rejection_greedy_sample_triton` — so the op name here is a victim, and the
+scenario row plus an `--enforce-eager` + `ASCEND_LAUNCH_BLOCKING=1` replay of the same load
+rank ahead of the three causes below (`../release-known-issues/glm5-single-node-runtime-fault-row.md`).
+
+Then the deliverable: the failing rank's tiling I-line (`Tiling Key` / `Block Dim` /
 `num_row,num_col,block_factor,row_factor,ub_factor`), whether `enable_custom_op()` and the
 compile-time fusion passes are on for that run, and the version lane. Repeated with
 `--enforce-eager` the passes do not run, so the op is then reached only from

@@ -23,6 +23,15 @@ Deepest frames: `_310p/attention/attention_v1.py:293 forward_chunked_prefill_310
 verified at vllm-ascend **v0.21.0rc1** (`80610e44`) + vllm **v0.21.0** (`ad7125a`),
 300I Duo, Qwen3.5-35B-A3B-w8a8 + MTP, hand-upgraded CANN 9.1.0.beta3.
 
+**Lane B, not lane C.** The block is per-rank (`Worker_TP0 pid=...` printing its own
+Python frames into `_310p/attention/...`), so it is a worker that raised; the two codes
+are the *same* refused readback — the blocking D2H copy's own stream sync reports
+`107027` and the copy reports `107030` — and neither is a collective, a link or a chip
+fault. The recorded #15536 answer labelled this paste 「Lane C 形态」 and then correctly
+named a Python owner, which is exactly the mixed sentence a reporter quotes back when
+they want a hardware explanation; the sibling page states the rule in full
+(`../startup-failures/captured-stream-host-sync.md`, scope: lane B, refusal marker).
+
 ## The verdict, and why the upgrade advice is not it
 
 1. The `Upgrade the CANN/driver` block is `EE1006`'s canned text; it prints for any

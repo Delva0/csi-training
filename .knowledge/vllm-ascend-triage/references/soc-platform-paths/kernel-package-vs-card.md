@@ -170,6 +170,17 @@ is a real image regression, not a red herring:
 `../image-dependency-faults/custom-op-extension-missing-from-image.md`. Run the grep
 before quoting either verdict.
 
+**Second red herring in the same report: a `mindie_turbo` frame around `load_model`.**
+#1696's log carries `INFO … utils.py:33] MindIE Turbo is installed.` and a
+`mindie_turbo/adaptor/vllm/weight_utils.py:94 postprocess_loading` frame between
+`vllm_ascend/worker/worker.py:207 load_model` and
+`vllm_ascend/worker/model_runner.py:904 load_model` — the plugin's decorator
+re-entering the loader, with the failing frame in the model construction below it. The
+standalone probe above never imports the plugin, so it excludes it by construction; say
+that instead of arguing the point, and keep the plugin out of the ranking. Its presence
+dates nothing either (v0.7.3 ships it: `worker.py:78-82` + `utils.py:33`) —
+`../startup-failures/environment-correspondence.md`.
+
 ## What the snapshot cannot settle
 
 - The `npu-smi` **name** (`910C1`) → `soc_version` string mapping is not in any

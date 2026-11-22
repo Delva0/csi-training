@@ -138,11 +138,16 @@ output, or did no request ever reach a decode engine?**
   and the retry rewrite assumes string `content`): `proxy-example-endpoint-coverage.md`.
 - Every request is served and correct, but the decode node emits one token per
   ~0.35 s ("only 3 tok/s", `Average time per output token 0.3519`) with no error:
-  convert the headline to a per-step cost and check the `Running:`/`Avg generation
-  throughput` line first — a single running request at `1/ITL` rules out queueing,
-  admission and batch padding, and a finite per-request KV handoff in the DEBUG
-  paste (130-160 ms plus ~30 `WAITING_FOR_REMOTE_KVS` repeats) is the TTFT
-  component, not this cause → `decode-step-latency-tpot-anomaly.md`.
+  do the two arithmetics before ranking anything — `2000 × 0.3519 ≈ the whole
+  latency` (it is the step, not prefill) and `20 requests × 717.5 s latency inside
+  739.9 s wall` (all 20 are in flight, so one step serves 20 streams), while the
+  one-request DEBUG window shows the same 2.8 tok/s. A ~350 ms cost that does not
+  move between batch 1 and batch 20 is a **fixed per-step wait** — not batch
+  padding, admission, or a comm-shape effect; the first launch checks async
+  scheduling, which 0.14.x turns on with no flag (`--no-async-scheduling` turns it
+  off). A finite per-request KV handoff in the DEBUG paste (130-160 ms plus ~30
+  `WAITING_FOR_REMOTE_KVS` repeats) is the TTFT component, not this cause →
+  `decode-step-latency-tpot-anomaly.md`.
 - An invalid `max_tokens` (`0`, or `prompt + max_tokens > max_model_len`) is not
   rejected on a P/D deployment, no error reaches the client, and the prefiller's
   KV stays held until its expiry: the prefill leg is sent `max_tokens = 1` by the
@@ -435,14 +440,19 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
 
 - `decode-step-latency-tpot-anomaly.md` — the deployment serves and returns correct
   text while the decode node is ~10x slow (`TPOT 0.3519`, 54 tok/s at 20 concurrency,
-  "only 3 tok/s"), no traceback. The one-line arithmetic that separates per-step from
-  queueing, what the decode node's `VLLM_LOGGING_LEVEL=DEBUG` paste proves (the
-  Mooncake handoff is TTFT) and what it cannot be, the A2 MC2 gate
-  (`world_size_across_dp / pp_size >= 16`, else ALLGATHER) against the pinned
-  `Qwen3-235B-disagg-pd.yaml` DP4/TP4 row, FUSED_MC2 as an A3-only lever, and
-  `async_scheduling` defaulting on at vllm v0.14.1 (`config/vllm.py:588-628`, KV
-  transfer absent from the disable list) with the reporter's PD-incompatibility
-  claim and its counter-evidence. Verified at v0.14.0rc1 `52d4acf`; #6485 left open.
+  "only 3 tok/s"), no traceback. The two arithmetics that separate per-step from
+  queueing *and* rank the causes (latency-vs-wall shows all 20 streams decoded at
+  once, so the 350 ms is per step and flat from batch 1 to batch 20 → a fixed
+  per-step wait), what the decode node's `VLLM_LOGGING_LEVEL=DEBUG` paste proves
+  (the Mooncake handoff is TTFT) and what it cannot be, `async_scheduling` defaulting
+  **on** at vllm v0.14.1 (`config/vllm.py:588-628`, KV transfer absent from both the
+  hard-fail and the disable list; `--no-async-scheduling` is the negation,
+  `arg_utils.py:288-290`) as the first launch check, why the CI PD yaml's
+  `--async-scheduling` perf row (`baseline: 1, threshold: 0.97` → an absolute
+  ≥0.97 tok/s floor, `tools/aisbench.py:207-213`) does not refute it, then the A2 MC2
+  gate (`world_size_across_dp / pp_size >= 16`, else ALLGATHER) against the pinned
+  `Qwen3-235B-disagg-pd.yaml` DP4/TP4 row and FUSED_MC2 as an A3-only lever.
+  Verified at v0.14.0rc1 `52d4acf`; #6485 left open.
 - `proxy-load-balance-accounting.md` — the example proxy as a **scheduler**: uneven
   selection, a leaked or double-released load score, or a self-diagnosed counter bug
   with a repro and no crash. How to date the reporter's copy (the cited anchors of
@@ -593,7 +603,9 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
 - `prefill-scheduler-kv-xfer-assert.md` — the prefiller dies on
   `assert req_id in self.requests` (upstream `v1/core/sched/scheduler.py`): how the
   frame set identifies the scheduler instance and the version, why
-  `step_with_batch_queue` present means `--async-scheduling`/PP>1, the
+  `step_with_batch_queue` present means `--async-scheduling`/PP>1 **at that v0.12.0 pin**
+  (later pins resolve the field to True when unspecified, so the frame needs no flag),
+  the
   `delay_free_blocks` path and the connector's exact `FINISHED_LENGTH_CAPPED` test,
   why the assert carries no request id, and the two DEBUG lines that separate a
   duplicate/late send report from an abort-status free. Verified at vllm v0.12.0

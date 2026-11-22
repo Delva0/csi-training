@@ -91,7 +91,8 @@ entry when:
   `AssertionError: prev_free_block of fake_free_list_tail should always exist` in
   `kv_cache_utils.append_n` reached through `coordinator.remove_skipped_blocks` on a model
   whose KV groups downstream builds (`AscendHybridKVCacheCoordinator`, compressed/SWA
-  specs). The deliverable is the ownership split plus the group/pool flags, not the
+  specs), or a KV connector that frees that same pool out of band. The deliverable is the
+  ownership split plus the group/pool flags and the DEBUG touch/free pairing, not the
   linked-list arithmetic: `kv-block-free-list-assert.md` (recorded #10724);
 - the message is an **`unexpected keyword argument`** at a boundary between an
   upstream caller and its downstream replacement — `<Ascend…Impl>.__init__()` missing an
@@ -644,9 +645,12 @@ answer is not "downstream drift".
   `FreeKVCacheBlockQueue.append_n` (`prev_free_block of fake_free_list_tail should always
   exist`) via `allocate_slots → remove_skipped_blocks → block_pool.free_blocks`. Who owns
   it (upstream invariant, downstream group set; the `patch_balance_schedule.py:73`
-  pass-through proof and the `step_with_batch_queue` mode tell), the four ranked triggers
-  each with its single ablation, the stop rule for the linked-list derivation, and why the
-  plog's one-sided-service `memHandle`/`DeInit` block is teardown.
+  pass-through proof and the `step_with_batch_queue` mode tell), the five ranked triggers
+  each with its single ablation (the first is the hypothesis the paste never shows — an
+  `AscendStoreConnector` that touches mamba-group ids and frees them from the
+  worker-completion path, on a pool with no already-free guard), the stop rule for the
+  linked-list derivation, and why the plog's one-sided-service `memHandle`/`DeInit` block
+  is teardown.
 - `legacy-wrapper-contract-audit.md` — worked case vllm-ascend #17965
   (v0.18.0rc1 `99e1ea0` / vllm v0.18.0 `bcf2be9`, legacy `kv_pool/cpu_offload`):
   the reported `enable_caching` `TypeError` is contract 1 of 4 — the same file also

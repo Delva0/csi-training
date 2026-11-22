@@ -310,7 +310,11 @@ to these investigators): full graph is not the differentiator (they run it on ma
 models); BF16 on 64 GB caps at gmu ~0.60 for TP8 against TP4 at 0.80, and a W8A8
 checkpoint on 32 GB cards needs TP4 gmu 0.85 (more will not start, less does not fill
 256K) — both measured points now live in the owner page; and the model was not
-retested on a newer release.
+retested on a newer release. **Replay with that page**: two messages (the envelope +
+budget verdict, then a delta on the reporter's OOM line and ceilings), 10 assistant
+turns / 3.6 K output tokens, sub-shape A reached without an allocator walk; its one
+defect was quoting the reporter's own ceilings as 「已记录的实测」 before they arrived,
+now guarded in the owner page and in `case-layout.md`.
 
 **#6611** vllm-ascend `v0.13.0` (`6281c12`) + vllm `v0.13.0` (`72506c9`), as reported
 (`collect_env`: transformers 4.57.6, torch 2.8.0, torch_npu 2.8.0.post2,

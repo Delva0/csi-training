@@ -286,6 +286,13 @@ Read the second row whenever the report is quantized: a W8A8 checkpoint on 32 GB
 does **not** buy the 256K window cheaply — its required gmu sits *above* the BF16/64 GB
 figure — so "it is only W8A8, gmu can be low" is not the answer. Quote both numbers as
 *reported*, per dtype/card/context, never as a default for another combination.
+**Both rows arrived as later comments on #6572 itself**, so when the report you are
+answering *is* #6572 they are that reporter's own future measurements: give them as
+「你自己后续回复里测到的」 or leave them out, and never as an unattributed 「已记录的实测」
+— the recorded replay led its first answer with ~0.60 on that wording and had to spend
+its second message withdrawing the attribution (`../evidence-workspace/case-layout.md`,
+own-issue rule). Attributed, they belong to the gmu rung of the ladder (*Answer shape*
+item 4), not to the classification and not to another reporter's box.
 
 ## Stop rule — this class does not need an allocator mechanism
 
@@ -296,7 +303,11 @@ tensors" when the output cap hit. Everything needed was already in hand by turn
 12: the tutorial envelope (TP4/32768), the reporter's gmu ceilings, and the OOM
 line. For this class the answer is steps 1-3 plus the action ladder; the
 mechanism of the last 2 GiB is **not** required, and the per-rank table above is
-the deliverable that replaces it.
+the deliverable that replaces it. A replay against this page did exactly that:
+two messages (the budget/envelope verdict, then the delta once the reporter's OOM
+line and ceilings arrived), 10 assistant turns and 3.6 K output tokens, with the
+sub-shape left open until the frame existed — the only defect was the ceiling
+attribution above, which needed no source read to avoid.
 
 #4474 is the same class one sub-shape over (TP4 up / TP8 OOM at
 `--max-model-len 4096`, v0.11.0rc2) and repeated it: 16 K output tokens, twelve

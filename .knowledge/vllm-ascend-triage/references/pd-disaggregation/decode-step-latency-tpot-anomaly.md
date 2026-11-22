@@ -11,23 +11,36 @@ fail to connect, the output is garbled, or the prefiller logs a done-signal
 expiry, use `transport-topology.md` / `llmdatadist-done-signal-and-ttft.md`
 instead.
 
-## Step 0 — turn the headline into a per-step cost, before any source read
+## Step 0 — two arithmetics that pick the shape, before any source read
 
-One line of arithmetic separates the lanes and costs no tool call:
-
-- `output_tokens_total / wall_time` and `ITL` are enough. `54 tok/s` aggregate at
-  20 concurrent streams is per-request `1/0.352 = 2.8 tok/s`: the engine is
-  emitting about one token per request per 0.35 s, i.e. **the decode step itself
-  costs ~350 ms**, not a slow queue and not a slow prefill.
-- The reporter's own metrics line fixes the batch axis:
-  `Running: 1 reqs, Waiting: 0 reqs, … Avg generation throughput: 2.8 tokens/s`.
-  A single running request whose generation throughput equals `1/ITL` rules out
-  queueing, admission and proxy fan-out, and largely rules out
-  `--max-num-batched-tokens` padding (a padded batch would show up as an
-  aggregate rate, not as `2.8 tok/s` on one sequence). Say so in the answer and
-  drop those lanes.
-- Ask for `VLLM_LOGGING_LEVEL=DEBUG` on the **decode** node, one env var. The
-  reporter of #6485 supplied exactly that and it settles the phase split (below).
+- **Per-token cost.** `2000 out × 0.3519 s = 703.8 s`, and `latency 717.5 −
+  TTFT 14.0 = 703.5 s`, so the whole latency is the decode leg;
+  `40 000 tokens / 739.9 s wall = 54.06 tok/s` reproduces the headline. It is the
+  step, not a slow queue and not a slow prefill.
+- **Batch axis — this is the one that ranks the causes.** Those 20 requests show
+  `Average latency 717.5 s` inside `739.9 s` of wall time, so **all 20 decoded at
+  once** (sequential would be ~14 400 s): the ~350 ms buys one token for twenty
+  streams, i.e. it is one step of the 20-stream batch.
+- The decode node's `VLLM_LOGGING_LEVEL=DEBUG` window is a **different, one
+  request** run (ask for it yourself — one env var) and prints `Running: 1 reqs,
+  Waiting: 0 reqs, … Avg generation throughput: 2.8 tokens/s`: a batch of **one**
+  pays the same ~350 ms.
+- **So per-step wall time is flat from batch 1 to batch 20.** Nothing that scales
+  with tokens — batch padding, `--max-num-batched-tokens`, the token axis of a MoE
+  ALLGATHER/MC2 path — is shaped like that. Two shapes are left: a *fixed
+  per-step wait*, or a decode path running one-to-two orders below the cards'
+  weight-bandwidth floor (8×910B2 at 22B-active w8a8 should be tens of ms per
+  step, not 350). Both are priced by the same two launches below, so rank them and
+  move; and in the answer say which paste each number came from, because they are
+  two runs.
+- Two entries in that metrics block are **not** faults: `External prefix cache
+  hit rate: 100.0%` is the connector's own counter
+  (`vllm/v1/metrics/loggers.py:250-252`, printed only when a connector reports
+  stats — on a decode node every prompt token arrives externally) and `GPU KV
+  cache usage: 0.0%` is one or two 7 000-token requests in a `0.9 × 64 GB` pool.
+- Ask for the decode node's **startup** log as well, not only the DEBUG window:
+  it carries the single `Asynchronous scheduling is enabled|disabled.` line and
+  the config dump, and the DEBUG window cannot decide Cause A.
 
 ## The DEBUG paste: what it proves and what it cannot be
 
@@ -46,7 +59,52 @@ exactly that for 24 tool turns and 57 K characters of reasoning and shipped no
 message text; when a handoff number is finite and per-request, name it as the
 TTFT component and move to the per-step causes.
 
-## Cause A — the MoE communication path (source-verified at v0.14.0rc1)
+## Cause A — async scheduling is on unless something turns it off (first check)
+
+`vllm/config/scheduler.py:133` defaults `async_scheduling` to **None**, and
+`vllm/config/vllm.py:588-628` then sets it **True** unless `pipeline_parallel_size
+> 1`, the spec method is not an EAGLE/MTP one, `disable_padded_drafter_batch`, or
+the executor backend is outside `mp`/`uni`/`external_launcher` (each disable
+branch logs its own warning; `:628` is the `= True`, `:630-633` the one
+`Asynchronous scheduling is …` line). **KV transfer is in neither list** — not
+the explicit-enable hard-fail block (`:562-587`) and not the auto-disable chain —
+so a PD launch whose command shows no `--async-scheduling` still runs it.
+
+The reporter of #6485 reported on v0.14.0rc1 that this default is what makes PD
+disaggregation slow and that the pair is not compatible. Note the scope: their
+scripts set no `--speculative-config`, so the branch that leaves it on is the
+plain `else: True` at `:628`, not the eagle3 case they quoted — **every** 0.14.x
+launch that does not opt out, not only MTP/EAGLE serves.
+
+Checks, one variable each, cheapest first:
+
+1. Read that startup line (or `rg` the launcher for `--async-scheduling` /
+   `--no-async-scheduling`: "not in the script" does not mean "not in play").
+2. Relaunch with it off. The negation exists at this pin because the field is
+   `bool | None`, so the CLI builder uses `BooleanOptionalAction`
+   (`vllm/engine/arg_utils.py:288-290`; `--async-scheduling` is registered from
+   that field at `:1127`): hand over **`--no-async-scheduling`** — do not send the
+   reporter off to grep the parser, and do not write `--async-scheduling False`.
+3. Same request body, same load, same client. If TPOT moves, that was it; if not,
+   Cause B and the launch-diff rows are still open.
+
+**Do not read the pinned CI PD yaml as exoneration.**
+`tests/e2e/nightly/multi_node/config/Qwen3-235B-disagg-pd.yaml:80` runs
+`--async-scheduling` on the decode node and the yaml has a perf case
+(`:109-110` `baseline: 1, threshold: 0.97`), but `tools/aisbench.py:207-213`
+asserts `output_throughput >= threshold * baseline` — for that row ≥ **0.97
+aggregate tok/s**, an absolute floor that a deployment 50× slower than healthy
+passes. Recorded #6485 read "the same pin's CI PD yaml passes it, so the
+combination is exercised somewhere" as evidence against this cause and ranked the
+MoE layout first; the reporter's own follow-up then named `async_scheduling`.
+Presence in a CI recipe proves coverage, never cost (also
+`../evidence-workspace/index.md`).
+
+What is **not** established: the mechanism. Nothing at these pins names the
+per-step wait async scheduling is supposed to add on a KV-consumer node, so keep
+it a hypothesis in the wording and let the relaunch (not a source read) decide.
+
+## Cause B — the MoE communication path: a real threshold, the wrong size for 350 ms
 
 `vllm_ascend/ascend_forward_context.py:204-272` (`select_moe_comm_method`): with
 expert parallel on, `soc_version in {AscendDeviceType.A2}` takes MC2 **only if**
@@ -56,42 +114,27 @@ runs `MoECommType.ALLGATHER` (`:239-247`). FUSED_MC2 is the **A3** branch
 (`:249-261`, `VLLM_ASCEND_ENABLE_FUSED_MC2` + `quant_type == "w8a8_dynamic"`), so
 on a 910B2/A2 node that env var is a dead lever — do not sell it as the fix.
 
-So: `--tensor-parallel-size 8 --data-parallel-size 1 --enable-expert-parallel`
-on one 8-card node gives world 8 → ALLGATHER everywhere, and the pinned project's
-own recipe for the same model does the opposite on the decode node —
+So `--tensor-parallel-size 8 --data-parallel-size 1 --enable-expert-parallel` on
+one 8-card node gives world 8 → ALLGATHER everywhere, and the pinned project's own
+recipe for the same model does the opposite on the decode node —
 `tests/e2e/nightly/multi_node/config/Qwen3-235B-disagg-pd.yaml:65-80` runs
 `--data-parallel-size 4 --tensor-parallel-size 4 --enable-expert-parallel`
 (world 16 → MC2) with `--compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'`
-and `--async-scheduling`. Check the reporter's two flags against that row; the
-cheapest action is a **non-PD TP8 baseline** on the same node (one serve command,
-no proxy) — if that also runs at ~3 tok/s the deployment shape is exonerated and
-the frame is the model/quant/card, if it is fast the decode node's parallel
-layout is the lever.
+and `--async-scheduling`.
 
-## Cause B — async scheduling is on by default at 0.14.x (reporter-reported)
-
-`vllm/config/vllm.py:588-628` (vllm v0.14.1, the pin paired with vllm-ascend
-v0.14.0rc1): when `async_scheduling is None` (the field default,
-`vllm/config/scheduler.py:133`) it is set **True** unless PP>1, a non-eagle
-speculative method, `disable_padded_drafter_batch`, or an unsupported executor
-backend. **KV transfer is not in that list**, and `:630-633` logs one
-`Asynchronous scheduling is enabled.` line once. The #6485 reporter reported on
-0.14.0rc1 that async scheduling is not compatible with PD disaggregation, and
-that with `method: eagle3` the disable chain above leaves it on. Treat that as
-the reporter's statement plus a source-verified reason it can be on at all, not
-as a verified defect: the same pin's CI PD yaml passes `--async-scheduling` on
-the decode node, so the combination is exercised somewhere.
-
-Deciding check, one variable, same request body: read the decode node's
-`Asynchronous scheduling is enabled|disabled` line out of its startup log; if it
-is enabled, re-run with async scheduling off. Whether that ref exposes a CLI
-negation at all is version-specific — grep the parser for `async_scheduling` at
-the reported ref before telling the reporter which flag to pass.
+Rank it as a **separate defect to fix**, not as the explanation of 0.35 s: a
+batch-1 ALLGATHER MoE step of a 22B-active model is single-digit milliseconds, and
+Step 0's batch-flat 350 ms is not the shape a comm-path change produces. The row
+still matters for throughput, and the check is unchanged — quote the reporter's two
+flags against the yaml row; the cheapest measurement is a **non-PD TP8 baseline**
+on the same node (one serve command, no proxy): if that also runs at ~3 tok/s the
+deployment shape and PD are exonerated and the frame is model/quant/card/launch,
+if it is fast the decode node's launch is the lever.
 
 ## Also on the launch-diff list (pinned recipe, both sides)
 
 `VLLM_ASCEND_ENABLE_FLASHCOMM1=1`, `VLLM_ASCEND_ENABLE_FUSED_MC2=2` (A3 only, see
-Cause A), `OMP_NUM_THREADS=1`, `HCCL_BUFFSIZE=1024`, `TASK_QUEUE_ENABLE=1`,
+Cause B), `OMP_NUM_THREADS=1`, `HCCL_BUFFSIZE=1024`, `TASK_QUEUE_ENABLE=1`,
 `HCCL_OP_EXPANSION_MODE=AIV`, a `--max-num-seqs` bound, and the reporter's
 `OMP_NUM_THREADS=10` / `HCCL_BUFFSIZE=512` / `--max-num-batched-tokens 7168`
 against the yaml's `8192`. None of these is established as the cause; they are
@@ -99,11 +142,18 @@ the ablation rows, one per launch.
 
 ## Deliverable
 
-Verdict line with the arithmetic ("one running request, 2.8 tok/s, so each
-decode step costs 350 ms — not queueing"), then ranked: (1) parallel layout vs
-the pinned yaml, with the non-PD baseline as its check; (2) async-scheduling
-state from the startup log; (3) the launch-diff rows. State plainly that the
-pasted KV-transfer DEBUG numbers are the TTFT component and ask for the decode
-node's `Asynchronous scheduling is` line, the startup config dump and one
-non-PD baseline run. Verified at vllm-ascend v0.14.0rc1 `52d4acf` / vllm
-v0.14.1 `d7de043`; #6485 left open, reporter's later comments cited above.
+Verdict line with the arithmetic — "20 streams × 2.7 tok/s inside one ~350 ms
+step, and the same ~350 ms for a single request, so the cost is a fixed per-step
+wait: not queueing, not prefill, not batch padding" — then ranked:
+
+1. the decode node's `Asynchronous scheduling is …` line, then one relaunch with
+   `--no-async-scheduling` (Cause A);
+2. the non-PD TP8 baseline on the same node (one serve command, no proxy), which
+   separates PD from a 50×-slow decode path on the same cards;
+3. the decode node's parallel layout against the pinned `dp4/tp4` row;
+4. the launch-diff rows.
+
+State plainly that the pasted KV-transfer DEBUG numbers are the TTFT component,
+and ask for the decode node's startup log plus config dump and one non-PD
+baseline. Verified at vllm-ascend v0.14.0rc1 `52d4acf` / vllm v0.14.1 `d7de043`;
+#6485 left open, reporter's later comments cited above.

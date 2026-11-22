@@ -16,6 +16,30 @@ CPU/AICPU fallback (`507018` "aicpu execution is abnormal" / `funcName=RunCpuKer
 non-fp16 KV cache (`--kv-cache-dtype fp8`) refused at the first store is
 `310p-kv-cache-dtype.md`. This page owns the gates, the docs and the startup lanes.
 
+## Where the case is (this page's `##` sections; a `sed -n '1,120p'` window reaches two)
+
+| The report is | Read |
+|---|---|
+| `-310p` tag will not start a model, no log | *A 310P `拉起失败` / startup report that pastes no log* |
+| "does this pin support X", a status question | *The documented status (quote it, then move on)* |
+| **"310 系列什么时候支持图模式/量化"**, a roadmap or capability question, or a 310P latency complaint (8 s vs T4 3 s) | the **pin-keyed block matching the reporter's release**: *At v0.12.0rc1 …* covers v0.10–v0.13 (this is #5075); *At v0.18.0* and *At v0.22.1rc1* carry the later `FULL_DECODE_ONLY` rows. **Not** *A capability question at an old pin*, which is v0.9.1rc1 + MRoPE (#1684) |
+| a capability question at v0.9.x, VL / MRoPE | *A capability question at an old pin …* (and its two `###` sub-blocks) |
+| triton-ascend in the image, worker import fails | *An image that carries triton-ascend cannot import the worker at all* |
+| a penalty / repetition parameter crashes a test | *A penalty parameter crashes the test run on 310P* |
+| `the socversion <A> … does not match …` | that section |
+| which gates exist for this SoC and pin | *The 310P gates that change behaviour* |
+| quantized checkpoint loads, then an op dies | *At v0.22+/v0.23: a quantized model that loads and then dies in an op* |
+| `TransData` / `EZ3002` at `profile_run` | *The `TransData` / `EZ3002` rejection at `profile_run`* |
+| ranking a startup report | *Ranked actions for a 310P startup report* |
+
+The `At v<X>` blocks are this page's roadmap answer, and they disagree **on purpose**:
+the support statement moves from "eager mode and the float16 data type only" (≤v0.12) to
+a documented `FULL_DECODE_ONLY` block (v0.18.0, unchanged at v0.22.1rc1). Quote the block
+for the reporter's own release and say which ref verified it. Before reading any window
+past the first screen, list the headings (`grep -n '^## ' <this page>`) — recorded #5075
+read `1,120p` then `120,260p`, stopped one screen short of its own `At v0.12.0rc1` block,
+and re-derived it from source across ~20 turns.
+
 ## A 310P `拉起失败` / startup report that pastes **no log**
 
 **Pin gate before any rung below**: `rg -ni '310p|300i' vllm_ascend/` plus
@@ -573,6 +597,40 @@ end-to-end on an ID-card OCR pipeline):
   (`one_commit_git` per repo — say so, do not guess). Roadmap
   issues #448 (Q2 2025) and #1168 (Q3 2025) carry a "Graph mode" line with no 310P
   date; find them with `scripts/history-titles.sh -i '300I|310P'`.
+- **The latency half of the same report is a measurement, not a roadmap answer.** For
+  "识别身份证端到端 8 s, T4 3 s" the first move is to split the reporter's number into
+  TTFT and per-token, because the two halves have disjoint levers. At the pinned pair
+  the server exports `vllm:time_to_first_token_seconds` and
+  **`vllm:inter_token_latency_seconds`** — the old `vllm:time_per_output_token_seconds`
+  is deprecated from vllm 0.11 (`vllm/v1/metrics/loggers.py:656,689,693,727` at vllm
+  v0.12.0), so quote the new name at this pin; with no `/metrics` scrape, a streamed
+  curl timed to first chunk vs last token is the zero-setup version (`vllm bench
+  latency` is text-only, `vllm/benchmarks/latency.py:36`). Then: whole-page image →
+  image tokens (`--limit-mm-per-prompt image=1`, `vllm/engine/arg_utils.py:454,927`,
+  plus the detect-then-crop pipeline); a long default context → explicit
+  `--max-model-len` (also shrinks `profile_run`); decode-dominated → quantization as a
+  measured A/B only, because a w8a8 dense checkpoint has been recorded **slower** than
+  fp16 on this stack (`../performance-throughput/quantized-dense-no-gain.md`) and the
+  artifact must be a 310 conversion (`310p-quant-checkpoint-soc-match.md`). The
+  tutorial's two exports (`310p.md:46` ModelScope mirror, `:49`
+  `PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` = the 300I fragmentation workaround)
+  are not speed knobs, so "还有别的环境变量能提速吗" is answered no at this pin.
+  `--enforce-eager` must stay: it is required here, not a tuning choice.
+- **Attribute a release-note bullet to the bullet, not to a PR number.** The 300I
+  entries at v0.12.0rc1 are `release_notes.md:473,481,487,528,535` (`:481` "performance
+  on Atlas 300I series has been improved [#1591]", `:487` "W8A8 quantization works on
+  Atlas 300I series now [#1560]"), and the line numbers shift as the file grows (the
+  same #1591 bullet sits at `:9` at a v0.9.2rc1 pin —
+  `../lora-adapters/decode-overhead-vs-base-model.md`, which also records that #1591
+  names no mechanism). So cite the load-time NZ conversion loop
+  (`worker/model_runner_v1.py:2342-2352`) for the format work and the bullet for the
+  release; never "PR #1591 fixed the transData cost".
+- **The reporter's release is not the pinned tree, and the doc says which to use.** #5075
+  ran v0.10.0rc1 while the snapshot pins v0.12.0rc1, and this pin's own note ends "You
+  can use v0.10.0rc1 version first" (`310p.md:7`, next to the eager-only line `:5`) —
+  so the doc is recommending the reporter's version, and every `path:line` here is a
+  v0.12.0rc1 claim. Hand them the self-check instead of a guess about their tree:
+  `rg -n 'jit_compile|_310P' $(python -c 'import vllm_ascend,os;print(os.path.dirname(vllm_ascend.__file__))')`.
 - **Do not import the v0.22 mask trap backwards.** `attention/attention_v1.py` has
   **no** `_310P` branch at v0.12.0rc1 (`rg -c _310P` = 0), so the
   `O(max_model_len²)` fp16 mask allocation quoted for v0.22.1rc1 below cannot be

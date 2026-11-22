@@ -30,6 +30,20 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   form: `ls /workspace; cat SOURCES.json; ls /workspace/history` batched beside the
   `skill_view` came back as one **42 KB** tool result in #10014 (68 KB when the
   skill body is counted), which is the rule-7 trap, not orientation.
+- **A pinned CI/nightly recipe proves what is *run*, never that it is fast or
+  compatible.** The `benchmarks: perf` rows are an absolute floor:
+  `tools/aisbench.py:207-213` asserts `output_throughput >= threshold * baseline`,
+  and the PD row (`tests/e2e/nightly/multi_node/config/Qwen3-235B-disagg-pd.yaml:109-110`)
+  carries `baseline: 1, threshold: 0.97` — i.e. ≥ 0.97 aggregate tok/s, which a
+  deployment tens of times slower than healthy passes. (The `acc` rows are a real
+  gate: `baseline ± threshold`, e.g. `97 ± 3`.) So "the same pin's CI yaml passes
+  flag X on that node" refutes nothing about X's cost or compatibility; quote such
+  a yaml for *values and coverage* — `--max-model-len`, `dp`/`tp`, `npu_per_node`,
+  which flags the project actually exercises — and buy cost statements with a
+  launch instead. Recorded #6485 demoted `async_scheduling` to second place on
+  exactly that argument ("the combination is exercised somewhere"), and the
+  reporter's own follow-up then named `async_scheduling`
+  (`../pd-disaggregation/decode-step-latency-tpot-anomaly.md`).
 - Content exports are truncated by a byte limit; absence of a file in an export is not
   evidence that upstream lacks it. Check `complete_regular_files` / `files` vs
   `regular_files` before concluding "not implemented". A component named by the report

@@ -287,6 +287,17 @@ Conditional routes:
   the closest VL recipe is `single_npu_multimodal.md`, not the 300I page — answer
   with those plus the sizing verdict, not with a rope-code walk →
   `atlas-300i-310p.md`, its "capability question at an old pin" section.
+- The question is a **roadmap / capability one on a current rc** — 「310系列什么时候
+  支持图模式和量化」, 「什么时候支持 XXX 特性」, or the same message plus a latency
+  complaint (end-to-end 8 s vs T4 3 s) on 300I Pro / 300I Duo with a v0.9–v0.13 pin →
+  `atlas-300i-310p.md`, the **`At v<X>` block matching the reporter's release** (v0.10–v0.13
+  is *At v0.12.0rc1*; later pins are the v0.18.0 / v0.22.1rc1 blocks). Those blocks carry
+  the whole answer: quantization shipped long before (`release_notes.md:487`), graph mode
+  is eager-only in that release's own tutorial and gains `FULL_DECODE_ONLY` by v0.18.0,
+  and the schedule statement is RFC #1309's empty `Stage2` plus the pin's test paths —
+  not a source walk. Do **not** stop at *A capability question at an old pin* (that one is
+  v0.9.1rc1 + MRoPE, #1684): recorded #5075 opened this page, read its first two sections,
+  stopped one screen short of its own block, and spent ~20 turns re-deriving it.
 - A **VL or OCR** checkpoint on 310P **serves and answers garbage** — 乱码,
   "精度有问题", "随便跑个图片识别就能复现", no traceback, while a text model on the
   same box is fine and the report names a sibling VL model that "seems OK" →

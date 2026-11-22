@@ -142,8 +142,10 @@ version, gaps stated.
   transport read: a prefiller bare `AssertionError` in upstream
   `v1/core/sched/scheduler.py` `_update_from_kv_xfer_finished`
   (`assert req_id in self.requests`) is a send-completion for a request the scheduler
-  already freed, and `step_with_batch_queue` in the same stack proves
-  `--async-scheduling` (or PP>1) — one launch-flag ablation, no connector walk
+  already freed, and `step_with_batch_queue` in the same stack proves a batch queue:
+  `--async-scheduling` (or PP>1) **at that page's v0.12.0 pin**, while later pins resolve
+  the field to True when it is unspecified — so re-grep before reading the frame as a flag
+  the reporter passed — one launch-flag ablation, no connector walk
   (`../pd-disaggregation/prefill-scheduler-kv-xfer-assert.md`); a decode
   `assert … chosen_rank_list(…) does not match num_group_pulls(…)` on P TP≠D TP with an
   MLA/DSA model is one pull-count derivation skipping the MLA single-pull rule

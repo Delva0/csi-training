@@ -61,11 +61,29 @@ worker_v1.initialize_from_config -> ... -> model_runner_v1.initialize_kv_cache -
    line in the traceback only moves the failure to the next one on the same code
    path:
    `grep -n "hf_config\.\(num_key_value_heads\|head_dim\|num_hidden_layers\|num_attention_heads\)" vllm_ascend/distributed/*.py`
-4. **Separate MLA-only attributes.** `kv_lora_rank` / `qk_rope_head_dim` are read
-   inside an `is_deepseek_mla` branch and are flat on `DeepseekV3Config`; they
-   must not be rewritten, and the MLA branch also needs a *different* layout
-   (`k_head_dim = kv_lora_rank`), so it must not be replaced by a generic
-   `get_head_size()`.
+   The `distributed/` scope is a trigger, not the class: at v0.12.0rc1
+   `vllm_ascend/xlite/xlite.py:120` reads `hf_config.num_key_value_heads` flat
+   (after `:116-119`) and breaks on the same nested configs, one line above a
+   `:121-124` that already derives `head_dim` when absent — so widen the grep to
+   `vllm_ascend/` as soon as the paste is not a connector traceback.
+4. **Separate MLA-only attributes, and check what selects the MLA branch at this
+   pin.** `kv_lora_rank` / `qk_rope_head_dim` are read inside that branch and are
+   flat on `DeepseekV3Config`; they must not be rewritten, and the MLA branch also
+   needs a *different* layout (`k_head_dim = kv_lora_rank`), so it must not be
+   replaced by a generic `get_head_size()`. The branch condition is how you *find*
+   those reads, and it moved: at v0.12.0rc1 the worker sets `self.use_mla =
+   len(block_len) == 2` (`mooncake_connector.py:303`, carrying
+   `# TODO(jianzs): find a better way to detect MLA`, sparse sibling `use_sparse =
+   len(block_len) == 3` at `:304`) and the layout reads sit under `if self.use_mla:`
+   (`:323-326`) — so a grep for `is_deepseek_mla` at that pin lands on the other
+   site (`:995`, `tp_num_need_pulls`) and never reaches `:324-325`. By v0.26.0rc1
+   the same file sets `self.use_mla = self.model_config.is_deepseek_mla` (`:519`,
+   `:2466`). Grep `use_mla`, not the config flag, until the pin says otherwise.
+   That rank-derived detection is also a cause in its own right: when it disagrees
+   with the config (MLA weights registered as a rank-3 layout, or a non-MLA model
+   mis-tagged) the connector's `k_head_dim` / `v_head_dim` / `num_kv_heads` are
+   wrong while the config is fine — compare the printed `block_shape` with
+   `config.json` before editing either.
 5. **Grep the repo's own idiom** before proposing an API: `get_total_num_kv_heads`
    is already used in `vllm_ascend/distributed/kvpool/pool_worker.py`,
    `get_head_size` in `vllm_ascend/attention/sfa_v1.py` and `mla_v1.py`. A patch
@@ -97,7 +115,7 @@ worker_v1.initialize_from_config -> ... -> model_runner_v1.initialize_kv_cache -
    workspace carries a newer tree, in which case quote both and say which ref each
    line comes from.
 
-## Verified case A (vllm-ascend v0.12.0rc1 = `42ceaf08`, vllm v0.12.0) — nesting
+## Verified case A (#5572, vllm-ascend v0.12.0rc1 = `42ceaf08`, vllm v0.12.0) — nesting
 
 Qwen3-VL-30B-A3B-Instruct, PD disaggregation with `MooncakeConnector`, vLLM
 0.12.0 + vllm-ascend 0.12.0rc1 → `AttributeError: 'Qwen3VLMoeConfig' object has

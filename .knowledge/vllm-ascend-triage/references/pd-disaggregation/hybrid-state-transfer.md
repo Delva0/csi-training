@@ -192,14 +192,33 @@ What actually carries MTP through the connector, cheapest print first:
    `transfer_block_idx = len(remote_group_block_ids) - self.num_speculative_tokens - 1`
    takes the P node's **last** mamba block into the D node's **first** allocated one
    (`mooncake_connector.py:728-730` at v0.22.1rc1, `:698-703` at v0.21.0rc1), so exactly
-   one block moves whatever the D-side page size is; `num_speculative_tokens` (`:449-453`)
-   must match on both roles and moves that index — an ablation row (3 → 1), not a theory.
+   one block moves whatever the D-side page size is; `num_speculative_tokens` (`:474-478`,
+   and `0` when `speculative_config is None`) must match on both roles and *is* the
+   subtrahend, so with MTP on (3) the block that travels is the P node's `len-4`, not its
+   last one. **That makes the MTP switch an input to this arithmetic**: turning MTP on
+   changes the transferred block, the draft layer set (item 1) and the decode query length
+   in one move, so it cannot separate this lane from the decode-shape one — sweep in place
+   instead, MTP on with `num_speculative_tokens` 3 → 1, whose only effect here is which
+   remote block travels.
    **The block-count equality check is version-scoped**: v0.21.0rc1 raises
    `RuntimeError("For MambaSpec num block should equal on P node and D node.")` there,
    while v0.22.1rc1 replaces it with a comment ("When Prefix Caching is enabled on both P
    and D nodes, num_block should not be forced to match", `:724-726`) and no assert —
    grepping the `RuntimeError` at a newer pin finds nothing, and that absence is not a fix
    for the alternating output.
+   **Count the list before reading anything into an MTP-on result.** With prefix caching
+   off the mamba page is whole-sequence (§2), so the P node's mamba group holds **one**
+   block per request and the expression above is `-num_spec - 1`: index `0` only at
+   `num_speculative_tokens == 0` (this report), while a one-element list at `-4` raises
+   `IndexError` rather than returning a clean answer. A healthy MTP-on run on the same
+   launch line therefore means the page is *multi-block* (align, or a smaller
+   `mamba_block_size`), which retires §2's whole-sequence consequence for that deployment —
+   ask which it is instead of reading the control as a decode-shape signal. Both of this
+   report's launch scripts set `VLLM_LOGGING_LEVEL=DEBUG`, and the answer is already in the
+   log: `mooncake_connector.py:750-757` emits `Mooncake mamba transfer meta: request_id=…
+   group_idx=… layer_idx=… local_block_id=… remote_block_id=…` per layer, so
+   `grep 'Mooncake mamba transfer meta' decode.log` on one good and one bad request shows
+   the exact block pair that moved. Ask for that grep, not "both full logs".
 3. **Layer-name predicates** — `"mtp" in layer_name` at `:972,1714,1754` routes MTP
    KV-cache layers to indices above `num_layers`. These key off the *cache dict
    names*, not the method string, so the check is `print(kv_caches.keys())` on both
@@ -211,11 +230,21 @@ does not carry — say so and have the reporter re-grep.
 
 ## 4. The ablation to hand back (this is the answer when the symptom alternates)
 
-Ask for a single fixed prompt/seed, then one row at a time, both P and D:
+Ask for a single fixed prompt/seed, then one row at a time, both P and D. **The paste
+does not yet show an alternation**: its two bodies differ (the second prompt opens with a
+literal `*` — `" James decides …"` vs `"* James decides …"`, as pasted) and the two
+answers are 1 token with `stop_reason 248044` against 165 tokens, so it is two samples of
+two different requests. The first ask is one body sent N times with the per-response
+`completion_tokens`/`stop_reason` series — that is what separates per-request state from
+input-dependent degeneration — plus that same body once with `"ignore_eos": true`: if the
+bad turn then generates garbage instead of stopping at one token, the EOS sits downstream
+of a wrong first state rather than being an EOS-decision bug.
 
-1. `--speculative-config` MTP **on** (the tutorial's shape) — the reporter's
-   "works with MTP, breaks without" is itself a strong signal that the failing
-   path is the single-token (query-len 1) decode step.
+1. `--speculative-config` MTP **on** (the tutorial's shape) — reproduce with it, but do
+   **not** grade the outcome as a decode-shape verdict: `num_speculative_tokens` is the
+   subtrahend of the mamba block index (§3 item 2) and also sets `num_draft_layers`, so
+   "works with MTP, breaks without" moves transport, block choice and query length
+   together. The separating row is MTP on with `num_speculative_tokens` 3 → 1.
 2. Connector: `MooncakeConnectorV1` → `MooncakeLayerwiseConnector` (tutorial for
    this model) and → `MooncakeHybridConnector` (hybrid-aware); note which of the
    three has the same TP on both sides and `dcp=pcp=1`. This row asks whether the
@@ -242,7 +271,8 @@ Ask for a single fixed prompt/seed, then one row at a time, both P and D:
 Ranking language that survived review: (a) the single-block mamba move into a
 whole-sequence-sized page (`mamba_cache_mode` staying `"none"`, §2 + §3 item 2) —
 source-verified asymmetry, unproven here; (b) non-documented decode shape (no MTP)
-with a graph-mode/padding interaction — test by row 1/3; (c) connector mismatch vs
+with a graph-mode/padding interaction — test by row 3, and by row 1 only through the
+3 → 1 sweep; (c) connector mismatch vs
 the documented recipe — cheapest to test, and on a pin where §1's grep is non-empty
 it is only a recipe deviation, never the mechanism; (d) weights/quantisation
 mismatch — row 6/7. Name what each row's outcome would confirm, and say that the
@@ -261,4 +291,7 @@ hybrid page" claim to recipe row 2. The material above was already sufficient fo
 complete ranked answer plus the ablation table. For an alternating-accuracy PD report, the
 ranked causes + ablation matrix *is* the deliverable; further source walks are
 refinement and must not delay it. The gates that enforce this are rule 1 of
-SKILL.md and `../evidence-workspace/delivery-discipline.md`.
+SKILL.md and `../evidence-workspace/delivery-discipline.md`. A third replay had this
+page in context from its 5th assistant turn and shipped the rank at turn 10, but it
+inherited §4 row 1's old wording and wrote "MTP on working is itself a strong signal for
+the single-token decode step" as rank 2 — the fix belongs in row 1, not in the run.

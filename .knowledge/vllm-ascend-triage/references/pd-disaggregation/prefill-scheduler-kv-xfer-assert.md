@@ -50,15 +50,23 @@ through them — the **frame file**, not the message, tells you which scheduler 
 - `MultiprocExecutor.max_concurrent_batches` = `2 if scheduler_config.async_scheduling
   else parallel_config.pipeline_parallel_size`
   (`v1/executor/multiproc_executor.py:412-417`; uniproc: `uniproc_executor.py:57-59`).
-- `async_scheduling` defaults to `False` (`config/scheduler.py:131`) and is only
-  flipped on when it was passed explicitly (`config/vllm.py:530-580`).
+- `async_scheduling` defaults to `False` **at this v0.12.0 pin**
+  (`config/scheduler.py:131`) and is only flipped on when it was passed explicitly
+  (`config/vllm.py:530-580`). Later releases invert the default — the field becomes
+  `bool | None = None` and resolves to **True** unless an exclusion applies
+  (`config/vllm.py:718-752` at vllm v0.18.0, `:1095-1143` at v0.27.1;
+  `../scheduler-admission/prefix-cache-lookup-crash.md` §3) — so re-grep
+  `async_scheduling is None` at the reported pin before turning this frame into "a
+  flag the reporter must have passed".
 
-So this traceback implies the prefiller was launched with **`--async-scheduling`**
-(or PP>1, which also builds the queue without async scheduling). That is the cheapest
-ablation in the whole case — turn it off on P, rerun the same traffic — and it needs
-no connector source. vllm-ascend never sets it itself at v0.12.0rc1 (no assignment
-outside `scheduler_config` consumers), but several vllm-ascend tutorials pass it, so
-"we did not enable it" needs the serve command, not the reporter's recollection.
+So at this pin the traceback implies the prefiller was launched with
+**`--async-scheduling`** (or PP>1, which also builds the queue without async
+scheduling; at the vllm v0.18.0/v0.27.1 pins the async arm needs no flag). That is
+the cheapest ablation in the whole case — turn it off on P, rerun the same
+traffic — and it needs no connector source. vllm-ascend never sets it itself at
+v0.12.0rc1 (no assignment outside `scheduler_config` consumers), but several
+vllm-ascend tutorials pass it, so "we did not enable it" needs the serve command,
+not the reporter's recollection.
 
 ## Step 3 — the assert names no id: ask for the two DEBUG lines
 

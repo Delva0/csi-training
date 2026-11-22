@@ -37,7 +37,7 @@ the end of the file (grep the symbol there, not `:84-85` — the interior lines 
 | prefix caching on a hybrid model | upstream `vllm/model_executor/models/config.py:349-379` — with `enable_prefix_caching`, `mamba_cache_mode` goes `"none"` → `"all" if supports_mamba_prefix_caching else "align"` (`:353`), logs `Mamba cache mode is set to '%s' for %s by default`, and `align` **asserts `enable_chunked_prefill`** (`:365-367`) and sets `mamba_block_size = block_size` (`:377-379`). Qwen3.5 declares no mamba-prefix-caching support, so a plain `--enable-prefix-caching` launch is in `align`: per-block SSM state, copied on hits. |
 | 310P re-implements that config step | `vllm_ascend/patch/platform/patch_mamba_config_310.py:84-85` (`align` ⇒ `mamba_block_size = cache_config.block_size`), `:68-73` (`"all"` ⇒ `attn_block_size`), `:86-100` (pad the mamba page to the attention page), registered on `HybridAttentionMambaModelConfig` at `:103`. The 310P-only patch can drift independently of the A2 one. |
 | MTP drives the same state | every hybrid request reserves `num_speculative_blocks` extra blocks (`core/single_type_kv_cache_manager.py:45`, `_310p/model_runner_310p.py:1000`), and `preprocess_mamba` copies the previous step's state into the last `1 + num_speculative_blocks` block (`patch/worker/patch_mamba_utils.py:227-266`). The postprocess then decides, per request, `accept_token_bias = aligned_new_computed_tokens - num_tokens_running_state` and rewrites `num_accepted_tokens` to 1 when the running state stays in the same block. |
-| the 310P-only difference in that postprocess | `_can_launch_triton_batch_memcpy()` is `return not is_310p()` (`patch_mamba_utils.py:22-23`), so on 310P the bindings at `:185-196` swap `collect_mamba_copy_meta`, `do_mamba_copy_block` and `postprocess_mamba_align_gpu` for torch/numpy fallbacks (`:56-176`, the align fallback at `:108-176`) and make `batch_memcpy` raise (`:178-183`). The accepted-token/block-align logic every other SoC runs in a Triton kernel runs as **Python pointer arithmetic over numpy views** here. |
+| the 310P-only difference in that postprocess | `_can_launch_triton_batch_memcpy()` is `return not is_310p()` (`patch_mamba_utils.py:22-23`), so on 310P the `if`/`else` at `:185-194` takes the 310P `else:` (`:189-193`), which rebinds `batch_memcpy` to a raise (`_batch_memcpy_unavailable`, `:178-182`) and swaps `collect_mamba_copy_meta`, `do_mamba_copy_block` and `postprocess_mamba_align_gpu` for torch/numpy fallbacks (`:56-176`, the align fallback at `:108-176`). The accepted-token/block-align logic every other SoC runs in a Triton kernel runs as **Python pointer arithmetic over numpy views** here. |
 | the 310P state dtype | `_310p/ops/fla/gdn_310.py:149-151` — `_310p_get_state_dtype` returns `torch.float16` for the SSM state (bound at `:185`), because `npu_recurrent_gated_delta_rule_310` has no fp32 state support (`:205-207`); the same call casts `q/k/v/beta` to fp16 (`:134-139`). Upstream's guidance is that fp32 is the dtype without accuracy issues, so 310P is the one lane with a half-precision recurrent state. |
 | the value the fallback reads is 310P-produced | `_310p/model_runner_310p.py:283-305` maintains `num_accepted_tokens` / `num_accepted_tokens_cpu`, including an `use_async_scheduling` branch that remaps through `prev_positions` and fills new requests with 1. That CPU array is exactly what `_postprocess_mamba_align_gpu_cpu_fallback` consumes. |
 
@@ -54,12 +54,12 @@ path has already been patched for exactly this interaction.
 At v0.23.0rc1 the 310P PR lane has **two separate tests and never the
 combination**:
 
-- `tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py:38-70,140-150`
+- `tests/e2e/pull_request/one_card/_310p/test_dense_model_310p.py:38-70,140-152`
   (`test_qwen3_5_dense_prefix_mamba_cache_tp1_fp16`) runs Qwen3.5-4B with
   `enable_prefix_caching=True, mamba_cache_mode="align", max_num_batched_tokens=2048,
   mamba_ssm_cache_dtype="float16", enforce_eager=True` and compares against
   `enable_prefix_caching=False` — **no `speculative_config`**.
-- `tests/e2e/pull_request/one_card/_310p/test_spec_decode_mtp_310p.py` runs
+- `tests/e2e/pull_request/one_card/_310p/test_spec_decode_mtp_310p.py:21-34` runs
   `speculative_config={"method": "qwen3_5_mtp", "num_speculative_tokens": 1}` —
   **no `enable_prefix_caching`**.
 
@@ -67,6 +67,17 @@ So "each feature alone passes CI on 310P" and "the product of the two is unteste
 any SoC that uses the fallback" are both true, and both belong in the first answer.
 Note what else the two tests pin, because it bounds the reporter's envelope: 4B
 weights, fp16, `--enforce-eager`, 8 generated tokens, 2048 context.
+**Read what that equality row actually exercises, because it re-orders the causes.**
+`QWEN3_5_PREFIX_MAMBA_PROMPTS` is one constant preamble (`QWEN3_5_PREFIX_MAMBA_PROMPT`)
+plus two different question lines, issued as `generate_greedy([prompt], max_tokens=8)`
+once per prompt per arm — so the second request **is** a prefix-cache hit under `align`
+with the fp16 state, and an on-vs-off `check_outputs_equal` already passes on it. The
+hit-side state copy alone is therefore CI-covered on the reporter's SoC: what no row
+covers is that same hit with `speculative_config` set, i.e. the accept-bias/align
+bookkeeping on a hit (consequence (b) above), not the copy in isolation. Row 2b below is
+how the reporter tells the two apart, and re-running this assertion with their
+`speculative_config` plus a repeated body is the one-line test this class of report is
+missing.
 
 ## The three launches
 
@@ -125,7 +136,10 @@ dropped MTP), while TP (4 vs 2), the checkpoint (W8A8 vs fp16), the card count (
 and the multimodal limit all **differ** between the two — so none of those axes can
 own the arm difference, neither feature alone is enough, and the pair is what is left.
 When a paste already carries one arm's result, name which arm it is and ask only for
-the other; do not send both rows back.
+the other; do not send both rows back — but ask for it **on the reporter's own box**:
+#16979's MTP-off arm ran TP2 on an fp16 checkpoint, so it does not close TP4/W8A8, and
+one launch (row 3) is still the ask. The cross-machine pair rules out the *axes*; only a
+same-box arm rules out the *flag*.
 
 That tag's own notes claim this repair, so quote the claim and refuse it in one line:
 `docs/source/user_guide/release_notes.md:80`, under `## v0.23.0 - 2026.07.31` /

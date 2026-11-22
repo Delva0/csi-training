@@ -31,6 +31,16 @@ Answer that form as the no-error-text form (coverage verdict + ladder + ask for 
 and its tail) and say which form the paste is in — never infer a mechanism from the
 missing text.
 
+**A paste that names only prefix caching, with no `vllm serve` line and no traceback at
+all, is the third form (recorded #9579).** It supplies neither the discriminator — whether
+`--speculative-config` is in the launch — nor a frame, so the first message is the
+**two-branch ranking**: row 1 below stays *conditional* on `--speculative-config` and the
+paste's silence is not evidence against it, because the block users copy is the tutorial's
+own `qwen3_5_mtp` launch with the cache flag flipped
+(`docs/source/tutorials/models/Qwen3.5-27B.md:118` for the validated block, `:137` for the
+caveat). Answer that form with both branches and the one check that separates them, never
+with a single cause.
+
 **Not every "GLM"/DeepSeek launch in this pair's shape is this page.** GLM-5/5.1 is
 `model_type: glm_moe_dsa` — DSA/MLA sparse attention, no mamba layers — so
 `mamba_cache_mode`, `mamba_block_size` and `preprocess_mamba` never enter it even with
@@ -202,14 +212,26 @@ the coverage verdict does not depend on it.
 
 ## What to send back
 
-The traceback — the attachment or screenshot failed to upload, so the text is the whole
-ask: name the file the body links (`errors.txt`), and ask for its last ~40 lines and the
-deepest three frames rather than the whole log — plus:
-whether it fails during engine init or on the first request; the startup lines
-`Mamba cache mode is set to 'align' …`, `Prefix caching in Mamba cache 'align' mode …
-experimental` and the `block_size` actually used; `KV cache size` / "Maximum concurrency"
-if the message is capacity-shaped; and confirmation of the reporter's own control
-(does it run with prefix caching off *and* with MTP off, or has neither been tried).
+**This page serves three cases, so the ask depends on the paste's form — take that form's
+row, not the first one listed.** The `errors.txt` ask belongs to #8913's failed upload; a
+paste that names no file has nothing to send, and asking for it reads as a misread of the
+report.
+
+**No-serve-line form (#9579).** First the **full `vllm serve` line**: whether
+`--speculative-config '{… "method": "qwen3_5_mtp" …}'` is in it is the whole ranking, so it
+is rung 0 and everything below is conditional on it. Then the traceback's last ~40 lines
+and its deepest three frames; whether it fails during engine init or on the first request;
+the startup lines `Mamba cache mode is set to 'align' …` and `Prefix caching in Mamba cache
+'align' mode … experimental` plus the `block_size` the engine actually resolved; and
+`KV cache size` / "Maximum concurrency" if the message is capacity-shaped.
+
+**Failed-upload form (#8913/#9003).** The `<details>` block holds exactly one
+`user-attachments` link — name it (`errors.txt`; the second id was `…27470681…`) and ask for
+its last ~40 lines and the deepest three frames rather than the whole log. Everything above
+about init-vs-first-request and the mamba startup lines applies unchanged.
+
+**Both forms:** confirmation of the reporter's own control — does it run with prefix
+caching off *and* with the speculative config off, or has neither been tried.
 
 ## Stop rule
 

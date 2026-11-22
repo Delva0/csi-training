@@ -762,10 +762,13 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `_can_launch_triton_batch_memcpy() = not is_310p()` swaps the Triton copy for
   torch/numpy fallbacks (`patch_mamba_utils.py:22-23,108-183`), and the GDN op forces an
   fp16 SSM state (`_310p/ops/fla/gdn_310.py:134-151`). Coverage verdict from the two 310P
-  PR-lane tests that never combine the features, the launch matrix (incl. the cache-hit vs
-  cache-miss split), the stop rule that cost #14339 its answer (42 K characters of
-  reasoning, no text on 17 turns), the re-check at the release pin `5cb98caa`, and the
-  second recorded report #17338 (27B W8A8, TP4, `FULL_DECODE_ONLY`) where the corruption
+  PR-lane tests that never combine the features — and the reading of the on-vs-off row
+  that matters for ranking: its two prompts share one preamble, so a prefix-cache hit
+  under `align` is already CI-covered and only the hit *with* spec decode is not — the
+  launch matrix (incl. the cache-hit vs cache-miss split), the stop rule that cost
+  #14339 its answer (42 K characters of reasoning, no text on 17 turns), the re-check at
+  the release pin `5cb98caa`, and the second recorded report #17338 (27B W8A8, TP4,
+  `FULL_DECODE_ONLY`) where the corruption
   arrives at 70-100 % acceptance, the mirror report #16979 (27B fp16, TP2, 32768 ctx) whose
   own MTP-off control closes the other arm at that tag, and the tag's release-note bullet
   that claims the repair (`release_notes.md:80`) with the Known-Issues absence that refutes

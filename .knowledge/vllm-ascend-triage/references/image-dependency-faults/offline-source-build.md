@@ -37,7 +37,14 @@ that is index visibility and wheel metadata, `pip-index-visibility.md`.
    and, if absent, runs `git submodule update --init --recursive`
    (`:19/:66/:144`) → `.gitmodules` → `https://gitcode.com/cann/catlass.git`.
    `csrc/third_party` is also in `.gitignore:214`, so a plain source checkout has
-   no catlass and this fetch always runs.
+   no catlass and this fetch always runs. The gate prints
+   `depdendency catlass is missing, try to fetch it...` (typo in the tree) and, on
+   failure, `fetch failed` + `exit 1` — so `fetch failed` names **this** leg before any
+   CMake line. It has two faces, and the reporter's next line separates them:
+   `fatal: unable to access 'https://gitcode.com/cann/catlass.git'` = no network, versus
+   `fatal: not a git repository (or any of the parent directories): .git` = the pod's
+   source tree was copied without `.git` (tarball / scp of the working dir), where no
+   amount of network access helps — the seeds in the table below still apply.
 4. `csrc/build_aclnn.sh:201` → `bash build.sh --pkg --ops=… --soc=…` →
    `csrc/build.sh` sets `CANN_3RD_LIB_PATH="${CURRENT_DIR}/third_party"`
    (`:73`), overridable with `--cann_3rd_lib_path=<PATH>` (`:1140-1142`), and
@@ -87,8 +94,13 @@ Two knobs that look like offline switches and are not:
    not fix a cmake fetch.
 3. Ask which leg failed (`fetch failed` from `build_aclnn.sh` vs a cmake
    `Downloading …` line) — that decides between the submodule and the tarballs and
-   is one line from the reporter.
-4. State that the image path (`Dockerfile*`) has network at build time, so "it
+   is one line from the reporter. Within `fetch failed`, the git error text splits
+   "no network" from "no `.git` in the copied tree" (step 3 above).
+4. Say why the pin's docs do not answer it: `docs/source/installation.md:123-132`
+   configures an **apt and a pip mirror only**, and no documented step covers the
+   submodule or the four cmake tarballs — a reporter who followed the docs and still
+   failed has not missed a step.
+5. State that the image path (`Dockerfile*`) has network at build time, so "it
    works in the image" is not evidence about the pod.
 
 ## Not verified

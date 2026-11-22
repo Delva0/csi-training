@@ -174,6 +174,15 @@ feature's fields. Two wasted calls worth avoiding: `rg -rn "dual_chunk"
 /workspace/history` (the `-r` replacement trap of SKILL.md rule 7 — it printed
 `self.n_attention_config` and nearly became a lead) and a `history-titles.sh`
 alternation that ORed a common model name into the regex (53 hits, none relevant).
+Replay against the page at the same pins: verdict in the **4th** assistant turn (one
+past G1) with only the owning page and this entry read, then two confirming reads that
+matched it (`dual_chunk_rope.py:37` + `:38-39`, and both
+`dual_chunk_attention_config is not None` sites in `get_rope`: `:47-55` the cache key,
+`:64-73` the class selection). The one defect it shipped came from this entry's
+page: it turned the page's passing "(it only adds `sparse_attention_config`)" into a
+*request-side* behaviour claim and asked the reporter for that config snippet — a page
+parenthetical about what config code **writes** is not a claim about what anything
+**reads**; the reader grep is now on the page and returns nothing at the pin.
 
 **#8345** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`), Qwen3-32B
 (**dense**) under PD with `MooncakeConnectorV1`, `--data-parallel-size 2
@@ -669,7 +678,16 @@ assistant turns (evidence table, the action ladder — drop the flag when the ch
 declares `quant_method`, import the config module before `make_arg_parser`, the offline
 `LLM(quantization=...)` spelling, upgrade — and the unverifiable "first fixed release"
 left open), and its own closing note flagged the
-gap this page then had. Route: `../startup-failures/quantization-method-gate.md` §D.
+gap this page then had. A second replay spent the same 9 turns and was cut by the cap
+mid-sentence (16 384 output tokens, ~900 characters shipped): it re-grepped the chain the
+page already cites, then found the one fact that reorders the answer — the pin's own w8a8
+tutorial serves the converted model **flagless**
+(`docs/source/tutorials/multi_npu_quantization.md:78`) and its single-card test does the same
+to a w8a8 export (`tests/singlecard/test_offline_inference.py:34`), with
+`rg -n -- '--quantization' docs/` returning nothing at all — and ran out of budget before it
+could rank that against §D's "no `quantization_config` by design" caveat. §D now carries
+both, the caveat scoped to §B's `-hfd` export (v0.9.2rc1).
+Route: `../startup-failures/quantization-method-gate.md` §D.
 
 **#4696** vllm-ascend v0.11.0rc0 (`00ba0710`) + vllm v0.11.0rc3
 (`8ce5d319`), Ascend 910B: `[Doc]` report that the Qwen2.5-Omni tutorial's
@@ -732,6 +750,15 @@ message text**. The decisive pair is `qwen3_vl.py:1327-1332` (a literal
 `"language_model.lm_head."`): the key the engine asks for cannot exist in a
 mapper-rewritten description, so the fix is the model file, not the export —
 `../startup-failures/empty-prefix-quant-keyerror.md` §*The renamed-prefix variant*.
+A re-recording of this paste, with the page already in the library, reached the page on
+its first grade call and delivered the diagnosis, the one-line fix and the "acceptance is
+a real request, not `/v1/models`" rung in 6 turns / 12.7 K output tokens — the
+shipped-nothing annotation above belongs to the pre-page run. Its one detour is the
+body's own 0.17 workaround (`将 "qwen3_vl_text" 修改为 "qwen3_vl"`): that literal is
+absent at `99e1ea0f` (`:141` is `"qwen3_vl_moe"`), `quant_prefix_mapper` is identity
+(`:432-434`) and `lm_head` is in no `packed_modules_model_mapping` entry, so the lever
+has no target at this ref and 0.17's own tree is not in the snapshot — now stated on the
+page instead of re-derived.
 
 **#2984** image `quay.io/ascend/vllm-ascend:v0.9.1` (vllm-ascend v0.9.1 `0740d10` +
 vllm v0.9.1 `b6553be`), four nodes × 8 × 910B3, `deepseek-ai/DeepSeek-V3` from ModelScope

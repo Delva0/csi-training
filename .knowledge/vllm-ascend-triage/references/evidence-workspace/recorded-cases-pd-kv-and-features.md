@@ -303,9 +303,13 @@ and the plog the reporter later supplied is the teardown of the one-sided servic
 `rtFreeHost … 507899`) — a consequence, not the cause; the thread closed non-reproducible
 after the reporter changed the deployment. Delivery: 19 assistant turns, 50.6 K characters
 of reasoning deriving the free-list invariant from the paste, **100 characters** of
-message text, cut inside a block that began "Let me step back and decide: budget." Pages:
-`../upstream-downstream-drift/kv-block-free-list-assert.md` (new — it carries the stop rule
-and the four per-trigger ablations).
+message text, cut inside a block that began "Let me step back and decide: budget." A later
+replay of the same report found the page on turn 11 and still shipped only at turn 23 after
+re-deriving the linked-list arithmetic the stop rule forbids; it did ship, with the pool's
+`free_blocks` call path as its top trigger — now trigger 1 on the page, so the same turn has
+one artifact to ask for instead of a mechanism to derive. Pages:
+`../upstream-downstream-drift/kv-block-free-list-assert.md` (it carries the stop rule, the
+connector's out-of-band free path and the five per-trigger ablations).
 
 **#15394** — image `v0.23.0-a3`, Atlas 800I A3 双机 PD over RoCE, Qwen3.5-122B-A10B-w8a8-mtp, P and D both
 TP16/DP1 (`--enable-expert-parallel`, `--enforce-eager` on P, `FULL_DECODE_ONLY` + `recompute_scheduler_enable`
@@ -457,7 +461,15 @@ cited ids cannot appear), which the run answered with two `github /search/issues
 `:118`/`:137` and nightly `--no-enable-prefix-caching` anchors the page already carried;
 the ranked verdict shipped on the 22nd of 24 assistant turns. Durable correction: a 0-hit
 corpus is expected and is not a licence to escalate — the precedent ids are the page's own
-record, and a lexical search needs a lexical signature. Page:
+record, and a lexical search needs a lexical signature. Second durable correction: the ask
+list is the one for **this paste's form** — the page's `errors.txt` ask belongs to #8913's
+failed upload and this paste names no file, while the missing `vllm serve` line (does it
+carry `--speculative-config`?) is what decides the ranking and belongs first. The positive
+route, worked to the end on a later run of this same case: `reference-locate.py` on the
+family tokens (`prefix-cache`/`Qwen3.5`/`hybrid`, 29 files), the `[case]` arrow to this
+entry, the owning page read from the skill, one pin check on the tutorial/nightly anchors,
+and the two-branch verdict with the serve-line ask shipped on the 8th assistant turn — no
+history search, no `/search/issues`. Page:
 `../spec-decode-mtp/hybrid-mtp-prefix-cache-unvalidated.md`.
 
 **#10098** vllm-ascend `releases/v0.18.0` (also "confirmed on origin/main"); snapshot pins

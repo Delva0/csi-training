@@ -2,7 +2,8 @@
 """Grade every reference page against the paste's distinctive strings.
 
     uv run --no-project python scripts/reference-locate.py TOKEN [TOKEN ...] \
-        [--root DIR] [--max N] [--min-grade N] [--regex] [--case] [--quiet]
+        [--root DIR] [--max N] [--min-grade N] [--regex] [--case] [--quiet] \
+        [--issue N]
 
 One token per argument: the paste's own error sentence, attribute / function /
 op / kernel name, numeric code, flag, or symptom phrase. The script greps
@@ -42,6 +43,16 @@ A **flag is a token as it stands**: `--compilation-config`, `--enforce-eager` an
 argument is taken as a token rather than rejected (argparse did reject it, which
 cost a call in recorded #6972); a dashed token is also matched without its
 leading dashes, because a page may spell the same knob `compilation-config`.
+
+A `[case arrows]` block is printed above the grades whenever a recorded entry shares
+two or more tokens and `case_first` did not already print it. A thick all-token grade
+is often family words while the report's own entry sits one grade down and is never
+opened: recorded #5075 had `-> #5075:82 (2/4)` in its printout, opened no entry, and
+re-derived it from source for ~20 turns. Pass `--issue <N>` with the report's own
+number (from the task title, with or without `#`) to have that entry marked
+`[YOUR CASE]` with its `sed` range — it is looked up by id across
+`evidence-workspace/recorded-cases*`, so it is found even when the tokens never
+matched its file.
 
 `[case]` marks a `references/evidence-workspace/recorded-cases*` hit, which is
 opened first (its entry is the case history). Its line carries the recorded entries
@@ -220,7 +231,7 @@ def case_first(refs, counts, tokens, regex, case, best_grade, ntok):
     noise, and a thick grade's arrows are listed in place.
     """
     if best_grade >= ntok:
-        return
+        return set()
     best = []
     for path in counts:
         rel = os.path.relpath(path, refs)
@@ -232,7 +243,7 @@ def case_first(refs, counts, tokens, regex, case, best_grade, ntok):
                 continue
             best.append((-int(m.group(3) or 0), rel, m.group(1), int(m.group(2))))
     if not best or -best[0][0] < 2:
-        return
+        return set()
     best.sort()
     print("[case-first] a recorded case carries this paste \u2014 open it before any")
     print("  /workspace/repos grep:")
@@ -245,6 +256,7 @@ def case_first(refs, counts, tokens, regex, case, best_grade, ntok):
             max(1, line - 30), line + 40, rel, cid, line))
         if len(seen) >= 2:
             break
+    printed = set(seen)
     print("  The (n/m) beside an arrow is not a filter: an entry quotes the reporter's own")
     print("  wording, so a real match can grade 2-of-4 while family words fill 100+ pages.")
     print("  Confirm the versions, model and stack before adopting its ladder \u2014 an arrow")
@@ -252,6 +264,99 @@ def case_first(refs, counts, tokens, regex, case, best_grade, ntok):
     print("  ladder from source spends the budget (#5643: this arrow was printed, its file")
     print("  name greped twice, the entry never opened, `expert_load_balancer.py` re-read")
     print("  for 14 calls).")
+    print()
+    return printed
+
+
+def find_own_entry(refs, own_issue):
+    """`(rel, line)` of the entry whose heading carries the report's own id.
+
+    A recorded-cases page can hold dozens of entries and the own one is not
+    always in a file the query tokens matched, so look for the id itself across
+    the whole evidence family: the own entry is an earlier run of this very case.
+    """
+    if not own_issue:
+        return None
+    want = str(own_issue).lstrip("#")
+    pat = re.compile(r"^\s*(?:-\s+)?\*\*#" + want + r"\*\*"
+                     r"|^#{1,4}\s.*#" + want + r"\b")
+    root = os.path.join(refs, "evidence-workspace")
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        if not name.startswith("recorded-cases"):
+            continue
+        path = os.path.join(root, name)
+        try:
+            lines = io_lines(path)
+        except OSError:
+            continue
+        for idx, line in enumerate(lines):
+            if pat.match(line):
+                return (os.path.relpath(path, refs), idx + 1)
+    return None
+
+
+def io_lines(path):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return fh.read().splitlines()
+
+
+def case_arrows_early(refs, counts, tokens, regex, case, printed, own_issue=None):
+    """Print the case arrows above the grades when `case_first` stayed silent.
+
+    `case_first` prints nothing once some page carries every token, but a thick
+    all-token grade is often a list of *family* words while the report's own
+    recorded entry sits one grade down and is never opened. Recorded #5075: the
+    all-token grade held 17 files, `-> #5075:82 (2/4)` sat in the `3-of-4` grade
+    (the reporter's own issue id), no entry was opened, and ~20 turns re-derived
+    from source what that entry already held. The arrows cannot be ranked into
+    one winner (a neighbour can share more tokens than the own case), so this
+    prints them with their files and lets the id decide; `--issue` marks the
+    report's own number when the caller passes it.
+    """
+    own = find_own_entry(refs, own_issue)
+    rows = []
+    seen = set()
+    for path in counts:
+        rel = os.path.relpath(path, refs)
+        if "recorded-cases" not in rel:
+            continue
+        ptrs = [p for p in case_pointers(path, tokens, regex, case)
+                if p not in printed]
+        keep = []
+        for ptr in ptrs:
+            m = PTR.match(ptr)
+            if not m or int(m.group(3) or 0) < 2:
+                continue
+            if (rel, m.group(1)) in seen:
+                continue
+            seen.add((rel, m.group(1)))
+            keep.append(ptr)
+        if keep:
+            score = max(int(PTR.match(p).group(3) or 0) for p in keep)
+            rows.append((-score, rel, keep))
+    if not rows and not own:
+        return
+    rows.sort()
+    if printed:
+        print("[case arrows] further entries share this paste \u2014 one may be this")
+        print("  report's own earlier run; open it before the topical pages below:")
+        limit = 2
+    else:
+        print("[case arrows] an arrow whose id is this report's own issue number is an")
+        print("  earlier run of this case \u2014 its entry already holds the ladder and the")
+        print("  corrections, so open it before the topical pages below (#11450; recorded")
+        print("  #5075 skipped its own arrow and re-derived it for ~20 turns). The (n/m)")
+        print("  does not rank them: an entry quotes the reporter's own wording.")
+        limit = 3
+    if own:
+        print("  [YOUR CASE] sed -n '{},{}p' <skill_root>/references/{}   (#{}, line {})"
+              .format(max(1, own[1] - 30), own[1] + 40, own[0],
+                      str(own_issue).lstrip("#"), own[1]))
+    for _score, rel, keep in rows[:limit]:
+        print("  {}   \u2192 {}".format(rel, ", ".join(keep)))
+    if len(rows) > limit:
+        print("  (+{} more arrow files in the grades below \u2014 scan their ids)"
+              .format(len(rows) - limit))
     print()
 
 
@@ -276,6 +381,9 @@ def main():
     ap.add_argument("--regex", action="store_true", help="treat tokens as regexes")
     ap.add_argument("--case", action="store_true", help="match case-sensitively")
     ap.add_argument("--quiet", action="store_true", help="suppress the token summary")
+    ap.add_argument("--issue", default=None,
+                    help="the report's own issue number: marks that case arrow as this "
+                         "task's earlier run")
     args, extra = ap.parse_known_args()
     # A flag is a first-class token here: the paste's own `--compilation-config`
     # begins with dashes, so argparse must not eat it as an unknown option.
@@ -332,7 +440,9 @@ def main():
         print("    index.md rule 4.")
         print()
 
-    case_first(refs, counts, args.tokens, args.regex, args.case, best, n)
+    printed = case_first(refs, counts, args.tokens, args.regex, args.case, best, n)
+    case_arrows_early(refs, counts, args.tokens, args.regex, args.case, printed,
+                      args.issue)
 
     lo = min(args.min_grade, n)
     for grade in range(n, lo - 1, -1):

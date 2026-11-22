@@ -92,6 +92,14 @@ leads were.
   text by turn 3 (already passed …) I need to send the deliverable", then sent two tool
   calls with empty text; its last turn was 14.4 K characters of reasoning holding the
   whole ranked answer and the repro script, cut inside it, 67 characters shipped.
+  Recorded #17338's replay reached the same gate on its 3rd turn — "per gates: G1 is 3rd
+  assistant turn … I should now deliver" — then sent an empty-text block whose stated
+  purpose was to learn *which issue it was answering* (the banned history listing) and
+  shipped only on its 6th turn, the whole answer still unwritten at the gate. The id was
+  already in the located page's own `recorded #17338` heading, and G2b admits an id only
+  as a public `#<id>: <fact>` precedent, never as the report's own identification — so an
+  unresolved id, attachment or provenance question never blocks a verdict that is in
+  hand.
 - **The hypothesis sweep is its own cut risk.** Weighing three or more "alternatively /
   another candidate" branches in one reasoning block is the same spend as writing
   them as ranked lines, with no artifact. #15527 spent ~12 K characters twice on two

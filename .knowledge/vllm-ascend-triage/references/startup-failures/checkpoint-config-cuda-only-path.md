@@ -41,10 +41,19 @@ aborts the engine.
 - The selector is the checkpoint, not the launch command:
   `rotary_embedding/__init__.py:64-73` chooses `DualChunkRotaryEmbedding` purely on
   `dual_chunk_attention_config is not None`, forwarding only `chunk_size` /
-  `local_size`. `vllm/config/model.py:1018-1033` also fires
-  `verify_dual_chunk_attention_config()` whenever the key exists (it only adds
-  `sparse_attention_config`). **No CLI flag or env var reaches or bypasses the
-  branch.**
+  `local_size` (the same function holds a second `is not None` at `:47-55`, which only
+  builds the `_ROPE_DICT` key and drops `sparse_attention_config` from it).
+  `vllm/config/model.py:1018-1033` also fires `verify_dual_chunk_attention_config()`,
+  from `VllmConfig.__post_init__` (`config/__init__.py:302-311`, i.e. before any
+  weight is touched), whenever the key exists. What that adds is
+  `sparse_attention_config` — read from the model dir's `sparse_attention_config.json`
+  (`weight_utils.py:312-342`) — plus `sparse_attention_enabled: True`, and **nothing
+  at this pin reads either key**: the whole-tree hits are that write block
+  (`model.py:1030-1033`) and the rope cache-key filter above, and
+  `rg -ni 'sparse_attention'` over the pinned vllm-ascend tree returns zero. So a
+  sparse-attention key beside the rope key changes no request behaviour — do not ask
+  the reporter for that snippet and do not let it move the verdict. **No CLI flag or
+  env var reaches or bypasses the branch.**
 - Nothing downstream replaces it: `vllm_ascend/ops/rotary_embedding.py:24-26`
   imports and patches only `RotaryEmbedding`, `MRotaryEmbedding`,
   `YaRNScalingRotaryEmbedding`, `DeepseekScalingRotaryEmbedding`. `rg -n dual_chunk
@@ -61,7 +70,10 @@ aborts the engine.
   `vllm_ascend/attention/` — there is no Ascend dual-chunk attention. Treat the
   "patch line 37 to `torch.device(\"npu\")` and ship" idea as a **hypothesis** until
   it is run: the forward path is portable but the 5×-wide query has no consumer, so
-  the expected next failure is a reshape/`view` error or silently wrong numbers.
+  the expected next failure is a reshape/`view` error or silently wrong numbers. Read
+  `:37` together with `:38-39`: `self._compute_cos_sin_cache()` is the very next
+  statement, so a device patch relocates every one of the five caches rather than
+  skipping them — quote both lines whenever the patch idea is discussed.
 
 **The same `-1M` family has a second, unrelated recorded failure — do not let the
 family match pull the answer.** A `history/` search for `dual_chunk|Instruct-1M`

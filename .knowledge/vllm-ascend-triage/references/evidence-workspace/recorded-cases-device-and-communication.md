@@ -133,6 +133,22 @@ rows can differ from the kv rows under graph buckets, the DSA-CP slice
 the last turn a 14.4 K block holding the whole ranked answer cut at the cap. Page:
 `../custom-ops-runtime-faults/tiling-attribute-rejection.md`.
 
+**#4373** vllm-ascend v0.11.0rc1 (`c5fe179`) + vllm `0.11.0+empty`, BigKernel prompt FA:
+`npu_fused_infer_attention_score_symint … call aclnnFusedInferAttentionScoreV3 failed,
+error code is 561002` then `E89999 … When layout is TND, not support Page Attention[FUNC:
+RunBigKernelTilingWithParams][FILE:prompt_flash_attention_tiling.cpp][LINE:3400]` +
+`FusedInferAttentionScore do tiling failed, ret is -1`, traceback through
+`patch_attention_layer.py:67 → attention_v1.py:593 → :691 → :668 → :539`. Track: built-in op
+tiling **capability** refusal (nothing launched), owner = the installed toolkit; the
+pin documents `CANN >= 8.3.RC1` (`docs/source/installation.md:15`) and the collect_env block
+carried only the two vllm lines. The run verified the launch pair at `:540-554` (`block_table`
+with `input_layout="TND"`, `sparse_mode=3`) and ranked it cause 1 — chunked-prefill avoidance
+rung 1, the CANN pairing rung 3 marked unverifiable — then shipped a full answer on that
+ranking (run: complete answer, wrong order). The reporter's public follow-up the same day:
+*"updating cann version to 8.3 can solve this."* Page:
+`../custom-ops-runtime-faults/tiling-capability-refusal-cann-release.md`; the `not support`
+verb, not the launch arguments, is what separates it from `#6243`.
+
 **#6529** vllm-ascend v0.14.0rc1, DeepSeek-V3.2 on the pinned 4-machine 1P1D recipe
 (2 P nodes `--enforce-eager`, 2 D nodes with `FULL_DECODE_ONLY` + `deepseek_mtp` +
 `--async-scheduling`, decode DP8 × TP4): the first `curl` takes **both** D nodes down with
@@ -1130,3 +1146,39 @@ Qwen3.5 checkpoint. The run delivered twice, corrected its own "preview only" ve
 after finding `tests/e2e/310p/singlecard/test_dense_model_singlecard.py:75,91` running
 `Qwen/Qwen3.5-4B` on 310P single card, and turned that row into the config control.
 Page: `../soc-platform-paths/310p-cpu-fallback-op-fault.md`.
+
+**#5684** image `quay.io/ascend/vllm-ascend:v0.13.0rc1` (pin v0.13.0rc1 `1b5d5ab` ↔
+vllm v0.13.0 `72506c9`), one Atlas 800 A2 server — 16 `910B2C` dies at `65536 MB`
+across 8 Bus-Ids, `npu-smi` 24.1.0, CANN 8.3.RC2 — DeepSeek-V3.2-W8A8
+`--quantization ascend --tensor-parallel-size 16 --enable-expert-parallel
+--async-scheduling --max-model-len 16384 --max-num-batched-tokens 4096
+--gpu-memory-utilization 0.8`, `cudagraph_capture_sizes [4,16,32,48,64]` +
+`FULL_DECODE_ONLY`, under the `DeepSeek-V3.1.md` **single-node (A3)** env block
+(`HCCL_OP_EXPANSION_MODE=AIV`, `VLLM_ASCEND_ENABLE_MLAPO=1`,
+`VLLM_ASCEND_BALANCE_SCHEDULING=1`, `PYTORCH_NPU_ALLOC_CONF=expandable_segments:True`),
+started from a container that mounts `davinci0…15`. Every rank dies inside
+`determine_available_memory` → `profile_run`'s MC2 dummy run: `call
+aclnnMoeDistributeDispatchV3 failed, error code is 561000`,
+`Nnopbase fails to invoke the HcclAllocComResourceByTiling … ret = 4`. Read the
+box right: the tutorial's w8a8 row is *1 A3 (64G × 16)* **or** *2 A2 (64G × 8)*, and
+the only single-node recipe at that pin is A3 `dp4tp4`, so a TP16 single-A2-box
+launch is the A3 recipe with the DP factor folded into TP. Delivery: two full
+answers, the second correcting the first's A2 recipe shape (that row is
+`--data-parallel-size 4 --data-parallel-size-local 2 --tensor-parallel-size 4` across
+two nodes, not DP2×TP8) and hardening the verdict to the topology invariant, which the
+later public evidence leaves standing rather than refutes. The reporter's own follow-up
+thread says the advice
+they had collected was "cann8.2, hdk 24.1, vllm-ascend v0.13.0rc1 can be deployed"
+(#5468) and asks how to check/downgrade CANN — their dump was already on the pin's
+documented CANN (`installation.md:15` `== 8.3.RC2`, `Dockerfile:18`
+`FROM cann:8.3.rc2`) — and then they re-ran on an 8.2-based `v0.11.0rc0` image with
+pip `vllm==0.13.0` + `vllm-ascend==0.13.0rc1` on top: same phase, sibling code
+(`aclnnMoeDistributeDispatchV2 … 107000`, `Parameter verification failed` / `EL0003`,
+`ret = 2`, `Failed to allocate resource[DeviceMemory] with info
+[size:140737488355328]` = 2^47 B). The launch line was the only constant between the
+two attempts, so the topology/AIV invariants stay ranked first; the retry is **not** a
+clean CANN-8.2 control (its pip layer skewed a 0.11.0rc0 `torch_npu` under
+vllm-ascend 0.13.0rc1) and #5684 has no public resolution. Pages:
+`../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` §Step 3b2 (CANN-pairing
+negative + the `107000`/`ret = 2`/128 TiB sibling), and
+`../hccl-and-hardware/index.md` (one-box branch paragraph).

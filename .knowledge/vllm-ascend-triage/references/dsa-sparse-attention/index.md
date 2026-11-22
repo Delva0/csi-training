@@ -34,10 +34,18 @@ Reports on the DSA / SFA sparse-attention families — DeepSeek-V3.2-Exp
   no op-specific build question exists; the three-gate verdict (device gate →
   `build_aclnn.sh` branch → `AddConfig` list) is
   `../custom-ops-runtime-faults/custom-ops-disabled-by-device-type.md`.
+- the same op with the tiling's **two-number** shape refusal —
+  `sparse indices layout is TND, shape is [4996, 1, 2048], expected shape is
+  [512, 1, 2048]` + `SparseFlashAttention do tiling failed, ret is -1` — on a serve
+  with `enable_dsa_cp: true`, where the two T values are a per-rank query row count and
+  a metadata/budget row count (the index-cache branch at `sfa_v1.py:1328` slices
+  `topk_indices_buffer` by `num_input_tokens`): `sfa-sparse-indices-row-mismatch.md`.
 - an SFA/LI **C8** deployment (`enable_sparse_sfa_c8`, `enable_sparse_li_c8`,
   `c8_enable_reshape_optim` in `--additional-config`) whose **prefill node stops
   answering**, whose first request is garbled, or which only loses accuracy — the flag
-  algebra, the two `store_kv_block*` custom ops and the pinned per-weights recipes —
+  algebra, the two `store_kv_block*` custom ops, why a command that never sets
+  `c8_enable_reshape_optim` is **already on the fallback scatter write** (so that
+  custom-op surface is not evidence about its fault) and the pinned per-weights recipes —
   `c8-flags-and-kv-store-path.md`. When the accuracy loss is a **comparison against
   another quantized checkpoint** ("w8a8c8 below w4a8c8"), the attribution order (control
   row, recipe/node-count confound, the lane's 2-3 point floor, model validation) is
@@ -84,6 +92,14 @@ is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
   is `ScatterNdUpdate_…`, the question is which index tensor the call passed and
   how many rows it had — not which card is bad. A bad card does not depend on batch
   composition.
+- **A `CompareShape` refusal that prints both Ts is an arithmetic check, not a source
+  hunt.** The first `T` is the tensor the caller passed, the second the query rows the
+  tiling derived, so divide each by the flags you were given (`tp`,
+  `--max-num-batched-tokens`) and stop: on #11080 `512 = 4096/8` was a per-rank count
+  while `4996` was not a multiple of it and exceeded the token budget, i.e. two
+  independent counts, one local and one from metadata. No `pcp`/`dcp` factor explains
+  such a pair, and the tiling source is in no export —
+  `sfa-sparse-indices-row-mismatch.md` carries the owner table and the op-spy.
 - **Batch composition is the free discriminator.** These faults follow mixed
   prefill+decode batches, chunked prefill boundaries and CP padding, so the
   confirmation is a run with one request in flight versus the failing concurrency;

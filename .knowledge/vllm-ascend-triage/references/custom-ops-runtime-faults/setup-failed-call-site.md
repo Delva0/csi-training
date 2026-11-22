@@ -21,7 +21,7 @@ launched, so no card, HCCL, OOM or driver claim applies. The `mki_log … atb` l
 immediately before it is ATB's first-use banner (string in no export — label it as
 consistent-with, not proof).
 
-## Which of the six `setup failed!` surfaces this is
+## Which of the seven `setup failed!` surfaces this is
 
 | Text | Owner | Page |
 |---|---|---|
@@ -31,6 +31,7 @@ consistent-with, not proof).
 | `<Op>Operation setup failed!` beside `507018` / `RunCpuKernel` | the op ran on the CPU/AICPU fallback kernel | `../soc-platform-paths/310p-cpu-fallback-op-fault.md` |
 | `SelfAttentionOperation setup failed!` with **no** `--speculative-config` at all, a dense model and one **long** prompt (12 732 tokens on `--max-num-batched-tokens 14336`) | the dense V1 one-shot prefill branch handing ATB a `[prompt, prompt]` mask — branch first, kernel contract not derivable (§ below) | this page, second section |
 | `SelfAttentionOperation setup failed!` **plus** an ATB log line `tensor dimNum 0 is invalid … inTensor [N] CheckTensorShape failed` | the caller passed a `None`/empty tensor into the pack — find the never-bound attribute, do not read the op's shape contract | `atb-input-dim0-none.md` (recorded #2779) |
+| `RopeOperation setup failed!` (ATB **Rope**) at the first forward inside a `torch.compile` warm-up, `op_plugin_atb` frames only, **no** Python frame in the paste, on a VL / M-RoPE model (GLM-4.1V) that starts on A2 and dies on an `-a3` image | the rope call site in `vllm_ascend/ops/rotary_embedding.py` `_rope_forward_oot`: three routes, and which one ran is the question. No export carries the ATB Rope source, so the answer is a one-launch route flip, not a source walk | this page, section `#3706` |
 
 All of them mean the same phase. What differs is *who assembled the pack*, and the
 paste answers that: read the deepest `vllm_ascend` frame, then read the size
@@ -39,6 +40,68 @@ arguments it passes.
 A **`CreateOperation failed!`** message is not in this table and is not a pack question at
 all: it fires before any tensor is described, so the owner is the ATB build × SoC —
 `atb-create-operation-failed.md` (recorded #5170, 310P).
+
+## #3706: `RopeOperation setup failed!` on an `-a3` image, same model fine on A2
+
+Recorded #3706: GLM-4.1V-9B-Thinking on `vllm-ascend:v0.10.2rc1-a3-openeuler`;
+A2 starts the same model. The paste is a screenshot OCR, so the frames are interleaved —
+what is certain is the wording and the phase:
+
+```text
+(EngineCore_DP0 pid=7998) INFO … Compiling a graph for dynamic shape takes 1.93 s
+[rank0]:[E1023 17:02:23…] RopeOperation setup failed!
+Exception raised from OperationSetup at build/third_party/op-plugin/op_plugin/CMakeFiles/op_plugin_atb.dir/compiler_depend.ts:151
+frame #0: c10::Error … ; frame #2: atb::OperationSetup(…) in libop_plugin_atb.so …
+```
+
+`OperationSetup` ⇒ this page's family (the caller's pack), **not**
+`CreateOperation failed!` (`atb-create-operation-failed.md`). The phase is decidable from
+the line above it: the first forward inside the `torch.compile` warm-up, before any
+request. Everything below was re-verified at vllm-ascend v0.11.0rc0 (`00ba0710`) /
+vllm v0.11.0rc3 (`8ce5d319`), the #3706 view's pins — one rc newer than the reported image,
+so quote the scope.
+
+- **Which rope route vllm-ascend takes** (`vllm_ascend/ops/rotary_embedding.py`
+  `_rope_forward_oot`): (a) the custom kernel `torch.ops._C_ascend.rotary_embedding`, gated
+  on `query.dtype == float16 and neox_style and head_size % 32 == 0 and
+  enable_custom_op()` and `not is_310p()` (`:31-33`, `:50-56`); (b) `torch_npu.
+  npu_apply_rotary_pos_emb` when `self.cos`/`self.sin` were precomputed, whose own comment
+  says it "requires head_size and rotary_dim equal 128 and neox_style is True" (`:63-72`);
+  (c) `torch_npu._npu_rotary_embedding(positions, q_rot, k_rot, self.head_size,
+  self.cos_sin_cache, is_neox_style)`, reached for `rotary_dim < head_size` (`:73-90`) and
+  for the full-rotary default (`:96-105`). The failing op is one of (b)/(c) — the dtype gate
+  in (a) is what keeps a **bf16** serve off the custom kernel and on the `torch_npu` route,
+  which makes `--dtype float16` a genuine one-launch **route** flip, not a precision tweak.
+- **`npu_rotary_mul` is not on this path**, so do not credit the VL vision tower: it occurs
+  only in vllm-ascend's own Qwen-VL copies (`models/qwen2_vl.py:93`, `qwen2_5_vl.py:104`,
+  `qwen2_5_vl_without_padding.py:111`), which `models/__init__.py` registers **per arch**
+  (`Qwen2VLForConditionalGeneration`, `Qwen2_5_VL…`, `Qwen3VL…`) and GLM never selects; and
+  upstream `glm4_1v.py:81` imports `apply_rotary_pos_emb_vision` from `qwen2_vl`, which is
+  pure-torch (`apply_rotary_emb_torch`). One grep of the pin's `register_model()` answers
+  this in a single call.
+- **The ATB API↔op mapping is not locally decidable, and that is quotable.** In the #3706
+  view `Ascend/op-plugin` is a 107-file partial export with **zero** `rotary` hits and no
+  `atb/` directory, and `rg -ln 'op_plugin_atb|atb::'` over the whole view returns nothing.
+  One grep, then stop: name which route is unverified and spend the turn on the flip.
+- **Two one-launch ablations, and only these:** `--enforce-eager` (removes `torch.compile`,
+  the phase the paste shows — require its own line
+  `Compilation disabled, using eager mode by default` in the result) and `--dtype float16`
+  (flips the route per the gate above). A2-versus-A3 is a *dispatch/dtype* difference on
+  that line, not a driver or privilege question — do not carry `--privileged`, the
+  driver-pairing or the `platform_config` lane into it.
+- **Coverage, stated before any recipe:** `Glm4vForConditionalGeneration` is not in the
+  pin's `register_model()` and has no row in `docs/source/user_guide/support_matrix/
+  supported_models.md` (the GLM rows there are GLM-4.5 ✅, GLM-4 ❌#2255, GLM-4-0414
+  ❌#2258, GLM-4V ❌#2260), so there is **no validated recipe** for this pair and the op
+  fault is the manifestation — later attempts will surface *different* errors.
+- **Do not rank "upgrade for the partial-rotary fix"**: the release note
+  "Fix accuracy issue on models whose rope dim is not equal to head dim, e.g. GLM4.5"
+  (#2601) sits under **v0.10.1rc1**, i.e. the reporter's v0.10.2rc1 image already has it.
+  Read the version heading above the bullet before citing a fix as a rung.
+
+#11080's sibling lesson applies: this run shipped no message either (15 turns, 743
+characters of text, cut inside a reasoning block), while the phase, the route table and both
+ablations were already in hand.
 
 ## The recorded mechanism at `f025df05f614` (source-verified sizes)
 

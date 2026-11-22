@@ -95,6 +95,20 @@ Conditional routes:
   (300I/310P arrives in v0.9.1rc1; v0.9.0rc2 has one `310p` string in the whole tree)
   before quoting any doc, and read the reporter's quoted model list as the version
   marker it is.
+- Engine start dies **inside capture/warm-up** on a `-310p` image with
+  `RuntimeError: status == aclmdlRICaptureStatus::ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE
+  INTERNAL ASSERT FAILED at "build/CMakeFiles/torch_npu.dir/compiler_depend.ts"` out of
+  `collective_rpc("compile_or_warm_up_model")`, while the same command runs on a 910B:
+  the 300I lane is **eager-only at that pin** — its tutorial passes `--enforce-eager` in
+  every example and its `LLM()` tabs comment "For 300I series, only eager mode is
+  supported" (`docs/source/tutorials/single_node_300i.md:65,94,135,194,237` at v0.9.2rc1;
+  later pins move and reword that note, see `atlas-300i-310p.md`) — while
+  `platform.py:172-181` does not gate the PIECEWISE branch on the SoC, so the default
+  serve attempts capture. The assert is torch_npu `NPUGraph::capture_begin`'s post-begin
+  check (`NPUGraph.cpp:161-162`, `Ascend/pytorch` `d33df55`), i.e. `AclmdlRICaptureBegin`
+  "succeeded" and the stream never entered ACTIVE — rung 1 `--enforce-eager`
+  (+ `--dtype float16`); full reading in `../startup-failures/acl-graph-capture.md`
+  §Step 0b (#1768 follow-up, Atlas 300I Duo).
 - 310P start-up dies at **KV sizing** with `Available KV cache memory: … (halved
   for workspace)` and `ValueError: To serve at least one request with the model's
   max seq len …`, while `npu-smi` shows free HBM (often the second engine on one

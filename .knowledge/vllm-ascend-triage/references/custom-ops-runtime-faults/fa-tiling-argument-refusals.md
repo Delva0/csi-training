@@ -17,7 +17,10 @@ shared across unrelated lanes (`moe-init-routing-tiling.md`,
 Not this page: the same refusal from **`npu_fused_infer_attention_score`**
 (`aclnnFusedInferAttentionScoreV3`, `CheckFAISeqlenDataInTND`,
 `queryT(16) must be equal to the last element of actualSequenceLengthQ(13)`) —
-`../spec-decode-mtp/fia-tnd-seqlen-mismatch.md`; the **rank** of a caller-built
+`../spec-decode-mtp/fia-tnd-seqlen-mismatch.md`, nor its **capability** sibling
+(`When layout is TND, not support Page Attention` out of `RunBigKernelTilingWithParams`,
+where the installed toolkit's tiling has no paged-TND path and the CANN release is the
+answer — `tiling-capability-refusal-cann-release.md`); the **rank** of a caller-built
 mask (`atten mask dim should be 2 or 4, but got 3` out of the same
 `AnalyzeOptionalInput`/same `.cpp`, #115) — `tiling-attribute-rejection.md`
 §*Mask rank*, which reaches this page's conclusion on a different rejected property

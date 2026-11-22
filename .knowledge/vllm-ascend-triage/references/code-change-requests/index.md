@@ -13,7 +13,10 @@ that is correct for serving but breaks **live weight reload** in an RL rollout
 worker — "gate `dispose_layer(kv_b_proj)` behind a capability flag", usually with
 `AssertionError: param_data.shape == loaded_weight.shape` and `load_format: dummy`.
 The deliverable is a change plan plus the one check that proves the emptied
-parameter, not a load-phase diagnosis (`live-weight-reload-vs-disposal.md`); an RL
+parameter, not a load-phase diagnosis (`live-weight-reload-vs-disposal.md`); the same
+class reached by an in-place **rewrite** instead of a disposal is
+`RuntimeError: shape '[-1, 3, 80, 1280]' is invalid for input size <M>` at step 2 of an
+RL loop over a Qwen2.5-VL/Qwen2-VL checkpoint (`vl-weight-pad-not-idempotent.md`); an RL
 weight sync that fails **inside a collective** is
 `../hccl-and-hardware/weight-sync-hccl-cascade.md` instead.
 
@@ -119,3 +122,15 @@ page (`../tutorial-verification/index.md`).
    upgrades "statically unreachable" to "semantically dead"; without it the honest
    verdict is "fix the guard, then re-evaluate", and "delete the fallback, Ascend covers
    GDN" overstates it.
+11. **A reload contract broken by an in-place *rewrite* is the same class as one broken by
+   disposal, and its tell is a division, not a source walk.** When the RL worker dies on
+   the second-and-later `load_weights` with a `reshape … invalid for input size M` whose
+   last two dims are the vision tower's `origin_head_size` and `hidden_size`, the tensor is
+   the **already padded** qkv weight: `M / (3 · head_dim · hidden)` comes out at exactly
+   `1.6 × heads_per_partition`, because the downstream pad (head_dim 80 → 128) runs on
+   `param.data` on every call. Serving cannot reproduce it (one load), the first load is
+   clean, and the confirming evidence is the per-rank split — some ranks raise in the shard
+   loader instead of at the pad. A guard on the unpadded shape is necessary but not
+   sufficient: the loader takes its offset from the padded destination, so check the write
+   before proposing it. Anchors, arithmetic table and ladder:
+   `vl-weight-pad-not-idempotent.md` (#809).

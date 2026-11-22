@@ -575,8 +575,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   default 0 → **default `'1'` at v0.11.0**, swapping the whole sampler), the fused
   `torch_npu.npu_top_k_top_p(logits, p, k)` condition including `top_p`-only batches, the
   per-*batch* lane choice that lets one row without `top_k` send every row to the sort
-  path, the D2H sync on the sample path (#4771's crash line), and the rung order for a
-  0.1%-rate report (#6338).
+  path, the D2H sync on the sample path (#4771's crash line), the **crash** form of that
+  same line — `current working operator name is aclnnCat` is another statement's op, and
+  Rule 1a maps it to the two v1 `torch.cat` sites — and the rung order for a 0.1%-rate
+  report (#6338).
 - `sampler-side-stream-corruption.md` — `temperature>0` output carrying `<pad>` /
   token id 0 / repeated or garbage tokens while greedy is byte-identical and the rate
   tracks concurrency: `random_sample()`'s `q` on `global_stream()`

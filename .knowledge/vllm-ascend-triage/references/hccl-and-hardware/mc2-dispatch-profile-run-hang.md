@@ -247,9 +247,46 @@ documented single-node DP4×TP4, (b) the `HCCL_INTRA_*` pair if the box really i
 (c) the plog line at the failure second before any CANN-internals rung. Say plainly
 that "is it fixed in a later release" cannot be answered from the snapshot.
 
+- **Price the image/CANN lane from the pin, once, before a topology rewrite.** The
+  release states its own pairing: at v0.13.0rc1 `docs/source/installation.md:15` is
+  `CANN | == 8.3.RC2` and `Dockerfile:18` is
+  `FROM quay.io/ascend/cann:8.3.rc2-910b-ubuntu22.04-py3.11`
+  (`bash <skill_root>/scripts/image-recipe-inventory.sh <root> --soc 910b` prints both).
+  Compare that with the `CANN:` block the report already carries
+  (`package_name=Ascend-cann-toolkit version=…`, plus the `npu-smi` header for the
+  HDK). When they match, the container is on the release's own CANN and "upgrade /
+  downgrade CANN" is **not** a lever for an op-level resource refusal: say so, and
+  answer "how do I check my CANN version" from that line instead of a shell command.
+  Recorded #5684: the environment dump already printed CANN 8.3.RC2 / `npu-smi`
+  24.1.0, i.e. the documented pairing, while the advice the reporter had collected
+  from another thread (#5468) was "cann8.2, hdk 24.1, vllm-ascend v0.13.0rc1 can be
+  deployed" and they were about to move off-pin. Naming the pin is the cheap negative
+  that keeps them on it.
+- **`107000` with `ret = 2` and a 128 TiB request is this lane, not OOM.** #5684 came
+  back a second time on an 8.2-based image (`v0.11.0rc0`) with
+  `pip install vllm==0.13.0` + `vllm-ascend==0.13.0rc1` on top, and died in the same
+  `determine_available_memory` phase as `call aclnnMoeDistributeDispatchV2 failed,
+  error code is 107000` / `Parameter verification failed` + `EL0003 … The argument is
+  invalid` / `Nnopbase fails to invoke the HcclAllocComResourceByTiling … ret = 2` /
+  `Failed to allocate resource[DeviceMemory] with info [size:140737488355328]`. That
+  size is 2^47 B (128 TiB): no budget and no `--gpu-memory-utilization` value produces
+  it, so read it as a garbage or underflowed workspace request out of the tiling path
+  — the `Reason: Memory resources are exhausted` tail beside it is the runtime's
+  boilerplate, and the `Parameter verification failed` header does **not** mean a
+  reporter config typo. Same drawer as `ret = 4`, and neither the KV/OOM page nor
+  `../startup-failures/arg-validation-errors.md` owns it.
+- **A retry that moved only the version layer leaves the launch line as the
+  invariant.** #5684's two attempts differ in image, CANN and pip layer and agree in
+  the one thing that never changed: `--tensor-parallel-size 16`, no
+  `--data-parallel-size`, the A3 single-node `# AIV` env block, the same one A2 box —
+  and both die at the same phase. So keep the topology / `HCCL_INTRA_*` / AIV ladder
+  above any version bump, and do not cite that retry as a clean CANN-8.2 control: its
+  pip layer itself skewed (a 0.11.0rc0 base's `torch_npu` under vllm-ascend
+  0.13.0rc1). #5684 has **no** public resolution — say that rather than promise one.
+
 Recheck: those are `hcomm` content-export line numbers with **no public tag**, so
-re-grep the symbol in another export before citing; the tutorial numbers are
-v0.13.0rc1-specific.
+re-grep the symbol in another export before citing; the tutorial numbers, the
+`installation.md` CANN row and the `Dockerfile` `FROM` are v0.13.0rc1-specific.
 
 ## Step 3c — the fabric is a control, not a premise
 

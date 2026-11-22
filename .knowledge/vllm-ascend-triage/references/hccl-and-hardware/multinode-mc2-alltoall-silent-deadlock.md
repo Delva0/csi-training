@@ -14,6 +14,19 @@ graph-vs-单算子 mode split with no log at all (`graph-vs-single-op-comm-fault
 or one in-flight request stalling under DP + ACL graph while concurrency is served
 (`dp-aclgraph-single-request-hang.md`).
 
+**One competing lane has a resolution and this one does not.** The same silence — serve
+healthy for tens of minutes, log just ends, process dies hours later — was reported on
+this same pin pair for a Qwen3.5-MoE P/D deployment whose launch carried an MTP drafter
+and `--async-scheduling`, and the reporter closed it with **three sampling/MTP
+cherry-picks** rather than anything in the collective path (#8916 — Step 3's "the
+recorded case has no resolution" is about #8975, not about this shape in general). One
+question splits the two before any plog is bought:
+does the launch carry `--speculative-config` and `--async-scheduling`? If yes, read
+`../spec-decode-mtp/mtp-sampler-silent-stall.md` and rank its ablation ladder beside
+Steps 1-3 here — the two lanes' first checks are different artefacts (serve command and
+one flag vs the plog), and only the plog evidence in Step 1 above can promote this page
+back to first.
+
 ## Step 0 — `AICore 0 %` does not mean the host is stuck
 
 That inference was the recorded run's first answer: 「AICore 利用率 0 是这次最有力的

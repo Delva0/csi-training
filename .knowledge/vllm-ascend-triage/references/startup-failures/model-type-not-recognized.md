@@ -162,6 +162,32 @@ walk beyond the registries.
 Bypassing gate 3 by installing a newer transformers alone is the common wrong
 answer: it moves the failure from config load to model build.
 
+**The startup `already registered … will be overwritten by the new model class`
+warning is not evidence of support.** `vllm_ascend/models/__init__.py` registers its
+overrides unconditionally inside `register_model()` (`Qwen3VLForConditionalGeneration
+→ …qwen2_5_vl_without_padding:AscendQwen3VLForConditionalGeneration`, `:11-19` at
+v0.11.0rc0 `00ba071`), while the module it names guards the upstream import and
+substitutes placeholders — `try: from transformers.models.qwen3_vl.configuration_qwen3_vl
+import Qwen3VLConfig … / except ImportError: pass` (`:30-36`) and, for the model
+classes, `try: from vllm.model_executor.models.qwen3_vl import … / except ImportError:`
+followed by `Qwen3VLForConditionalGeneration = object` and eight siblings (`:58-66`).
+So the warning prints on an image whose transformers predates the architecture, the
+lane is still gate 1, and a reader must not quote that line as "the image supports
+Qwen3-VL". It also means the hollow-`object` base is what survives if an off-pin
+config path ever gets past gate 1 — the next failure is then an inspection
+`ImportError`, not a numerics bug.
+
+**Scope of that sentence: an *architecture* gate.** When the vllm tree registers the
+model and only the **processor** postdates the pin, the upgrade is the answer, not the
+mistake — record it as such. #1768: vllm v0.9.2 has `Glm4vForConditionalGeneration`
+(`registry.py:196`) and the model file, while the image's `transformers==4.52.4`
+(`requirements.txt:30`) predates the family (glm4v is documented at transformers v4.53.0; 4.52.4 is not in the export); the
+reporter's `pip install --upgrade transformers` was necessary, one further upgrade took it
+past a `TypeError: Glm4vProcessor.__init__() got multiple values for argument 'tokenizer'`,
+and the model then served on the same 910B4. So decide which of the three gates the paste
+actually names before saying "off-pin": a missing **processor** is not a missing
+architecture (`hf-processor-contract-at-mm-budget.md` §0 carries the direction rule).
+
 ## vllm-ascend's own claim surface (reporter-checkable)
 
 - `docs/source/user_guide/support_matrix/supported_models.md` — the per-release

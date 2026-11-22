@@ -19,7 +19,7 @@ line, so read that page before quoting the case. A line that stops at a full sto
 complete as written. Where the recorded session's ending is the point, the line
 keeps it in a `(run: …)` marker — `no answer shipped`, `cut mid-answer` — because
 that is the delivery axis rule 1 turns on; the turn counts and sizes are in the
-family page and in `../delivery-discipline.md`. Open the page whose track matches the
+family page and in `../delivery-recorded-sessions.md`. Open the page whose track matches the
 classified shape, or `rg -n '#8826'` across this directory.
 
 ## Rules for using it

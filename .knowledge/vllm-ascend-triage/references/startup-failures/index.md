@@ -36,13 +36,18 @@ Inherit the rules in SKILL.md. Conditional routes:
   then cut the budget to the tree's own 310P recipe (2048/16384) and ask for `npu-smi`
   during the stall.
 - The start **does** raise, from the multimodal budget before any EngineCore or NPU
-  init — a stack through `input_processor.py` → `encoder_budget.py` →
-  `registry.py get_dummy_mm_inputs` → the model file's `get_dummy_mm_data` ending in
-  `AttributeError: '<HfProcessorClass>' object has no attribute '<x>'` →
-  `hf-processor-attribute-at-mm-budget.md` first (#13491: MiniCPM-V-4.6 on 310P,
-  `transformers==5.7.0` against the release's `==5.5.4` pin). The phase itself deletes
-  every device lane; the deliverable is the processor/version contract, one command that
-  prints the class module, and the support row.
+  init — a stack through `encoder_budget.py`/`registry.py get_dummy_mm_inputs` →
+  the model file's `get_dummy_mm_data`/`get_dummy_text` ending in a `transformers`
+  processor: `AttributeError: '<HfProcessorClass>' object has no attribute '<x>'`
+  (#13491: MiniCPM-V-4.6 on 310P, `transformers==5.7.0` against the release's `==5.5.4`
+  pin) **or** `TypeError: <Model>Processor.__init__() got multiple values for argument
+  'tokenizer'` out of `processing_utils.py from_args_and_dict` (#1768: GLM-4.1V on
+  `v0.9.2rc1`, whose pin `transformers==4.52.4` predates the model's processor entirely)
+  → `hf-processor-contract-at-mm-budget.md` first. The phase itself deletes every device
+  lane; the deliverable is the processor/version contract **with its direction** (pin
+  back only if the pin carries the family, otherwise the newest transformers of the
+  model's line — that page's §0), one command that prints the class module, and the
+  support row.
 - The profiling window **does** raise, and the same error appears once per rank but the
   driver: `EOFError: Ran out of input`, bottom frame
   `torch_npu/distributed/distributed_c10d.py` `_gather` →
@@ -276,7 +281,11 @@ Inherit the rules in SKILL.md. Conditional routes:
   and `AscendCheckSoCVersion: cur soc version unknown` is downstream of the failed probe (unlike the
   resolved `PlatformInfoInit … SocVersion <name>` below). Run the same `npu-smi info` on the host
   first — that one comparison splits "container" from "card/driver" — then the device nodes,
-  another holder, and the two sides' `driver/version.info` → `no-npu-in-container.md`.
+  another holder, and the two sides' `driver/version.info` → `no-npu-in-container.md`
+  (with `ret is -8002/-8005/-8008/-8013` beside it, decode the code first — the DCMI enum
+  and its separate `lqdrv` numbering are in `bash scripts/cann-error-lookup.sh -8005` and
+  the page's §*cheapest classifier*; a **vendor serving image** such as `mis-tei`/MindIE
+  TEI is closed by its **image tag** before any co-tenancy claim, #8809 reporter-confirmed).
   A `npu-smi info` that **does** answer does not clear the container's mount list: a
   `docker run` missing the pin's `-v /usr/local/dcmi:/usr/local/dcmi` line
   (`docs/source/quick_start.md:30`, `:59` at v0.11.0rc2) surfaces later, at weight load

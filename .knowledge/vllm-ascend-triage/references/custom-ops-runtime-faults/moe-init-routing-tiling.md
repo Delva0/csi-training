@@ -42,7 +42,14 @@ entry point of that CANN line, and the tiling/kernel opType — so "aclnnMoeInit
 is **not** a grep key in vllm-ascend. At v0.13.0rc3 the whole tree contains no
 `MoeInitRoutingV3` string: only `torch_npu.npu_moe_init_routing_v2`
 (`ops/fused_moe/token_dispatcher.py:338`) and the downstream backport custom op
-`aclnnMoeInitRoutingCustom` (`csrc/torch_binding.cpp:1134`). Ask for the EZ9999
+`aclnnMoeInitRoutingCustom` (`csrc/torch_binding.cpp:1134`, meta
+`csrc/torch_binding_meta.cpp:272`) whose Python binding
+`torch.ops._C_ascend.npu_moe_init_routing_custom` has **no caller anywhere in
+`vllm_ascend/`** at that ref (only the binding, its meta impl and
+`tests/e2e/nightly/single_node/ops/singlecard_ops/test_moe_init_routing_custom.py:206`).
+So no Python selector routes a serve onto the backport: the one reachable init-routing
+call stays the `torch_npu` V2 API, and "is vllm-ascend picking the custom op?" is
+answered rather than searched. Ask for the EZ9999
 block — `CheckTokenCount` / `moe_init_routing_v2_tiling` in the host log or plog —
 instead of reading kernels.
 

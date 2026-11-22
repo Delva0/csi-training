@@ -61,6 +61,48 @@ walk:
   `--enforce-eager` only works because it skips capture and so never reaches the guard.
   Keep the tuning page's `=2` for eager deployments and say which deployments that is.
 
+## Step 0b — a bare `TORCH_INTERNAL_ASSERT` from `capture_begin` (no message, no advice)
+
+```text
+RuntimeError: status == aclmdlRICaptureStatus::ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE
+  INTERNAL ASSERT FAILED at "build/CMakeFiles/torch_npu.dir/compiler_depend.ts":162,
+  please report a bug to PyTorch.
+   → RuntimeError: Worker failed with error '...', please check the stack trace above for the root cause
+```
+
+raised from `collective_rpc("compile_or_warm_up_model")` (`vllm/v1/executor/multiproc_executor.py`),
+i.e. the warm-up capture block, not a request and not `capture_end`. Read the assert before
+ranking anything, because its text names the *step*, not a cause:
+
+- Emitter (verified at `Ascend/pytorch` `v7.1.RC1.alpha002-pytorch2.7.1`, `d33df55`):
+  `torch_npu/csrc/core/npu/NPUGraph.cpp:161-162` — right after
+  `NPU_CHECK_ERROR(c10_npu::acl::AclmdlRICaptureBegin(capture_stream_, capture_mode))`
+  the code re-reads the stream with `AclmdlRICaptureGetInfo(stream, &status, &model_ri_)`
+  and asserts `status == …CAPTURE_STATUS_ACTIVE`. So `AclmdlRICaptureBegin` returned
+  **success** and the stream still is not capturing: the device/SoC/stream refused to
+  enter capture mode, silently. Line numbers move with the torch_npu build — re-grep
+  `TORCH_INTERNAL_ASSERT(status == aclmdlRICaptureStatus` in the reporter's own
+  `Ascend/pytorch` tag if the reported line differs.
+- What it therefore rules out: a nested/inner capture, a capture-mode memcpy
+  (`107030`/`kind=` family above), a host readback (`107027`) and any HCCL block — none
+  of those strings is in this paste, and this assert fires once, before any graph node.
+- What decides it, in this order: (a) **the SoC**. On Atlas 300I / 310P the project's own
+  300I tutorial runs *every* example with `--enforce-eager` and its `LLM()` tabs comment
+  `For 300I series, only eager mode is supported`
+  (`docs/source/tutorials/single_node_300i.md:65,94,135,194,237` at v0.9.2rc1), while
+  `vllm_ascend/platform.py:172-181` has **no** SoC gate on the PIECEWISE branch (the only
+  `is_310p()` use nearby is `custom_ops`, `:207`) — so a `-310p` image without the flag
+  really does attempt ACL-graph capture. (b) **the phase** — a warm-up capture failure on
+  a box whose sibling hardware runs the same command makes the hardware/mode the variable,
+  not the model. (c) the RTS/CANN log (`plog`) for a capture-begin refusal, which is where
+  a non-310P box's answer would be.
+- Recorded: #1768's own follow-up (original reporter, 2026-07-29 observation) — GLM-4.1V-9B-Thinking
+  on a 300I Duo with `v0.9.2rc1-310p`, the *same* command that had just run on a 910B4,
+  no `--enforce-eager`; ladder there is `--enforce-eager` (+ the 300I tutorial's
+  `--dtype float16`). The reporter did not retry on the thread, so label it **doc-derived**
+  (300I is eager-only at that pin), not reporter-confirmed, and keep the pin's own caveat
+  first: 300I is experimental (`single_node_300i.md:3-5`).
+
 ## Step 1 — separate the printed advice from the raised exception
 
 v0.11.0rc0 (`00ba071`): `vllm_ascend/worker/model_runner_v1.py:3530-3565` wraps

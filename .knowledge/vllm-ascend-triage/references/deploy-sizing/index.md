@@ -38,6 +38,18 @@ Inherit the rules in SKILL.md, plus these:
    instance to cover another's usage, and a start-up that fails at KV sizing while
    the device has free HBM is that other instance's memory being charged twice
    (`../runtime-memory/kv-budget-per-instance-vs-device-global.md`).
+   **When the model's geometry is in no export, price the KV half from the reporter's
+   own startup block instead of recalling a config** — `Available KV cache memory:
+   X.XX GiB` ÷ `GPU KV cache size: N tokens` *is* the measured bytes per token per
+   card, and `Maximum concurrency for <max_model_len> tokens per request: kx` is the
+   pool-versus-context verdict for their own `--max-model-len`
+   (`../observability-and-logs/kv-cache-capacity-and-usage-metrics.md`). A long-context
+   OOM report carries those three lines, so ask for them in the first answer and quote
+   a measured number; deriving `layers × kv_heads × head_dim × dtype` from a GLM/Qwen
+   config you only half-remember spends the session and still ships a hypothesis
+   (recorded #5559 spent 47 K characters of reasoning — 2.2 K of message text — much
+   of it on a half-remembered GLM-4.6 geometry, reached "capacity is fine, so this is
+   not plain capacity", and was cut for output tokens before answering).
 2. **The device-visibility env var is the second half of every such report.**
    On Ascend the control variable is `ASCEND_RT_VISIBLE_DEVICES`
    (`vllm_ascend/platform.py:101` at v0.19.1rc1; every multi-node launch script
@@ -180,6 +192,15 @@ Conditional routes:
   (#6572 for the post-sizing shape, #4474 for the pool-loop shape, where
   `already allocated > gmu × total` is expected and the number to check is
   `#tensors × page_size × num_blocks` against the `Available memory:` line).
+- A **VL/omni** start whose innermost frame is in the **vision tower**
+  (`_process_video_input` / `visual(...)` / `split_qkv` / `all_gather_interleave` /
+  `torch.cat`) and whose report argues from "TP4 OOMs, TP1 works" →
+  `vl-profile-run-multimodal-budget.md` first: the failing forward is the *dummy
+  profiling batch*, sized by `max_num_batched_tokens` and by the per-modality
+  defaults (V0 allows **one item per supported modality**, so a video rides in a
+  benchmark that only sends images), while `all_gather_interleave` makes the ViT
+  peak **grow** with TP. The answer is the budget plus one TP-held-fixed rerun
+  (#1617), not a TP defect.
 - An extra process/PID on a card, one engine's PID on every die, or "a process
   from another card appears on a certain NPU" while the service keeps serving →
   `node-processes-and-device-attribution.md` first (PID identity and its own

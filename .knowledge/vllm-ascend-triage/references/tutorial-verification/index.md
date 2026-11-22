@@ -104,7 +104,13 @@ Conditional routes:
 - The report asks for *added* guidance or a cross-link, or reviews the
   contributor/developer path (mount, `set_env.sh`, `format.sh ci`, image tag):
   existence + reachability + parity greps, the `.po`-is-not-the-document rule,
-  and the verified #14423 / #17718 defect tables → `missing-guidance-and-contributor-docs.md`.
+  and the verified #14423 / #17718 / #8151 defect tables →
+  `missing-guidance-and-contributor-docs.md`. A **mirror/registry** report
+  ("镜像地址只有 quay 的吗？华为云镜像仓库也没有") belongs there too: its registry half
+  is answered from the pinned workflows (release tags quay-only, Huawei SWR carries
+  only `nightly-*`), its China path is `faqs.md` §2, and the defect is the missing
+  cross-link — not an architecture question, so do not open
+  `../image-dependency-faults/image-arch-and-tag-availability.md` first.
   The same page's #5158 section owns the sibling shape — a tutorial sentence that
   promises an **install/compile step which exists nowhere** ("install extra
   operator", "am I expected to compile `X`?"): existence grep, sibling parity, then

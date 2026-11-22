@@ -33,6 +33,19 @@ ablation ("`c8_enable_reshape_optim` = false and it serves normally") actually p
 - Setting `c8_enable_reshape_optim: false` does **not** disable LI C8. It switches only
   *how the indexer cache is written*, which is exactly why it is the single-variable
   ablation to ask for.
+- **A command that never sets `c8_enable_reshape_optim` is already on the fallback write**,
+  so a precedent's "`c8_enable_reshape_optim: false` and it serves again" cure is *inert*
+  for that report: `_use_li_c8_reshape_optim()` is `enable_sparse_li_c8 and
+  c8_enable_reshape_optim` (`sfa_v1.py:1547-1549`), and with the key absent the run takes
+  `npu_scatter_nd_update_` (`:1997`/`:2015`), never `store_kv_block` — and
+  `store_kv_block_metadata` is gated the same way, so not that one either. Read the reporter's
+  `--additional-config` for the key **before** naming a rung; when it is absent the ladder
+  starts at `enable_sparse_li_c8: false` (keeps `sfa_c8`) and then `enable_sparse_sfa_c8:
+  false` (keeps `li_c8`), and Rule 2's custom-op surface is not evidence about their crash.
+  Recorded #16976 (v0.26.0 rc1+rc2, GLM-5.3-w8a8c8, A2 8-node PD, `DCP=8 == TP=8`,
+  `--cp-kv-cache-interleave-size 128 == --block-size 128`, both C8 flags true, key absent):
+  both of this topic's config-level hypotheses were already dead in the report, which is
+  what made `li_c8: false` its first rung.
 
 ## Rule 2: the flag selects between two implementations of the same write
 
@@ -44,9 +57,12 @@ ablation ("`c8_enable_reshape_optim` = false and it serves normally") actually p
 | `torch.ops._C_ascend.store_kv_block(k_li[_scale], kv_cache[idx], group_len, group_key_idx, group_key_cache_idx, block_size)` (`:1988`, `:2006`) | `torch_npu.npu_scatter_nd_update_(kv_cache[idx].view(-1, d), slot_mapping.view(-1, 1), k.view(-1, d))` (`:1997`, `:2015`) |
 
 `_build` additionally launches `torch.ops._C_ascend.store_kv_block_metadata(slot_mapping,
-group_len, group_key_idx, group_key_cache_idx, block_size)` (`sfa_v1.py:460-467`), i.e.
+group_len, group_key_idx, group_key_cache_idx, block_size)` (`sfa_v1.py:461-468`), i.e.
 **once per layer per step**, on every worker that builds metadata — including the
-prefill node.
+prefill node. That launch carries the same gate at `:460`,
+`if get_ascend_config().c8_enable_reshape_optim:` (verified at `155f68974`), so a command
+that leaves the key unset launches **neither** custom op and this whole surface is out of
+that run (Rule 1).
 
 Both are in-tree custom ops (`csrc/attention/store_kv_block/`,
 `csrc/attention/store_kv_block_metadata/`). The metadata one is an **AICPU kernel that

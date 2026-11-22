@@ -7,6 +7,11 @@ appears under `torch_profiler_dir`. The offline form (`LLM(...)`,
 `llm.start_profile()`, `profiler_config=` in Python) shares the config gates but
 has no HTTP layer: skip the route half of this page for it.
 
+**Not this page: the endpoint answers and then the process dies** —
+`!!!!!!! Segfault encountered !!!!!!!`, `Worker proc … died unexpectedly (exit code:
+None)`, `Invocation of profile method failed` — that is a `torch_npu` patch-release
+lane, not a route gate: `online-profiler-stop-segfault.md`.
+
 Verified against vllm **v0.18.0** (`bcf2be9612`) and vllm-ascend **v0.18.0rc1**
 (`99e1ea0fe6`), the pair in #9583. Line numbers move between releases; the gates
 do not.

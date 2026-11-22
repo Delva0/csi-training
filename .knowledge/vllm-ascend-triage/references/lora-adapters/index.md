@@ -68,15 +68,19 @@ complaint is one of nine shapes:
   serve whose adapter targets a **packed** module — on Qwen3.5's GDN that is
   `in_proj_a`/`in_proj_b` (one `in_proj_ba` of `[linear_num_value_heads] * 2`) or
   `in_proj_qkv`/`in_proj_z`. One arithmetic decides it: the AscendC expand op refuses
-  `--max-lora-rank` wider than the narrowest targeted slice, so a rank-64 adapter on a
-  32-wide part cannot start → `rank-vs-output-slice-assert.md`.
+  an operand wider than the narrowest targeted slice, so a rank-64 adapter on a 32-wide
+  part cannot start — and on a `--tensor-parallel-size > 1` serve the operand is
+  `TP × max_lora_rank`, so a rank-8 adapter at TP=4 dies on a 12-wide part too →
+  `rank-vs-output-slice-assert.md` (its TP section; the same mismatch can also start
+  cleanly and return adapter answers that differ from TP=1).
 
 Evidence that decides these: the two serve commands (with and without
 `--enable-lora`), **which phase** the failure sits in (engine init / profile run
 vs request time vs capture), the SoC and whether graph capture is possible on it, the
 adapter `r` / `target_modules` / dtype, for the width shape the serve line's
-`--max-lora-rank` against the model's `linear_num_value_heads` (the rank in that
-check is the engine's *buffer* width, not the adapter's `r`), and for the crash the
+`--max-lora-rank` **and `--tensor-parallel-size`** against the model's
+`linear_num_value_heads` (the width in that check is the engine's *buffer* width —
+`TP × max_lora_rank` — not the adapter's `r`), and for the crash the
 **worker** traceback above the `Worker failed with error` wrapper. For the VL shape, the
 `target_modules` list and the server's `… will be ignored` warning decide it,
 and the memory question needs the allocator line plus `npu-smi info`, not a
@@ -197,12 +201,19 @@ Not this topic, leave immediately:
 
 10. **`hidden in should be smaller than hidden out` is a width comparison, and the two
     widths are the whole case.** The AscendC expand refuses
-    `--max-lora-rank > slice width` (`csrc/torch_binding.cpp:476,561`, `x.size(1)` is
-    the shrink buffer, sized from `max_lora_rank`), where the slice is the packed
+    an operand wider than the slice (`csrc/torch_binding.cpp:476,561`), where the
+    operand is the shrink buffer — `max_lora_rank` at TP=1, **`TP × max_lora_rank` at
+    TP>1** because upstream `_mcp_apply` all-gathers it
+    (`column_parallel_linear.py:64`, `dim=-1` default) — and the slice is the packed
     module's per-part output (`column_parallel_linear.py:196-202`). So lowering
     `--max-lora-rank` to the adapter's `r` cures an over-provisioned flag, while an
     adapter whose `r` exceeds `in_proj_a`/`in_proj_b` cannot start under any flag
-    value and needs those targets dropped; the `--max-lora-rank 128` torch-path
-    demotion confirms the mechanism but re-opens the compile guard
-    (`rank-vs-output-slice-assert.md`). Graph mode, dtype and version pairing are all
-    refutable here without a source walk.
+    value and needs those targets dropped; at TP>1 **no flag works for a
+    column-parallel target** (the
+    `--max-lora-rank 128` torch-path demotion raises an `einsum` size mismatch
+    instead — `lora_ops.py:123` — and the magnitude is `TP × r`), so the rungs are the
+    TP=1 ablation and a narrowing patch in `add_expand` plus `.contiguous()`. The
+    binding also passes `lora_rank = x.size(1)` (`:489,576`) into kernels that size
+    their weight stride from it, so a wide-enough slice swaps the crash for wrong
+    numbers. Graph mode, dtype and version pairing are all refutable here without a
+    source walk (`rank-vs-output-slice-assert.md`).

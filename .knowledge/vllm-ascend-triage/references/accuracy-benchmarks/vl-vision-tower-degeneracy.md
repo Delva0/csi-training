@@ -125,6 +125,12 @@ weight **names** — a checkpoint whose names miss the `attn.qkv.*` branch keeps
 zero tail. Both make this path sensitive to TP size and to non-official
 checkpoints, which is exactly the precedent pattern below.
 
+A third consequence is a **crash, not an accuracy row**: the pad is not idempotent, so a
+second `load_weights` on the same module (an RL rollout's per-step weight sync) raises
+`RuntimeError: shape '[-1, 3, 80, 1280]' is invalid for input size 1966080` on the
+already-padded parameter — `../code-change-requests/vl-weight-pad-not-idempotent.md`, not
+this page.
+
 ## Step 3 — ablation matrix (one restart per row, same request)
 
 | Row | Change | Corrupt here means | Clean here kills |

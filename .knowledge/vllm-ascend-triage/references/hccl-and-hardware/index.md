@@ -319,7 +319,12 @@ Read the SoC term of `HcclAllocComResourceByTiling` (`op_base_mc2.cc:120-121`: e
 tutorial's own topology row before any transport lane: on a single 16-die 910B box
 the A2 `_MC2MultiServer` resource path runs with no remote peers, and the one-node
 recipe a reporter copies for these DeepSeek models is A3, i.e. the other branch —
-`mc2-dispatch-profile-run-hang.md` §Step 3b2.
+`mc2-dispatch-profile-run-hang.md` §Step 3b2. Two cheap negatives sit in that
+section and settle more than a flag sweep: the pin's own CANN pairing
+(`installation.md` row + `Dockerfile` `FROM` vs the dump's `CANN:` line — when they
+match, no image swap is owed), and the sibling code `107000` + `ret = 2` beside
+`Failed to allocate resource[DeviceMemory] with info [size:140737488355328]`, which
+is a 128 TiB nonsense request in this same lane rather than an OOM.
 
 **Then separate a device *event-table* refusal from a memory leak.** If the paste
 reads `[Error]: Event resources are insufficient.` beside

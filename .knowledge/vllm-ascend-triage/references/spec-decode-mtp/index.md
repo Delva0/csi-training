@@ -12,6 +12,12 @@ at request time. The shapes:
   with `Drafted: N > 0`, `Per-position acceptance rate: 0.000` for every position,
   `Mean acceptance length` pinned at 1.00, "推理卡住" while requests stay
   `Running`;
+- the **whole service** stops with no text at all — the worker log simply ends,
+  no `ERROR`, no device dump, the API server still holding the port, and the process
+  only dying much later ("run 1x hour, it will be Stuck"), on a launch with an MTP
+  method **and** `--async-scheduling`: the sampling/rejection-sampler lane, which has
+  a reporter-confirmed three-PR fix set on the 0.18.0 line (`mtp-sampler-silent-stall.md`),
+  and which competes with the device-side MC2 deadlock page for this same silence;
 - a response comes back empty (`content: ""`) with `usage.completion_tokens: 1`,
   usually on the first request(s) after the server starts, and later requests are
   fine;
@@ -199,6 +205,18 @@ at request time. The shapes:
   (`rg -n 'update_cos_sin' vllm_ascend/`) name it; the model's rope width is not the
   question (`rope-cos-sin-slice-token-mismatch.md`, recorded #6449).
 
+- or it **aborts on the host with one operator sentence and no Python frame**:
+  `numAcceptedTokens[0]=4 exceeds varlen segment length=3` (or `[1]=6 … length=4`) from
+  the AscendC causal_conv1d **tiling validation**
+  (`csrc/moe/causal_conv1d/op_host/causal_conv1d_tiling_validation.h:358-364`), on a
+  hybrid GDN + MTP `K=3` launch with `FULL_DECODE_ONLY`, after hours-to-days of healthy
+  serving: the op compares **this step's** per-request segment (from the scheduler's
+  `query_start_loc_cpu`) with the accepted count taken from the runner's
+  **CPU/optimistic** buffer, so the pair only agrees while every spec request is
+  scheduled with a full `1+K`. `--async-scheduling` off, then `--enforce-eager`, then a
+  plog with **both** host tuples → `../custom-ops-runtime-faults/gdn-conv1d-accepted-tokens-varlen.md`
+  (recorded #10372).
+
 Not this topic: a first-request fault whose only extra axis is PP > 1
 (`../pipeline-parallel/spec-decode-first-request.md`), a launch/startup failure
 (`../startup-failures/index.md`), a drafter that refuses to **load** (a load-phase
@@ -323,6 +341,17 @@ from the acceptance numbers.
 
 ## Pages
 
+- `mtp-sampler-silent-stall.md` — **silence**, not a traceback: a serve that stops
+  dead after tens of minutes with the log just ending and the process dying hours
+  later, on an MTP + `--async-scheduling` launch. The reporter-confirmed #8916 fix set
+  (`0.18.0rc1` base + cherry-picks #8531 sampler `mask`/invalid `draft_token_id`,
+  #7904 decoder MTP padding token id, #8764 non-blocking `num_accepted_tokens` race)
+  with the attribution left open, why the installed tree is then not the tag, the pin's
+  own Qwen3.5-397B tutorial as proof that "the docs config" means MTP `n=3` + async
+  scheduling (`Qwen3.5-397B-A17B.md:101,121-124` at `99e1ea0`), the two candidate sites
+  (`ops/triton/reject_sample.py:55,102-111`, `sample/rejection_sampler.py:116,126-129`,
+  `worker/model_runner_v1.py:2046-2048,2157`), the stale-drafter-`enforce_eager` trap,
+  and the separate accuracy defect that outlived the stall fix (#8932).
 - `mixed-spec-and-plain-decode-assert.md` — `AssertionError: num_decodes: N,
   num_spec_decodes: M` from the GDN metadata builder: the counter derivation
   (`gdn_attn.py:179-213` at vllm v0.17.0, mask built at

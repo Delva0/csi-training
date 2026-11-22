@@ -9,7 +9,7 @@ engine start with `NPU out of memory` / `torch.OutOfMemoryError` /
 Qwen3.5/3.6 GDN, DeepSeek-V4, GLM). Sometimes nothing is pasted but the two
 commands and the model path.
 
-Two sub-shapes, and they do **not** get the same answer:
+Three sub-shapes, and they do **not** get the same answer:
 
 - **A — a post-sizing phase outgrew the reserve** (the #6572 shape): the OOM frame
   is graph capture, a workspace or a collective, the KV pool was sized from the
@@ -21,6 +21,14 @@ Two sub-shapes, and they do **not** get the same answer:
   context is *short* (`--max-model-len 4096`). #4474 is this sub-shape on
   Qwen3-Next-80B-A3B, v0.11.0rc2, TP4 up / TP8 OOM. Here `gmu × T` being exceeded
   is **expected**, not evidence of a post-sizing phase (step 2).
+- **C — the model is a VL/omni checkpoint and the innermost frame is in the vision
+  tower** (`split_qkv` → `all_gather_interleave` → `torch.cat`, reached from
+  `get_input_embeddings_v0` → `_process_video_input`): the failing forward is the
+  dummy *profiling* batch, its size is `max_num_batched_tokens`, and TP makes the
+  ViT peak larger rather than smaller — `vl-profile-run-multimodal-budget.md`
+  (recorded #1617), not this page's A/B arithmetic. Note that this sub-shape is the
+  only one where "the larger TP OOMed" is a red herring rather than the report's own
+  frame.
 
 This is a **budget** question (`index.md` rules 1 and 4: arithmetic first), not a
 TP8 defect and not something to resolve by reading the allocator. Worked case for

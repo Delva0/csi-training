@@ -80,6 +80,32 @@ arrive later, so ask for the serve flags and a same-request A/B instead), and th
 `AllGatherEP` fusion needs `n_routed_experts == 256` (`:28-31`), so a 128-expert GLM is
 not rescued by `VLLM_ENABLE_FUSED_EXPERTS_ALLGATHER_EP`.
 
+### Oldest form and the `etp` wording: v0.9.x (`moe etp8`, `--etp-size`)
+
+Verified at v0.9.2rc1 (`b5b7e0e`). Two things the later refs do not have:
+
+- **`expert_tensor_parallel_size` ("etp") is an `additional_config` key, and it decides
+  `expert_parallel_size`** — `platform.py:130-148`: the field defaults to
+  `tensor_parallel_size`, is **forced to 1** when `enable_expert_parallel`, is taken
+  from `ascend_config.expert_tensor_parallel_size` when EP is off, and then
+  `expert_parallel_size = world_size_across_dp // expert_tensor_parallel_size`. So a
+  reporter writing 「attention dp8，moe etp8切分」 on 8 cards with
+  `enable_expert_parallel=False` is on `ep_size = 8 // 8 = 1` — **the DP lane, not
+  EP** — and their `--etp-size` launcher flag is that additional_config key, not a
+  CLI option of `vllm serve`.
+- **The selector is `get_fused_moe_state` in `vllm_ascend/utils.py:473-489`**
+  (`FusedMoEState` enum `:434-439`), called from `ops/fused_moe.py:1299` (forward) and
+  `:1077` (the TBO/multistream path) with `moe_parallel_config.ep_size` /
+  `ep_group.world_size`. `ep_size == 1` → `NaiveMulticast` prefill / `AllGather`
+  decode, exactly as in the v0.10.1rc1 row below.
+
+That `ep_size == 1, dp_size > 1` lane is the one whose **exit** is a DP-wide
+reduction, and the form of that exit call is what a 「推理卡死 + plog out of memory,
+no traceback」 report turns on: read *The DP output reduction* in
+`dp-moe-padding-and-owner-slice.md` (recorded #2069, reporter-confirmed) before any
+memory-budget arithmetic — on that report the per-card bytes keep coming out "it
+should fit".
+
 ### Version drift to re-grep first (verified at v0.13.0rc1 `1b5d5ab`)
 
 - The selector moved out of the runner into the module function

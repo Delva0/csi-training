@@ -18,8 +18,10 @@ under PD, `deepseek_mtp`; all four workers of a DP rank die together.
 Not this page: a device dump / `chipId` / `fault kernel_name=` (topic `index.md`); a
 pre-launch argument refusal (`../custom-ops-runtime-faults/index.md`, `EZ1001` family);
 a host-scalar readback frame (`LocalScalarDenseNpu`, `aclgraph-full-decode-runtime-crash.md`
-§7 — there the code reports the model stream's death); a failure *during* capture
-(`../startup-failures/acl-graph-capture.md`).
+§7 — there the code reports the model stream's death), including the sampler's
+`int(k.max())` condition when the printed name is an op the sampler does not launch
+(`aclnnCat`) — that one is `../accuracy-benchmarks/sampler-implementation-gates.md` Rule 1a;
+a failure *during* capture (`../startup-failures/acl-graph-capture.md`).
 
 ## 1. Read the macro before the op: the printed code may not be this call's status
 

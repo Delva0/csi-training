@@ -40,9 +40,18 @@ operand's first dim. Three recorded wordings, two ops:
 | `cos shape is invalid` | `npu_kv_rmsnorm_rope_cache` | #2732, `kv_rms_norm_rope_cache_tiling.cpp:298` |
 | `cos or sin shape is invalid` | `npu_kv_rmsnorm_rope_cache` | #6243, `kv_rms_norm_rope_cache_base_tiling.cpp:291` |
 | `cos or sin batchSize must same as x batchSize` | `npu_interleave_rope` | #2702, `interleave_rope_tiling.cpp:124` |
+| `sparse indices layout is TND, shape is [T1, 1, K], expected shape is [T2, 1, K]` (the **pair-printing** variant, `[FUNC:CompareShape]`, `EZ9999: Inner Error`, `SparseFlashAttention do tiling failed, ret is -1.`) | `npu_sparse_flash_attention` (`aclnnSparseFlashAttention`) | #11080, `sparse_flash_attention_tiling.cpp:579` |
 
 So the decisive numbers are `cos.shape[0]`, `sin.shape[0]` and the batched operand's
 `shape[0]`, plus their dtype — never the block dim, the core count or the card.
+
+The **`CompareShape`** member is the easiest of the family because it prints *both* sides:
+the first shape is the tensor the caller passed, the second what the tiling derived from
+another input, so the finding is a row-count disagreement and no source read is needed to
+learn which tensors to ask about. Its recorded instance is the DSA sparse-attention op on a
+serve with `enable_dsa_cp: true`, where the index tensor's rows come from a metadata count
+while the query is the per-rank (SP-sliced) chunk — owner table, the two-count arithmetic
+and the op-spy are `../dsa-sparse-attention/sfa-sparse-indices-row-mismatch.md`.
 
 ## The caller's tensors, at the pin
 

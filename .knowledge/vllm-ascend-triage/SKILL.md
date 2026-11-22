@@ -64,7 +64,17 @@ the turn the shape is classified, not a second copy of it here.
    (16 turns / 26 tool calls, 48.4 K characters of reasoning) and #11171 **54 characters**
    (18 / 30, 47.5 K) with the ranked answer already in its 8th-turn reasoning; before them
    #6488 (81 / 21) and #7996 (1 540 / 11). Each ended on a reasoning block with no message
-   and no tool call: the cap landed on the answer's shape.
+   and no tool call: the cap landed on the answer's shape. A later batch ended the same way
+   **twice**: #2069 wrote **217 characters** (16 / 23, 43.7 K) and #1617 **2 234**
+   (18 / 27, 43.4 K), the second cut on an empty turn although it had verified the whole
+   mechanism. The same ending with the numbers the wrong way round: **#11080** (24 turns /
+   33 tool calls, 43.1 K characters of reasoning against **115** of text — its verdict
+   sentence sat in a *reasoning* turn) and **#3706** (11 / 19, 43.5 K against 743, one
+   "verdict to be completed" line and then reasoning-only turns). Both had the ranking in
+   hand when the cut came.
+   The pair also fixes the trigger that would have saved them — a **second** pass over
+   the reporter's own numbers, reaching the same estimate, is the turn the ranking is
+   owed (`delivery-discipline.md`, *a recomputed estimate is not new evidence*).
    Hard stops:
    - **G1 — 3rd assistant turn:** message text with the direct answer to the
      reporter's literal question plus the track/lane classification. A pasted
@@ -79,6 +89,21 @@ the turn the shape is classified, not a second copy of it here.
      ended on an empty final message with the ladder never typed.
    - **G3 — 12th assistant turn:** answer text only; no reasoning, no tool call,
      no "one more thing".
+   - **A new user turn restarts the gates.** When the reporter's own follow-up
+     arrives in the same session — a retry on another version, a second pod's log, a
+     different error — turn 1 of that segment carries the **delta** answer: what the
+     new paste changes about the lane, per artefact if there are several. It comes
+     before any fresh source work, and neither the earlier answer nor the new paste
+     substitutes for it. Recorded #7352's second segment (the `v0.17.0rc1` retry) went
+     on to re-derive the Mooncake `ascend_transport.so` `DT_NEEDED` chain out of the
+     `kvcache-ai/Mooncake` tree across 18 tool calls and was cut with no message text
+     at all, while two pages already held that segment's whole answer:
+     `references/image-dependency-faults/launch-env-and-library-path.md` (the export
+     belongs in the launcher's boot command — reporter-confirmed on that same issue)
+     and `references/startup-failures/connector-config-attributes.md` (the `head_dim`
+     read on the decode pod is unchanged in the new version). The new paste's own
+     tokens are the index key to both: `rg -n '<the new .so name | exception text>'
+     <skill_root>/references/` is one call, and a follow-up is exactly when to make it.
    - **The gates cap cumulative output (~45-50 K characters of reasoning+text), and
      the turn index is the weak part: your own count drifts 2-3x low.** #6529 wrote
      "I'm at turn 7" on its 15th turn, #6243 "I'm at 6" on its 14th, so G1-G3 never
@@ -98,10 +123,10 @@ the turn the shape is classified, not a second copy of it here.
      18 turns on a transport/plog program only the reporter could run, and shipped
      **zero** text. A page that answers your paste and then lists reporter-side
      artefacts has already handed you the message: type it, do not go execute its
-     investigation (`delivery-discipline.md`, #13175 row).
+     investigation (`delivery-recorded-sessions.md`, #13175 row).
    - **Reasoning is a scratchpad, a few lines per turn:** what the last result
      proved, the single next check, go. It spends the **same output budget** as the
-     answer, before any of it becomes text (ids in `delivery-discipline.md`). If a
+     answer, before any of it becomes text (ids in `delivery-recorded-sessions.md`). If a
      block enumerates the answer's sections, counts turns against G1/G2 ("this is
      turn 5, G2 is turn 8"), or says "I have enough" / "let me write the answer",
      that block *is* the answer — and a turn that reasons "the gate has passed, I
@@ -234,7 +259,14 @@ the turn the shape is classified, not a second copy of it here.
      encoder branch's gate (`not attn_metadata.causal`) could ever be true instead of
      ranking the invariant it had already derived
      (`references/custom-ops-runtime-faults/fa-tiling-argument-refusals.md`, both
-     members). **Dead-branch variant:** when the snapshot shows a gate that nothing sets
+     members). A **per-request pair** is the same shape: `numAcceptedTokens[0]=4 exceeds
+     varlen segment length=3` (hybrid GDN + MTP) is answered by the two feeders — the
+     scheduler's segments vs the runner's CPU/optimistic accepted counts — plus the
+     rung-1 ablation, not by deriving which producer shortened the segment; #10372 typed
+     its answer early and spent the rest choosing between the scheduler's truncation and
+     the op's padding, and shipped no revision
+     (`references/custom-ops-runtime-faults/gdn-conv1d-accepted-tokens-varlen.md`).
+     **Dead-branch variant:** when the snapshot shows a gate that nothing sets
      (a hardcoded flag), that is a version-skew fact to *ask* for — the reporter's build
      differs from the pin — not a mechanism to derive; the paste's own op name can prove
      the branch ran.
@@ -254,7 +286,8 @@ the turn the shape is classified, not a second copy of it here.
      special turn. A *status note* is not a draft: the sentence must state the
      current verdict even when the next call may overturn it. The mechanical test
      at any turn: no message text yet names a cause plus a `path:line` or `#id`,
-     so nothing has been drafted (`delivery-discipline.md` has the per-run table).
+     so nothing has been drafted (`delivery-discipline.md` gates; the per-run table is
+     `references/evidence-workspace/delivery-recorded-sessions.md`).
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C;
    for a runtime report, decide whether it is a device-op fault, an accuracy/score
    gap, a corruption report or a performance claim. The signature index
@@ -321,6 +354,13 @@ the turn the shape is classified, not a second copy of it here.
    releases before attributing a symptom to vllm-ascend code, and keep the mechanism
    open when only the fix is confirmed
    (`references/runtime-memory/host-ram-and-per-rank-rss.md` §Step 0).
+   **And a release can pin the *broken* patch.** vllm-ascend v0.26.0rc1's own
+   `requirements.txt:17` and `pyproject.toml:21` are `torch-npu==2.10.0.post4` — the
+   one patch release on which `/stop_profile` segfaults while `.post2`/`.post6` serve
+   (recorded #15983, later confirmed in-thread as a `torch_npu` profiler-backend
+   compatibility issue). There "install what the release pins" is the failing side, so
+   the patch change *is* rung 1 and the pin is the finding
+   (`references/observability-and-logs/online-profiler-stop-segfault.md`).
    **The image recipe can override that pin, so an off-pin `torch_npu==` is not by
    itself a mismatch.** At v0.13.0rc2 `requirements.txt:31` says `torch-npu==2.8.0`
    while every recipe installs `'torch-npu==2.8.0.post1'` on a `cann:8.5.0-*` base
@@ -428,83 +468,19 @@ the turn the shape is classified, not a second copy of it here.
 7. **Keep reads small and exact.** Use `rg -n -C2 <symbol>` and
    `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines. A
    20-40 KB full-file read of an AscendC kernel header buys one fact and costs
-   the budget for several conclusions. Traps that each cost a recorded run whole
-   steps:
-   - **`skill_view` with `file_path` returns the page *and the whole link
-     inventory*** (every reference, script and template path): 34.7 KB and 43.6 KB
-     for two page reads in one recorded run, re-sent on every later turn. Read pages
-     from the skill root instead —
-     `sed -n 'A,Bp' <skill_root>/references/<topic>/<page>.md`.
-   - `rg -r` is `--replace`, not "recursive": in any short cluster whose first
-     letter is `r`, the rest of the cluster is the replacement string, so `-rn`,
-     `-rl` **and `-rln`** rewrite every match to `n` / `l` / `ln`. Output then
-     looks like corrupted source (`self.n`, `decoder_layer.l`) or, worse, like a
-     real upstream defect: #14423's `rg -rn "daocloud|nju.edu.cn"` turned
-     `m.daocloud.io` into `m.n.io`, and #17718's `rg -rln 'set_env.sh'` turned
-     `source …/ascend-toolkit/set_env.sh` into `source …/ascend-toolkit/ln` in
-     `faqs.md` — which it nearly published as a doc typo and dropped only by
-     luck, blaming a "stale .po". **The tell is one short token spliced
-     uniformly into every match across unrelated files**; re-run as
-     `rg -n '<pat>' <dir>` before quoting any matched text, and use `grep -rn`
-     as the tie-breaker when output looks mangled. Recursion is implicit on a
-     directory: `rg -n "pat" .` or `grep -rn`. **An empty replacement is
-     the same flag with a worse tell:** a replace flag prints whole matching *lines*,
-     so `rg -n "30566" -r '' .` returned **63 KB** — one minified
-     `tests/models/fixtures/*.json` line, matched by accident inside a number — and
-     that run (#8036) ended output-truncated with no answer typed. A "hit" whose
-     result is a single gigantic line is this trap, not a finding.
-     An **empty pattern matches every line of every file**: a probe typed while unsure
-     how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped 65 KB in one
-     result (#6240; #549 while looking for an upstream selector). To list files use
-     `rg -ln '<pat>' <dir>`; with no pattern in mind use `rg --files -g '<glob>' <dir>`
-     (or `find <dir> -maxdepth 1 -name '<glob>'`), and quote only the `path:line`,
-     with `-l` or `--no-messages -c` when existence is all you need. Detail:
-     `references/evidence-workspace/case-layout.md`.
-   - **A pasted message is usually split across source lines.** C++ `OP_LOGE` and
-     Python messages are emitted as adjacent literals (`"… default chat template is no
-     longer "` / `"allowed …"`), so `grep -rn "<whole sentence>"` returns nothing and reads
-     as "not in this tree" — grep the shortest distinctive clause, or add `-A1`. #6345
-     spent three calls that way, on the exact sentence it was looking for.
-   - **A `--glob '!<dir>/**'` exclusion is matched against the path you passed,
-     not against the search root.** `rg -l 'x' docs/source --glob '!locale/**'`
-     still searches `docs/source/locale/**` (verified at v0.22.1rc1: one .po hit
-     survives), while `--glob '!**/locale/**'` or `cd docs/source` first excludes
-     it. A failed exclusion floods the result with gettext `msgid`/`msgstr`
-     lines that read exactly like doc prose — and `.po` files are machine
-     translations whose `#: ../../source/x.md:N` references lag the source, so
-     neither their text nor their line numbers are citable.
-   - **A piped `sed -n 'A,Bp' file | rg -n '<pat>'` numbers the stream, not the file.**
-     `rg` counts its stdin from 1, so every match line is `A + n - 1` — an off-by-one
-     that lands as a wrong `path:line`. Cross-check one match against an absolute
-     `rg -n '<pat>' file`, or keep the file's own numbers:
-     `rg -n '<pat>' file | awk -F: '$1>=A && $1<=B'`. Recorded #12905 re-derived a
-     tutorial block's anchors twice before one absolute grep confirmed them. The same
-     off-by-one arrives with no pipe at all: a line number counted by eye inside a
-     window. A doc-verification anchor is the first thing a maintainer re-checks —
-     recorded #11738 shipped `:113` for the page's `--served-model-name`, which is `:114`.
-   - **Scope a grep to one repo.** A case view holds 20-40 exported trees under
-     `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
-     seconds and returns hits from unrelated products (torchair, metadef,
-     ascend-transformer-boost). #11454 ran three of them looking for one log
-     string, and the finding was that the string is in **no** export — state that
-     as the gap (rule 10) instead of widening the pattern: `rg -n '<pat>'
-     /workspace/repos/<issue>/<owner>/<repo>` per candidate, then stop.
-   - **Never list, never dump** — the recipe at the top of this file is the rule; this is
-     what breaking it costs. A listing of `/workspace` was 24-28 KB once (#13699) and
-     13-104 KB per later session (#9335, #9183, #11739, #8984, #11454), `cat
-     SOURCES.json` or `cat /workspace/history/*.md` likewise (#3107), and one recorded
-     orientation block (`ls /workspace`, `ls scratch`, `cat SOURCES.json`, `ls history`)
-     returned **62 K characters** (#15985) and ended output-truncated at 1.1 M cumulative
-     prompt tokens — #5687's same block cost 3 KB only because `SOURCES.json` was piped
-     through `head -50`. A missing `/workspace/attachments` also makes a bundled listing
-     exit 2, which reads like a failed orientation.
-
-   - **Attachments are the exception: a manifest grep is not an existence test.**
-     `ATTACHMENTS.txt` lists names and SHA256s only, so a grep for the issue's
-     tokens proves nothing (#12658 read that as "no attachments", skipped
-     `raw_completion.json`, and burned the session in the parser). Search the
-     attachments view by the file names the issue links (`search_files pattern
-     '*.json'`) and open them — they are often machine-readable dumps.
+   the budget for several conclusions. Listing, dumping and a handful of
+   search-command traps each cost a recorded run whole steps; the full text is in
+   `references/evidence-workspace/case-layout.md` (§*Search-command traps*), and the
+   one-line forms follow because they recur on every case:
+   `skill_view` with `file_path` also returns the whole link inventory — read pages
+   from the skill root with `sed -n 'A,Bp'`; `rg -r` is `--replace`, not "recursive"
+   (`-rn`, `-rln`, `-r ''` rewrite or dump whole lines; an empty pattern matches every
+   line), so re-run `rg -n '<pat>' <dir>` before quoting any match; a pasted message is
+   often split across adjacent literals, so grep the shortest clause (or `-A1`); a
+   `--glob '!<dir>/**'` exclusion is matched against the path you passed; a piped
+   `sed -n 'A,Bp' | rg -n` numbers the stream (`A + n - 1`); scope every grep to one
+   repo; never list a directory or dump a whole file; attachments are the exception —
+   open the files the issue links (a manifest grep is not an existence test).
 8. **The prior-month corpus is not evidence of absence, and a lexical accident is
    not "no precedent".** Search titles with **one** distinctive token — an op name,
    an error string, a numeric code, a fault kernel, a model id — never the failure
@@ -676,7 +652,15 @@ the turn the shape is classified, not a second copy of it here.
     sentence for *any* `realpath()` failure including EACCES — so check the directory as the
     job's UID inside the worker container, and do not carry `--privileged`, the driver pairing
     or a `lib64/data` symlink into it
-    (`references/startup-failures/platform-config-file-missing.md`).
+    (`references/startup-failures/platform-config-file-missing.md`). **The seventh form is a
+    tiling line whose verb is `not support`** — `E89999 … When layout is TND, not support Page
+    Attention[FUNC:RunBigKernelTilingWithParams][FILE:prompt_flash_attention_tiling.cpp]` under
+    `call aclnnFusedInferAttentionScoreV3 failed, error code is 561002`: the sentence names a
+    mode × cache-kind combination the installed toolkit's tiling has no path for, so the reporter's
+    `ascend-toolkit/latest/version.cfg` against the pin's own documented CANN floor
+    (`docs/source/installation.md:15`) is rung 1 and the caller's arguments are not — reading the
+    launch pair instead costs the fix (reporter-confirmed #4373, CANN 8.3;
+    `references/custom-ops-runtime-faults/tiling-capability-refusal-cann-release.md`).
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the title's sentence can be a day older than the
@@ -1036,6 +1020,18 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    `references/image-dependency-faults/platform-plugin-register-raised.md`.
 
 3. Take the track's cheap checks before source archaeology:
+   - **The recipe diff that pays is by key name, not by flag position.** A reporter's
+     `--additional-config` / `--hf-overrides` object carries keys the pin's tutorial for
+     that model never shows, so a side-by-side command diff reads as "the documented
+     recipe" while the extra key is the whole difference. Grep each key by name:
+     `rg -n '<key>' docs/` (a pin with no hit means undocumented, hence outside every
+     validated recipe), then `rg -n '<key>' vllm_ascend/` for the consumer
+     (`getattr(…hf_config, "<key>", …)`), which turns the key into a code path with a
+     gate — and one launch with it set to `false` into a real ablation. Recorded #11080:
+     the GLM5 DSA-CP recipe (`docs/source/tutorials/models/GLM5.md:819`) and the
+     reporter's script differ by exactly `--hf-overrides '{"use_index_cache": true,
+     "index_topk_freq": 4}'`, a key in no doc at that pin
+     (`references/dsa-sparse-attention/sfa-sparse-indices-row-mismatch.md`).
    - Lane A/B: effective `max_model_len`, then the diff between the reporter's
      command/env and the matching tutorial or CI test
      (`references/startup-failures/max-model-len-budget.md`; an explicit
@@ -1080,7 +1076,12 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
      ladder — do not spend turns deriving it from an export that may not carry the
      model's config at all, and send the verdict as soon as the division separates the
      two counts (the recorded #6449 run held that answer for twelve turns and shipped
-     no message text).
+     no message text). The **other writer family** names itself in the shape: a 4-D
+     reshape whose last two dims are a vision tower's `origin_hidden_size_per_attention_head`
+     and `hidden_size` (`'[-1, 3, 80, 1280]'`) is the qkv **weight pad**, and the size that
+     fails it is the already-padded parameter of a **second** `load_weights` — an RL
+     rollout's per-step weight sync, never a request, which is why the report says "step 2"
+     and why plain inference cannot reproduce it (`references/code-change-requests/vl-weight-pad-not-idempotent.md`, #809).
    - Any track, when the paste is a **serve command on a 2×N 910B box at v0.10.x** (MoE
      model, perf *or* accuracy symptom): classify the **graph lane** from the command before
      ranking mechanisms — `--enforce-eager` present ⇒ `NO_COMPILATION`
@@ -1172,7 +1173,8 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   shipped an answer at all, so the reporter got nothing from work that had already
   succeeded.
 - Then the one-line classification: lane A/B/C and the phase that failed (load,
-  memory profiling, graph capture, first collective); or, for a runtime report,
+  memory profiling, graph capture, first collective, the profiler's start/stop
+  export); or, for a runtime report,
   the primary cause plus its track.
 - Ranked causes, each with the evidence you have, the exact check that confirms
   or refutes it, and its confidence label (reporter-confirmed / source-verified
@@ -1236,7 +1238,10 @@ header carries its flags. Run `.sh` with `bash` and `.py` with
 and the topical pages name the ones they use. `templates/` holds starter files to copy
 and edit rather than retell — currently `templates/omni-310p-deploy-config.yaml` (a
 two-stage fp16 `--deploy-config` for one 310P die, cited by
-`references/soc-platform-paths/310p-omni-model-deploy.md`). The per-signature
+`references/soc-platform-paths/310p-omni-model-deploy.md`) and
+`templates/profiler-patch-bisect.py` (the vLLM-free `torch_npu.profiler`
+start/stop probe that bisects a `/stop_profile` segfault across `.postN` wheels,
+cited by `references/observability-and-logs/online-profiler-stop-segfault.md`). The per-signature
 classification index (log fragment → track → owning page) is
 `references/first-checks/signature-routes/index.md`.
 

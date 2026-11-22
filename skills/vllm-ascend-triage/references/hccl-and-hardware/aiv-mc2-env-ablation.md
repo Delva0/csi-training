@@ -21,20 +21,47 @@ per-rank AIV AllGather exceptions are consequences (some rank never returned), s
 do not answer with the RPC watchdog page or a NIC theory; the reporter usually
 still reaches `EngineCore` and dies during `profile_run`, i.e. no traffic yet.
 
+**The older kernel name and the timeout code are the same family.** `…DispatchV2` +
+`507014 (aicore timeout)` + `fftsplus aivector error` on a paste that sets
+`HCCL_OP_EXPANSION_MODE=AIV` is this lane too, not an exclusion: recorded #8294
+(v0.18.0rc1, 2×A2, GLM-4.7-W8A8, EP16) is that variant, and the ablation its reporter
+reported does not name this variable (§below). Read it with
+`mc2-dispatch-profile-run-hang.md` §Step 1b for the per-rank
+capacity/symmetry arithmetic and §Step 4 for the ranking, and run the matrix below one
+variable at a time.
+
 ## When the whole matrix has already been run
 
 Recorded #8294 (v0.18.0rc1, 2×A2, GLM-4.7-W8A8, EP + DP2×TP8) came back on
 2026-04-17 with "I have tried all combinations of these 3 envs and it fails at the
 same phase (torch.compile). Even I unset the 3 envs, it fails too." Treat that as a
-**completed** ablation, not an invitation to re-run the matrix: the AIV/allocator
-lane is closed for that report, the phase word in the title is the reporter's own
-label (their traceback shows `profile_run`'s extra MC2 dummy run, not the compile
-step), and the next lanes are the per-node symmetry of the derived
-`global_bs`/`mc2_tokens_capacity` (`mc2-dispatch-profile-run-hang.md` Step 1b, one
-call: `scripts/mc2-capacity-asymmetry.sh`), the cross-node transport check, and the
-headless node's own log. Ask which three variables they mean instead of guessing, and
-do not offer "unset them all" as a further experiment — that is the run they already
-did.
+**completed** ablation and do not offer "unset them all" as a further experiment —
+that is the run they already did. Two things it does **not** settle:
+
+- **Which three.** The public text does not name them, so resolve the set from the
+  transcript instead of asking: it is normally the knobs the previous answer's
+  ablation rows listed. On #8294 those were
+  `VLLM_ASCEND_ENABLE_FLASHCOMM1` / `VLLM_ASCEND_ENABLE_FUSED_MC2` /
+  `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE` (see `mc2-dispatch-profile-run-hang.md` §Step 4
+  for why each is a no-op at that pin). Ask for the three names in one line only if
+  the thread does not show them.
+- **Whether this page's AIV row is closed.** Under that reading it is **open**, not
+  closed: both #8294 node scripts set `HCCL_OP_EXPANSION_MODE=AIV`, the device block
+  is `fftsplus aivector error … aicore timeout` on the MC2 dispatch inside
+  `profile_run`, and that is this page's shape (#14928's reporter showed *AIV unset +
+  MC2 passes*). So the informative next run is row 2 or 3 of the matrix below, one
+  variable at a time — **keep AIV and drop `expandable_segments`** (FAIL ⇒ AIV × MC2
+  owns it) and **drop AIV, keep `expandable_segments`** (PASS ⇒ dropping AIV is the
+  workaround). Only if the reporter says `HCCL_OP_EXPANSION_MODE` was one of the three
+  is the matrix done.
+
+Either way the phase word in their title is the reporter's own label (their traceback
+shows `profile_run`'s extra MC2 dummy run, not the compile step), and the other lanes
+are the per-node symmetry of the derived `global_bs`/`mc2_tokens_capacity`
+(`mc2-dispatch-profile-run-hang.md` Step 1b, one call:
+`scripts/mc2-capacity-asymmetry.sh`), the cross-node transport check, and the headless
+node's own log — a single A2 node cannot stand in for the last two, since `tp8 dp1`
+gives `ep_world_size = 8` and MC2 is never selected there.
 
 **And the compile-cache lead is closed too.** On #10370 the paste's only log line was
 `saved AOT compiled function … torch_compile_cache …`; a maintainer proposed

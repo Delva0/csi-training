@@ -23,13 +23,19 @@ at start — `atlas-300i-310p.md` and `../runtime-memory/attention-mask-host-all
 1. **Turn 1 — the support verdict, from the docs, not from a kernel.** Run the
    two lookups in §1 and put the verdict in the message: which of the named
    models has an Atlas-300 statement at the reported ref, and which has no page
-   at all. Add the pipeline question of §2 in the same message.
+   at all. Add the pipeline question of §2 in the same message. **When the paste or
+   the thread already says the model serves and answers on the official image, the
+   support verdict is one clause of context: lead with the §2/§3 mechanism and the
+   two-request pair instead** (§2, first consequence).
 2. **Turn 2 — the two-request ablation of §2 plus the response shape of §3.**
    The ranked list is: pipeline stage > unvalidated model/SoC pair > engine
    numerics. Deliver it; do not open `_310p/` yet.
 3. **Only if the reporter comes back with "a cropped region reads fine, a text
    prompt reads fine, the whole page is nonsense"** the answer is finished —
-   that is the pipeline, not the engine.
+   that is the pipeline, not the engine. A reply of "a simple image is garbage too"
+   is **not** that reply and not a refutation either: ask what the simple image was
+   (one cropped text region, or a whole page / an arbitrary photo). One clause decides
+   between §2 and §4, so ask it before ranking the engine leg.
 4. **Only if the reporter asks for the code owner** run
    `scripts/310p-rope-branch.py <config.json>` and §4's two readings. Keep it as
    a candidate with one probe, not a walk — and if the report turns out to carry a
@@ -80,8 +86,22 @@ not even a vLLM process.
 Consequence: a whole-page image POSTed straight to `vllm serve` exercises the
 *element recognition* stage only, on a page it was never given the regions for.
 Short, repeated or unrelated text is the expected answer, not a numeric defect.
-The same shape was the maintainer's reply on this issue: both models are not
-officially supported yet, and GLM-OCR has to be used with PP-DocLayout-V3.
+
+This is also where a thread on #11936 split, and the split is the part worth keeping.
+A commenter (`zyz111222`, 2026-07-15) answered exactly as above — "these two models are
+not officially supported yet … GLM-OCR needs to be used with PP-DocLayout-V3" — and the
+**reporter** (`Big2Wheel`, minutes later) pushed back on it: both models **do** launch and
+infer on the official `v0.21.0rc1-310p` image with no extra operations, 只是输入简单的图片识别
+都是输出乱码. Two consequences for the answer:
+
+- **The support verdict of §1 is context, never the resolution.** Closing on "not
+  validated / not supported" is the reply this reporter had already rejected, and it
+  answers a question they did not ask.
+- **"A simple image is garbage" does not confirm the pipeline on its own**, because a
+  plain picture that is not a document region is outside the model's trained input too.
+  Only the cropped-region vs whole-page pair below separates the two — and if the
+  reporter's "simple image" was already one cropped text region, go straight to §4 and
+  say which reading you are taking.
 
 Two requests the reporter can run decide it:
 1. one **cropped** text region (or one line) as the image;
@@ -185,11 +205,14 @@ PaddleOCR-VL "好像没问题" — and MinerU2.5 appears in **both** lists in th
 paragraph, so ask which line the reporter means before ranking anything (a
 title/body mismatch is common in this family). The paste carries a full
 environment dump and only the PaddleOCR-VL serve command (verbatim from the tutorial's Atlas-300 tab), no
-response body and no log. Reporter later confirmed on the same issue that both
-models do launch and infer on the official image with no extra operations, that
-the symptom is garbled output from simple image recognition, and that the pair is
-not officially supported; a maintainer added that GLM-OCR is meant to be used with
-PP-DocLayout-V3. Nothing was fixed in the engine — §1+§2 *is* the answer.
+response body and no log. Later in the same thread a commenter (`zyz111222`) answered
+"these two models are not officially supported yet … GLM-OCR needs to be used with
+PP-DocLayout-V3", and the **reporter rejected that framing**: both models do launch and
+infer on the official image with no extra operations, 只是输入简单的图片识别都是输出乱码. So the
+thread closes the **launch** half only; the artefact stays open. Nothing changed in the
+engine and the two-request ablation of §2 was never returned, so §2 remains the leading
+hypothesis and §4 the open alternative — do not record this case as resolved by the
+support verdict, and do not quote the commenter's line as a maintainer's decision.
 
 The session that produced **no answer** spent 28 assistant turns and its whole
 16 K-token output budget inside `_310p/` rope and attention internals with zero

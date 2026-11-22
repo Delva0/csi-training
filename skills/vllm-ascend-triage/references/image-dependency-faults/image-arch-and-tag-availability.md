@@ -57,7 +57,17 @@ first: one call prints the tag suffixes, the `platforms:`/`arch:` matrix, the ru
 legs, every `FROM` base, the wheel-release matrix and the per-SoC variant list —
 the four hand `rg`/`sed` reads below only re-derive what it already prints (a
 recorded #2178 run spent four calls on exactly those greps after planning to run
-this script). Read it as three facts:
+this script).
+
+**`docs/source/**` is not a source for the arch question — skip it.** At v0.9.2rc1
+`rg -i 'arm64|aarch64'` over `faqs.md`, `installation.md` and `quick_start.md` returns
+nothing (the same #2178 run paid three calls: that grep, an `ls docs/source`, and a
+second faqs grep); `faqs.md:12-19` lists supported SoCs only and `:28-33` the China
+mirror, while `installation.md` carries no arch sentence. Nothing in the tree states an
+arch matrix outside the workflow `platforms:`/`arch:` entries and the Dockerfiles'
+`FROM` bases, so a docs grep is a guaranteed empty result, not a negative finding.
+
+Read the script's output as three facts:
 
 1. **Tag suffix ⇒ SoC variant.** At v0.9.2rc1 the `docker/metadata-action` tag
    lists are the table: `-310p` (ubuntu,

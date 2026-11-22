@@ -259,8 +259,11 @@ Pages:
   inventory (`w8a8.py:139`, `w8a8_dynamic.py:104`, `w4a8_dynamic.py:396`,
   `common_fused_moe.py:128`/`fused_moe.py:81` `not is_310p()`, and the single
   `is_310p()` dense cast at `model_runner_v1.py:2633-2643` with `ACL_FORMAT` NZ only on
-  310P), the version boundary for `weight_nz_mode`/`VLLM_ASCEND_ENABLE_NZ`, and the
-  five-line `npu_format_cast(w, 29)` probe before any patch.
+  310P; torchair's `converting_weight_acl_format` is 310P-only, so graph mode converts
+  nothing on 910), the version boundary for `weight_nz_mode`/`VLLM_ASCEND_ENABLE_NZ` —
+  and the **rc** as its own boundary, since v0.11.0rc0 has no gate function and no dense
+  hook while `is_enable_nz` exists by v0.11.0rc3 — plus the five-line
+  `npu_format_cast(w, 29)` probe before any patch.
 - `per-soc-recipe-and-quantized-weights.md` — the model's only validated recipe and
   published weights are on another SoC (#16600: 910B2 + Qwen3.5-9B, "能否提供量化版本"):
   reading `support_matrix/supported_models.md` by tab (`A2/A3` at `:142` vs `Atlas 300I

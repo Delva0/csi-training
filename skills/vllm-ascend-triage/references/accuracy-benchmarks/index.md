@@ -410,8 +410,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   believing it: on A2 the double count needs EP on **and** `world_size_across_dp / pp >= 16`
   **and** `num_tokens <= mc2_tokens_capacity`, which makes TP8-with-EP the free control
   and prefill the correct-but-decode-corrupt half. Eight upstream model files carry the
-  pattern at vllm v0.14.1, not just the reported one →
-  `ep-mode-reduce-double-count.md`.
+  pattern at vllm ≤ v0.19.1 and only three at vllm v0.22.1, where the reduce moved into
+  `MoERunner`'s private `_maybe_reduce_final_output` (downstream `AscendMoERunner`
+  overrides it) — so one grep, `rg -n 'def maybe_all_reduce_tensor_model_parallel'
+  <vllm>/vllm/model_executor/layers/fused_moe/`, decides whether the recorded mechanism
+  still has a call site before it is ranked →
+  `ep-mode-reduce-double-count.md` (§Step 0).
 
 ## Pages
 
@@ -760,4 +764,9 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   why GPU is unaffected, the per-SoC/per-batch selector gate that says which configs are
   actually corrupt (TP8 vs TP16 as the one-restart control), the eight-model sweep that is
   the PR's real scope, and the fix placement (upstream model files; no `patch/model/`
-  downstream at that pin).
+  downstream at that pin). **Its §Step 0 is the first read at any pin ≥ v0.20**: one grep
+  (`def maybe_all_reduce_tensor_model_parallel` under `fused_moe/`) separates the
+  public-hook generation (≤ v0.19.1, eight models) from the runner-private one (v0.22.1:
+  `MoERunner._maybe_reduce_final_output`, downstream `AscendMoERunner`, three models), and
+  on the second generation an empty sweep on the reported model is the answer — the
+  mechanism has no call site there.

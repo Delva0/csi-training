@@ -214,8 +214,9 @@ Conditional routes:
   profiling batch*, sized by `max_num_batched_tokens` and by the per-modality
   defaults (V0 allows **one item per supported modality**, so a video rides in a
   benchmark that only sends images), while `all_gather_interleave` makes the ViT
-  peak **grow** with TP. The answer is the budget plus one TP-held-fixed rerun
-  (#1617), not a TP defect.
+  peak **grow** with TP — on a ≥0.15 pin check the serve line first for
+  `--mm-encoder-tp-mode data`, which runs the ViT data-parallel instead. The answer
+  is the budget plus one TP-held-fixed rerun (#1617), not a TP defect.
 - An extra process/PID on a card, one engine's PID on every die, or "a process
   from another card appears on a certain NPU" while the service keeps serving →
   `node-processes-and-device-attribution.md` first (PID identity and its own

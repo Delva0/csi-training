@@ -66,8 +66,27 @@ RuntimeError: ACL stream synchronize failed, error code:507035
   `fault kernel_name=` can), and all live ranks reporting it in the same second weakens the
   single-bad-card theory. At that pin the EP MoE branch in `profile_run` is `All2All`
   (`mc2-dispatch-profile-run-hang.md` exclusions), so an MC2/AIV page is
-  not the route. #2105's cause is **open** — the paste had no serve command and no
-  `[EP Rank r/N]` line.
+  not the route — re-checked at v0.9.2rc1 `b5b7e0ec`: `get_fused_moe_state`
+  (`vllm_ascend/utils.py:473-489`) returns `All2All` on `ep_size < 16 or with_prefill`
+  and `profile_run` is a prefill, so **no** EP size reaches `MC2` there. The branch that
+  runs is `fused_experts_with_all2all` (`quantization/w8a8_dynamic.py:223`, selected at
+  `:800`), whose `npu_moe_init_routing` → `bincount` → `all_to_all` →
+  `npu_moe_compute_expert_tokens` → `apply_mlp` → `npu_moe_finalize_routing` sequence is
+  where the AICPU-class candidates live; its `is_deepseek_v3_r1 = global_num_experts ==
+  256` gate (`ops/fused_moe.py:1034`) also makes `VLLM_ENABLE_FUSED_EXPERTS_ALLGATHER_EP`
+  inert on a 128-expert Qwen3-MoE, so a reporter who set it changed nothing. Two
+  exclusions the same read settles: reaching `w8a8_dynamic` proves the ascend quant config
+  built the MoE method (`quantization/quantizer.py:29`), so "they omitted
+  `--quantization ascend`" is not the lane; and the pin's only EP e2e is
+  `tests/e2e/multicard/test_fused_moe_allgather_ep.py` (the 256-expert allgather path), so
+  *W8A8 + EP + All2All + 128 experts* is untested — coverage, not a cause. The raising
+  line is `model_runner_v1.py:1695-1696` at that pin while #2105's traceback prints
+  `:1701`, so ask for `git rev-parse HEAD` before quoting any line number from the paste.
+  #2105's cause is **open** — the paste had no serve command and no `[EP Rank r/N]` line,
+  and its "Your current environment" block is a `profile_run` snippet rather than a
+  `collect_env.py` dump, so the torch_npu pairing (that release pins
+  `2.5.1.post1.dev20250619`, `docs/source/user_guide/release_notes.md:14`) is one rung,
+  not a fact.
 - Different from Step 1's readback row: there the Python statement needed a scalar
   and so is the owner; here the Python statement handed an object to a collective.
   The startup sibling of the same emulation is `EOFError: Ran out of input` at
@@ -75,7 +94,15 @@ RuntimeError: ACL stream synchronize failed, error code:507035
 - `--enforce-eager` is only an ablation if the release has a graph mode at all: at
   v0.7.1rc1 `rg -n 'aclgraph|cudagraph|torchair' vllm_ascend/` returns one comment
   (`attention.py`), so the flag removes nothing — say that instead of offering it.
-  Check the same for the reporter's rc before quoting the graph ladder. At a ref
+  Check the same for the reporter's rc before quoting the graph ladder. At v0.9.2rc1 it
+  **is** a graph: `check_and_update_config` keeps `PIECEWISE` and logs
+  `PIECEWISE compilation enabled on NPU. use_inductor not supported - using only ACL Graph
+  mode` with `use_inductor = False` (`platform.py:160-180`), so `--enforce-eager` does set
+  `NO_COMPILATION` and is a real ablation there. And that pin has **no**
+  `ASCEND_LAUNCH_BLOCKING` guard anywhere in `vllm_ascend/` (`rg -n
+  ASCEND_LAUNCH_BLOCKING` hits only `examples/run_dp_attention_etp16.sh:5`), so the
+  later-ref `ValueError: ACL graph is incompatible with ASCEND_LAUNCH_BLOCKING` must not
+  be quoted at a pre-0.12 pin: blocking mode runs on the reporter's own launch line. At a ref
   that does have one (v0.10.1rc1 `7e16b4a7`: the disaster dump's own
   `compilation_config` carries `use_cudagraph: true`, `cudagraph_mode: 1`), run the
   ablation even when the failing op sits outside the captured region — a sporadic

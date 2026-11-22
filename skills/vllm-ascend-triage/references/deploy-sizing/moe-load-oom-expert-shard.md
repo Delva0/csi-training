@@ -132,14 +132,25 @@ vllm serve kimi-k2-5 --trust-remote-code --host XXX --port 1025 \
 
 (`--additional-config` keys are matched by name, so a mistyped sub-key is a silent
 no-op — worth one look when a symptom says the setting "did nothing",
-`../startup-failures/graph-mode-not-applied.md`.) Carry `--mm-processor-cache-type shm`
-from this recipe only with its caveat: it is not the default (`lru`) and it can abort the
-engine with a stale-slot `ValueError: Data for address:id …` on a request —
-`../multimodal-inputs/shm-mm-cache-invalid-object.md`. Deltas from the failing dict worth
-naming, in this order: the four `--data-parallel-*` flags, `gpu_memory_utilization`
-0.86 → 0.95, `ascend_scheduler_config`/torchair graph off, `FULL_DECODE_ONLY` with an
-explicit capture-size list. `--max-model-len 4096 → 72000` moved the *other* way, so it
-is not the memory lever.
+`../startup-failures/graph-mode-not-applied.md`.) **Hand this line over whole.** It is
+the only known-good launch for the layout, so a flag trimmed on your own judgement turns
+a verified recipe into an untested one — annotate the two that carry risk instead of
+deleting them. `--mm-processor-cache-type shm` is not the default (`lru`) and can abort
+the engine with a stale-slot `ValueError: Data for address:id …` on a request
+(`../multimodal-inputs/shm-mm-cache-invalid-object.md`): keep it, and offer
+`--mm-processor-cache-type lru` as the one-line fallback if that ValueError appears.
+`--mm-encoder-tp-mode data` is VL-encoder-only and changes nothing about the expert
+shard this OOM came from: at vllm `f1764434` it is accepted for this checkpoint because
+`kimi_k25.py:294` sets `supports_encoder_tp_data = True`, and it flips MoonViT from
+weight-sharded to data-parallel — full ViT weights per rank, images sliced across the TP
+group (`moonvit.py:314,350`, `kimi_k25_vit.py:628-635` → `vision.py:384-421`). Models
+without that attribute get `Falling back to --mm-encoder-tp-mode weights`
+(`config/model.py:580-587`), so carrying the flag to another checkpoint is a silent
+no-op rather than an error. Deltas from the failing dict worth naming, in this order:
+the four `--data-parallel-*` flags, `gpu_memory_utilization` 0.86 → 0.95,
+`ascend_scheduler_config`/torchair graph off, `FULL_DECODE_ONLY` with an explicit
+capture-size list. `--max-model-len 4096 → 72000` moved the *other* way, so it is not
+the memory lever.
 
 ## Answer shape
 

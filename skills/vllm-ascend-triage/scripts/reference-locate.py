@@ -238,6 +238,10 @@ def main():
     if n >= 2 and best < n and widest >= 40:
         print(f"family words, not a case: '{widest_tok}' alone hits {widest} pages and no")
         print(f"page carries all {n}, so this grade cannot name the owner. These moves do:")
+        print("  - re-grade the two or three shortened tokens in one more call, and open")
+        print("    nothing absent from this printout: a page whose *name* matches the")
+        print("    paste but which grades on no list is periphery \u2014 the skill_view")
+        print("    `linked_files` inventory is a listing, not a search result;")
         print("  - take the shape's row in references/dispatch/classified-shapes.md "
               "(symptom wording, not title words);")
         print("  - open a [case] file below by the report's own wording \u2014 an entry whose")

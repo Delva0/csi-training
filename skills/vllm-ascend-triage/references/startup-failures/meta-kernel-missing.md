@@ -72,6 +72,11 @@ does not touch `rotary_embedding` — check it once, then stop looking for one.
    its fake support lives in the op-plugin C++ the snapshot does not carry. The
    discriminator is free — if it still fails, the new message names
    `npu_rotary_embedding`, which proves the branch moved.
+   There is no env knob to disable the op instead: at v0.9.2rc1
+   `rg -n 'CUSTOM_OP|custom_op' vllm_ascend/envs.py` returns nothing (the only gate is
+   the lazy `enable_custom_op()` import in `utils.py:217-234`), so "turn the custom
+   kernel off and keep graph mode" is not a reporter-side rung there. Re-run that grep
+   on the reported ref before repeating the negative: later releases add envs.
 3. Maintainer-side only: register the Meta impl (C++
    `TORCH_LIBRARY_IMPL_EXPAND(_C, Meta, m)`, as `meta_registration.py` later did in
    Python) or gate the custom kernel off while capturing. Do not tell the reporter

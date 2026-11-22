@@ -15,6 +15,58 @@ the perf side), an EP+DP engine that fails to **start** or a dispatch tiling ref
 (`../feature-enable-recipes/moe-expert-parallel-with-dp.md`), or corruption that survives
 with EP off (start at `index.md`).
 
+## Step 0 — grade the pin's reduce-hook generation, one grep, before Step 1
+
+The mechanism on this page is a **model-side** second reduce, so it only exists while
+upstream models still call it. One grep says which generation the pin is:
+
+```bash
+rg -n 'def maybe_all_reduce_tensor_model_parallel' <vllm>/vllm/model_executor/layers/fused_moe/
+```
+
+- **Hit** (vllm ≤ v0.19.1; at v0.19.1 `b1388b1f` it is `runner/default_moe_runner.py:378-385`
+  behind the interface stub `runner/moe_runner.py:30-34`, with `FusedMoE` delegating at
+  `layer.py:1461-1465`) → the public hook still exists and Steps 1-4 apply as written; the
+  model sweep returns **eight** files.
+- **Empty across the whole tree** (vllm v0.22.1 `0decac0d`: 0 hits in 5 302 files) → the
+  hook became the runner's **private** pair,
+  `MoERunner._maybe_reduce_shared_expert_output` / `_maybe_reduce_final_output`
+  (`.../layers/fused_moe/runner/moe_runner.py:376,396`; the final reduce is gated on
+  `not is_sequence_parallel and (tp_size > 1 or ep_size > 1) and not
+  _fused_output_is_reduced`), reached through `FusedMoE.forward → self.runner.forward`
+  (`layer.py:1306-1314`). Downstream overrides exactly those two hooks:
+  `AscendMoERunner(MoERunner)` at `vllm_ascend/ops/fused_moe/fused_moe.py:255`, overrides
+  `:276` and `:286`, installed by `AscendFusedMoE` at `:467`, still funnelling into
+  `torch.ops.vllm.maybe_all_reduce_tensor_model_parallel`
+  (`ops/register_custom_ops.py:148-156`, whose skip list now also takes
+  `ALLGATHER and flash_comm_v1_enabled`).
+
+**On the second generation an empty Step 1 grep on the reported model is the finding, not
+a coverage gap.** The Step 3 sweep returns **three** files at vllm v0.22.1
+(`arctic.py:219`, `bert_with_rope.py:339`, `minicpm.py:188`); `qwen3_moe`, `minimax_m2`,
+`dots1`, `kimi_linear`, `hunyuan_v1` and `step3_text` carry neither the bare call nor a
+readable `reduce_results` pair any more. So for those models this page **cannot** name the
+cause of an EP-only corruption at that pin — rank the selector lane (Step 2), the
+scheduler/sampler pages and the residual question below instead of continuing the hunt.
+Do not report the empty grep as a partial export: check that the file exists and run the
+sweep with `-uu` (`rg` honours `.gitignore`; an empty result over a 5 302-file export is an
+absence, and `SOURCES.json` `mode=one_commit_git` with a file count is the coverage claim).
+
+The residual question, worth a sentence rather than a search: on that generation the
+Ascend override replaces upstream's own gate with its skip list, so a silent fault would
+be *under*-reduction (a comm type in the skip list whose Ascend finalize did not actually
+aggregate), not the ~`tp_size`× overshoot. Same free controls decide it — EP-off, then
+TP16 vs TP8 with EP on — plus the `MoECommType` the log's `select_moe_comm_method` picks.
+
+Recorded #12258 (Qwen3-235B-A22B BF16, 2×Atlas 800T A2, `v0.21.RC1` image,
+`--data-parallel-size 2 --tensor-parallel-size 8 --enable-expert-parallel
+--async-scheduling`, whole answer one repeated character) is what this step is for: the
+selector was satisfied (128 experts / 16 ranks = 8 ≤ 24, `ep_world_size` 16), the upstream
+sweep came back empty, and the run spent six further calls before shipping the double
+count as cause #1 with an "export may be partial" caveat. The generation boundary itself is
+not in this snapshot (no vllm v0.20/v0.21 tree), so a reporter on `0.21.RC1` or any
+unexported pin needs the same single grep inside their image.
+
 ## Step 1 — the pair of lines that settles it, two greps
 
 ```bash
@@ -140,10 +192,13 @@ all-reduce. Two caveats to keep honest rather than silent:
 
 ## Scope and recheck keys
 
-Pins: vllm-ascend v0.14.0rc1 `52d4acfa`, vllm v0.14.1 `d7de043`. Re-grep
+Pins: vllm-ascend v0.14.0rc1 `52d4acfa` + vllm v0.14.1 `d7de043` (Steps 1-4), and the
+generation gate re-verified at vllm v0.19.1 `b1388b1f` (hook public, model sweep eight
+files) against vllm v0.22.1 `0decac0d` (hook private in the runner, sweep three files) with
+vllm-ascend v0.22.1rc1 `5f6faa0c` (`AscendMoERunner`). Re-grep
 `select_moe_comm_method`, `maybe_all_reduce_tensor_model_parallel`, `MoECommType` and the
 model files' `reduce_results` at another ref: the selector moved from the runner into
-`ascend_forward_context.py`, the A2 branch lost its `ALLTOALL` row at v0.13.0rc1, and a
-later release may add a model-side helper or a different skip list. Not verified here:
+`ascend_forward_context.py`, the A2 branch lost its `ALLTOALL` row at v0.13.0rc1, and this
+hook moved between v0.19.1 and v0.22.1 — so Step 0's grep comes first, not last. Not verified here:
 whether a fix has landed upstream after these pins, and the runtime value of
 `mc2_tokens_capacity` (a profiling-time global, `ascend_forward_context.py:186-187`).

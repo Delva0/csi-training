@@ -154,21 +154,39 @@ GMM:y dtype does not match with required dtype[DT_BFLOAT16]
 | that flag decides the activation dtype only in **MC2**: `quant_mode = 2 if apply_a8_quantization else 0` | `vllm_ascend/distributed/moe_comm_method.py:398` |
 | `AllGatherCommImpl.permute` takes `apply_a8_quantization` (`:166`) and **never reads it**; it hardcodes `quant_mode=-1` (`:195`) and returns `None` as the dynamic scale (`:202`) | same file, class at `:101` |
 | a single-node serve lands there regardless of the flag: `if self.moe_config.ep_size < 16: moe_comm_method_name = "allgathercommimpl"` | `ops/common_fused_moe.py:487-490` |
+| the quant method picks its branch **once, in `__init__`, from config alone**: `use_aclgraph = level == PIECEWISE and not enforce_eager and not torchair_graph_config.enabled` | `vllm_ascend/quantization/w8a8_dynamic.py:291-294` |
+| the graph body is `unified_fused_experts` (the `ops/common_fused_moe.fused_experts` alias) at `:390`; the eager twin is `unified_fused_experts_eager` at `:418` → `ops/fused_moe.py:55` → `w8a8_dynamic.py:113 apply_mlp` | same file, imports `:30-32`, branch `:389-390` / `:418` |
+| `--enforce-eager` sets `NO_COMPILATION` before that constructor reads the level (log: `Compilation disabled, using eager mode by default`) | `vllm_ascend/platform.py:145-147`; the whole flag→level table is `../performance-throughput/graph-mode-from-the-serve-line.md` |
 | the only W8A8 e2e case at this ref runs the **eager** path: TP2 + `enforce_eager=True` (the ACL-graph cases are bf16) | `tests/e2e/multicard/test_qwen3_moe.py:59-71` vs `:90+` |
 
 So the contract has two owners and the gate compares them: the launch's `output_dtype`
-and whatever actually quantized the activations. On the graph path the eager MoE
+and whatever actually quantized the activations. Which branch produced the call is in
+the paste itself, one frame below the top: `apply` → `unified_fused_experts` is the
+graph body, `apply` → `unified_fused_experts_eager` is eager — so a paste whose deepest
+`vllm_ascend` frames read `quantization/w8a8_dynamic.py` (`…:390 return
+unified_fused_experts(`) → `ops/common_fused_moe.py:99 npu_grouped_matmul` has already
+answered "does rung 1 apply?", while a frame in the eager body means the rung is spent
+and the open question is `quant_mode` below. Because `use_aclgraph` is fixed in
+`__init__` from the config, `--enforce-eager` switches the path for the profiling dummy
+forward and for every request alike: it is a path switch, not a phase-conditional
+ablation (`SKILL.md` rule 15's test), and no other flag reaches this line.
+
+On the graph path the eager MoE is the working control
 (`quantization/w8a8_dynamic.py:113 apply_mlp`, which quantizes per token first and takes
-`_output_dtype` from `w2_scale`, `:157`) is the working control — which is exactly why
-`--enforce-eager` (and, per the validated test, TP2) is rung 1, before any patch.
+`_output_dtype` from `w2_scale`, `:157`) — which is exactly why `--enforce-eager` (and,
+per the validated test, TP2) is rung 1, before any patch. Label the rung
+**source-inferred**: the branch switch is verified at the pin, but nobody has reported
+that rerun back, so the answer says "this changes the code path the launch takes", not
+"this is the confirmed fix", and asks for the new traceback if it does not.
 
 **The one thing not knowable locally: `quant_mode` semantics.** `-1` versus `2` is a
 torch_npu/CANN attribute meaning, and no export carries it — in this case view
 `rg -ln 'moe_init_routing' Ascend/` is empty and the only `quant_mode` hit in
 `Ascend/` is an unrelated HIVM fixpipe attr (`HIVM_FixpipePreQuantModeEnum`). Do not
 spend turns deciding whether
-`-1` means "dynamic quant" or "input already quantized" (recorded #2807 spent its
-entire output budget there and shipped no answer): state the two readings, note the
+`-1` means "dynamic quant" or "input already quantized" (#2807's first run spent its
+entire output budget there and shipped no answer; its second run answered from this page
+in ~12 turns with rung 1 in the first paragraph): state the two readings, note the
 local contrast above, and give the reporter the one-line check that ends it —
 `print(permuted_hidden_states.dtype)` at the failing launch, or
 `python -c 'import torch_npu; help(torch_npu.npu_moe_init_routing_v2)'` on their image.
@@ -204,4 +222,8 @@ this page describes an older ref. Rule 5's anchors are a different, earlier ref
 `quantization/methods/` does not exist yet, so re-locate `output_dtype=` and the
 `ep_size < 16` line in whatever layout the reported tree has, and re-grep
 `apply_a8_quantization` — if the AllGather `permute` reads the flag, rule 5's mechanism
-is repaired.
+is repaired. Rule 5's anchors (the `use_aclgraph` gate, the `--enforce-eager` →
+`NO_COMPILATION` line and the eager `apply_mlp` twin) were re-verified there by a later
+#2807 session, which shipped the rung in its first paragraph after four verification
+calls — for that case this page plus one locate call is the investigation, so
+re-deriving them is the detour.

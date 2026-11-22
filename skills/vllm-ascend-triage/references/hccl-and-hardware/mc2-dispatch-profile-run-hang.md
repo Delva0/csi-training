@@ -45,7 +45,11 @@ resource[qp] … Memory resources are exhausted` → `HcclAllocComResourceByTili
 `HCCL_OP_EXPANSION_MODE`/`PYTORCH_NPU_ALLOC_CONF` is `aiv-mc2-env-ablation.md`. §Step 1 below is
 the **arithmetic only** — the ranked lever list for a refusal lives in §Step 3b, and a reader who
 stops at §Step 1 will ship the capacity number as if it were a lever (recorded #5947: the second
-run paged 1-90 → 90-190 → 190-290 to reach it).
+run paged 1-90 → 90-190 → 190-290 to reach it). The same stop cost the #8294 replay its ranking:
+it read 1-200 then 200-300, never reached §Step 4, shipped §Step 1b's capture-size asymmetry as
+the top lever and asked the reporter for the single-node launch line as *the* control — which the
+ladder below rules out (one A2 box → `ep_world_size = 8` → MC2 never selected). **Read §Step 4
+before writing any ranking of this lane.**
 
 ## Step 1 — the batch that runs is `mc2_tokens_capacity`, not `max_num_batched_tokens`
 
@@ -372,13 +376,24 @@ before a knob is offered, and put the transport rows below the op/version rows.
 ## Step 4 — ranking, ladder, artefacts
 
 **Before the ranking: if the reporter already ran the env matrix, do not re-issue
-it.** #8294's reporter came back on 2026-04-17 with "all combinations of these 3 envs
-… fails at the same phase (torch.compile). Even I unset the 3 envs, it fails too" —
-that closes `HCCL_OP_EXPANSION_MODE` / `PYTORCH_NPU_ALLOC_CONF` / the FLASHCOMM1 pair
-as causes for that report, and the phase in the title is the reporter's label, not the
-phase (their traceback line is what dates it). Ask which three variables they mean
-rather than guessing, then spend the turn on the symmetry check above and the missing
-artefacts.
+it — but resolve *which* variables it covered before calling any row closed.**
+#8294's reporter came back on 2026-04-17 with "all combinations of these 3 envs …
+fails at the same phase (torch.compile). Even I unset the 3 envs, it fails too". The
+phase word in the title is the reporter's own label, not the phase (their traceback
+line is what dates it). The three are almost always the knobs the *previous answer's*
+ablation rows named — on #8294 `VLLM_ASCEND_ENABLE_FLASHCOMM1`,
+`VLLM_ASCEND_ENABLE_FUSED_MC2`, `VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE`, each a no-op at
+this pin for its own reason (soft-defaulted by `enable_shared_expert_dp`, read only in
+the A3 branch, SET-ONLY). So those rows are closed and no env axis is owed another
+launch — **but `HCCL_OP_EXPANSION_MODE` is not among them, and both #8294 node scripts
+set `AIV`.** Its device block (`fftsplus aivector error … aicore timeout` on the MC2
+dispatch inside `profile_run`) is `aiv-mc2-env-ablation.md`'s family (#14928's reporter
+verified *AIV unset + MC2 passes*, and #3881 has AIV moving comm onto the vector cores
+to contend with the parallel MC2 op), so keep one single-variable AIV ablation as a
+rung (0b) below unless
+the reporter says it was one of the three. Never cite that comment as closing
+`PYTORCH_NPU_ALLOC_CONF` for this report either — it was never in the set and has no
+mechanism at this phase.
 
 Settled by source at v0.18.0rc1 (`ascend_forward_context.py:236-247`): EP off or ep
 world 1 → `ALLGATHER`; A2 → `MC2` iff `num_experts_per_device <= 24` **and**
@@ -387,7 +402,7 @@ world 1 → `ALLGATHER`; A2 → `MC2` iff `num_experts_per_device <= 24` **and**
 no-op (never rank "unset `VLLM_ASCEND_ENABLE_FUSED_MC2`" as a fix), and there is no
 env that forces `ALLGATHER` while EP stays on — `--enable-expert-parallel` off is that
 route. A reporter's "single node works" is therefore expected at world 8 and does not
-clear the MC2 path.
+clear the MC2 path — what that costs the ladder's single-node rung is under rung (3).
 
 Ranked, one check each: (1) the cross-node leg of the all-to-all not completing
 (rank table / `device_ip` / NIC) — hypothesis, decided by the one-node vs two-node
@@ -420,14 +435,19 @@ launch as the ablation on an SFA/DSA pin under the ≤ 1024-token gate.
 
 Ladder, one axis per launch: (0) make the two nodes' commands identical (the
 symmetry check above) — cheapest, and when asymmetric it also restores the
-documented recipe; (1) comment out both `HCCL_INTRA_*`; (2) drop
-`--enable-expert-parallel` (→ `ALLGATHER`, the kernel disappears: proves the
-transport); (3) single node (world < 16, MC2 never selected) to separate
-"cross-node" from "MC2"; (4) `--enforce-eager` / `cudagraph_mode: NONE`, then
-`ASCEND_LAUNCH_BLOCKING=1` — in that order, because the platform refuses blocking
-mode while an ACL graph is configured. Ask for: the headless node's full log,
-both nodes' `version.info` + `npu-smi`, the `hccl_test` result, and the plog for
-the failure minute on both nodes.
+documented recipe; (0b) if the paste sets `HCCL_OP_EXPANSION_MODE=AIV` and the
+reporter has not removed it, one relaunch with only that variable unset — labelled
+ablation, not a fix (`aiv-mc2-env-ablation.md`'s matrix, row 2/3); (1) comment out both
+`HCCL_INTRA_*`; (2) drop `--enable-expert-parallel` (→ `ALLGATHER`, the kernel
+disappears: proves the transport); (3) single node; (4) `--enforce-eager` /
+`cudagraph_mode: NONE`, then `ASCEND_LAUNCH_BLOCKING=1` — in that order, because the
+platform refuses blocking mode while an ACL graph is configured. **Rung (3) is not the
+control it looks like:** one A2 node at `tp8 dp1` gives `world_size_across_dp = tp*dp =
+8`, so `ep_world_size = 8 < 16` and the A2 row returns `ALLGATHER` — MC2 is never
+selected, so a passing single-node run separates nothing on its own; the 2-node failure
+stays "cross-node leg **or** the MC2/AIV path", and rung (2) is what splits those. Ask
+for: the headless node's full log, both nodes' `version.info` + `npu-smi`, the
+`hccl_test` result, and the plog for the failure minute on both nodes.
 
 ## Precedents and scope
 

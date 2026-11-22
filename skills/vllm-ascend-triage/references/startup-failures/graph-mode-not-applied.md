@@ -52,6 +52,27 @@ Also gated by mode: `PIECEWISE` asserts `mode == VLLM_COMPILE`
 otherwise runs the piecewise path — so a worker whose log lacks the success line at
 `:313` never had the mode, whatever the launcher said.
 
+## "I turned the graph features off": `enable_npugraph_ex` is not the switch
+
+A paste that clears `"enable_npugraph_ex": false` / `"enable_static_kernel": false` in
+`--additional-config`, or that simply drops `--compilation-config`, has **not** made the
+run eager — a clearance that decides stall and latency cases, so check it before
+accepting "graphs are off". At v0.23.0rc1 (`f4a08bbd`) the chain is: default
+optimisation level O2 (`vllm/config/vllm.py:364` at vllm `ee0da84`) whose table sets
+`cudagraph_mode = FULL_AND_PIECEWISE` (`:252`); that mode satisfies
+`requires_piecewise_compilation()`, so the worker enters the piecewise branch
+(`vllm_ascend/platform.py:595`) which writes `enable_npugraph_ex = False` itself
+(`:622`) and applies the v1 splitting ops; `enable_static_kernel` cannot be true without
+`npugraph_ex` (`vllm_ascend/ascend_config.py:627-628`, its `assert`). So both keys are
+no-ops there and piecewise ACL graphs are still captured. Older pins reassigned the enum
+instead (the `FULL_AND_PIECEWISE` row above); the observable is the same either way, so
+re-grep the branch per ref and quote the log rather than the `--additional-config`.
+The real switches are `--enforce-eager` (= `mode:none` + `cudagraph_mode:none`,
+`vllm/config/vllm.py:1064-1067`) and
+`--compilation-config '{"cudagraph_mode": "NONE"}'`; the worker's
+`PIECEWISE compilation enabled on NPU` / `Capturing ACL graphs …: k/N` lines are what
+say which one happened.
+
 ## `FULL` is not a supported mode, and the legacy flag lands on it
 
 Scope: the paste's own line is `CUDAGraphMode.FULL cudagraph_mode is not support

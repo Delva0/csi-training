@@ -60,13 +60,24 @@ With `LLM(model=…)` and no scheduler flags, the three inputs are:
 | input | value on #1617 | source |
 |---|---|---|
 | `max_model_len` | the checkpoint's own value (32768 for Qwen2.5-VL-7B) — **only because this construction passes no `--max-model-len`**; a serve that carries the flag logs the flag instead | `ModelConfig` resolves it from the HF config (`vllm/config/model.py:1898-2026`: the user's value is returned verbatim when given, else the derived length) |
-| `max_num_batched_tokens` | `max(max_model_len, _DEFAULT_MAX_NUM_BATCHED_TOKENS = 2048)` = **32768** | `vllm/config.py:68, 1979-1983` |
-| `max_num_seqs` | **128** (then clamped by `max_mm_tokens`) | `vllm/config.py:1961-1965` |
+| `max_num_batched_tokens` | `max(max_model_len, _DEFAULT_MAX_NUM_BATCHED_TOKENS = 2048)` = **32768**, then raised to the multimodal floor `_MULTIMODAL_MODEL_MAX_NUM_BATCHED_TOKENS = 5120` | `vllm/config.py:68,1979-1983`, floor at `:70,1992-1997` |
+| `max_num_seqs` | **256** (then clamped by `max_mm_tokens`) | `vllm/engine/arg_utils.py:1561-1563` — `_set_default_args_v0`, "Set max_num_seqs to 256 for VLLM_V0", which `create_engine_config` runs before building `SchedulerConfig` (`:1118-1122`). The dataclass's own `128` (`vllm/config.py:1961-1965`) is dead on any CLI / `LLM(...)` path |
 | `limit_mm_per_prompt` | empty ⇒ **1 item for every supported modality** | `vllm/config.py:2800-2808` (`999 if envs.VLLM_USE_V1 else 1`), `vllm/multimodal/processing.py:1038-1050` |
 
 The last row is the one reporters never expect: Qwen2.5-VL supports **image and
 video**, so the V0 dummy prompt carries one of each — which is why the #1617 paste's
 deepest frames are `_process_video_input` on a benchmark that only ever sends images.
+
+The 5120 floor bounds the knobs, so say where it bites: it applies only while
+`max_num_batched_tokens` is **unset** (`:1979`), and it means a VL model's dummy batch
+never drops below **5120 tokens** however small `max_model_len` gets. The #1617 working
+config's `max_model_len=4096` therefore still profiles a 5120-token dummy batch (then
+`min(256, 5120 // max_mm_tokens) = 0` → the `Setting it to the minimum value of 1`
+warning, `vllm/worker/model_runner.py:1296-1310`): that change buys 6.4×, not 8×, and
+going below 4096 buys nothing. With `--enable-chunked-prefill` unset, V0 also decides
+chunked prefill **off** for a multimodal model (`vllm/engine/arg_utils.py:1506-1509`),
+which is why the `max(max_model_len, 2048)` branch is the live one rather than the flat
+2048 of the chunked branch above it.
 
 Say the arithmetic in the answer, because it answers the literal question: the model's
 weights are `Loading model weights took 4.7006 GB` per card at TP4, so on a card whose
@@ -86,9 +97,24 @@ that cat. `split_qkv` (`:258-264`) enters it only when `tp_size > 1`, so:
 - TP>1 adds `tp_size` full-size copies **plus** the cat on top of the same per-rank
   ViT activations, i.e. the peak **grows** with TP while only the LLM weights divide.
 
+**Later pins close the TP half of the shape.** From vllm v0.15.0 (`f1764434`)
+`--mm-encoder-tp-mode` exists (default `weights`, `vllm/config/multimodal.py:117`):
+`data` runs the ViT data-parallel — full weights on every rank, the **batch** sliced
+across the TP group and gathered after the tower
+(`vllm/model_executor/models/vision.py:384-421` `run_dp_sharded_mrope_vision_model`,
+entered from `is_vit_use_data_parallel()` `:127-143`) — so the rank-local ViT activation
+is *divided* instead of multiplied. It is accepted only for models declaring
+`supports_encoder_tp_data` (Kimi-K2.5: `kimi_k25.py:294`, read by MoonViT at
+`moonvit.py:314,350`); every other model gets `This model does not support
+--mm-encoder-tp-mode data. Falling back to --mm-encoder-tp-mode weights`
+(`config/model.py:580-587`, a `warning_once`, so a log tail can miss it). No such flag
+exists at v0.8.5.post1 — on a ≥0.15 VL MoE check the serve line for it **before**
+deriving a peak from `all_gather_interleave`, because the reporter-confirmed Kimi-K2.5
+line already carries it (`moe-load-oom-expert-shard.md`).
+
 Therefore "TP=4 OOMs and TP=1 doesn't" is not evidence of a TP defect, and the
 reporter's own control is confounded anyway: on #1617 the working config also changed
-`gpu_memory_utilization` 0.9→0.8, `max_model_len` 32768→4096, `max_num_seqs` 128→4 and
+`gpu_memory_utilization` 0.9→0.8, `max_model_len` 32768→4096, `max_num_seqs` 256→4 and
 added `limit_mm_per_prompt={"image": 1}` — five variables at once.
 
 ## Step 3 — the discriminator and the ladder

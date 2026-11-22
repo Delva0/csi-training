@@ -21,7 +21,11 @@ words 乱码/感叹号: an **image or video** in the request →
 `first-generate-degenerate.md`; `temperature>0` carries the corruption while greedy
 is byte-identical → `sampler-side-stream-corruption.md`; sentences/phrases repeat
 inside otherwise fluent text → `long-output-repetition.md`; word salad rather than
-one token → `short-prompt-corruption.md` / `garbled-long-context-output.md`.
+one token → `short-prompt-corruption.md` / `garbled-long-context-output.md`; a MoE
+serve whose command carries `--enable-expert-parallel` (DP>1 especially) →
+`ep-mode-reduce-double-count.md`, whose EP-on-vs-off rerun is rung 1 **and** whose Step 0
+grep decides whether the pin still has a model-side second reduce at all — quote no
+`tp_size`-overshoot mechanism before that grep.
 
 ## Step 1 — grade it at the id level, not as text
 

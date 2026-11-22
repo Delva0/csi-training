@@ -69,10 +69,24 @@ on vllm's own module path `vllm/v1/executor/ray_utils.py`. Recorded #10910: 2 no
 
 ## Fix shape
 
-- Two-node DP from one `vllm serve`: add `--data-parallel-backend ray` (keep
-  `--distributed-executor-backend ray`), so the DP manager creates one group per DP
-  rank, sizes each to `world_size` and passes it down; then `dp_rank` engines no longer
-  race for the node's free devices.
+- Two-node DP from one `vllm serve`: add `--data-parallel-backend ray` **and**
+  `--data-parallel-size-local 1` (keep `--distributed-executor-backend ray`), so the DP
+  manager creates one group per DP rank, sizes each to `world_size` and passes it down;
+  then `dp_rank` engines no longer race for the node's free devices.
+- **The second flag is not optional when `world_size == devices per node`** (recorded
+  #10910: TP16 on 16-card nodes). Without it `data_parallel_size_local` defaults to the
+  *global* DP size (`arg_utils.py:1716-1724`, unless `VLLM_RAY_DP_PACK_STRATEGY=span`), and
+  the ray-DP manager refuses on its own master node before any worker starts:
+  `Not enough resources to allocate 2 DP ranks on DP master node <ip>, possible to fit 1 DP
+  ranks.` — `dp_size_available = n_device_on_node // world_size` (`vllm/v1/engine/utils.py:507,514`)
+  tested against `dp_size_local` at `:516-522`. So a one-flag answer (add
+  `--data-parallel-backend ray`) converts the reported ValueError into that one instead of
+  a working serve; hand back the pair.
+- `VLLM_RAY_DP_PACK_STRATEGY=span` is **not** the way out on that shape: span asserts
+  `world_size > max_device_per_node` (`utils.py:464-469`) — false at TP16 on 16 cards —
+  and then asserts `dp_size_local == 1` (`:486-489`), i.e. it needs the same flag anyway.
+  Its default is `strict` (`vllm/envs.py:1129-1131`, `:145`), which allocates
+  `dp_size_local` ranks per node.
 - Two-node DP with the default `mp` backend is the upstream `--nnodes 2 --node-rank i`
   shape: one serve per node, each node's engine owning its own devices. A single serve
   that tries to spawn both DP ranks locally against a ray executor is what fails here.
@@ -86,3 +100,9 @@ No run is reproducible from this snapshot: the branch structure and the free-res
 read are source-verified at the pins above, and the reporter's own dict is the evidence
 that a group holds the devices. Which of the three producers (sibling engine, stale
 group, another serve) owns it is decided by check 1/3, not by the message text.
+
+**Nothing here is reporter-confirmed.** #10910's only later public message is a bump
+(「Is there any update on this」): neither the `mp`-sibling diagnosis nor the fix flags were
+tested on that cluster, so label them source-verified and send the two-flag launch line
+plus the log line that would falsify it (`Creating placement groups for data parallel`
+present in the ray-DP run, absent in the failing one).

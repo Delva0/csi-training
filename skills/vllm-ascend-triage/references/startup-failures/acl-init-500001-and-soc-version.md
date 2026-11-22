@@ -78,6 +78,45 @@ reported (#302 comment 2716169193, 2025-03-12).
 | `310P3` | `Ascend@910B…` (or any name the card cannot report) | the runtime did not bind to this card: the mounted host driver/firmware, or a toolkit/opp inside the container that is not the card's line. Name the conflict before anything else |
 | matches the card | `500001` still | the container lane first: re-run the **same** `docker run` with `--privileged=true` added and nothing else changed — the reporter-confirmed fix on #302 (910B2, documented mounts, SoC matching). Only if that clears nothing: host driver/firmware older than the image's CANN base, or a device unusable inside the container. A matching line exonerates nothing, and the flag does not say *which* device or capability was short |
 
+**What the `Ascend@910B` token can and cannot be — read this before inventing a mechanism.**
+It is **not** torch_npu's enum and not the string torch_npu handed to ACL. Verified in the
+`Ascend/pytorch` `v7.1.RC1.alpha002-pytorch2.7.1` export (`d33df559`, the one in the #2315
+snapshot; the reporter's image ships torch-npu 2.5.1, so re-check the two greps below at that
+pin before quoting numbers):
+
+| fact | anchor |
+|---|---|
+| the global starts at `UnsupportedSocVersion = -1` | `torch_npu/csrc/core/npu/NpuVariables.h:6`; `NpuVariables.cpp:11` |
+| the name→enum map has `Ascend310P3` and `Ascend910B`; no `Ascend@…` spelling exists | `NpuVariables.cpp:13-40` |
+| `SetSocVersion` returns early **only** for a `nullptr` name; an **unmapped string** raises `AT_ERROR("Unsupported soc version: …")` | `NpuVariables.cpp:42-60` |
+| the only silent path is a driver without `aclrtGetSocName` (symbol lookup fails → `nullptr`) | `core/npu/interface/AclInterface.cpp:334-344` |
+| call site: `soc_name = AclGetSocName()` → `SetSocVersion(soc_name)`, before any device use | `core/npu/sys_ctrl/npu_sys_ctrl.cpp:157-159` |
+| the precision string is an `Ascend910B1` boundary, not a 910B-vs-310P one: `GetSocVersion() >= SocVersion::Ascend910B1 ? "must_keep_origin_dtype" : "allow_fp32_to_fp16"` | `framework/LazyInitAclops.cpp:150-157` (ternary `:154-155`, call `:156`); enum values `NpuVariables.h:6-33` (`Ascend910B = 105`, `Ascend310P3 = 202`, `Ascend910B1 = 220`, `-1`) |
+
+Two inferences this kills. Both sound source-verified, and a recorded run of #2315 shipped
+the first one:
+
+- **"The name lookup returned nothing, so the enum defaulted to `Ascend910B`."** There is no
+  such fallback — an unmapped name raises `AT_ERROR`, an absent one leaves `-1`. And a
+  `500001` out of `SetPrecisionMode` (a later step, `LazyInitAclops.cpp:156`) proves
+  `SetSocVersion` already returned without `AT_ERROR`, so the ACL name that reached it was a
+  real `Ascend310P3`-class string or `nullptr`, never `Ascend@910B`. The token is the CANN
+  platform layer's own report on that `[PLATFORM] … log_inner.cpp` line, so keep the conflict
+  as *"the platform config/opp/driver the container resolved is the 910B line, not this
+  card's"* (table row 1) and let `version.info` + `npu-smi` name which side. Do not answer
+  "the device name lookup returned nothing": it points the reporter at device visibility when
+  the evidence points at the platform/toolkit line.
+- **"It saw 910B, so torch_npu chose `must_keep_origin_dtype`, which a 310P rejects with
+  `500001`."** The boundary is `Ascend910B1 = 220`, and `Ascend910B = 105`,
+  `Ascend310P3 = 202` and `-1` are all below it: a 310P3 run, an unresolved run and even a
+  genuine `Ascend910B` name all pass `allow_fp32_to_fp16`. The string is not a knob the
+  reporter can move, which is the same reason `--dtype`, `--compilation-config` and
+  `--enforce-eager` stay off the ranking (§*What the two log facts mean*).
+
+Re-check at another torch-npu pin with two greps:
+`rg -n 'UnsupportedSocVersion' -A 4 torch_npu/csrc/core/npu/NpuVariables.h` and
+`rg -n 'AT_ERROR\("Unsupported soc' torch_npu/csrc/core/npu/NpuVariables.cpp`.
+
 ## Sibling variant: the same phase without `500001` is a FILE question
 
 If the paste carries `RealPath:Path '<…>/<arch>-linux/lib64/../data/platform_config' does not
@@ -162,7 +201,8 @@ per-device `--device`) is a follow-up experiment, not this diagnosis.
   init does; why ACL's internal state is broken is a driver/firmware question with
   no source in any export. Cap it at ~4 calls — a recorded run (#2315) spent its
   whole session in `LazyInitAclops.cpp`, the `SocVersion` enum and vllm-ascend's
-  `is_310p()` and never sent a message.
+  `is_310p()` and never sent a message, and the enum/map facts it wanted are already
+  tabulated in §*What the `Ascend@910B` token can and cannot be* above.
 - **Do not rank the neighbouring Triton / `vllm._C` lines — but give the reason at
   the report's pin, because it changes.** `Failed to import from vllm._C with
   ModuleNotFoundError("No module named 'vllm._C'")` and `Triton not installed or

@@ -7,7 +7,8 @@ request, the worker dies with `507011`, `fftsplus aivector error`,
 `Illegal instruction, which is usually caused by unaligned UUB addresses`,
 `mte error`, and/or `sqe_type=7(notify wait) … sq sw status error` - or it dies at
 the **first replay** with a Python-level `ValueError: not enough values to unpack
-(expected 13, got 9)` from `attention_v1.update_graph_params` (section 9) - or the
+(expected 13, got 9)` (or, on v0.23.0 and later, `expected 22, got 9`) from
+`attention_v1.update_graph_params` (section 9) - or the
 **first decode** raises a host-side `RuntimeError` whose two numbers are the
 batch-padding arithmetic, `Target sizes: [N]. Tensor sizes: [M]` at
 `model_runner_v1.py _prepare_inputs`, with no device code at all (section 10).
@@ -514,9 +515,27 @@ whether `--additional-config '{"pa_shape_list": [...]}'` covers those same sizes
 (docs describe it as a temporary PA-vs-FIA tuning knob,
 `docs/source/tutorials/models/Qwen3-Dense.md:196`; `faqs.md:270` warns that setting it
 swaps the operator), and whether the layers carry per-layer `sliding_window` - a
-hybrid sliding/full stack is exactly where the two predicates diverge. Ladder: set
-`pa_shape_list` to the captured sizes; else move `FULL_DECODE_ONLY` to `PIECEWISE`;
-else `--enforce-eager`. Name the predicate you verified instead of a model defect.
+hybrid sliding/full stack is exactly where the two predicates diverge.
+**`pa_shape_list` is not a fix on that stack, and this is the trap in the shape**:
+capture decides **per layer** (its third conjunct is per-layer) while replay decides
+**once per size bucket** - one `graph_params.attn_params[num_tokens]` list holds the
+PA tuples of the full layers *and* the FIA tuples of the sliding ones, so *any*
+single-side predicate is wrong for one of the two classes (the append sites that make
+one list carry both arities are in the v0.23.0 table below; re-read them at the reported
+pin before quoting this sentence for another release). Filling `pa_shape_list`
+with the captured sizes therefore only flips which class raises: replay then takes PA
+for every op in the list and the first sliding-layer tuple fails as
+`ValueError: too many values to unpack (expected 9)`. Treat that second message as the
+same defect with `pa_shape_list` set, not as a new bug, and read the two messages as a
+pair — `not enough values to unpack (expected 13/22, got 9)` = replay chose FIA,
+`too many values to unpack (expected 9)` = replay chose PA. Ladder: move
+`FULL_DECODE_ONLY` to `PIECEWISE` (no full decode graph, so `update_graph_params` is off
+the decode path), else `--enforce-eager`; the source fix has to be per op - store the
+branch or arity beside each captured tuple (the FIA tuple already carries a
+`layer_name`, the PA tuple does not) - because
+`acl_graph.update_full_graph_params` calls `impl_cls.update_graph_params(...)`
+statically, with no `self` to read `head_size` or `sliding_window` from. Name the
+predicate you verified instead of a model defect.
 
 Capture-side sibling in the same report: `[1,2,4,8]` failed at `AclmdlRICaptureEnd ...
 error code is 107033` / `EE9999 ... reason=task group status error` while `[1]`
@@ -536,21 +555,31 @@ reusing the v0.18.0rc1 ones:
 | Anchor (v0.23.0) | Fact |
 |---|---|
 | `attention/utils.py:104-120` | `using_paged_attention(runtime_shape, vllm_config, head_size=None)` gained a third argument; `:109-113` is a **Gemma4 fallback** — `if head_size == FIA_TND_LARGE_HEAD_FALLBACK_HEAD_SIZE: return True` (`= 512`, `device/utils.py:23`), returned **before** the `cudagraph_mode`/`pa_shape_list` test |
-| `attention_v1.py:1471` | forward/capture dispatch passes `self.head_size`, so a 512-dim global head layer takes PA in **every** mode |
-| `attention_v1.py:464`, `worker/model_runner_v1.py:3502` | `update_graph_params` (and the runner's own call) evaluate the predicate **without** `head_size` |
+| `attention_v1.py:1468-1473` | capture/forward dispatch, decided **per layer**: `attn_state == DecodeOnly and self.sliding_window is None and using_paged_attention(num_tokens, self.vllm_config, self.head_size)` (`:1472`). A 512-dim global head layer that is not sliding takes PA in **every** mode, while the 256-dim sliding layers of the same stack stay FIA **in the same bucket** |
+| `attention_v1.py:464`, `worker/model_runner_v1.py:3502` | `update_graph_params` evaluates the predicate **without** `head_size` and picks one branch for the whole bucket. The runner's own `:3502` call is a *different* consumer of the same predicate — it only chooses the PA workspace `seq_lens` during capture, so it is not the unpack decision, and its asymmetry is not a second bug |
 | `attention_v1.py:470-489` | PA branch unpacks **9** fields (`query, key_cache, value_cache, num_kv_heads, num_heads, scale, block_table, seq_lens, output`) |
 | `attention_v1.py:715-738` | FIA branch unpacks **22** fields (ends `c8_*_scale/offset`, `layer_name`) — `:715` is the line the ValueError reports |
+| `attention_v1.py:955`, `:1067`, `:1143` | capture appends into the *same* per-size list `graph_params.attn_params[num_tokens]` - the general FIA tuple (22 fields, `:925-955`, the `c8_*`/`layer_name` tail added at `:945-954`), a 15-field variant (`:1067`) and the PA tuple (9, `:1143`) - so arity is per op while `:464` chooses one branch for the whole list |
 | `ascend_config.py:246` | `pa_shape_list` default `[]` |
 
 So a hybrid stack with a 512-dim global head (Gemma4-family `gemma4_unified`) captures the
-9-tuple for those layers and, under `FULL_AND_PIECEWISE`/`FULL`, is unpacked as 22 on the
-first decode — deterministic, mode-independent, and reported as `expected 22, got 9`. Under
-`FULL_DECODE_ONLY` the ladder above works verbatim (`pa_shape_list` = the captured sizes makes
-the update side take PA too); under `FULL_AND_PIECEWISE` no config reaches that branch
-(`:117-118` returns False before the list is read), so the honest answer is `--enforce-eager`
-plus the two-line source fix (pass `self.head_size` at update, or put the branch in the
-captured tuple). Coverage half, verified at the same pin: `release_notes.md:170` "Added
-experimental Gemma4 support on A2 and Ascend 950", while `support_matrix/supported_models.md`
+9-tuple for its full layers and the 22-tuple for its sliding layers in one bucket, and
+`expected 22, got 9` on the first decode is deterministic and mode-independent. **Every**
+`FULL*` config is broken for that stack, which is why the reporter saw it under both
+`FULL_AND_PIECEWISE` and `FULL_DECODE_ONLY`: under `FULL`/`FULL_AND_PIECEWISE` the update
+predicate returns False at `attention/utils.py:117-118` before `pa_shape_list` is read,
+and under `FULL_DECODE_ONLY` an empty `pa_shape_list` returns False at `:120` - while
+filling it with the captured sizes makes replay take PA for the sliding layers' 22-field
+tuples and raises
+`too many values to unpack (expected 9)` instead. So the honest answer is `--enforce-eager`
+(or `PIECEWISE`) plus a per-op source fix: the branch flag or arity has to travel with each
+captured tuple, since `update_graph_params` is static and one predicate covers mixed-arity
+ops. The model side is verifiable at the same pin, so the hybrid claim does not rest on the
+report: `vllm/model_executor/models/gemma4.py:563` sets `head_dim = config.global_head_dim`
+on `full_attention` layers only, and `:437`/`:500` pass `per_layer_sliding_window` (the value
+`self.sliding_window` reads in `attention_v1.py:420`). Coverage half, verified at the same
+pin: `release_notes.md:170` "Added experimental Gemma4 support on A2 and Ascend 950", while
+`support_matrix/supported_models.md`
 lists only `Gemma-2` (`:84`) and `Gemma-3` (`:85`, `:185`) — no Gemma-4 row, and no ACL-graph
 e2e for the family. Recheck by listing every `using_paged_attention(` call site and counting
 the unpack targets in each branch: both moved between v0.18.0rc1 and v0.23.0.

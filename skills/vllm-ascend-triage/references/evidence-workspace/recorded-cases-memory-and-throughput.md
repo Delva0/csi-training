@@ -66,11 +66,17 @@ MTP: engine start died on all four ranks in `torch.npu.empty_cache()` with
 verified the injection block (`platform.py:761-779`), the `memory_profiling` exit site
 and the segment Map/Unmap evidence, then offered `max_split_size_mb:256` / explicit
 `:False` first — but keep the driver/CANN pairing as an unverified hypothesis.
-Reporter-confirmed afterwards: `expandable_segments:False` deploys; the same host then
-ran TP=2 and stalled at `shm_broadcast` on TP=4. Route:
-`../runtime-memory/allocator-expandable-segments-unmap-crash.md`, which also carries
-the 310P graph-budget follow-up and the "the 60 s broadcast line during startup
-compilation is not yet a hang" reading.
+Reporter-confirmed afterwards: `expandable_segments:False` deploys — and the run the
+reporter calls `两张卡可以跑` is that same TP=4 launch on `davinci4-7`, four dies =
+**two** 300I Duo cards; scaling to `--tensor-parallel-size 8` (four cards, eight dies)
+stalls at `shm_broadcast`. That follow-up launch carries no `--compilation-config` and
+sets `enable_npugraph_ex:false` / `enable_static_kernel:false`, which is **not** an
+eager switch: the pin's O2 default is `FULL_AND_PIECEWISE` and takes the piecewise
+branch, so it still captures. Route:
+`../runtime-memory/allocator-expandable-segments-unmap-crash.md` (post-fix section:
+die-count reconciliation, the default-mode fact, the export table) plus
+`../startup-failures/mm-encoder-profile-stall.md` §*Scope variant* for the repeating
+watchdog line (#12985, same `2 卡能部署 / 4 卡不行` wording).
 
 **#14274** vllm-ascend v0.22.1rc1 (`5f6faa0`) + vllm v0.22.1 (`0decac0d`),
 `v0.22.1rc1-310p` image, Ascend310P3 EP, Qwen3-0.6B fp16 TP1, `max_model_len`
@@ -502,9 +508,10 @@ Reporter-confirmed afterwards (2026-03-25, same host): the deployment serves wit
 tp8 / `--enable-expert-parallel` / `--data-parallel-size 2
 --data-parallel-size-local 1 --data-parallel-address XXX --data-parallel-rpc-port
 2357 --data-parallel-start-rank 0`, `--gpu-memory-utilization 0.95`,
-`--max-model-len 72000`, `ascend_scheduler_config`/`torchair_graph_config` off and
+`--max-model-len 72000`, `ascend_scheduler_config`/`torchair_graph_config` off,
 `FULL_DECODE_ONLY` with `cudagraph_capture_sizes
-[1,2,4,8,16,32,64,96,128]` — i.e. the same 16 cards, with the cross-node DP group
+[1,2,4,8,16,32,64,96,128]`, plus the VL-side `--mm-processor-cache-type shm
+--mm-encoder-tp-mode data` — i.e. the same 16 cards, with the cross-node DP group
 that makes the expert shard 16 wide instead of 8. Also note the pinned tutorial's
 "For an Atlas 800 A3 (64G*16) node, tensor-parallel-size should be at least 16"
 (`docs/source/tutorials/models/Kimi-K2-Thinking.md:113`) is a per-node A3 statement;

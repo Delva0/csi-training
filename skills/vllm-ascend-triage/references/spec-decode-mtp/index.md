@@ -611,6 +611,12 @@ from the acceptance numbers.
   *second* feature on a **310P** hybrid model: MTP over an `align`-mode prefix cache
   (per-block SSM state, `num_speculative_blocks`, `accept_token_bias`, the fp16 state
   dtype, and the two 310P CI tests that cover each feature alone and never together).
+- `../performance-throughput/spec-on-prefill-ttft-regression.md` — when adding spec decode
+  raises **TTFT only** on a PD/EPD pair (no acceptance loss, no decode regression): the factor is
+  `1/(1−prefix reuse)` so it is a full re-prefill on the prefiller, owned by the prefiller's hit
+  rate and by the model tutorial's own spec-decode prefill recipe (the DSV4-Flash block exports
+  `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096` and runs `--max-num-batched-tokens 8192`), plus the
+  P/D spec-token parity rule that forbids ablating spec decode on P alone. Recorded #16997.
 - `../feature-enable-recipes/flashcomm2-draft-pad-token-divisibility.md` — the FC2 ×
   multi-step-draft collision: `chunk_num == global_tp_size` algebra (so the flag value is
   never the answer), the single-writing-site `pad_size`, the missing draft gate on FC2

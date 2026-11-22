@@ -9,8 +9,10 @@ generalised it. Also "`weight_nz_mode` 怎么设", "有没有开关把 bf16 权�
 per-path inventory, then the one probe. The crash variants are
 `../startup-failures/nz-weight-format-refusal.md` (shape: `Not support mat2 n = 1 or k = 1
 when format is FRACTAL_NZ`) and `../pooling-embedding/fp32-head-nz-format-crash.md`
-(dtype). Verified at **vllm-ascend v0.9.1rc2 `b9f715d6`**, **v0.11.0rc0 `00ba071`** (#3859) and
-**v0.20.2rc1 `367b8e6`** (the crash page).
+(dtype). Verified at **vllm-ascend v0.9.1rc2 `b9f715d6`**, **v0.11.0rc0 `00ba071`**
+(#3859, re-read at that pin in the case's second session) and **v0.20.2rc1 `367b8e6`**
+(the crash page); the **v0.11.0rc3 `b6d63bb`** row below is quoted from
+`../pooling-embedding/fp32-head-nz-format-crash.md`'s own snapshot, not from `00ba071`.
 
 ## Rule 1 — `is_310p()` reads both ways; classify the polarity before answering
 
@@ -38,12 +40,19 @@ weights on 910 for every quantized checkpoint.
 | `worker/model_runner_v1.py:2633-2643` | `is_310p()` | the **only** load-time cast for **unquantized dense** Linear (`MergedColumnParallelLinear` / `QKVParallelLinear` / `RowParallelLinear`), via `_convert_torch_format` (`:2672-2674` → `npu_format_cast(tensor, ACL_FORMAT)`) |
 | `worker/model_runner_v1.py:138, 140-144` | `is_310p()` | `torch.npu.config.allow_internal_format = True` for everyone, but `ACL_FORMAT` is `FRACTAL_NZ` **only** on 310P and `FRACTAL_ND` otherwise — so the same `_convert_torch_format` is a no-op for dense weights on 910 (`:2780-2787` also uses it for the KV/rope caches on 310P) |
 | `ops/linear.py` | — | has no `process_weights_after_loading`: `AscendLinearBase` keeps upstream `UnquantizedLinearMethod`, which is why bf16 dense weights have no NZ hook at this ref |
+| `torchair/utils.py:131-146` (`converting_weight_acl_format`; callers `torchair_model_runner.py:150, 173, 314, 327`) | `is_310p()` on **every** caller | `FusedMoE` only, and it *flips* the format per call — ND for the prefill branch, NZ for the decode branch — during the dummy/capture run; the function's own comment (`:132-135`) says "300I Duo", so **torchair graph mode converts no 910 weight at this ref** |
 
 So the verdict for that report: **on 910B3 the quantized paths (Linear and MoE) and
 unquantized MoE already run NZ by default — there is nothing to enable**; "只支持 310P"
 is true of exactly one path, the unquantized **dense** Linear cast, which is the
 `if is_310p():` line the reporter read. Say which path their model uses
 (`--quantization ascend` ⇒ quantized ⇒ already NZ) before discussing a patch.
+
+**torchair graph mode is the perf lane the reporter will name next**, so answer it in the
+same message instead of letting it reopen the question: its only weight conversion is the
+310P row above — `converting_weight_acl_format` runs inside `is_310p()` at all four call
+sites, touches `FusedMoE` only, and toggles ND↔NZ by phase — so 「图模式下会不会自动转
+NZ」 is *no* on 910B/A2/A3 at this ref.
 
 ## Rule 3 — the switch is a version fact; grep it before naming it
 
@@ -64,9 +73,38 @@ spelling is inert at v0.19.1rc1, below. The grep decides, never the spelling.
 At v0.11.0rc0 there is **no** `weight_nz_mode` and no `VLLM_ASCEND_ENABLE_NZ`:
 `vllm_ascend/envs.py` has no `nz` entry and `ascend_config.py:121` carries only
 `enable_kv_nz` (the torchair MLA **KV** layout, `:153-155` errors without graph mode) —
-the layout is decided inline in the cast sites above. **Between those two refs the env
-var arrives before the config key**: at v0.19.1rc1 (`da421af`) the gate functions already
-exist — `utils.py:157-175` `_should_trans_nz` (`310P` always; non-310P follows
+the layout is decided inline in the cast sites above.
+
+**At the reporter's own ref the old key is already dead, and it survives in a launch
+template.** `rg -n 'enable_weight_nz_layout' .` at `v0.11.0rc0` (`00ba071`) returns
+**one** hit — `examples/external_online_dp/run_dp_template.sh:46`, inside an
+`--additional-config` object — and **zero** in `vllm_ascend/`, `docs/`, `tests/` and
+`.github/`, so the reader that existed at v0.9.1rc2 is gone by this ref while the pin's
+own release notes still advertise it (`release_notes.md:308`, v0.9.1rc2's
+`add a switch for enabling NZ layout in weights and enable NZ for GMM #1409`) and its
+v0.10.1rc1 section records the replacement (`:89` `Fix the nz format does not work in
+quantization scenarios #2549`, `:94` `Convert the format of gmm to nz #2474`). The export
+is one commit (`git rev-list --count HEAD` = 1), so write **"no reader at this ref"**,
+never "removed in PR X". **An `examples/` hit is a fourth residence and is not a
+reader**: a shipped launch template is what makes a v0.10/v0.11 reporter believe the
+feature exists, so grep the **whole repo** for the key rather than `vllm_ascend/`, and
+grade a template hit exactly like the docs/tests hits below (the `.get()` mechanism is
+theirs) — at this ref that is the sentence to send (「加了等于没加」), not a rung.
+
+**The gate function arrives inside the v0.11 line, so the rc is the version fact.** At
+`v0.11.0rc0` (`00ba071`) there is no gate function at all
+(`rg -n 'def is_enable_nz|_should_trans_nz|maybe_trans_nz' vllm_ascend/` → only the mask
+converters `nd_to_nz_2d` / `nd_to_nz_spec`) and `ops/linear.py` has no
+`process_weights_after_loading` — no hook through which a bf16/fp32 dense weight could be
+cast — while at `v0.11.0rc3` (`b6d63bb`) the same line carries `is_enable_nz(dtype)`
+(`utils.py:74-84`) with the cast in
+`AscendUnquantizedLinearMethod.process_weights_after_loading` (`ops/linear.py:43-51`),
+which is the fp32-head crash of `../pooling-embedding/fp32-head-nz-format-crash.md`. So a
+report that says only "0.11.0" is undecided until the rc is known: rc0 has nothing to
+point at (not even the old key), rc3 converts dtypes the reporter did not expect.
+
+**From there forward the env var arrives before the config key**: at v0.19.1rc1
+(`da421af`) the gate functions already exist — `utils.py:157-175` `_should_trans_nz` (`310P` always; non-310P follows
 `VLLM_ASCEND_ENABLE_NZ`; bf16/fp16 only at `== 2`; fp32 never) and `maybe_trans_nz`
 (consumers at `ops/linear.py:79`, `ops/fused_moe/fused_moe.py:106-107`,
 `_310p/quantization/methods/*`), with `envs.py:87-91`
@@ -117,12 +155,16 @@ implying a missing shape guard.
 
 ## Recheck conditions
 
-Re-grep the anchors at the reporter's ref: this layout code was rewritten at least three
-times (an `additional_config` key defaulting **off** at v0.9.1rc2 → inline unconditional
-casts at v0.11 → gate functions `maybe_trans_nz` / `_should_trans_nz` at v0.20 →
-`_310p/quantization/methods/` copies at later refs), so `is_310p()` sites move and a
-`not is_310p()` MoE cast can become unconditional between refs — the same table at
-another ref is a new read, not a quote. `scripts/nz-format-gate-check.sh <paste|-> <root>`
+Re-grep the anchors at the reporter's ref: this layout code was rewritten at least four
+times (an `additional_config` key defaulting **off** at v0.9.1rc2 → inline casts with no
+gate at v0.11.0rc0 → `is_enable_nz` by v0.11.0rc3 → gate functions `maybe_trans_nz` /
+`_should_trans_nz` at v0.20 → `_310p/quantization/methods/` copies at later refs), so
+`is_310p()` sites move and a `not is_310p()` MoE cast can become unconditional between
+refs — the same table at another ref is a new read, not a quote. `scripts/nz-format-gate-check.sh <paste|-> <root>`
 prints what exists at a given root; `nz-weight-format-refusal.md` is the crash-side page
-and carries the mode algebra. Claim class: source-verified at the two named commits;
-nothing in #3859 was reporter-confirmed (its follow-up was an image with no text).
+and carries the mode algebra. Claim class: the v0.11.0rc0 inventory, the dead-key
+template residence and the absent gate were read at `00ba071` in the case's second session
+(10 tool calls, verdict first); the v0.11.0rc3 gate row is the pooling page's snapshot, not
+this one. Nothing in #3859 was reporter-confirmed — its only follow-up is a textless
+951×243 screenshot — so keep asking which `file:line` the reporter read and whether the
+model is a `--quantization ascend` checkpoint, rather than assuming the answer landed.

@@ -27,6 +27,18 @@ relaunch vLLM instance with `--generation-config vllm`". If that line is present
 reporter's sentence is explained **without** early EOS — but the body they pasted
 still has to say `length`, not `stop`; never merge the two lanes into one story.
 
+**Quote that log line at the report's pin — it was reworded, and the later wording
+greps to nothing on an older image.** At vllm **v0.13.0** (`72506c9`, the pin every
+`v0.13.0rc1` report carries, #6050 included) the rename is
+`vllm/config/model.py:1479-1483` and the line reads `Default sampling parameters
+have been overridden by the model's Hugging Face generation config recommended from
+the model creator. If this is not intended, please relaunch vLLM instance with
+--generation-config vllm.` (`:1486-1493`) — no `model_config: {…}` payload of the
+newer form. So grep the stem `overridden by the model` and take the changed values
+from the reporter's `generation_config.json`, not from the log text: asking a
+v0.13.0 reporter to find the later sentence produces "no such line" and costs a
+round trip.
+
 One request separates the first two: same prompt plus
 `{"temperature": 0, "max_tokens": 128, "ignore_eos": true}`. Generation continues
 past the old stop point (content drifting or repeating) ⇒ early EOS. Stops in the
@@ -44,9 +56,12 @@ trivial prompts each `已深度思考（用时0.1秒）` with no visible answer)
 **one message**: this page's lane row, the `ignore_eos` probe, and two artefacts — the
 serve command and one raw response body per failing request. A fluent CoT refutes
 whole-tensor numerics corruption; it says nothing about what follows `</think>`, so do not
-open the model tutorial, the scheduler or the quant kernels before the body arrives (that
-run spent its full 16 384-token output budget in reasoning blocks and shipped no message
-text at all).
+open the model tutorial, the scheduler or the quant kernels before the body arrives (the
+first run on this case spent its full 16 384-token output budget in reasoning blocks and
+shipped no message text at all; the next run on the same pin shipped this one message
+after three read blocks — the screenshot OCR, this page, and the tutorial's serve script —
+plus two calls spent confirming that `stop_reason` exists at v0.13.0, which the
+§*`stop_reason` names the token* block below now answers).
 
 When the model id is a **published quantized artifact** (`vllm-ascend/<model>-W8A8` on
 ModelScope), three facts belong in that first message:
@@ -83,7 +98,14 @@ site `vllm/v1/core/sched/scheduler.py:1661` → `check_stop`:
 some other reason including encountering the EOS token"). The three-way split is
 unchanged at vllm **v0.17.0** (`b31e932`, `vllm/v1/core/sched/utils.py:94-117`),
 the pin a streamed-tool-call report most often carries — grep the `check_stop` body,
-not the line number. So an **integer** `stop_reason` proves the stopping token was
+not the line number — and at vllm **v0.13.0** (`72506c9`, the #6050 /
+`v0.13.0rc1` pin) `vllm/v1/core/sched/utils.py:40-64`: primary eos `:50-52` leaves
+`stop_reason` `None`, `stop_token_ids` `:54-57` sets `stop_reason =
+last_token_id`, length `:58-63` is `FINISHED_LENGTH_CAPPED`; the field itself is
+declared `int | str | None` at `vllm/outputs.py:47` with the `None`-for-EOS
+docstring at `:35`. All three pins need no re-derivation, so do not spend calls
+re-checking that the field exists at a v0.13.0 report — read the body against this
+table. So an **integer** `stop_reason` proves the stopping token was
 declared in the request's stop set. On
 a request that sets none, where do extra ids come from? The checkpoint:
 `SamplingParams.update_from_generation_config` (`vllm/sampling_params.py:556-587`)
@@ -98,7 +120,17 @@ alike, `model.py:1444-1451`; only a *directory* path replaces it) — it cancels
 sampling-param half only (`get_diff_sampling_param`, `:1465-1492`) — and
 `--override-generation-config` never reaches the eos path. The per-request lever is
 `ignore_eos: true`, because `:581` is guarded by `if not self.ignore_eos`; that is
-also why rung 0 of the ablation table in step 4 works as a probe.
+also why rung 0 of the ablation table in step 4 works as a probe. Both halves hold
+at v0.13.0 with the same wiring one file earlier: the merge is
+`vllm/sampling_params.py:453-478` (int-or-list at `:466-468`, primary eos discarded
+at `:469-473`, the `if not self.ignore_eos` guard at `:476`), fed by
+`vllm/v1/engine/input_processor.py:52` → `:485` from
+`ModelConfig.try_get_generation_config` (`vllm/config/model.py:1411-1440`, which
+reads the checkpoint file for `{"auto", "vllm"}` at `:1423`), while the half
+`--generation-config vllm` *does* cancel is `get_diff_sampling_param`
+(`:1442-1501`). So on a v0.13.0 report the checkpoint's extra eos ids survive
+`--generation-config vllm` and `ignore_eos: true` is still the per-request lever —
+state it, do not re-verify it.
 
 **Then do not rank that finding as the cause.** The trap: a `stop_reason`-derived
 "the quantised checkpoint declares a bogus stop token, so the engine truncates"

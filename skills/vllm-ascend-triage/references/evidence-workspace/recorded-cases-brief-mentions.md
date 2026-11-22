@@ -19,8 +19,14 @@ exists at that ref. Answered completely in 14 assistant turns, but three of them
 gate function (`_should_trans_nz`) that is **absent** from that tree because
 `nz-format-gate-check.sh` reported "SHAPE GUARD: absent in _should_trans_nz" for a
 function that does not exist there — the script now detects the absent gate
-(`../feature-enable-recipes/weight-nz-layout-by-soc.md`). The reporter's follow-up was an
-image with no text, so nothing was confirmed.
+(`../feature-enable-recipes/weight-nz-layout-by-soc.md`). Its **second session at the same
+pin** answered from that owning page alone in 12 turns / 10 tool calls (verdict first, the
+`--quantization ascend` question as the cheapest next step) and supplied the two inventory
+lines the page was missing: `enable_weight_nz_layout` has **no reader** at `00ba071` and
+survives only in `examples/external_online_dp/run_dp_template.sh:46`, and torchair's
+`converting_weight_acl_format` is 310P-only at all four call sites, so 「图模式下会自动转
+NZ」 is a no. The reporter's follow-up was a textless 951×243 screenshot, so nothing was
+confirmed.
 
 **#8944** v0.19.1rc1
 `aclnnAddRmsNormBias` device fault; #10068 evalscope vs ais-bench MMLU-Pro gap;

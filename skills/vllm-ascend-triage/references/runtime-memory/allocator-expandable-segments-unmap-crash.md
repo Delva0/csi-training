@@ -221,14 +221,37 @@ EngineCore takes the fatal error and the rest are killed. Four reads, in this or
    (`cann/driver/pkg_inc/ascend_hal_error.h:51`), **not** `DRV_ERROR_OUT_OF_MEMORY`
    (`:40`, value 6) — so `torch.OutOfMemoryError` here is torch_npu's text predicate
    (`oom-class-is-not-a-cause.md`), and the driver's own word is "ioctl failed". Order the
-   lines by timestamp (`scripts/plog-timeline.sh`) before deciding which is first.
+   lines by timestamp (`scripts/plog-timeline.sh`) before deciding which is first — but in a
+   `multiproc_executor.py:987` block **every line carries the same timestamp**, so there the
+   order has to come from nesting: the innermost leaf is
+   `malloc physical memory failed, runtime result = 207001`, wrapped by
+   `[drv api]halMemCreate … [FUNC:MallocPhysical]`, surfaced as `aclrtMallocPhysical … 507899`.
+   The `rtMemcpy … the current capture mode does not support this operation` → `107030` pair
+   is a **second, unlinked leaf** — the block also relogs a `GetAttrParaInfo …
+   kv_quant_sparse_flash_attention_tiling.cpp` tiling line and `Failed to allocate memory
+   requested by UNKNOWN module.`, torch_npu's OOM report that cannot name the buffer — so never
+   chain two leaves on adjacency. Decide the capture reading on a *capture/compile event in the
+   failure minute* instead: `starting graph capture`, `saved AOT compiled function`,
+   `Replaying aclgraph`. #16649 has those at boot and at its first replay (15:01, 15:22) and
+   none at the 23:58 failure, while its frames `range_entry.runnable` / `fx_forward` /
+   `compiled_fn(full_args)` are compiled-code *execution*; a block whose failure minute does
+   carry a capture event belongs to `../startup-failures/acl-graph-capture.md`, not here.
 2. **Physical headroom, from the log's own profile line** — the identity in `index.md`
    §*Reading a v0.21+ startup memory block*: `free_memory` minus the five categories. On
    #16649 that leaves ~3.6 GiB **unused** while a 20 MiB segment fails, so "the ratio target
    was already oversubscribed" is not the answer; a small map failing with GiBs free points
    at the segment/driver layer or at growth since startup.
-3. **Growth or one-off**: two `npu-smi info` samples across the window. Without them a 33 h
-   report cannot separate a climb from a flat ceiling (`hbm-growth-and-oom.md`).
+3. **Growth, one-off, or dead card — read the paste before requesting samples.** A plain 33 h
+   report needs two `npu-smi info` samples to separate a climb from a flat ceiling
+   (`hbm-growth-and-oom.md`), but #16649's own 470 KB paste answers the card-health branch: a
+   second `Initializing a V1 LLM engine` at 23:59:54, ~80 s after the crash, profiles to the
+   **identical** `60.58/60.96 GiB` free / `27.38 GiB` KV with `(0.92, 56.08 GiB)` and reaches
+   `Replaying aclgraph` at 00:06. So the die was healthy, the boot budget is reproducible, and
+   the refused 20 MiB granule died with the process: that demotes "damaged HBM" and "another
+   tenant on the die" and leaves growth inside the 33 h process (or a driver/vMM refusal at the
+   segment layer) for the two samples. Grep every long-run paste for a later engine start first;
+   a restart that reproduces the boot block is also the cheapest way to show the reporter that
+   the boot budget is not the lever.
 4. **The launch block is the artefact** — ask for it in the first reply. #16649's reporter
    supplied exactly that script, and the flags decide every branch here: a written-out
    `PYTORCH_NPU_ALLOC_CONF=expandable_segments:True` (so the question is the *value*, not
@@ -237,12 +260,16 @@ EngineCore takes the fatal error and the rest are killed. Four reads, in this or
    `--gpu-memory-utilization 0.90`, `HCCL_BUFFSIZE=256`, `TASK_QUEUE_ENABLE=1`,
    `enable_cpu_binding`, `multistream_overlap_shared_expert`, `enable_dsa_cp` /
    `enable_sparse_li_c8`, `cudagraph_mode: FULL_DECODE_ONLY` + `enable_npugraph_ex`, MTP
-   `num_speculative_tokens: 3`. Reconcile its `--gpu-memory-utilization 0.90` with the
-   log's own `Desired GPU memory utilization is (0.92, 56.08 GiB)`: that script is a
-   *later* copy (the reporter edited the suggested value in), so every number in the
-   arithmetic above comes from the log, never from the pasted command. The neighbouring
-   `107030 … synchronized memcpy failed, kind = 1` in the same paste is the capture lane
-   (`../startup-failures/acl-graph-capture.md`), not the allocator.
+   `num_speculative_tokens: 3`. That paste's `--gpu-memory-utilization 0.90` **disagrees** with
+   the log's `Desired GPU memory utilization is (0.92, 56.08 GiB)`, and the pin decides which
+   to trust: `0.92` is the v0.23.0 default (`vllm/config/cache.py:67`, inherited by the CLI at
+   `vllm/engine/arg_utils.py:518`) and vllm-ascend logs `cache_config.gpu_memory_utilization`
+   verbatim (`vllm_ascend/worker/worker.py:756-757`; `rg -n gpu_memory_utilization
+   vllm_ascend/` hits only `requested_memory` and the log, no Ascend-side rewrite), so a serve
+   that passes `0.90` cannot print `0.92` — the paste is a different (or edited) launch, and
+   every number in the arithmetic above comes from the log, never from the pasted command. Run
+   the same default check on a paste that omits the flag: the logged value is then the pin's
+   default, not the reporter's choice.
 
 `expandable_segments:False` — this page's cure in the unmap direction — is an **ablation
 here, not the answer**: under the segment map an allocation that cannot reuse a cached

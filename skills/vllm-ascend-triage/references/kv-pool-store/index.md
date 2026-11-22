@@ -116,11 +116,17 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
    block in the reporter's launcher script is only the *intended* content. Ask for
    the resolved `mmc-local.conf` (or `pip show memcache_hybrid` →
    `{Location}/memcache_hybrid/config/`) before reading the key values as fact.
-2. **A key that exists nowhere is a finding.** Config keys in these reports are
-   frequently invented by a launcher wrapper. Grep the pinned memcache/memfabric
-   export and the vllm-ascend docs for the literal key before explaining what it
-   does; an unknown key is either ignored (silent no-op) or a validation error,
-   and that difference is the answer.
+2. **A key that exists nowhere is a finding — and so is a key in the wrong file.**
+   Config keys in these reports are frequently invented by a launcher wrapper. Grep
+   the pinned memcache/memfabric export and the vllm-ascend docs for the literal key
+   before explaining what it does; an unknown key is either ignored (silent no-op) or
+   a validation error, and that difference is the answer. The same holds one step
+   later: a *real* key read by a different connector or a different loader is equally
+   inert. Identify the reader first — `MOONCAKE_CONFIG_PATH` is parsed by
+   vllm-ascend's `MooncakeStoreConfig` (`ascend_store/backend/mooncake_backend.py:166-197`
+   at v0.20.2rc1), which takes eight keys and drops everything else, so
+   `local_hostname` and a misplaced `use_ascend_direct` never execute
+   (`store-put-transfer-timeout-and-adxl-segfault.md` §3).
 3. **Name the owning component: MemCache/MemFabric or Mooncake's transport, not
    vllm-ascend.** A CQE error, an SDMA/`BatchCopyData` failure, an `mmc_init`
    return code and a device-id conversion message come from `Ascend/memcache` +
@@ -199,10 +205,12 @@ Inherit the rules in SKILL.md; these add the pool-specific ones.
   times out every 10 s, `-800` on the keys, 60 s batch timeout, `OBJECT_NOT_FOUND` on
   the revoke and a crash in `processSliceList`: which lines are downstream (all of
   them), the recorded `mooncake.json` and why the K8s Service port remap and the
-  `20000 + phy_id*100` endpoint band are not findings, the doc's 3000 ms default vs the
-  header's 10000 ms (so the recipe's own value is a no-op), the crash frame's build
-  divergence, and the six checks in order — starting with making the failure repeatable,
-  because the recorded case closed with no confirmed cause.
+  `20000 + phy_id*100` endpoint band are not findings, **which keys that file actually
+  reaches** (`local_hostname` and `use_ascend_direct` are dropped; segment default is
+  1 GiB in vllm-ascend's reader vs 3.125 GiB in the wheel's), the doc's 3000 ms default
+  vs the header's 10000 ms (so the recipe's own value is a no-op), the crash frame's
+  build divergence, and the six checks in order — starting with making the failure
+  repeatable, because the recorded case closed with no confirmed cause.
 - `prompt-token-counter-negative.md` — the APIServer `Counters can only be incremented …`
   `ValueError` on a pool-attached serve: the `cached + recomputed - external` identity at
   vllm v0.18.0 (`stats.py:280-286`), why the reporter's `cached + external > prompt_len`

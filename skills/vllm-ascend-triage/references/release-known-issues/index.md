@@ -71,8 +71,9 @@ tree's own test and CI wiring, not the bulletin procedure: route to
    the qwen2.5-VL accuracy bug "lead by CANN", `:199` the long-sequence KV wedge "a
    bug for scheduler". Quote them as the project's position at that ref (and check
    the section heading: a v0.11.0rc1 bullet still stands in the v0.13.0rc1 tree), then
-   say what changed since — a later release that no longer lists it, or a pta patch
-   release that fixes it (`../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0).
+   say what changed since — a later release that no longer lists it (dropping a row
+   is not itself a fix: decide that from source or ask), or a pta patch release that
+   fixes it (`../runtime-memory/host-ram-and-per-rank-rss.md` §Step 0).
    **A row is scoped to the symptom its wording names.** "Prefix cache feature does not
    work with the Ascend Scheduler but without chunked prefill enabled" (v0.9.1rc1
    `release_notes.md:37`, #1350) is a *functionality* statement about the cache path; the
@@ -95,7 +96,12 @@ tree's own test and CI wiring, not the bulletin procedure: route to
    release's own row can already name the model family, the mode and the tracked fix —
    v0.12.0rc1 `:42` "DeepSeek 3/3.1 and Qwen3 doesn't work with FULL_DECODE_ONLY graph
    mode … #4990" answered #5076 before any source read (reporter-confirmed fixed in
-   0.13.0rc1; `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §0).
+   0.13.0rc1; `../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §0). The
+   same read answers a **GLM-5.x** graph crash: v0.21.0rc1 lists GLM-5.1 + Expert
+   Parallel + FULL mode with a workaround (`release_notes.md:181` at v0.22.1rc1),
+   so a `--enable-expert-parallel` + `FULL_DECODE_ONLY` launch is a declared
+   combination before it is a mechanism — and read the row's own `## v…` heading,
+   since the file is newest-first and the newest section does not restate it.
 
 7. **Budget one message per tracked issue.** A two-issue bulletin at the 16 K
    completion cap was cut mid-ladder (#15985: verdict + both ranked lists

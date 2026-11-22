@@ -24,7 +24,22 @@ One grep on the pin of the **reported** release, before a single code path:
 
 ```bash
 rg -n -i 'known issue' -A 12 <pin>/docs/source/user_guide/release_notes.md
+# snapshot has no reported-release tree? grep the mode name, which the file keeps
+# for every release it has ever shipped:
+rg -n 'FULL_DECODE_ONLY' <newest-pin>/docs/source/user_guide/release_notes.md
 ```
+
+The file is **cumulative and not in version order**, so a `known issue -A 12` hit does
+not say which release it belongs to: at the v0.13.0rc1 pin `1b5d5ab` the headings run
+`## v0.13.0rc1` `:2`, `## v0.11.0` `:50`, `## v0.12.0rc1` `:82`, i.e. the FULL_DECODE_ONLY
+row sits *below* a newer-looking v0.11.0 section. Grepping the mode name at that pin
+returns the three lines that orient the whole lane: `:92` the v0.12.0rc1 Core invite
+("[Experimental] Full decode only graph mode is supported now … Let us know if you hit
+any error"), `:121` the v0.12.0rc1 Known-Issues row quoted below, `:186` the v0.11.0rc2
+"supported now!" entry (#2128). So a reported release whose own tree the snapshot does
+not carry is still quoted — from the newest pin's section for it — and the **newer**
+section's own Known-Issues list (`:45-48` at `1b5d5ab`) not carrying the row is the
+second half of the "fixed in the next release" claim. Two greps, one file, no diff hunt.
 
 At v0.12.0rc1 (`42ceaf0`) `:42` reads **"DeepSeek 3/3.1 and Qwen3 doesn't work with
 FULL_DECODE_ONLY graph mode. We'll fix it in next release. #4990"** while the same
@@ -50,6 +65,24 @@ DeepSeek-V3.2, Qwen3.5 or GLM report does not inherit it — read the same relea
 bullets and `../release-known-issues/index.md` rule 6), and it names no mechanism, so it
 does not tell you *which* line — sections 1-10 still decide that. The recorded #5076
 session reached this row on its last turn and shipped no message (rule 1).
+
+**The row that decides a `GLM-5.x` report: EP × FULL mode.** At v0.22.1rc1 (`5f6faa0`)
+`docs/source/user_guide/release_notes.md:181` reads *"GLM-5.1 deployments can hit
+`MoeDistributeDispatchV2`/NPU graph failures when Expert Parallel is used together with FULL
+graph mode. The reported workaround is to disable Expert Parallel for FULL graph mode, or use
+PIECEWISE/eager mode. [#9503]"* — the row names the op §1 says carries the ownership, the exact
+config axis (EP × FULL) and the project's own workaround, so on a GLM-5.x launch with
+`--enable-expert-parallel` plus `{"cudagraph_mode": "FULL_DECODE_ONLY"}` it *is* rank 1 with
+one re-run, ahead of any mechanism below. Attribute the line before quoting it, by the
+heading rule above: `:181` belongs to the section that opens at `## v0.21.0rc1`
+(`:47`), **not** to `## v0.22.1rc1` (`:3`), and the newest section does not restate it,
+so quote the section it is in and label its status at the reporter's ref as unknown.
+One pin check makes the row actionable: nothing
+enforces it. At v0.22.1rc1 the only `FULL → PIECEWISE` coercion in `vllm_ascend/platform.py` is
+the encoder-decoder one (`:569-584`), beside `→ NONE` for a non-`VLLM_COMPILE` mode
+(`:533-538`), so a GLM-5.x + EP + FULL launch runs the combination the row calls out and no log
+line refuses it. Rung 1 is therefore the row's own workaround (`PIECEWISE`, or
+`--enable-expert-parallel` off), not a flag the reporter invented.
 
 `Replaying aclgraph` proves only that *some* captured graph replayed. On a
 spec-decode launch read the gate before attributing the fault to that replay: with
@@ -416,10 +449,19 @@ config: `tensor_parallel_size 8`, `data_parallel_size 1`, ray executor,
 `max_model_len 32768`, `async_scheduling false`, `cudagraph_capture_sizes
 [1, 8, 16]`, `cudagraph_mode FULL_DECODE_ONLY`, `max_num_seqs 16`,
 `max_num_batched_tokens 4096`, crash at concurrency 8. By §4 that is bucket 8 on
-the FIA patch path with no `pa_shape_list`, and no async scheduling. The
+the FIA patch path with no `pa_shape_list`, and no async scheduling. That block also
+carries `max_input_tokens: 32768`, which is **not** an engine argument at either pin
+(`rg -n -- '--max-input' vllm/` is empty at vllm v0.13.0 `72506c9`; the token occurs
+only as a test-fixture parameter and as a local variable at
+`vllm/entrypoints/openai/serving_completion.py:722`, and nowhere in vllm-ascend), so it
+is a wrapper/JSON config rather than the `vllm serve` line: read its capture sizes and
+`async_scheduling` as intent, and do not quote its keys as the run's engine args. The
 recorded run reached the per-replay patch family and the coverage verdict and
 delivered a ranked answer — but emitted **zero message text on its first 13
-turns** and wrote the whole answer on the 14th, its last.
+turns** and wrote the whole answer on the 14th, its last. Its replay took the intended
+route instead: §0's row plus §4 and the coverage envelope, seven assistant turns, the
+ranked answer with its evidence table on the seventh and the mechanism kept as the
+explanation rather than the verdict.
 
 #4326 — title `Qwen3-moe FULL_DECODE_ONLY inference crash`, vllm-ascend
 v0.11.0rc1 (`c5fe179`) + vllm v0.11.0 (`b8b302c`), Qwen3-30B-A3B-W8A8, DP8×TP1 +
@@ -457,6 +499,19 @@ TP/DP + `--async-scheduling`. Precedent #9816 (A3, DP+EP, w8a8+MTP, `FULL_DECODE
 body in the corpus. The recorded session had all three by its 8th assistant turn and then took
 "one last guard read", ending at the 16 384-token cap with **no answer message** — 51.2 K
 characters of reasoning against 2.8 K of text.
+
+What this pin adds, verified at `5f6faa0`: (d) the release's own row above — GLM-5.1 + EP + FULL is
+a declared known issue (`release_notes.md:181`, under `## v0.21.0rc1`; not restated at
+`## v0.22.1rc1`) with the project's workaround, and `platform.py:569-584` coerces FULL only for
+encoder-decoder models, so nothing refuses the combination; (e) the *shipped* weekly recipe
+`tests/e2e/weekly/single_node/configs/GLM-5_1-W8A8_A3_weekly.yaml` (`multistream_overlap_shared_expert:
+true` at `:32`, TP16/DP1 at `:17-20`, wired at `.github/workflows/schedule_weekly_test_a3.yaml:192-194`)
+matches the reporter on every flag and env var except the TP/DP split and the added
+`--async-scheduling` — so the recipe diff here yields **no** deviating flag on the v0.19.1rc1
+paragraph's axis, which is exactly why (d) outranks it. Delivery on the replay: the row was found on
+the 9th assistant turn and the ranked answer still shipped only on the 10th and last, nine of ten
+turns carrying a tool call and no message text — the row plus §7's three artefacts already were the
+answer.
 
 #9263 — image `quay.io/ascend/vllm-ascend:v0.19.1rc1-a3` (`da421af`), GLM-5-w4a8 on one A3
 (16 cards), TP16 + EP, `FULL_DECODE_ONLY` + `deepseek_mtp` n=3 + `enable_npugraph_ex` +

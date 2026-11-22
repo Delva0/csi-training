@@ -168,6 +168,26 @@ KeyError: 'layers.37.mlp.experts.w2_weight_offset'
    `v0.17.0rc1` (reporter-confirmed), and v0.14.0rc1's matrix leaves the Qwen3-VL-MOE
    W8A8 cell empty (`docs/source/user_guide/support_matrix/supported_models.md:81`) —
    upgrade is rung 1, the mechanism below it.
+4. **Price a flag-omitted verdict against the checkpoint before ranking it.** #7744's
+   serve line carries no `--quantization` anywhere, which is why the recorded answer led
+   with "your command is missing `--quantization ascend`" (lane B, load phase, from
+   `quantization-method-gate.md` §B); the reporter never confirmed that, and the
+   confirmation he did send is the tag. The later pins say the flag cannot be the
+   difference: vllm-ascend v0.18.0 `e18643f` still selects the quantizer only from the
+   model config's `quantization_config`/`compression_config` or the flag — the override
+   renames an existing `quant_method` and fires only for a non-`None` config
+   (`modelslim_config.py:402-407`), which is also why `get_config_filenames()` returns
+   `[]` and the file is loaded *after* selection (`:389-395`, `maybe_update_config` at
+   `:582`) — and vllm v0.18.0 `bcf2be9` still subscripts `params_dict[name_mapped]`
+   unguarded (`qwen3_vl_moe.py:281`) with `ignore_suffixes` at `:174-181` holding no
+   `*_offset` member. A fully unquantised engine therefore raises this same `KeyError`
+   on the newer tag too, so the missing-flag reading stays live only for a model dir
+   carrying **no** `quantization_config`, and there one launch (add the flag) confirms or
+   refutes it; on #7744 it cannot be the whole answer, because it predicts the newer tag
+   failing as well. Ask for that key of `config.json` plus the description's entry for
+   `…mlp.experts` alongside the traceback. (`v0.17.0rc1` itself is in no export here; the reading above is the
+   nearest later pin, and a guard added only in 0.17 and removed again is the one thing
+   that would void it.)
 
 **When the traceback never reaches the paste** (a screenshot whose OCR is noise, a
 title-only report), the lane is still decidable in two calls: read the serve path for a

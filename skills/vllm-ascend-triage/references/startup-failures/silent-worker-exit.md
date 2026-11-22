@@ -66,11 +66,16 @@ tokens the launch line and the model path do carry, and make the traceback reque
 the deliverable. Recorded #7744 (v0.14.0rc1 `52d4acf` ↔ vllm v0.14.1 `d7de043`,
 Atlas 800I A2 ×8, title `使用v0.14.0rc1 … Qwen3-VL-235B-A22B-Instruct-W8A8模型，报错
 WorkerProc failed to start.`, body = the `vllm serve` line plus one OCR-garbage
-screenshot) is the shape: the recorded answer read the OCR as "no traceback",
-ranked `--mm_processor_cache_type shm` first and told the reporter to drop that flag,
-and the reporter's later posts show the failure was load-phase
-`KeyError: 'layers.37.mlp.experts.w2_weight_offset'` in `qwen3_vl_moe.py`, with the
-same weights and command working on `v0.17.0rc1`.
+screenshot) is the shape: the recorded answer read the OCR as "no traceback" and led
+with **"your serve line is missing `--quantization ascend`"** — the aux-key branch
+second, `--mm_processor_cache_type shm` last, against the `shm` page's then-first rung
+("drop the flag") — and the reporter's later posts show the failure was
+load-phase `KeyError: 'layers.37.mlp.experts.w2_weight_offset'` in `qwen3_vl_moe.py`,
+with the same weights and command working on `v0.17.0rc1`. So the flag lane was the
+wrong lever, and it was wrong in the direction that costs an answer: before ranking it,
+read the model dir's own `quantization_config` (that lane's contract) — item 4 of
+`weight-scale-keyerror-quant-variant.md` §*The VL-MoE offset form* carries the
+cross-pin reason a flag-omitted engine cannot produce a newer-tag success.
 
 What to read instead, in this order:
 

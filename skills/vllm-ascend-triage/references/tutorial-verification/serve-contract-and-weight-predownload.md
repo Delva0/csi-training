@@ -72,7 +72,11 @@ Three working forms, cheapest first — **the cheapest one is not on the page**:
 
 Do not follow the report's own guess: `export VLLM_USE_MODELSCOPE=True` changes
 model *resolution*, never the name in the request body, so it cannot fix a 404
-from a live server. Repo-id letter case (`…-w8a8` vs `…-W8A8`, page `:22`) is
+from a live server. (If the report instead asks the docs to *recommend* the
+mirror, that is the weights-mirror review in
+`missing-guidance-and-contributor-docs.md` §*The weights mirror is the other
+half* — there the export without `pip install modelscope` is an `ImportError`,
+not a slower download.) Repo-id letter case (`…-w8a8` vs `…-W8A8`, page `:22`) is
 only a hypothesis while the **same string already works on the serve line** —
 which the reporter's own "the service started (3 h)" sentence establishes.
 

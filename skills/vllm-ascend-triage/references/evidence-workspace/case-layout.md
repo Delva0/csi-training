@@ -256,6 +256,24 @@ These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
   (or `find <dir> -maxdepth 1 -name '<glob>'`), and quote only the `path:line`,
   with `-l` or `--no-messages -c` when existence is all you need. Detail:
   `references/evidence-workspace/case-layout.md`.
+- **A page's repo-relative `path:line` is not a path from the repo root, so
+  `No such file or directory` from `rg`/`sed` means a wrong prefix, not a missing
+  file.** Owning pages cite `vllm/distributed/parallel_state.py`,
+  `vllm/config.py`, `vllm/executor/ray_distributed_executor.py` (vllm) and
+  `vllm_ascend/platform.py`, `docs/source/tutorials/multi_node.md` (vllm-ascend).
+  The first family resolves to `<vllm repo root>/vllm/<tail>` — the **package sits
+  one level below the vllm repo root** (`/workspace/repos/vllm-project/vllm/vllm/
+  config.py`; under a case view `/workspace/repos/<issue>/vllm-project/vllm/vllm/
+  config.py`) — while `vllm_ascend/` and `docs/` sit at the vllm-ascend repo root.
+  Recorded #1255 ran `cd /workspace/repos/vllm-project/vllm && sed -n '1640,1730p'
+  config.py` (plus `distributed/parallel_state.py`, `v1/engine/core_client.py`),
+  got three `rg: …: IO error for operation on …: No such file or directory`, then
+  spent two more calls on `ls` before `vllm/config.py` answered: three turns, each
+  re-sending the whole transcript. Locate a cited file **once** with
+  `rg --files <repo root> -g '<basename>'` and read `<repo root>/<package>/<tail>`.
+  Do not read a `ls A; ls B` pair as one directory either — the two listings print
+  concatenated, which is how that run then read the vllm repo root as if it held
+  `vllm_ascend/` and spent two further `ls` calls before `vllm/` answered.
 - **A pasted message is usually split across source lines.** C++ `OP_LOGE` and
   Python messages are emitted as adjacent literals (`"… default chat template is no
   longer "` / `"allowed …"`), so `grep -rn "<whole sentence>"` returns nothing and reads
@@ -316,7 +334,18 @@ These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
   it read neither arrow on the `[case]` line it owned. One `sed -n '<line>,<line+40>p'`
   per arrow settles it, because an entry's first two lines carry its image tag, card
   count and stack — and the near-miss files (`recorded-cases-<family>.md`, no slash)
-  hold the same entries at different line numbers.
+  hold the same entries at different line numbers. The same read is skipped at the
+  *thin* grades: **an arrow printed in a 2-of-4 near-miss or family-word block is
+  still the case**, because an entry quotes the reporter's own wording while the family
+  words sit in 100+ pages, and `scripts/reference-locate.py` now prints it as a
+  `[case-first]` line with a ready `sed` range. Recorded #5643's replay had that line,
+  greped the case file's *name* twice through `rg -l`, opened no entry, and re-derived
+  the whole ladder from `expert_load_balancer.py`/`common_fused_moe.py` in 14 calls;
+  #10700 is the same skip one grade higher — the token grep listed the owning page
+  (heading `(#10700)`) fifth of thirty, yet the session opened another crash page and
+  led with a CI-config delta the owner's own Scope disowns, while the owner's own first
+  ablation was the reporter-confirmed lever
+  (`../recorded-cases-device-and-communication.md`).
 - **Attachments are the exception: a manifest grep is not an existence test.**
   `ATTACHMENTS.txt` lists names and SHA256s only, so a grep for the issue's
   tokens proves nothing (#12658 read that as "no attachments", skipped

@@ -71,7 +71,9 @@ own list.
 - This is **not** an `NPU out of memory` and not the KV pool: `--gpu-memory-utilization`
   and `--max-model-len` do not move it, while `--enforce-eager` (no capture at all) does.
 - It is also not a defect owed a fix at the reported ref: the project documents exactly
-  this failure as FAQ #18 at v0.18.0rc1 (`docs/source/faqs.md:209-223`, "size capture
+  this failure as FAQ #18 (`docs/source/faqs.md:209-223` at v0.18.0rc1; **already
+  present at the #5557 pin** — `docs/source/faqs.md:199-212` at v0.12.0rc1 `42ceaf0`, so
+  quote it at a 0.12-era reporter's own tree instead of a later one, "size capture
   failures resulting from stream resource exhaustion") together with its own root cause —
   the requirement formula counts only measurable factors (dp/tp/ep, piece graph count,
   multistream-overlap, HCCL mode) while "numerous unquantifiable elements, such as
@@ -130,7 +132,22 @@ bash <skill_root>/scripts/aclgraph-size-budget.sh --layers <num_hidden_layers> \
 # batch sizes … 67 → N sizes" lines
 ```
 
-How many sizes get captured in the first place at this ref: the platform injects a
+**Pick the era from the paste's tree, not from the newest one.** v0.11.0rc0 and
+v0.12.0rc1 share one formula: `resources_per_graph = layers + 1` *plus* `draft.layers + 1`
+(the MTP draft term is already at `00ba071` `vllm_ascend/utils.py:310-313`, so 0.11 lacks
+only the CP subtraction, **not** the draft term), the same AIV
+`MAX_CAPTURE_SIZE -= parallel_factor*resources_per_graph`, and the same FFTS+ branch; the
+0.12 call site is `platform.py:242` in the PIECEWISE branch. What does change at 0.12 is
+the *default list*: upstream `[1,2,4]` + step 8 to `min(max_num_seqs*2, 512)` at
+v0.11.0rc3 (`vllm/config/__init__.py:588-598`, 67 sizes at cap 512) versus the step-16
+tail above 256 from 0.12 on (51 sizes; #5557's log prints exactly that list, and the
+`decode_query_len` ceiling appears only later — at 0.12 the cap is still upstream's
+`*2`). So `--era 0.12` is the call for a v0.12.0rc1 paste: #5557's own numbers come back
+as `max_num_batch_sizes = 72` with `51 sizes` and `no adjustment` (FFTS+), 71 with
+`--aiv`, matching its log's `Calculated maximum supported batch sizes …: 72` /
+`No adjustment needed … with 51 sizes`.
+
+How many sizes get captured in the first place at 0.18/0.20: the platform injects a
 default ceiling `min(max_num_seqs * decode_query_len, 512)` with
 `decode_query_len = 1 + num_speculative_tokens` (`platform.py:157-192`; upstream's own
 `* 2` is the term that injected default deliberately drops), so TP=4 + MTP
@@ -158,9 +175,15 @@ budget.
 
 1. `--enforce-eager` on the same command: separates capture-phase exhaustion from every
    request-path and fabric explanation, and is the proof the reporter can run in minutes.
-2. Explicit smaller set — `--cudagraph-capture-sizes 1 2 4 8 16` (or
-   `--max-cudagraph-capture-size 32`) — FAQ #18's own first recommendation. The flag
-   exists at this ref (`vllm/engine/arg_utils.py:1106`).
+2. Explicit smaller set — FAQ #18's own first recommendation, but the spelling is
+   ref-specific: `--cudagraph-capture-sizes` / `--max-cudagraph-capture-size` are
+   registered from vllm v0.13.0 (`vllm/engine/arg_utils.py:1106,1109` at `72506c9`) and
+   **absent** at vllm v0.11.0rc3 (`8ce5d31`; neither name is in `arg_utils.py`), so for a
+   0.11/0.12-era paste hand over the JSON form the log itself prints —
+   `--compilation-config '{"cudagraph_capture_sizes":[1,2,4,8,16,32,64]}'`
+   (`cudagraph_capture_sizes` is a `CompilationConfig` field at `8ce5d31`,
+   `vllm/config/compilation.py:279`). Handing a pre-0.13 reporter a flag their vllm does
+   not register turns one restart into an argparse error.
 3. `HCCL_OP_EXPANSION_MODE=AIV`, only with the §3 arithmetic showing a higher ceiling for
    *this* model's layer count and `num_comm_groups`.
 4. Fewer captured graphs by construction: drop `--speculative-config` (removes the second

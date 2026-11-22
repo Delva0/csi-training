@@ -13,7 +13,10 @@ Not this topic: a report that *drops* EP on purpose and asks about throughput (t
 `../performance-throughput/moe-comm-path-when-ep-off.md`, which carries the selector from
 the perf side), an EP+DP engine that fails to **start** or a dispatch tiling refusal
 (`../feature-enable-recipes/moe-expert-parallel-with-dp.md`), or corruption that survives
-with EP off (start at `index.md`).
+with EP off (start at `index.md`), or **an accuracy loss on a static EPLB map**
+(`--additional-config '{"expert_map_path": …}'`) — a deployment-shape audit whose first
+rung drops `expert_map_path` while EP stays on
+(`eplb-static-map-deployment-shape.md`, #5643).
 
 ## Step 0 — grade the pin's reduce-hook generation, one grep, before Step 1
 

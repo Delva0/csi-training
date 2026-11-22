@@ -37,7 +37,7 @@ simply not all there. The reporter's `:883` vs the pin's `:884` is a
 - Count the devices the same paste proves: `npu-smi` blocks, or the cardinality
   of `ASCEND_RT_VISIBLE_DEVICES`. #1255: DP=16 × TP=1 = 16 ranks against 8 cards
   on one node → **8 ranks can never be created**, so the rendezvous waits. The
-  model is irrelevant to this leg.
+  model is irrelevant to this leg (but decisive for the replacement launch — §5).
 - `--enable-expert-parallel` does not add ranks: EP group sizes are derived from
   the same DP×TP world (`vllm_ascend/distributed/parallel_state.py:get_ep_group`,
   `vllm_ascend/ops/fused_moe.py:59-61`), so it cannot make 16 ranks fit on 8
@@ -86,10 +86,25 @@ knob at this version (see step 5).
   version's own `docs/source/tutorials/multi_node.md:138-164` recipe is
   `--tensor-parallel-size` = NPUs per node, `--pipeline-parallel-size` = nodes.
 - So `--data-parallel-size 16` on one 8-card node is an unsupported
-  configuration rather than a defect. The deliverable is the working launch
-  (TP=8 single node; TP=8 × PP=2 two nodes; or the documented offline
-  `VLLM_DP_*` fan-out with one process per rank) plus the checks that confirm
-  the diagnosis on their machine.
+  configuration rather than a defect. The deliverable is the working launch plus
+  the checks that confirm the diagnosis on their machine — and that launch must be
+  **priced before it is named**, because the reporter's DP is not gratuitous: with
+  `--enable-expert-parallel` the MoE experts are sharded across the whole DP×TP
+  world (16 ranks here), so "drop DP and use `--tensor-parallel-size 8` on your one
+  node" halves the shard and cannot load a 671B W8A8 checkpoint at all.
+- **Price the replacement at 1 byte/param, from the paste's own HBM and util**
+  (`../deploy-sizing/index.md` rule 1). #1255's `npu-smi` reads `65536 MB` and its
+  serve line `--gpu-memory-utilization "0.95"`: `bash
+  <skill_root>/scripts/card-budget.sh --params 671 --dtype w8a8 --hbm 64 --gmu
+  0.95 --tp 8` prints `83.88 GB per card` against a `60.8 GB` budget →
+  `VERDICT: FAIL`, while `--tp 16` prints `41.94 GB per card` and fits with
+  ~`18.9 GB` left for KV. So the single-node downsize is infeasible on this
+  reporter's numbers, and the working answers are the ones that keep 16 cards: the
+  pin's `TP=8 × PP=2` two-node recipe, `TP=16` across two nodes
+  (`docs/source/tutorials/multi_node.md:138-165`), or the offline `VLLM_DP_*`
+  fan-out with one process per rank. `--tp` is the **weight-shard width** (the
+  TP×PP product for those two layouts), not the flag the reporter wrote. Never
+  quote a per-card weight figure that was not priced this way.
 
 ## 6. Checks to request (cheap → decisive)
 

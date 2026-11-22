@@ -98,13 +98,21 @@ so GLM-4/GLM-Z1 dense is **not** a validated arch at that ref. Say both: the tup
 upstream model-file defect (platform-independent, one line, quotable), and this arch is outside
 what the release validated, so the next error may be a different model-file deviation.
 
-## 5. Follow-up discipline
+## 5. A follow-up that quotes a foreign workaround is not a verdict on §3
 
-The reporter's #587 follow-up ("用了该办法解决上述问题，但还是报错", two
-`user-attachments` screenshots, no text) is **not** evidence of what is still failing: a screenshot
-URL carries no traceback. Ask for the new error as text (and which of the two lines they
-patched), then start again at §1 for the next model-file line — do not assume the restored
-contract §3 fixed the run.
+The reporter's #587 follow-up is
+«https://github.com/vllm-project/vllm/issues/16818#issuecomment-2814931469 使用该办法解决上述问题，但还是报错»
+plus two `user-attachments` screenshots and no text. It settles **none** of the three readings
+below on its own, so the answer must not pick one for them: (a) the link is a **vllm-side issue
+comment**, so "该办法" need not be §3's four-line repair — do not report §3 as refuted, and do not
+re-send §3 as the answer either; (b) a screenshot URL carries no traceback (this case view keeps
+no attachments at all), so the new error is unread — ask for it as **text** together with
+`sed -n '196,210p'` of the installed `glm4.py`; (c) at that pin §3's site has **no second
+occurrence**: `glm4.py:203` is the file's only norm call that passes `residual` into a single
+name (the other four — `:190`, `:192`, `:199`, `:205` — pass no residual or unpack two), so if
+they did apply the repair, the next failure is a *different* class, not another tuple in the
+same block. Frame that in §4's coverage verdict (the arch was never validated at that ref) and
+rank from the new traceback: the next owner is a different line or subsystem.
 
 ## Recorded case
 

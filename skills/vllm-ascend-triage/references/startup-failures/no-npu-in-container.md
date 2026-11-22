@@ -223,6 +223,20 @@ vendor's action text), while `-8005`/`-8009` exclude nothing; and no code on the
 names *which* holder, so "occupied — by whom" is what the host's process table answers,
 not the paste.
 
+**When the failing container is a vendor serving image (mis-tei / MindIE TEI), the
+headline names the image tag as the lever with its evidence class, never the
+mechanism.** The #8809 replay opened with 「是本机 `mis-tei:26.0.0` 这个厂商镜像的 userspace
+与主机 driver 不配对」 — the reading the recorded-run section below forbids («Say
+"reporter-confirmed on the image tag", never "the driver's userspace was mismatched"»)
+— and attributed the confirmation to 「本线程后续」, i.e. to a comment the thread it is
+answering does not carry (`../evidence-workspace/case-layout.md`, *do not characterise
+its comment thread or closure*). Write 「同一 issue 的后续回复已确认：镜像回退到
+`mis-tei:7.2.RC1-800I-A2-aarch64` 后解决（reporter-confirmed）」 plus 「如果你现在跑的是别的配置，
+请说明」, keep the pairing story out of the verdict, and state it as the tag being the
+one variable the reporter moved rather than as a measured single-variable result —
+the working command also changed `-u`, `/dev:/dev`, the mapped card and
+`ASCEND_VISIBLE_DEVICES` (recorded run below).
+
 ## Recorded run (#632)
 
 The pasted `docker run` is the pinned quick-start block verbatim (v0.8.4rc1

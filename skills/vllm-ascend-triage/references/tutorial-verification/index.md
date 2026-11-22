@@ -30,7 +30,7 @@ set by shape; match the **reporter's own wording**, not the title's category wor
 |---|---|
 | a 众测任务书 row (蓝区镜像 / 权重链接 / 配套 HDK / 卡数 / 交付件 = 测试报告) | `community-test-report.md` |
 | a sample request or `vllm bench serve` answering 404, or a first start that "加载 3 小时 / 高并发读取" | `serve-contract-and-weight-predownload.md` |
-| asking for *added* guidance, a cross-link, the contributor path, or a mirror/registry | `missing-guidance-and-contributor-docs.md` |
+| asking for *added* guidance, a cross-link, the contributor path, or a mirror — container registry **or** weights (`VLLM_USE_MODELSCOPE` / ModelScope / 国内下载慢) | `missing-guidance-and-contributor-docs.md` |
 | a flag, path, count, install pin or printed request body that is wrong as written | `tutorial-command-audit.md` (its worked pages first) |
 | a printed image tag, a `…/en/latest/…` URL, any version disagreement, or a hardware tab printing another generation's tag (「此处镜像提供错误」 on the `Atlas 800I A3` tab) | `docs-version-space-and-image-tag.md` (§7 for the tab/suffix shape) |
 | the doc's log/flag claims against the code | `../observability-and-logs/request-output-logging-flags.md` |
@@ -164,6 +164,11 @@ Conditional routes:
   only `nightly-*`), its China path is `faqs.md` §2, and the defect is the missing
   cross-link — not an architecture question, so do not open
   `../image-dependency-faults/image-arch-and-tag-availability.md` first.
+  The **weights** half of the same shape (国内用户首次下载模型失败率高 / 建议示例默认
+  ModelScope, recorded #14502) is a different snippet with a different tier
+  decider — whether `modelscope` is installed on the reader's install path, since
+  upstream imports it bare under the flag — in that page's §*The weights mirror is
+  the other half*; do not reuse the registry rows' verdicts for it.
   The same page's #5158 section owns the sibling shape — a tutorial sentence that
   promises an **install/compile step which exists nowhere** ("install extra
   operator", "am I expected to compile `X`?"): existence grep, sibling parity, then

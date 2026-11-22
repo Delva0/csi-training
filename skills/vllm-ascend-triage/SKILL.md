@@ -18,9 +18,10 @@ here can stop it, and its output is re-sent on every later turn: six recorded ru
 14-54 KB that way, one ending output-truncated at 1.1 M cumulative prompt tokens, which
 is why the frontmatter description names the prohibition, not only the reading order.
 If something has to share it, let it be
-`bash <skill_root>/scripts/sources-summary.sh` (~10 lines) — that summary plus the
-reporter's own paste **is** the orientation. Never `cat /workspace/repos/SOURCES.json`,
-never enumerate a history directory, never `cat /workspace/history/*.md`, and do not
+`bash <skill_root>/scripts/sources-summary.sh` (one line per repo, ~45 per case, not the
+28 KB file) — that summary plus the reporter's own paste **is** the orientation. Never
+`cat /workspace/repos/SOURCES.json`, never enumerate a history directory, never
+`cat /workspace/history/*.md`, and do not
 "list one level" with `search_files (pattern='*', target='files', path='/workspace')`:
 recorded in both runs of one minibatch, it returns ~100 recursive paths truncated at 50
 and neither used a line of it (#12278, #11761); `ls -d /workspace/repos/*/` is the
@@ -101,138 +102,44 @@ the turn the shape is classified, not a second copy of it here.
      reasoning against 2.9 K of text) and ended on an empty final message.
    - **G3 — 12th assistant turn:** answer text only; no reasoning, no tool call,
      no "one more thing".
-   - **A new user turn restarts the gates.** The reporter's own follow-up — a retry
-     on another version, a second pod's log, a different error — makes turn 1 of that
-     segment the **delta** answer: what the new paste changes about the lane, per
-     artefact, before any fresh source work, with `rg -n '<the new token>'` against
-     `references/` as the one call that finds the page already holding it. Neither the
-     earlier answer nor the new paste substitutes for it (recorded #7352: 18 tool
-     calls re-deriving a chain two pages already carried, no message text;
-     `delivery-discipline.md` §*follow-up turn*).
-   - **The gates cap cumulative output (~45-50 K characters of reasoning+text), and
-     the turn index is the weak part: your own count drifts 2-3x low.** #6529 wrote
-     "I'm at turn 7" on its 15th turn, #6243 "I'm at 6" on its 14th, so G1-G3 never
-     fired as written. Trigger on evidence instead of the number: the turn you can
-     state a cause with its one check is the turn the answer is owed; if you do
-     count, count the `tool` results in the transcript, not from memory
-     (`delivery-discipline.md`, budget arithmetic).
+   - **A new user turn restarts the gates, as a delta turn.** Answer only what the
+     reply changes — lane, artefact, cheapest rung — before fresh source work, with
+     `rg -n '<the new token>'` against `references/` as the one call that finds the
+     page already holding it (`delivery-discipline.md`, *a follow-up turn is a delta
+     turn*; recorded #7352).
+   - **The gates cap cumulative output (~45-50 K characters), and your own turn count
+     drifts 2-3x low.** Trigger on evidence, not the number: the turn you can state a
+     cause with its one check is the turn the answer is owed; if you count, count
+     `tool` results in the transcript (`delivery-discipline.md`, budget arithmetic).
    - **When the discriminator lives only on the reporter's machine, the ranking *is*
-     the deliverable.** If the check that separates your top two causes needs their
-     plog, their two serve commands, their `pip show`/`env`, or a re-run, nothing you
-     can read locally closes it — so the turn where you notice that is the turn to
-     send: verdict, ranked causes each with its one check, and the request list. A
-     page that answers your paste and then lists reporter-side artefacts has already
-     handed you the message: type it, do not go execute its investigation (#13175
-     read both routing pages on turn 3, spent 18 more turns on a program only the
-     reporter could run, and shipped **zero** text; `delivery-recorded-sessions.md`).
-   - **Reasoning is a scratchpad, a few lines per turn:** what the last result
-     proved, the single next check, go. It spends the **same output budget** as the
-     answer. A block that enumerates the answer's sections, counts turns against
-     G1/G2, or says "I have enough" / "let me write the answer" *is* the answer — and
-     the recorded way to ship nothing is to reason "the gate has passed, I must send
-     the deliverable" and then send empty text plus another tool call (#6243: 15
-     turns, 67 characters of text, cut inside the 14 K block holding the ranked
-     answer). Its second form is the **hypothesis sweep** — three or more
-     "alternatively / another candidate" branches in one breath: two candidates is
-     already the deliverable's shape, so send the pair and run the one check that
-     separates them (`delivery-discipline.md`, hypothesis-sweep rows).
-   - **Budget in characters per block, not turns** — the count-free form of the rule
-     above: test **message text ≥ a third of the reasoning written so far**, keep each
-     reasoning block ~1.5-4 K characters, and once a message can name the
-     discriminator the **next** message is the ranked answer built on it (#13527 hit
-     the cap with no draft at 43.8 K reasoning / 2.2 K text; #587 and #11680 each held
-     the decisive datum by turn 8 and kept reading; `delivery-discipline.md`).
-   - **The paste can already contain the whole answer surface.** An argparse error
-     prints the complete valid choice list, a log line can name its own thread and
-     owner, and a traceback can name the class *and* the rule
-     (`'DummyModelLoader' object has no attribute 'get_all_weights'` names the method
-     only `DefaultModelLoader` has; the MLA `queries per kv … only support {32, 64,
-     128}` assert states the rule and leaves only the TP-split arithmetic). Then the
-     verdict is owed at G1 with no source read: #4796 had its answer by turn 4 and
-     spent 32 turns to the cap emitting **no message text**; #10962 reasoned the whole
-     answer and typed it on the last turn, cut mid-sentence. Test at every turn: could
-     I write the first paragraph now? — if yes, the tool call goes in a message that
-     already carries it.
-   - **A new hypothesis that needs a new code area is not this session's job.**
-     Put it in the answer as an open question with the one command that decides it.
-     For an accuracy/corruption or topology report a ranked list plus an ablation
-     matrix already *is* the full answer, and a **mechanism the paste cannot carry**
-     (*which* scheduler step mixed decode with prefill, *which* phase refused a comm
-     resource) is a fact about the reporter's run that no local source read produces:
-     #14506, #2934, #1369, #5947 and #8350 spent the rest of their budget there after
-     the answer existed and shipped nothing or 185 characters, and #7774 derived *how*
-     an MTE "DDR address out of range" arises inside a CANN `NonZero` listed as
-     `unavailable` (45 K of reasoning against 39 characters of text) instead of
-     shipping its pin's version lane
-     (`references/custom-ops-runtime-faults/hybrid-ssm-mask-nonzero-fault.md`).
-   - **A paste that stops in silence is answered, not investigated.** When the log
-     simply ends (no traceback, last line inside init), the cause is decided by
-     artefacts on the reporter's machine — process count, per-rank logs, device
-     mapping — never by more source reading, so the ranked list plus "send these
-     three" *is* the message and is owed on the turn the shape is classified (#1496
-     spent 12 turns and ~49 K of reasoning on four mechanisms and shipped nothing;
-     `references/startup-failures/multiprocess-launch-hang.md`).
-   - **An ownership question is answered by naming the owner.** "The flag did
-     nothing" and "the log line is missing" are gate checklists on the owning
-     component — usually the upstream vLLM OpenAI frontend, not vllm-ascend — and
-     take 3-4 calls; #10985 and #9583 each spent 20-30 calls inside the owning
-     module with the decisive check in hand.
-   - **When the deliverable is a document, the document is the gate.** Open the
-     report file on the 2nd-3rd turn with the skeleton plus the first verified
-     section, append **2-3 K characters per write**, keep the file ≤ ~8 K characters,
-     and lead the final message with the 交付件 items (verdict, path, the three
-     完整性/易用性/正确性 scores, one line per defect) — never one heredoc, never a
-     re-paste of the deploy script, whose characters are output tokens from the same
-     budget as the message (#11759, #11751, #11739/#11742;
-     `community-test-report.md`, `delivery-discipline.md`).
-   - **`/workspace/scratch/findings.md` is the answer draft, not an extra step:**
-     write it at G2 *in place of* the reasoning block; once it exists the next
-     turn's text is the answer (`delivery-discipline.md` §draft).
-   - **A missing or mismatched artefact is itself the finding** — an empty
-     environment block, a file absent from the pinned tree, a version the snapshot
-     does not carry. State the gap, give the one command that closes it, stop.
-   - **A byte count that "matches" is not the answer.** Re-deriving a mechanism from
-     an allocation size needs inputs the report does not carry (a `config.json`, a
-     group size, an expert count): ask for the line that settles it and send the
-     ranked answer (#7123 died at the cap deriving DP/EP algebra for a 674 MiB
-     request whose two `[EP Rank r/N] … experts` lines were never asked for,
-     `references/deploy-sizing/moe-load-oom-expert-shard.md`). **The same holds for a
-     tensor shape quoted from a debugger** (`变量 x.shape [5040, 1, 1152]`): it is a
-     gap in the paste, not the failing allocation. #7419 spent 19 tool turns locating
-     the producing `.unsqueeze(1)` and shipped **zero** text, while the two answer
-     facts came from two greps (`references/lora-adapters/multimodal-vit-lora-ignored.md`).
-   - **A refusal that quotes an argument value is answered by the contract, not by the
-     producing line.** When the op error names the value it rejected — a mask shape, a
-     seq-len list, a dtype, an out-of-range index — the deliverable is the contract,
-     the one call site (or the two candidates) that feeds it, the single print or repro
-     that discriminates, and the workaround; *which* line computed the value is a
-     confirmation. #6573 walked the attention dispatch before finding the mask in the
-     model file, #10757 spent most of its budget on whether the encoder gate could ever
-     be true, and #10372 shipped no revision while choosing between two producers of a
-     `numAcceptedTokens` overflow — all three held the contract by their 3rd–5th turn
-     and then shipped **zero** text
-     (`references/custom-ops-runtime-faults/fa-tiling-argument-refusals.md`,
-     `gdn-conv1d-accepted-tokens-varlen.md`). **Dead-branch variant:** a gate in the
-     snapshot that nothing sets is a version-skew fact to *ask* for — the reporter's
-     build differs from the pin — not a mechanism to derive.
-   - **Truncation eats the tail, not the head — and the body has a size too.** One
-     minibatch showed both halves (#1255 typed no message text across 24 tool turns
-     and shipped nothing; #3170 kept its verdict and ranked causes but lost the
-     action ladder's last commands), so type the ladder before the scope block:
-     each action directly after its cause, the closing scope block 3-5 lines. With
-     no log pasted: 3-4 causes with one check each, one ladder of ≤6 lines,
-     precedents as one line of `#id: fact`, 3-5 lines of scope (≈3-4 K characters);
-     a fifth cause is an open question with its one command.
-   - **Every assistant turn carries message text, not only a tool call.** A turn
-     whose whole output is a tool call leaves nothing for a truncation to keep;
-     #5295 emitted *zero* text on all 16 turns, #16563 on all 20, #8370 narrated
-     next actions for 14 turns while its last turn held the answer. Carry one or
-     two sentences of the current answer draft in the same message as every tool
-     call — verdict line first, then the evidence being checked — so G1/G2 need no
-     special turn. A *status note* is not a draft: the sentence must state the
-     current verdict even when the next call may overturn it. The mechanical test
-     at any turn: no message text yet names a cause plus a `path:line` or `#id`,
-     so nothing has been drafted (`delivery-discipline.md` gates).
+     the deliverable** — verdict, ranked causes each with its one check, request list.
+     A page that answers the paste and then lists reporter-side artefacts has already
+     handed you the message: type it, do not execute its investigation (#13175 read
+     both routing pages and shipped **zero** text).
+   - **Reasoning is a scratchpad, a few lines per turn.** Test **message text ≥ a third
+     of the reasoning written so far**, keep a reasoning block ~1.5-4 K characters, and
+     treat a block that enumerates the answer's sections, counts turns, weighs three or
+     more unranked hypotheses or says "I have enough" as the answer itself (#6243,
+     #13527; `delivery-discipline.md`).
+   - **The paste can already carry the whole answer surface** — an argparse choice
+     list, an assert that states its rule, a traceback that names the class and the
+     rule. Then the verdict is owed at G1 with no source read: if you could write the
+     first paragraph now, the tool call goes in a message that carries it (#4796,
+     #10962).
+   - **A new hypothesis that needs a new code area, a mechanism the paste cannot
+     carry, a paste that stops in silence, an ownership question, a document to
+     produce** (the 众测 report shape is `community-test-report.md`) each get the ranked
+     list plus the one check, ask or file skeleton — never the rest of the budget
+     (#14506, #1496, #10985, #16563; `delivery-discipline.md`).
+   - **A missing or mismatched artefact is itself the finding**, a byte count or tensor
+     shape that "matches" is not the answer, and a refusal that quotes an argument
+     value is answered by the contract plus its one call site (the artefact-gap and
+     argument-refusal bullets in `delivery-discipline.md` §*The gates*).
+   - **Truncation eats the tail, not the head**: type each action after its cause and
+     keep the closing scope block 3-5 lines. **Every assistant turn carries message
+     text** — one or two sentences of the current verdict beside the tool call — and
+     `/workspace/scratch/findings.md` is the answer draft, not an extra step
+     (`delivery-discipline.md`).
 2. **Classify before investigating.** For a startup log, place it in lane A/B/C;
    for a runtime report, decide whether it is a device-op fault, an accuracy/score
    gap, a corruption report or a performance claim. The signature index
@@ -264,8 +171,14 @@ the turn the shape is classified, not a second copy of it here.
    explained, and an engine that keeps serving is exonerated by the attribution
    rather than by an argument (`references/deploy-sizing/node-processes-and-device-attribution.md`,
    reporter-confirmed #12338).
-5. **Pin evidence to the reported version.** Read `/workspace/repos/SOURCES.json`
-   before citing code: it records repo, ref, commit, basis and coverage cutoffs.
+5. **Pin evidence to the reported version.** Take the pin from
+   `bash <skill_root>/scripts/sources-summary.sh` (one line per repo: ref, commit,
+   mode, coverage), never from a whole read of `/workspace/repos/SOURCES.json` —
+   that file is 28 KB in the #12241 snapshot, and that run batched a whole-file read
+   of it beside its own `skill_view`, so every byte was re-sent on every later turn.
+   The summary carries repo, ref, commit, basis and coverage cutoffs; grep the file
+   itself only for one field it lacks
+   (`rg -n '"reported_ref_status"|<commit>' SOURCES.json`).
    Every code claim gets `path:line` plus the commit/ref it came from. State
    recheck conditions when a constant, table or log line is version-specific. A
    report citing `docs.vllm.ai/.../latest/…#<section>` is quoting a doc that may
@@ -349,7 +262,13 @@ the turn the shape is classified, not a second copy of it here.
    often split across adjacent literals, so grep the shortest clause (or `-A1`); a
    `--glob '!<dir>/**'` exclusion is matched against the path you passed; a piped
    `sed -n 'A,Bp' | rg -n` numbers the stream (`A + n - 1`); scope every grep to one
-   repo; never list a directory or dump a whole file, with **one** exception: a
+   repo; **a page's `vllm/<file>` anchor is repo-relative, and for vllm the package
+   sits one level *below* the repo root** (`<repo>/vllm/config.py`, while
+   `vllm_ascend/` and `docs/` sit at the vllm-ascend root), so an `IO error … No such
+   file or directory` from the bare tail means the prefix, not a missing file — the
+   recorded #1255 replay paid three turns there and then misread a `ls A; ls B`
+   concatenation, where `rg --files <repo root> -g 'config.py'` is the one call
+   (§*Search-command traps*); never list a directory or dump a whole file, with **one** exception: a
    single `ls -la /workspace/attachments/<issue>/` (or `cat ATTACHMENTS.txt`) as soon
    as the report names a log you have not located. Attachment dumps carry no settled
    extension — a recorded segfault case kept its scripts as `.txt` and **both node
@@ -525,10 +444,17 @@ the turn the shape is classified, not a second copy of it here.
     Reading `supported_models.md` first is the recorded detour: the flag, not the model
     row, is the discriminator. **The oddest flag in the command is not a
     substitute**: `--mm_processor_cache_type shm` ranks only with its own
-    `Data for address:id …` string. Recorded #7744 ranked that flag first on a
-    load-phase `KeyError: 'layers.37.mlp.experts.w2_weight_offset'` and its resolution
-    was the newer tag (reporter-confirmed `v0.17.0rc1`) —
-    `references/startup-failures/silent-worker-exit.md`. **Check a suspect env var
+    `Data for address:id …` string. Recorded #7744 demoted that flag correctly and
+    still led with the wrong lever — "the `--quantization ascend` flag is missing" — on
+    a load-phase `KeyError: 'layers.37.mlp.experts.w2_weight_offset'`, while its
+    resolution was the newer tag (reporter-confirmed `v0.17.0rc1`). So price a
+    flag-omitted verdict against the model dir's own `quantization_config` first: the
+    override only *renames* an existing `quant_method`, and the VL-MoE expert branch is
+    still unguarded at v0.18.0, so a flag-omitted engine fails the same way on the newer
+    tag (item 4 of
+    `references/startup-failures/weight-scale-keyerror-quant-variant.md`
+    §*The VL-MoE offset form*;
+    `references/startup-failures/silent-worker-exit.md`). **Check a suspect env var
     against the pin's own default before calling it the reporter's knob** —
     `rg -n '<ENV>' vllm_ascend/envs.py` — because a launch line that restates the
     default carries no information about the fault (`VLLM_ASCEND_ENABLE_MLAPO=1` is the
@@ -643,7 +569,11 @@ the turn the shape is classified, not a second copy of it here.
     hand back the reporter's own value and put the free-chip step
     (`ASCEND_RT_VISIBLE_DEVICES=<idle id>`, or stop the other process) in the same
     paragraph (`references/pooling-embedding/embedding-checkpoint-as-generate.md`
-    step 1, recorded #5549 replay). Then map each
+    step 1, recorded #5549 replay). A **lowered** ratio is that same fraction read
+    the other way, so price each step from those rows before writing any GB figure:
+    `Δ × total` per card — 0.85→0.80 on the 32768 MB 910B4 rows is ≈1.6 GB, while
+    the #8809 replay wrote 「每卡空出 ~6.5 GB」 for exactly that step, 4× off and
+    contradicted by arithmetic the reader has in the same paste. Then map each
     enforced constraint to the error text it raises, so the reporter can place their
     own two errors, and stage the experiment one axis per launch. Three turns,
     `references/feature-enable-recipes/index.md`. Three traps: a pinned doc's narrower
@@ -822,7 +752,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    read is the single `ls -la /workspace/attachments/<issue>/` when the paste names a
    log, rule 7) — then run
    `bash <skill_root>/scripts/sources-summary.sh` for the `SOURCES.json` version
-   contract; note which repos/refs are present and which are partial exports. The
+   contract; note which repos/refs are present and which are partial exports. Run it
+   **unpiped**: `| tail -30` drops the leading `vllm`/`vllm-ascend` pin rows and `| head`
+   the `unavailable` list, so the one call turns into a second `SOURCES.json` grep on the
+   turn you need a pin (recorded #11450). The
    layout differs per case (flat `/workspace/history/<issue>.md` vs
    `/workspace/history/<issue>/` + `/workspace/repos/<issue>/`); adapt after
    looking, do not assume.
@@ -923,11 +856,9 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    `v0.9.2rc1` for #2239"), so read the hit line itself rather than the heading
    level; the id in a table row or link list pointing at another page is a citation,
    not ownership, and no hit is the useful "this case is new"
-   (the id is never in `history/`, rule 8). Recorded #10700: the token grep had
-   already listed the owning page (heading `(#10700)`) fifth of thirty, yet the session
-   opened another crash page and led with a CI-config delta the owner's own Scope
-   disowns, while the owner's first ablation was what the reporter had confirmed
-   (`references/evidence-workspace/recorded-cases-device-and-communication.md`).
+   (the id is never in `history/`, rule 8); #10700 listed the owner fifth of thirty and
+   opened another crash page, #9263 read neither arrow on its own line — both are in
+   `references/evidence-workspace/case-layout.md`.
 
    **Grade the library in one call — `scripts/reference-locate.py` — and read the top
    page**: `uv run --no-project python <skill_root>/scripts/reference-locate.py '<op>'
@@ -948,6 +879,15 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    message — open it even when the heading reads as another model's case
    (`references/evidence-workspace/delivery-recorded-sessions.md`: #12985's second
    session saw the `[case]` file first, opened no entry, and shipped no text).
+   **An arrow in the *near-miss* or family-word block is still the case** (an entry
+   quotes the reporter's own wording, so it grades 2-of-4 while family words fill 100+
+   pages), and while no page carries every token the script prints it as a
+   `[case-first]` line with its `sed` range; #5643's replay had that arrow, greped its
+   file name twice, and re-derived the ladder in 14 calls. When the arrow's id is the
+   report's **own** issue id, that entry is an earlier run of this very case and already
+   carries its ranking and the correction to it, so it beats the topical page beside it:
+   recorded #11450 read both op-fault pages and re-derived, in five reads, what its own
+   entry stated (the sampler body holds no indexed write).
    **A `[row]` line and a `[case]` line on the same all-token list are one decision, not
    two**: several cases can share three or four tokens (the `is_layer_skipped_ascend`
    `KeyError`s are #2984's stock-FP8 release, #3494/#569's `…-w8a8` exports and #5564's
@@ -1213,7 +1153,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   #8926 spent the rest of its 16 384-token output budget in the table and lost every
   later rung — keep the table to the rows the verdict needs and move the rest into
   "what to send back"; #3468 lost the same cap inside a two-column causes table, so
-  write causes as a numbered list, one line and one check each.
+  write causes as a numbered list, one line and one check each. **The recorded
+  sessions ordered your search; they are not the reporter's context** — no 「本线程」
+  「预算」, turn count or prior-run cost in the message, which addresses a person who
+  never saw that thread (`references/evidence-workspace/delivery-discipline.md` G2b).
 - Version and hardware scope of the conclusion, plus what to send back (full
   per-rank log, plog, tiling I-line, raw request/response dumps, `npu-smi info`,
   `asys health` output, `dmesg` OOM lines, both PD serve commands). **The ask list is
@@ -1223,7 +1166,14 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   pinned — is used, not requested: cite it and add "if you now run something else, say
   so" (the #4057 replay quoted the page's reporter-confirmed command as its mitigation
   and still asked for that same command line: `references/evidence-workspace/
-  delivery-discipline.md`). The template's `<details>`
+  delivery-discipline.md`). **The owning page is also where the list goes wrong**: it
+  was written from the later comments, so its config/launch blocks *are* the paste —
+  two recorded replays quoted the page's `mooncake.json` (#10532) and its `vllm serve`
+  line (#2473) inside the diagnosis and then asked the reporter for those same
+  artefacts, because each page's *what to ask for* section still listed them (both
+  pages now name the recorded block and the reduced ask). Quote the block back, drop
+  it from the list, and ask only for what the page's "never established" section
+  enumerates. The template's `<details>`
   *Your current environment* block is a `collect_env.py` dump and already prints
   `vLLM Version:`, `vLLM Ascend Version:`, the torch/torch_npu/CANN versions, the
   launch env vars and a full `npu-smi` table, so "which vllm / vllm-ascend version"

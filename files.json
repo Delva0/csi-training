@@ -2,8 +2,8 @@
   {
     "path": "vllm-ascend-triage/SKILL.md",
     "mode": "100644",
-    "sha256": "a23877f9e4aa6518e5940229ac44ed2d195cd3698f6a37f7d7a1f4ed4c4b3fac",
-    "size": 99230
+    "sha256": "e7ac1ed9417bf14e2fcc23e4c0e981001882df4755235153c1ad279748d93218",
+    "size": 95102
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/batch-invariant-coverage.md",
@@ -38,8 +38,14 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/ep-mode-reduce-double-count.md",
     "mode": "100644",
-    "sha256": "166a25ce89073b66e460951233593a047f9bb29989e4da0123cee0f4e4577ab3",
-    "size": 12986
+    "sha256": "d220031d29423bd93ef96bede57c342b94d1c2ac429334c5dd6de6573f1072a0",
+    "size": 13218
+  },
+  {
+    "path": "vllm-ascend-triage/references/accuracy-benchmarks/eplb-static-map-deployment-shape.md",
+    "mode": "100644",
+    "sha256": "da0dca6fee55875caf3c0786f53533fc83c408ee7b4cc65d63bedacb018d38a4",
+    "size": 7947
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/first-generate-degenerate.md",
@@ -68,8 +74,8 @@
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/index.md",
     "mode": "100644",
-    "sha256": "b0fe58ce72456e0f99d0d9457d548c2cb86e3edb7d16aedc91689fdd6597acdd",
-    "size": 62316
+    "sha256": "c6a5932f2db5e7e9c73272d197b6b5cd2b300e92a1748f76be7f49528e883218",
+    "size": 63617
   },
   {
     "path": "vllm-ascend-triage/references/accuracy-benchmarks/long-output-repetition.md",
@@ -452,8 +458,8 @@
   {
     "path": "vllm-ascend-triage/references/dispatch/problem-classes.md",
     "mode": "100644",
-    "sha256": "54e3d1771779160133a06dc212558a50c60400267fbab0773bb89c4733b03066",
-    "size": 17976
+    "sha256": "fb13c692a408c1695ee44cd8069ceb0019357d5626510665e5cbfd47e5aeb96c",
+    "size": 18580
   },
   {
     "path": "vllm-ascend-triage/references/dsa-sparse-attention/c8-flags-and-kv-store-path.md",
@@ -518,14 +524,14 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/case-layout.md",
     "mode": "100644",
-    "sha256": "ca09085695483b31e30d1b4e889d449dbe316a9f9d01dc61e5712f90b5285ef6",
-    "size": 21631
+    "sha256": "7d874425644b48eafab3412c4dfbf5b0507d6658d448f193de8c9eae221b0e4b",
+    "size": 23970
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/delivery-discipline.md",
     "mode": "100644",
-    "sha256": "fde3d745c86db5308eb2707b7250bda3f1c3aa6b8f7c59b3bbacdefd9fecd3d2",
-    "size": 34348
+    "sha256": "ad2ea62c92229fb50bebd1739bdbc20c1bd6bb8e782d114d44b9f5c02371e777",
+    "size": 37334
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/delivery-recorded-sessions.md",
@@ -542,8 +548,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases-accuracy-and-output.md",
     "mode": "100644",
-    "sha256": "03c2ce0b3197c2ec0ec065b023c1483b491b89062a5e4a88f3e88010089fac24",
-    "size": 100546
+    "sha256": "19a21b831229ce72a36f01d22f5b09ee17f5ba9314a39865286a9fe6252f27bb",
+    "size": 101427
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases-brief-mentions.md",
@@ -566,8 +572,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases-install-and-environment.md",
     "mode": "100644",
-    "sha256": "d9745483425fda5d146b1a9b4bf6d5e3981681959b23d4b9cd19579c31dffb32",
-    "size": 73383
+    "sha256": "14dce800ff94932bf6e814ba77a0826b11e90b4b5b998645ca6860dea495e50f",
+    "size": 75041
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases-memory-and-throughput.md",
@@ -584,14 +590,14 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases-startup.md",
     "mode": "100644",
-    "sha256": "2626da0a664212298b3687771c820dc30442c71da1b45c9c8a281d83a12ad3fe",
-    "size": 61802
+    "sha256": "7467d1cddfd7afca6f4ee58a5044146fbaa2d3034585c5d3ec5da361f93bbcbd",
+    "size": 62538
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases/accuracy-and-output.md",
     "mode": "100644",
-    "sha256": "c57018c3559e4604c615b527f70f65bba352aa98e78809585f36b615a85528f7",
-    "size": 38757
+    "sha256": "6e48aa39d4c4e8d2f92be832debc5bd60d6adb56fa4a6c6a46cb210d1cbef7e8",
+    "size": 38831
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases/brief-mentions.md",
@@ -602,8 +608,8 @@
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases/device-and-communication.md",
     "mode": "100644",
-    "sha256": "3260bc00662afd9b98ff10617d1fffce9204d5bf4211b6451637d8003faadeed",
-    "size": 32101
+    "sha256": "e11ff8b5a8c02cdc2082355a2e6d609fca9f83f7b7c1f9e0d70627b388ac8856",
+    "size": 32262
   },
   {
     "path": "vllm-ascend-triage/references/evidence-workspace/recorded-cases/index.md",
@@ -734,8 +740,8 @@
   {
     "path": "vllm-ascend-triage/references/first-checks/scripts-catalogue.md",
     "mode": "100644",
-    "sha256": "659e62f874af09706b43d5e42cc210c419fcc72d74e1d0c85032bbd8d0219524",
-    "size": 58442
+    "sha256": "cc42ab17d200ea943c38fffc5f207792086324ea278745c89ab643f6170a316d",
+    "size": 60228
   },
   {
     "path": "vllm-ascend-triage/references/first-checks/signature-routes/capability-docs-and-throughput.md",
@@ -752,8 +758,8 @@
   {
     "path": "vllm-ascend-triage/references/first-checks/signature-routes/device-ops-and-collectives.md",
     "mode": "100644",
-    "sha256": "9a4314715db0e12af5f8ac7206c5c96c7f29c3356619f00b3a37f536b8b4ca8e",
-    "size": 87741
+    "sha256": "524115542498600c4a63e2afa466d3a1500b793b0c12bb8c90b17eb817e3aaf5",
+    "size": 88130
   },
   {
     "path": "vllm-ascend-triage/references/first-checks/signature-routes/index.md",
@@ -764,20 +770,20 @@
   {
     "path": "vllm-ascend-triage/references/first-checks/signature-routes/parallel-state-and-kv.md",
     "mode": "100644",
-    "sha256": "7ee85c7cb03adb88ff33be6a2e38a2c62548c7f41e0e9373a100ebc28c901e06",
-    "size": 97491
+    "sha256": "946605c3a183edc1f55c2ef07f332e97b389dc120b23e45a54d026efe221bf25",
+    "size": 97669
   },
   {
     "path": "vllm-ascend-triage/references/first-checks/signature-routes/serving-output-and-toolcalls.md",
     "mode": "100644",
-    "sha256": "072ba3600e931d07874f650df2a5c59b2b740f32030f278dd3b5cfd54b83b11b",
-    "size": 50939
+    "sha256": "e74e1eacec8e9079e70f850253c885de46a8fe51322945c9b800cd007ecb9f0e",
+    "size": 51798
   },
   {
     "path": "vllm-ascend-triage/references/first-checks/signature-routes/startup-and-load.md",
     "mode": "100644",
-    "sha256": "87d9276d06291c949a2db60d05a4f9bd67d05e4b5966518a4d968b144461cdf6",
-    "size": 100987
+    "sha256": "0f2edca78af0e723d61555d574da0b8a60b01dafaf28c667190adaed9f8734e6",
+    "size": 101021
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/acl-event-resource-exhaustion.md",
@@ -788,8 +794,8 @@
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/aclgraph-full-decode-runtime-crash.md",
     "mode": "100644",
-    "sha256": "c14a1cf2cd87ad800b99bb51fb4515d0f62905d4ac8c2ba1ba60bbb0ec3edbdb",
-    "size": 46261
+    "sha256": "c6968e3ad4d4c2d788084afbe614c2875463f0534b52873e441140fcdace9f03",
+    "size": 50691
   },
   {
     "path": "vllm-ascend-triage/references/hccl-and-hardware/aclgraph-full-decode-runtime-hang.md",
@@ -1148,8 +1154,8 @@
   {
     "path": "vllm-ascend-triage/references/kv-pool-store/index.md",
     "mode": "100644",
-    "sha256": "46780000320408e0ddbd42ca43c5a7789c2e5711b374c86b3e55a47432b4f74d",
-    "size": 15778
+    "sha256": "ba2d101a4b5306209db9b3082fcf65940d2de03b9111cd6a697ef6d01437aadd",
+    "size": 16475
   },
   {
     "path": "vllm-ascend-triage/references/kv-pool-store/memcache-a3-dsv4-init.md",
@@ -1190,8 +1196,8 @@
   {
     "path": "vllm-ascend-triage/references/kv-pool-store/store-put-transfer-timeout-and-adxl-segfault.md",
     "mode": "100644",
-    "sha256": "09b5c82404b65d0208e87ee9fcc36b0b63292539297868e55828dca834522962",
-    "size": 14317
+    "sha256": "d685e99877d5322eb76d75897eb2ba27eaaaef321e80f4fe350646edf01b50ad",
+    "size": 16970
   },
   {
     "path": "vllm-ascend-triage/references/lora-adapters/decode-overhead-vs-base-model.md",
@@ -1322,8 +1328,8 @@
   {
     "path": "vllm-ascend-triage/references/multimodal-inputs/shm-mm-cache-invalid-object.md",
     "mode": "100644",
-    "sha256": "9af82e7303d92e80ef4468e6072e3856d0c497e01723aa9e5f0a31d54798cabf",
-    "size": 6467
+    "sha256": "8f15e1c637b735f4ddb1fddb245e85a4ff06fc4ce472224d07e306067614fe2b",
+    "size": 6534
   },
   {
     "path": "vllm-ascend-triage/references/observability-and-logs/env-var-validation-warning.md",
@@ -1634,8 +1640,8 @@
   {
     "path": "vllm-ascend-triage/references/performance-throughput/profiler-no-kernel-details-graph-mtp.md",
     "mode": "100644",
-    "sha256": "6177198b1a8e151b20931c747f3dc5dc2c69702941f0af522c295261e9aceb13",
-    "size": 7065
+    "sha256": "81134cec0b7ea5f17edeecbffa53a7cdb70ff77403ad35dbf4c2a865fa5b9cd7",
+    "size": 8706
   },
   {
     "path": "vllm-ascend-triage/references/performance-throughput/profiler-opcount-evidence.md",
@@ -1808,14 +1814,14 @@
   {
     "path": "vllm-ascend-triage/references/release-known-issues/index.md",
     "mode": "100644",
-    "sha256": "8d94959e5ca4fd3b8e6deb7a8ec93e89d96959d2adbb61bf02a837e329ffe1f1",
-    "size": 7675
+    "sha256": "075b9a5d8c83c37664bec6a01ff7e4d0f6353cd74409b368967e258c1a517a5d",
+    "size": 8156
   },
   {
     "path": "vllm-ascend-triage/references/runtime-memory/allocator-expandable-segments-unmap-crash.md",
     "mode": "100644",
-    "sha256": "0be729369215d095a70f59e6ea48ab46be8f33950047fbb38d4cff187c32c5f7",
-    "size": 19028
+    "sha256": "c0b633a6430dc67980e5ff012d83af637f8e39275c642000d50de9b1fa27b006",
+    "size": 21449
   },
   {
     "path": "vllm-ascend-triage/references/runtime-memory/attention-mask-host-allocation.md",
@@ -1856,8 +1862,8 @@
   {
     "path": "vllm-ascend-triage/references/runtime-memory/index.md",
     "mode": "100644",
-    "sha256": "ce82f74889a7d8e10db6dcb23ee0af2fb6359db56186be62fafd25ea68ff3ad2",
-    "size": 26853
+    "sha256": "20bb525d88dc3d57d2fac7429437d042e129a3c765ad8926085a523da43be89e",
+    "size": 27336
   },
   {
     "path": "vllm-ascend-triage/references/runtime-memory/kv-budget-per-instance-vs-device-global.md",
@@ -1958,8 +1964,8 @@
   {
     "path": "vllm-ascend-triage/references/soc-platform-paths/310p-cpu-fallback-op-fault.md",
     "mode": "100644",
-    "sha256": "9d5019256fcbc251bf15a373aaa637978de79cb3c927509c089d318662b93922",
-    "size": 22784
+    "sha256": "64fd59641db8ebef90bcc6647d30b734bd951dc8cd587ba463093990824727bd",
+    "size": 24188
   },
   {
     "path": "vllm-ascend-triage/references/soc-platform-paths/310p-int8-matmul-startup-fault-and-runner-v2.md",
@@ -2006,8 +2012,8 @@
   {
     "path": "vllm-ascend-triage/references/soc-platform-paths/310p-vl-ocr-garbage-output.md",
     "mode": "100644",
-    "sha256": "a76409ec0beb20c8be51ffc669ad869642f3edce2b3992cb9a296661bc89c4d3",
-    "size": 14070
+    "sha256": "dc4413c02c7fcd3360a288f5dbc1d607eceee04a31b205bb25cb070342662c47",
+    "size": 14527
   },
   {
     "path": "vllm-ascend-triage/references/soc-platform-paths/310p-vl-rope-cos-nullptr-startup.md",
@@ -2198,14 +2204,14 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/capture-stream-table-exhaustion.md",
     "mode": "100644",
-    "sha256": "96d6e0f6081ee68836e4d5dbed8faf4ce839aacb4bdc0a9729aee307eb55fac4",
-    "size": 13437
+    "sha256": "4d3ef3409b11580dd333b1ad80287fa3422d40c399b2ce8b421574ce5a598a32",
+    "size": 15245
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/captured-stream-host-sync.md",
     "mode": "100644",
-    "sha256": "8d9b8c7b57f3082f07fd2a410e6b6d3f38c4b727ce303170ab247446fa51b763",
-    "size": 11877
+    "sha256": "bd4acaeb90ec21cfb296d6173b07aeac423a626d434ade68900f301d0430d1c7",
+    "size": 14599
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/checkpoint-config-cuda-only-path.md",
@@ -2246,8 +2252,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/dp-world-rendezvous-stall.md",
     "mode": "100644",
-    "sha256": "0eee6e1c13f7e53d4bd5a6ac4e2c23b0c9f5bed32807826c5342fccde0e0583f",
-    "size": 6146
+    "sha256": "3a826051637f7ea86e7df000c2e0f32d7fa3d31545168440a948ad503b390c2a",
+    "size": 7391
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/empty-prefix-quant-keyerror.md",
@@ -2288,8 +2294,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/index.md",
     "mode": "100644",
-    "sha256": "f277f2f0ab2cda5d3536773b59d2c7011c06070989872915dc1e9fa0f1fc09c4",
-    "size": 59301
+    "sha256": "1ab68af9df25a23339abbf55ff36a9766a379d5ae3c33dd9b075e5832e3c82e1",
+    "size": 59420
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/max-model-len-budget.md",
@@ -2318,8 +2324,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/model-file-tuple-unpack.md",
     "mode": "100644",
-    "sha256": "777bfe5428fe05e432db37dd4970f1202c2f339f46a2dedc2178bfc5baa569a2",
-    "size": 6868
+    "sha256": "2abf059774cff95211b3095f39030d58c3535c09bca3f9514301cb76384dd9e9",
+    "size": 7716
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/model-type-not-recognized.md",
@@ -2348,8 +2354,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/no-npu-in-container.md",
     "mode": "100644",
-    "sha256": "1da9d36f8ccbafea7c1bc16368e0a487fdc9c02dd97a3489cc0ecd308638bba0",
-    "size": 24082
+    "sha256": "4d881bb42cfd4861f71e96cfb17de475ab837150a001bb1ec3e497e953480aab",
+    "size": 25223
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/nz-weight-format-refusal.md",
@@ -2378,8 +2384,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/quantization-method-gate.md",
     "mode": "100644",
-    "sha256": "bfffb53cfba06367c1eb4401e9348a2ae103ca3b34aea88d979f0fc24ad26676",
-    "size": 62744
+    "sha256": "34bd9385e0af857aa9bb8a460304ef99cdd2b939890b1f73678f043b30e68435",
+    "size": 64282
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/ray-dp-placement-group-npu-exhausted.md",
@@ -2414,8 +2420,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/silent-worker-exit.md",
     "mode": "100644",
-    "sha256": "997b15bb272967c417791edb37ce7201257b28f089c10f8bdbd4047b69f38dc3",
-    "size": 7464
+    "sha256": "27beed1d0551ef95b04209e0017913a759ca0faf8c0ce6b8603d9791feaa61e2",
+    "size": 7931
   },
   {
     "path": "vllm-ascend-triage/references/startup-failures/torchair-dynamo-compile-unsupported.md",
@@ -2450,8 +2456,8 @@
   {
     "path": "vllm-ascend-triage/references/startup-failures/weight-scale-keyerror-quant-variant.md",
     "mode": "100644",
-    "sha256": "fef4f5441dfb31a8a53fd9ca8b4a255d09bf4d809e490bd42d7f68c80b3bd2a6",
-    "size": 21942
+    "sha256": "52ecea86a5f5cc8f4b593fc50f520a9130c6c90f02cefc2c1f9417044313b687",
+    "size": 23627
   },
   {
     "path": "vllm-ascend-triage/references/tool-call-streaming/arg-type-gate-unquoted-value.md",
@@ -2564,20 +2570,20 @@
   {
     "path": "vllm-ascend-triage/references/tutorial-verification/index.md",
     "mode": "100644",
-    "sha256": "09eb0959e75cd18aabb7b8b01337d0e626531e8fecfb670ecaa6f6cf55b36545",
-    "size": 18745
+    "sha256": "4513c36fd1fef9e378eefc0ba7ff24b44cf5e58dbacfde4061d337dd19ba009a",
+    "size": 19249
   },
   {
     "path": "vllm-ascend-triage/references/tutorial-verification/missing-guidance-and-contributor-docs.md",
     "mode": "100644",
-    "sha256": "0be0b9f6eae7907d41afcc100baa318319132a00c4b0f9e6e421d14279d4bd31",
-    "size": 14255
+    "sha256": "0980ed115600f443ec9c6791101906b0c80a82ad6ec7f872cb3af65eb914a8f2",
+    "size": 20058
   },
   {
     "path": "vllm-ascend-triage/references/tutorial-verification/serve-contract-and-weight-predownload.md",
     "mode": "100644",
-    "sha256": "8604a0a9082493e6a80b12b88305111de8faeececa4489677ce748814c5ccec6",
-    "size": 11595
+    "sha256": "d881fe813cd9f999a10197df79179aba1e5fdd01367ce22d2ba3fd207d95d73d",
+    "size": 11879
   },
   {
     "path": "vllm-ascend-triage/references/tutorial-verification/tutorial-command-audit.md",
@@ -2756,8 +2762,8 @@
   {
     "path": "vllm-ascend-triage/scripts/aclgraph-size-budget.sh",
     "mode": "100644",
-    "sha256": "06ceda248a30a1146afecf88392b4e36f97bdcf8a71b7b440bfd0b3354202a1e",
-    "size": 6365
+    "sha256": "9b872dcc7461daf24525b43f8ffcc1dc14da27f10a138b063543b6d7527e26e6",
+    "size": 7545
   },
   {
     "path": "vllm-ascend-triage/scripts/additional-config-key-audit.py",
@@ -2952,6 +2958,12 @@
     "size": 5629
   },
   {
+    "path": "vllm-ascend-triage/scripts/modelscope-mirror-audit.sh",
+    "mode": "100644",
+    "sha256": "1538ab0304770aeec9867516c6cf946f34af4c7737984d8a559eac7cc2ad22f0",
+    "size": 3710
+  },
+  {
     "path": "vllm-ascend-triage/scripts/moe-gating-topk-probe.py",
     "mode": "100644",
     "sha256": "5e22337a25ea4538dd29c1b4131a5cb5e96706d9de9ea1ce4778d4bf6c21a373",
@@ -3056,8 +3068,8 @@
   {
     "path": "vllm-ascend-triage/scripts/reference-locate.py",
     "mode": "100644",
-    "sha256": "58e9c06033e7bc165ff3bc843434d072b3598f464c3f058a7e13c590420efa17",
-    "size": 15125
+    "sha256": "b6a12c29094ff04a9feadd5e5c83a853d4354b8bf367a33906706e01a38d7005",
+    "size": 18466
   },
   {
     "path": "vllm-ascend-triage/scripts/rope-cos-sin-slice-check.sh",

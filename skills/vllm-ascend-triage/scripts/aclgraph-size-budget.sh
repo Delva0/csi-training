@@ -6,14 +6,19 @@
 # trusting the formula by eye.
 #
 #   scripts/aclgraph-size-budget.sh --layers 94 --tp 16 --dp 1 --era 0.11
+#   scripts/aclgraph-size-budget.sh --layers 24 --tp 1 --era 0.12   # v0.12.0rc1 paste
 #   scripts/aclgraph-size-budget.sh --layers 61 --tp 8 --dp 2 --ep --max-num-seqs 16
 #   scripts/aclgraph-size-budget.sh --layers 61 --sizes 1,2,4,8,16,32,64,96,128
 #
 # Implementation sources (verified, re-read before trusting on another release):
 #   v0.11.0rc0 00ba071 vllm_ascend/utils.py:286-390, platform.py:237
+#   v0.12.0rc1 42ceaf0 vllm_ascend/utils.py:447-530, platform.py:242 (same formula as
+#     0.11 -- the MTP draft term is already at 00ba071 utils.py:310-313, so NO era
+#     difference there -- but the upstream default list gains the step-16 tail)
 #   v0.20.2rc1 367b8e6 vllm_ascend/utils.py:567-690, platform.py:425
 #   v0.18.0rc1 99e1ea0 vllm_ascend/utils.py:456-560, platform.py:370 (same era as 0.20:
-#     CP subtraction + MTP draft layers already present; --era 0.18 == --era 0.20)
+#     adds CP_ADDITIONAL_STREAM_NUM=100 per pcp/dcp>1 on top of the 0.11/0.12 formula;
+#     --era 0.18 == --era 0.20)
 set -u
 
 uv run --no-project python - "$@" <<'PY'
@@ -27,7 +32,7 @@ ap.add_argument('--dp', type=int, default=1)
 ap.add_argument('--pcp', type=int, default=1, help='prefill_context_parallel_size (>=0.20 only)')
 ap.add_argument('--dcp', type=int, default=1, help='decode_context_parallel_size (>=0.20 only)')
 ap.add_argument('--draft-layers', type=int, default=0,
-                help='speculative draft/MTP layers counted in resources_per_graph (>=0.20 only)')
+                help='speculative draft/MTP layers counted in resources_per_graph (every era: the term exists at 0.11.0rc0 utils.py:310-313)')
 ap.add_argument('--ep', action='store_true', help='enable_expert_parallel')
 ap.add_argument('--moe', action='store_true', help='model is MoE (is_moe_model)')
 ap.add_argument('--aiv', action='store_true', help='HCCL_OP_EXPANSION_MODE=AIV')
@@ -37,15 +42,23 @@ ap.add_argument('--max-num-seqs', type=int, default=256,
 ap.add_argument('--max-num-batched-tokens', type=int, default=None,
                 help='upstream filters sizes above this value')
 ap.add_argument('--sizes', default=None,
-                help="explicit cudagraph_capture_sizes, e.g. '1,2,4,8,16,32'")
-ap.add_argument('--era', choices=['0.11', '0.18', '0.20'], default='0.20',
-                help='formula era: 0.11 has no CP subtraction and no MTP draft term; 0.18 and 0.20 are'
-                     ' identical (both present at v0.18.0rc1 99e1ea0)')
+                help="the explicit cudagraph_capture_sizes VALUES, comma separated, e.g."
+                     " '1,2,4,8,16,32'. Not a count: --sizes 51 is a one-element list")
+ap.add_argument('--era', choices=['0.11', '0.12', '0.18', '0.20'], default='0.20',
+                help='formula era: 0.11 and 0.12 share one formula (MTP draft term, AIV'
+                     ' subtraction, FFTS+ branch) and differ only in the upstream default list'
+                     ' (0.11 step 8 only -> 67 sizes at cap 512; 0.12+ step 8 <256 then step 16'
+                     ' -> 51); 0.18 and 0.20 are identical and add -100 streams per pcp/dcp>1')
 a = ap.parse_args()
+
+# CP subtraction is the ONE formula difference between the early and late eras.
+uses_cp_subtraction = a.era in ('0.18', '0.20')
 
 MAX_CAPTURE_SIZE = 1800          # 2048 streams, 248 kept as buffer
 resources_per_graph = a.layers + 1
-if a.era != '0.11' and a.draft_layers:
+# MTP/speculative draft layers count at every era (v0.11.0rc0 utils.py:310-313,
+# v0.12.0rc1 utils.py:479-481), not only from 0.18.
+if a.draft_layers:
     resources_per_graph += a.draft_layers + 1
 num_comm_groups = sum(size > 1 for size in (a.dp, a.tp))
 
@@ -76,6 +89,9 @@ else:
     origin = (f'upstream default: cuda_graph_sizes=[min({a.max_num_seqs}*2,512)]='
               f'[{cap}] -> [1,2,4] + ({steps}), {filt}')
 
+if a.sizes and len(original) == 1:
+    print('NOTE: --sizes takes size VALUES, so this run priced a 1-element list; to'
+          ' reproduce the upstream default list (e.g. 51 or 67 sizes) pass no --sizes.')
 print(f'layers={a.layers} tp={a.tp} dp={a.dp} pcp={a.pcp} dcp={a.dcp} '
       f'ep={a.ep} moe={a.moe} aiv={a.aiv} era={a.era}')
 print(f'resources_per_graph = layers + 1 = {resources_per_graph}')
@@ -94,7 +110,7 @@ if a.aiv:
     print(f'  floor({budget} / {resources_per_graph} / {factor})')
     max_sizes = math.floor(budget / resources_per_graph / factor)
 else:
-    if a.era != '0.11':
+    if uses_cp_subtraction:
         for cp in ('pcp', 'dcp'):
             if getattr(a, cp) > 1:
                 budget -= 100

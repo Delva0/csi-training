@@ -46,6 +46,13 @@ version, gaps stated.
   *validation* lives in `release_notes.md` + `developer_guide/evaluation/
   accuracy_report/` + `tests/e2e`. The worked answer, with the coverage gap stated, is
   rule 7 of `../performance-throughput/quantized-dense-no-gain.md`.
+  A **format suffix in the model name** (`-GPTQ-Int8`, `-AWQ`, `-FP8`, `-w4a8`) turns the
+  same 是否支持 question into a quantization-format verdict that no family row can
+  answer: route to `../startup-failures/quantization-method-gate.md` §C and answer from
+  the pin's platform list plus the checkpoint's own `quantization_config` (recorded
+  #2960: `Qwen2.5-32B-Instruct-GPTQ-Int8` on v0.9.0rc2 — the base family is ✅, the GPTQ
+  variant has no NPU implementation there, and startup dies as a `KeyError` in the
+  quant-method lookup, so "the model is supported" alone is the wrong answer).
   When the follow-up is "支持计划是什么样的 / when will F work for M on my SoC", answer
   in three separate levels — the base model family at that SoC (release-note line,
   support-matrix row, the SoC fallback `TODO` that bounds it), whether the *feature's*

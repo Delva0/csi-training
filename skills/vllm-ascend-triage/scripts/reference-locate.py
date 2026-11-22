@@ -16,6 +16,12 @@ op / kernel name, numeric code, flag, or symptom phrase. The script greps
    topical owner is often its last line, and a truncated list is where that page
    disappears (recorded #6972: 13 members, `startup-failures/graph-mode-not-applied.md`
    fell into `+5 more` of a capped 8);
+2b. a **[case-first]** block whenever a `references/evidence-workspace/
+   recorded-cases*` entry shares a token: the entry to open, with a ready-to-run
+   `sed -n 'A,BP'` range. Printed when no page carries every token and some entry
+   shares two of them; its `(n/m)` is not a filter — a recorded entry quotes the
+   reporter's own wording, so a real match grades 2-of-4 while the family words sit
+   in 100+ pages;
 3. the next grades down (`N-1`, `N-2`, …) capped, because an empty top grade is
    not "no page" and a near-miss pair is what a renamed spelling looks like;
 4. a **family-word guard**: when no page carries all the tokens and the widest
@@ -26,6 +32,10 @@ op / kernel name, numeric code, flag, or symptom phrase. The script greps
    defaults, `references/dispatch/index.md` rule 4);
 5. when no page carries two tokens, the two shortest lists, which is what has to
    be read by hand at that point.
+
+A token also matches a page by **filename**, with `-`, `_` and spaces folded onto
+`-` on both sides: `one_boundary_per_chunk` finds
+`tool-call-streaming/one-boundary-per-chunk.md`, which no page body was needed for.
 
 A **flag is a token as it stands**: `--compilation-config`, `--enforce-eager` and
 `--additional-config` go in as they appear in the paste, and an unknown dashed
@@ -60,6 +70,14 @@ import sys
 
 MAX_LINE = 200
 
+# Filenames use `-`, a paste or a guessed page name may use `_` or a space: fold
+# every separator run onto one `-` so the same words compare equal.
+_SEP = re.compile(r"[-_ ]+")
+
+
+def _sep_norm(text):
+    return _SEP.sub("-", text)
+
 
 def run_rg(pattern, root, regex, case):
     rg = shutil.which("rg")
@@ -83,14 +101,19 @@ def run_rg(pattern, root, regex, case):
         # A page is keyed on the reporter's wording by its *filename* too: the
         # owning page rarely repeats its own name in its body, but every sibling
         # links to it as a path, so a content-only match ranks the owner below
-        # the pages that point at it.
-        needle = pattern if case else pattern.lower()
+        # the pages that point at it. Filenames are dash-separated while a paste
+        # (and a caller guessing the page) spells the same words with underscores
+        # or spaces, so both sides are folded onto `-` before comparing: a run
+        # that graded `one_boundary_per_chunk` got 0 files, lost the owner page
+        # `one-boundary-per-chunk.md` off the all-token grade, and fell back to
+        # the family-word guard (recorded #5596).
+        needle = _sep_norm(pattern if case else pattern.lower())
         for dirpath, _dirnames, filenames in os.walk(root):
             for name in filenames:
                 if not name.endswith(".md"):
                     continue
                 full = os.path.join(dirpath, name)
-                hay = full if case else full.lower()
+                hay = _sep_norm(full if case else full.lower())
                 if needle in hay:
                     files.add(full)
     return files
@@ -186,6 +209,52 @@ def case_entries(path):
         return 0
 
 
+PTR = re.compile(r"#(\d+):(\d+)(?: \((\d+)/(\d+)\))?")
+
+
+def case_first(refs, counts, tokens, regex, case, best_grade, ntok):
+    """Print the recorded entry to open, with the sed range that reaches it.
+
+    Printed only when no page carries every token (a thick all-token grade is a
+    decision list already) and some entry shares two of them: one shared token is
+    noise, and a thick grade's arrows are listed in place.
+    """
+    if best_grade >= ntok:
+        return
+    best = []
+    for path in counts:
+        rel = os.path.relpath(path, refs)
+        if "recorded-cases" not in rel:
+            continue
+        for ptr in case_pointers(path, tokens, regex, case):
+            m = PTR.match(ptr)
+            if not m:
+                continue
+            best.append((-int(m.group(3) or 0), rel, m.group(1), int(m.group(2))))
+    if not best or -best[0][0] < 2:
+        return
+    best.sort()
+    print("[case-first] a recorded case carries this paste \u2014 open it before any")
+    print("  /workspace/repos grep:")
+    seen = set()
+    for _neg, rel, cid, line in best:
+        if (rel, cid) in seen:
+            continue
+        seen.add((rel, cid))
+        print("  sed -n '{},{}p' <skill_root>/references/{}   (#{}, line {})".format(
+            max(1, line - 30), line + 40, rel, cid, line))
+        if len(seen) >= 2:
+            break
+    print("  The (n/m) beside an arrow is not a filter: an entry quotes the reporter's own")
+    print("  wording, so a real match can grade 2-of-4 while family words fill 100+ pages.")
+    print("  Confirm the versions, model and stack before adopting its ladder \u2014 an arrow")
+    print("  can name a neighbour in another lane (recorded #2984). Re-deriving a recorded")
+    print("  ladder from source spends the budget (#5643: this arrow was printed, its file")
+    print("  name greped twice, the entry never opened, `expert_load_balancer.py` re-read")
+    print("  for 14 calls).")
+    print()
+
+
 def order(path):
     rank = 0 if "recorded-cases" in path else 1 if "/signature-routes/" in path else 2
     return (rank,
@@ -262,6 +331,8 @@ def main():
         print("    status document fix before asking for the log \u2014 references/dispatch/")
         print("    index.md rule 4.")
         print()
+
+    case_first(refs, counts, args.tokens, args.regex, args.case, best, n)
 
     lo = min(args.min_grade, n)
     for grade in range(n, lo - 1, -1):

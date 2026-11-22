@@ -484,7 +484,8 @@ Inherit the rules in SKILL.md. Conditional routes:
   `*_offset` member (`:173-184`, `:272-279` at vllm v0.14.1 `d7de043`), so only an
   offset-carrying W8A8 export raises. Recorded #7744: the fix was the newer tag
   (`v0.17.0rc1`, reporter-confirmed), and the pin's matrix leaves the Qwen3-VL-MOE W8A8
-  cell empty (`supported_models.md:81` at v0.14.0rc1).
+  cell empty (`supported_models.md:81` at v0.14.0rc1); that page's item 4 rules out the
+  recorded answer's rung 1 (the missing `--quantization ascend`) as the whole answer.
 - The loader raises `KeyError: '<prefix>.weight_scale'` (also `.scale` pre-remap,
   and the whole `…mlp.experts….weight_offset` family of a W8A8 export) at
   `param = params_dict[name]`, on every rank but with a **different layer** each

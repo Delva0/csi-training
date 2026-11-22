@@ -168,6 +168,21 @@ after that keeps the header, not this text.
   not the script, is the evidence — cite the `path:line` it prints. Exit 0 even when
   no tab matches (that is the finding); 2 for a missing page/command file. Step 0 of
   `../image-dependency-faults/native-string-abort.md` uses it on a startup abort.
+- `scripts/modelscope-mirror-audit.sh <vllm-ascend-root> [<vllm-root>]` — grade a
+  "国内用户下载模型失败 / Quick Start 应强调 ModelScope" report in one call (#14502).
+  Prints, against the pinned checkouts: every `VLLM_USE_MODELSCOPE` site in
+  `docs/` (locale excluded, so `quick_start.md:91,96` and `installation.md:287` sit
+  beside 20 tutorial pages), the China framing that only the *image* mirror carries
+  (`faqs.md:32,240`), the entry pages' cross-links **in both directions**,
+  `N of M` tutorial pages already exporting the flag, the `pip install modelscope`
+  line in every `Dockerfile*` (which tiers the snippet by install path), upstream's
+  default (`envs.py:18,558-559`) and the bare
+  `from modelscope.hub.snapshot_download import …` under
+  `if envs.VLLM_USE_MODELSCOPE` (`weight_utils.py:184,188`), the entry page's example
+  model ids, and whether each `tests/e2e/doctest…` path the page's own comments
+  name exists. Exit 0; 2 on a missing checkout. Step 1 of
+  `../tutorial-verification/missing-guidance-and-contributor-docs.md` §*The weights
+  mirror is the other half*.
 - `scripts/reference-locate.py TOKEN [TOKEN …] [--root DIR] [--max N] [--min-grade N]
   [--regex] [--case] [--quiet]` — step 2b's page-location grade in one call. One token
   per argument, taken from the paste: the error sentence, the attribute/function/op/
@@ -183,7 +198,11 @@ after that keeps the header, not this text.
   unknown option, and searched with and without its leading dashes. A token also
   matches a file **name** — the owning page rarely repeats its own slug while every
   sibling links to it as a path, so a content-only grep ranks the owner below the pages
-  that point at it. `[case]` = a `recorded-cases*` page (open it first), and its line
+  that point at it — with `-`, `_` and spaces folded onto `-` on both sides, because
+  slugs are dash-separated while a caller guesses underscores: `one_boundary_per_chunk`
+  then reaches `tool-call-streaming/one-boundary-per-chunk.md` at the all-token grade
+  (recorded #5596 graded it 0 and fell back to the family-word guard; fixed here).
+  `[case]` = a `recorded-cases*` page (open it first), and its line
   names the entries inside that file that share most of the query tokens —
   `→ #12985:488 (3/3)` is id, record-heading line and matched-token count — so a hit
   names the case to read, not just the file; when no entry matches, the line carries the
@@ -330,8 +349,13 @@ after that keeps the header, not this text.
   `sfa_dcp_replicated_indexer_size`). `does not hold` = arithmetic, so no flag
   ablation can help.
 - `scripts/aclgraph-size-budget.sh --layers N [--tp --dp --pcp --dcp --ep --moe
-  --aiv --max-num-seqs --sizes]` — the capture-size budget: maximum captureable
-  sizes and the sampled subset (94 layers, TP=16 gives 6 sizes, #3389).
+  --aiv --max-num-seqs --sizes --draft-layers --era 0.11|0.12|0.18|0.20]` — the
+  capture-size budget: maximum captureable sizes and the sampled subset (94
+  layers, TP=16 gives 6 sizes, #3389). `--era` follows the paste's tree, not the
+  newest one: 0.11 and 0.12 share one formula (draft term included) and differ
+  only in the default size list (67 vs 51 sizes at cap 512), 0.18/0.20 add the
+  `-100`-per-CP subtraction; a v0.12.0rc1 paste reproduces #5557 as `72 / 51
+  sizes / no adjustment`.
 - `scripts/seq-cliff-capture-budget.sh --max-num-seqs N [--num-spec K]
   [--max-num-batched-tokens T] [--running 256,258,264] [--observed-cliff M]
   [--max-cudagraph-capture-size V] [--tp --dp] [--enforce-eager]` — the

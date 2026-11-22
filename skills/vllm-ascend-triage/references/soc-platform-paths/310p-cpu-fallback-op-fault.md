@@ -179,6 +179,24 @@ before the merge, which is exactly why the reporter's text test passed. Conseque
   (`utils.py:477` → `:490` → `embed_input_ids`) beside the same-second
   `Aicpu kernel execute failed … soName=libpt_kernels.so, funcName=RunCpuKernel,
   kernelName=IndexPut, errorCode=0x2a`.
+- **The line numbers move with the pin, and the `-310p` image is often a 0.21 one.**
+  At vllm **v0.21.0** (`ad7125a4`, upstream behind `vllm-ascend v0.21.0rc1`
+  `80610e4` and its `v0.21.0rc1-310p` image) the def is `utils.py:458`, the write
+  `:479`, the re-raise `:492` (verified for #11450); grep the expression before
+  quoting a number borrowed from v0.22.1. Recorded **#11450** is this same write on a
+  **PaddleOCR-VL-1.6** serve, one 300I Duo die, `--max-model-len 1024 --dtype float16
+  --enforce-eager`: `/v1/models` 200, then the first chat request kills EngineCore —
+  `aclrtLaunchKernelWithHostArgs failed, return: 507018` stamped `08:53:33.404`
+  wrapping `Aicpu kernel execute failed … soName=libpt_kernels.so,
+  funcName=RunCpuKernel, kernelName=IndexPut, errorCode=0x2a` (device 0, stream 9,
+  task 4507), and at `.856` the *next* launch `aclnnInplaceSub failed` +
+  `launch failed for Sub, errno:361001` on the poisoned stream. The same-second
+  `Triton not available, falling back to vLLM default penalty implementation` warning
+  is not the owner — that body has no indexed write (§*two ops* above). Its support
+  verdict is not here either: `310p-vl-ocr-garbage-output.md` §1 holds the
+  PaddleOCR-VL pair (tutorial Atlas 300 from 0.15.0rc1 with an own
+  `--max_model_len 16384` tab against `supported_models.md:107` `🔵 A2/A3`), and a
+  matrix column is not the refusal.
 
 ### The quantised model's `QuantBatchMatmulV3` block is a start-phase latch
 

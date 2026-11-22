@@ -57,9 +57,10 @@ which the reporter's later comment confirmed along with the cheapest
 discriminator nobody had asked for: the unquantized Qwen3-30B-A3B-Instruct-2507
 with `--quantization None` and identical flags serves clean, so the quantization
 axis owns the extra sync (and the bf16 EP path's own `bincount` at
-`ops/fused_moe.py:369` is the follow-up question that keeps it honest). The run
-delivered its ranked answer on the 12th turn. Page:
-`../startup-failures/captured-stream-host-sync.md`.
+`ops/fused_moe.py:369` is the follow-up question that keeps it honest). That later
+comment also carried the container and `vllm serve` command, now quoted verbatim on
+the owning page — it is **on record**, not an ask. The run delivered its ranked
+answer on the 12th turn. Page: `../startup-failures/captured-stream-host-sync.md`.
 
 **#2064** vllm-ascend reported as `v0.9.2rc1(e7d32ed3f18d)` with vllm v0.9.2, image
 path `/__w/vllm-benchmarks/.../vllm-empty/vllm/` (a source build), OpenGVLab/InternVL3-9B,
@@ -637,6 +638,13 @@ msmodelslim-exported W8A8/W8A8_DYNAMIC", with the model itself supported. Accoun
 reasoning), several calls spent re-deriving that chain from upstream source and reading
 `weight_scale` precedents that are a different signature. Section C of
 `../startup-failures/quantization-method-gate.md` now carries the two-call version.
+**The replay still shipped no text before its last turn** — 10 assistant turns, the
+whole verdict on the tenth — and this time the fills were re-verifying lines the page
+already cites at these pins plus four calls hunting a quantization doc that does not
+exist at v0.9.0rc2 (`user_guide/feature_guide/quantization.md`; the guide is
+`tutorials/multi_npu_quantization.md`), so §C now carries that path and its four
+citations. Two replays of one recorded case both finishing on their last turn is the
+delivery rule's business, not the case's: the §C chain was in hand by turn 6 of 10.
 
 **#902** vllm-ascend v0.8.5rc1 (`ec27af3`) + vllm v0.8.5.post1 (`3015d56`), image
 `quay.io/ascend/vllm-ascend:v0.8.5rc1`, QwQ-32B-w8a8 TP4, `--max-model-len 32768`:

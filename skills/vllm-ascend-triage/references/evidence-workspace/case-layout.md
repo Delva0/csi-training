@@ -210,11 +210,27 @@ These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
 `sed -n 'A,Bp' file` are the default reads; reserve whole-file reads for files under
 ~150 lines.
 
+- **A `| head -N` on a reference grep can cut the page that owns the case.** These
+  pages sit in large topic directories, so `rg -n -i '<feature token>' references/<topic>/
+  references/<other>/ | head -60` can spend all sixty lines in the first file and drop
+  the hit that matters: recorded #10961 ran `rg -i 'mtp' pd-disaggregation/
+  accuracy-benchmarks/ spec-decode-mtp/index.md | head -60`, got sixty lines of
+  `spec-decode-mtp/index.md`, and lost `pd-disaggregation/hybrid-state-transfer.md:165`
+  — the page holding that exact case's refuted top rank — then re-derived the recipe
+  from the tutorial and re-shipped the refuted claim. Read the file list (`rg -l`) first.
 - **`skill_view` with `file_path` returns the page *and the whole link
   inventory*** (every reference, script and template path): 34.7 KB and 43.6 KB
   for two page reads in one recorded run, re-sent on every later turn. Read pages
   from the skill root instead —
   `sed -n 'A,Bp' <skill_root>/references/<topic>/<page>.md`.
+- **A head window of a long page can stop above the section that owns the report's own
+  words.** These pages are organised by sub-shape, so `sed -n '1,90p'` of a page that
+  looks on-topic is not a partial answer, it is a different question. Take
+  `rg -n '^## ' <page>` first and jump to the heading: the #6525 rerun read the first
+  90 lines of the 244-line `accuracy-benchmarks/long-output-repetition.md`, stopped 52
+  lines above §*When the penalty itself is inert* — the section owning the reporter's
+  own sentence 「重复惩罚参数无法解决」 — and then re-derived the penalty path from
+  `vllm_ascend/sample/` over four further calls.
 - `rg -r` is `--replace`, not "recursive": in any short cluster whose first
   letter is `r`, the rest of the cluster is the replacement string, so `-rn`,
   `-rl` **and `-rln`** rewrite every match to `n` / `l` / `ln`. Output then

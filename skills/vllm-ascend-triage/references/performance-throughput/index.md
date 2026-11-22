@@ -487,7 +487,8 @@ Not this topic, leave immediately:
   `FULL_AND_PIECEWISE` degraded to `PIECEWISE` while an explicit `FULL_DECODE_ONLY`
   is accepted, `ASCEND_LAUNCH_BLOCKING` refusal, prefill GDN rebound to a pure-torch
   chunk loop, no `qwen3_next` case and the mode's e2e skipped), the in-version
-  `FULL_DECODE_ONLY` experiment with its three log-line outcomes, the HBM warning
+  `FULL_DECODE_ONLY` experiment with its three log-line outcomes plus the sibling
+  torchair-graph startup failure recorded for this family (#3865), the HBM warning
   that usually hits first, why the newer release's command is the durable lever, the
   scope of the recorded 并没有, and the paste-hygiene traps (#4357:
   `served_model_name` contradicts the reported command).

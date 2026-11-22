@@ -11,6 +11,12 @@ for i in $(seq 0 7); do asys health -d=$i; done
 asys health
 ```
 
+The range is the **host's physical device ids**, not `ASCEND_RT_VISIBLE_DEVICES`: recorded
+#7477 exposed `0,1,2,3` to the job while the flagged chips ran to 7, so a scan bounded by
+the visible list under-reports the host (and reports nothing at all when the job's own
+chips are the clean ones). The health table is a host fact; the launch's device list is not
+its scope.
+
 `asys` ships in CANN `oam-tools` (`cann/oam-tools/src/asys/`), subcommands:
 `help, collect, launch, info, diagnose, health, analyze, config, profiling`.
 Related escalation: `asys info` (inventory), `asys diagnose` (device diagnostics),
@@ -82,7 +88,10 @@ the faulting card is still unknown.
 - `asys health -d=$i` for 0..7: devices 0 and 1 clean; devices 2,3,4,5,6,7 each
   reported `ErrorCode Num: 1` with `0x81a3880c`, string
   `node type=HCCS_PORT, sensor type=Extend Sensor, event state=Link diagnosis
-  exception`, while `Overall Health` still printed `Healthy`.
+  exception`, while `Overall Health` still printed `Healthy`. Note the spread: the job's
+  visible set was `0,1,2,3` and the TP group was those four, yet chips 4-7 were flagged
+  too — so the flagged set is wider than the failing group, and the group's own two
+  flagged chips (2,3) are what correlated with the `Device:2` traceback.
 - Correlation that closed the case: the failing rank's `Device:2` is inside the
   TP group and is one of the unhealthy devices. The reporter recorded the cause
   as a hardware problem and cross-checked `0x81a3880c` against the vendor health

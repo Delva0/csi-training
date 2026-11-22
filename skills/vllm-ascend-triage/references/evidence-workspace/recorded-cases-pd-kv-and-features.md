@@ -114,7 +114,17 @@ never reached §3 — `rg -i 'mtp' pd-disaggregation/ accuracy-benchmarks/ … |
 spent its sixty lines in `spec-decode-mtp/index.md` — and shipped the same false
 lead in its milder form, "spell `method: qwen3_5_mtp`, a generic `mtp` mis-pads the
 draft", as a silent-accuracy recipe deviation (route now in `SKILL.md` rule 7 and
-`../accuracy-benchmarks/index.md`).
+`../accuracy-benchmarks/index.md`). A **third** run routed correctly and shipped:
+`reference-locate.py 'PD分离' 'MTP' '精度'` printed the `[case]` arrow into this entry
+on its third call, `../pd-disaggregation/index.md`'s title-only row named the owning
+page, and §3+§4 produced a complete Chinese answer (verdict first, ranked causes with
+one check each, ladder, pin-scoped evidence, artifact ask) inside 8 749 of the 16 384
+tokens — the route works when the index row is read instead of a `rg -i 'mtp'` sweep.
+One ranking to keep out: it led with a *draft/MTP × decode-graph padding* mechanism
+("capture sizes not aligned to `n x (mtp + 1)` pad the verify step") that no line of
+the report supports — that is §4 ablation row 3 of `../pd-disaggregation/hybrid-state-transfer.md`,
+a check, not an established cause, and the title-only case's ladder starts with the
+two serve commands diffed against the pinned tutorial, not with a graph mechanism.
 
 **#5295** vllm-ascend v0.12.0rc1 (`42ceaf0`) / vllm v0.12.0 (`4fd9d6a`), GLM-4.5-W8A8
 on one 16-card 910B node: `--data-parallel-size 2 --tensor-parallel-size 8

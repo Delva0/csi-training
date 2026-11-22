@@ -39,6 +39,39 @@ and so does a quote of the introduction release's default. The older spelling ha
 test's env block, `../performance-throughput/profiler-opcount-evidence.md:108-115`), so
 exporting it and seeing no change proves nothing on any release.
 
+## Rule 0b — a second gate sits upstream of the sampler: which model runner (v1 or v2)
+
+At vllm-ascend v0.14.0rc1 (`52d4acf`) ↔ vllm v0.14.1 (`d7de043`) the sampling code is
+chosen by an **upstream** env var, not by a `vllm_ascend` one, and it moves more than
+the penalty kernel:
+
+| `VLLM_USE_V2_MODEL_RUNNER` | sampler | penalty code that runs | attention backend |
+|---|---|---|---|
+| unset / `0` — **the default**, `vllm/envs.py:1601-1602` | `AscendSampler(Sampler)` (`vllm_ascend/sample/sampler.py:37`) overrides only the top-k/top-p sampler (`:42`) | **upstream** `Sampler.apply_penalties` (`vllm/v1/sample/sampler.py:299`, `def` at `:303`), per-request tensors from `vllm_ascend/worker/npu_input_batch.py:145-175` | `CUSTOM` / `ASCEND_MLA` / `ASCEND_SFA` (`vllm_ascend/attention/attention_v1.py:74`, `mla_v1.py:70`, `sfa_v1.py:67`) |
+| `1` | `vllm_ascend/worker/v2/sample/sampler.py` `AscendSampler` | **downstream** Triton `apply_penalties_and_temperature` (`worker/v2/sample/penalties.py`, adapted from upstream `gpu/sample/penalties.py`; new in this rc — release notes v0.14.0rc1, *Others*: "model runner v2 support triton of penalty", #5854) | `FLASH_ATTN` (the same three `:74`/`:70`/`:67` branches) |
+
+Two answers follow, and both are cheaper than a sampler theory.
+
+- **"The penalty parameter had no effect" is not a downstream plumbing defect on the
+  default path.** The penalty is upstream's `apply_penalties`; what makes a 1.1-1.3
+  multiplier look inert is a logits distribution that has already collapsed, so the
+  ablation that matters is the one that shows the distribution (`logprobs`), not a
+  penalty bug hunt. The one path where penalty code *is* this project's is
+  `VLLM_USE_V2_MODEL_RUNNER=1` — a kernel introduced in the reported rc, i.e. one
+  release old. Ask for the launch environment (`env | grep VLLM_USE_V2_MODEL_RUNNER`,
+  or the `vllm serve` block) before ranking it, and make the ablation "unset it,
+  same request".
+- **The same reader swaps the whole attention implementation**, which is a first-order
+  discriminator on a numeric or accuracy report: an FP32 logits copy
+  (`worker/v2/sample/sampler.py`) plus `FLASH_ATTN` instead of the Ascend `CUSTOM` /
+  `ASCEND_MLA` / `ASCEND_SFA` backend is a different forward path, so a report that
+  happens to export this env var is not comparing one stack. Say which side they are
+  on before diffing kernels.
+
+Re-grep `VLLM_USE_V2_MODEL_RUNNER` at the pin: the default lives in **upstream**
+`vllm/envs.py`, so it moves with vllm rather than with vllm-ascend, and a later release
+may flip it or drop the v1 runner.
+
 ## Rule 1 — what the swap routes (vllm-ascend v0.11.0)
 
 `AscendSampler.__init__` installs `AscendTopKTopPSampler` as `topk_topp_sampler`

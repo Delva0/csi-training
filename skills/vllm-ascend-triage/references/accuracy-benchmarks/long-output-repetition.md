@@ -162,6 +162,15 @@ absent ⇒ the penalty is inert and the upgrade is rung 1; present ⇒ do not ra
 only applies when the failing request actually carries a penalty above its
 default; a body without one makes the whole lane irrelevant.
 
+**Two cheaper reasons the same wording is not a bug at a 0.13/0.14-era pin**, so read
+them before ranking a sampler defect: on the default model runner the penalty is
+upstream's `Sampler.apply_penalties`, and a multiplier of 1.1-1.3 over an already
+collapsed distribution cannot repair it — the ablation that shows this is `logprobs`
+on the looping step, not a penalty hunt; and the only path where the penalty kernel is
+this project's own is `VLLM_USE_V2_MODEL_RUNNER=1` (Triton `apply_penalties_and_temperature`,
+new in v0.14.0rc1), which also swaps the attention backend — one `env | grep` in the
+reporter's launch decides it (`sampler-implementation-gates.md` §*Rule 0b*).
+
 ## A mid-answer word loop in a VL rollout is not the `!!!!` tower profile (recorded #3452)
 
 The screenshot OCR of a Qwen2.5-VL answer (vllm-ascend v0.9.1 `0740d10` + vllm v0.9.1

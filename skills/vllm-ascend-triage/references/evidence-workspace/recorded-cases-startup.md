@@ -701,7 +701,12 @@ and kv_cache[0].numel() > 0:`. The recorded run spent its whole 16 K output budg
 `torchair/*` and `model_runner_v1` and shipped **no message text**; the reporter's later
 public comments carry both fixes — the container's `docker run` omitted
 `-v /usr/local/dcmi` (weight loading failed until it was added) and dropping the
-`torchair_graph_config` key then let the service start. Mechanism and ladder:
+`torchair_graph_config` key then let the service start (it was also suggested in the same
+thread to lower `--gpu-memory-utilization` to the docs' value and clear the NPU/memory
+caches; the reporter reports neither as the cure). A re-recording of this paste, with its
+owning page already in the library, delivered the ladder and that reporter-confirmed
+rung — the shipped-nothing annotation above belongs to the pre-page run, not to this
+paste. Mechanism and ladder:
 `../startup-failures/torchair-graph-profile-run-kv-cache-indexerror.md`; the container
 diff: `../startup-failures/no-npu-in-container.md` §*A responding `npu-smi info` is not a
 mount check*.
@@ -719,6 +724,24 @@ message text**. The decisive pair is `qwen3_vl.py:1327-1332` (a literal
 `"language_model.lm_head."`): the key the engine asks for cannot exist in a
 mapper-rewritten description, so the fix is the model file, not the export —
 `../startup-failures/empty-prefix-quant-keyerror.md` §*The renamed-prefix variant*.
+
+**#2984** image `quay.io/ascend/vllm-ascend:v0.9.1` (vllm-ascend v0.9.1 `0740d10` +
+vllm v0.9.1 `b6553be`), four nodes × 8 × 910B3, `deepseek-ai/DeepSeek-V3` from ModelScope
+behind `--data-parallel-size 4 --data-parallel-size-local 1 --tensor-parallel-size 8
+--enable-expert-parallel --quantization ascend --additional-config
+'{"ascend_scheduler_config":{"enabled":true},"torchair_graph_config":{"enabled":true}}'`:
+every rank dies at model construction with `KeyError: 'model.embed_tokens.weight'` out of
+`is_layer_skipped_ascend` at `quant_config.py:143` (this pin's `:142`) out of `:110` — the
+`VocabParallelEmbedding` branch, so the image *is* the pin — and the body's closing question is "ascend
+quantization must be employed; the source model cannot be used directly?". It is: the
+release is FP8/E4M3, `config.json`'s marker dict is the `quant_description` upstream hands
+in before any glob, and the same tutorial names the W8A8 directory one comment above its
+`--quantization ascend` line (`tutorials/multi_node.md:118`). The recorded run opened with
+"the original is BF16, so just drop the flag" (wrong), never opened the signature row that
+owns the shape, re-verified `weight_utils.py`/`config.py`/`quantizer.py` at both pins over
+12 turns and ~36 K characters of reasoning, and was cut mid-ladder with the correct verdict
+in hand (`output_truncated`) — `../startup-failures/quantization-method-gate.md` §E (and
+#3534/#4835 are the reporter-confirmed dtype and conversion halves of the same rung).
 
 **#3494** vllm-ascend v0.11.0rc0 (`00ba071`) + vllm v0.11.0rc3 (`8ce5d31`),
 `Qwen2.5-72B-Instruct-w8a8` with `--quantization ascend --max-model-len 32768` (the body

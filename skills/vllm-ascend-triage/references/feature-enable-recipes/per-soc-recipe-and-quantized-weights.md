@@ -73,8 +73,13 @@ explain a slowdown *or* a rejection:
   of some *other* SoC or model, so most of it can be provably inert before it is even a
   candidate. At v0.23.0rc1 (`f4a08bbd`) `USE_MULTI_GROUPS_KV_CACHE` is a module constant
   (`vllm_ascend/patch/platform/patch_kv_cache_coordinator.py:35` `= True`), not an env
-  read, so exporting it changes nothing; `USE_MULTI_BLOCK_POOL` has no reader anywhere
-  (its only occurrence is a commented `#export` in `docs/source/tutorials/models/GLM5.2.md:316`);
+  read, so exporting it changes nothing; `USE_MULTI_BLOCK_POOL` has no reader **at this
+  pin** (its only occurrence is a commented `#export` in
+  `docs/source/tutorials/models/GLM5.2.md:316`) — but it gated the whole platform patch
+  set in the v0.13/v0.14-era trees (`vllm_ascend/patch/platform/__init__.py:28-34` at
+  `bbe9bc0` imports six modules under it), so on an **old-pin** report of the form
+  "patch 未生效 / 需要在离线脚本前 import" it is the first thing to check, not an inert
+  spelling (`../upstream-downstream-drift/patch-import-side-effect.md`);
   `ACL_OP_INIT_MODE` occurs in tutorial shell blocks and CI yaml only; `HCCL_BUFFSIZE` is
   set in docs/CI but read by no Python line (the consumer is CANN/HCCL — `utils.py:1109-1111`
   only *comments* on it when fitting pg_options to an `mc2` group). Classify a whole block

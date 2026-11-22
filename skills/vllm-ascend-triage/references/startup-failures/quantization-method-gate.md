@@ -653,6 +653,23 @@ cannot produce a parse-time error. A report that makes *that* warning the questi
 
 ## E. The weights themselves are FP8/E4M3: a dtype limit, not a method or format question
 
+**Read this box first: one `KeyError: 'model.embed_tokens.weight'` out of
+`is_layer_skipped_ascend` has three owners, and the served directory decides which — never
+the model name and never the body's own guess.** `ls <model dir>/quant_model_description.json`:
+
+| what the directory holds | lane |
+|---|---|
+| no `quant_model_description.json`, a stock release name (`DeepSeek-V3`, `-R1`, `-0324`, no `-W8A8`) and a `quantization_config` in `config.json` | **this section**: FP8 weights, cannot run at these refs, convert to W8A8 |
+| `quant_model_description.json` present but with no `embed_tokens` entry — a `…-w8a8` or other native export | §C-iii: the description the engine holds omitted the module |
+| the quoted key begins with a dot (`'.weight'`) | `../startup-failures/empty-prefix-quant-keyerror.md` |
+
+Both conversions of the first row are on-record: #3534's reporter-confirmed dtype check and
+#4835's msmodelslim export that made the identical `KeyError` disappear. A body that asserts
+the checkpoint is "the original BF16 model" is the usual wrong start (a session reading
+recorded #2984 opened with exactly that and lost its ladder to the cap); the release is FP8
+and the test is the tensors. The sync-point is the *first* module built, so every launch
+flag — TP, DP, `--enforce-eager`, the graph key, `--max-model-len` — is spent here.
+
 The upstream DeepSeek-V3/R1 release is neither a GPTQ-like foreign format nor a
 quantisation someone switched on: its `config.json` carries
 `quantization_config: {quant_method: fp8, fmt: e4m3, weight_block_size: [128, 128],
@@ -693,6 +710,33 @@ branch); `AscendQuantConfig.__init__` stores that dict as `quant_description`
 and no weight names, so the first `is_layer_skipped_ascend` lookup dies. `embed_tokens`
 is merely the first module built — `torchair/models/torchair_deepseek_v2.py:1078-1082`
 does pass `prefix=` — which is why this is not `empty-prefix-quant-keyerror.md`.
+
+**The same chain at v0.9.1, where this shape is most often filed (recorded #2984).**
+vllm-ascend v0.9.1 `0740d10` + vllm v0.9.1 `b6553be`, four 910B3 nodes with
+`--data-parallel-size 4 --data-parallel-size-local 1 --tensor-parallel-size 8
+--enable-expert-parallel`, `--quantization ascend` on `deepseek-ai/DeepSeek-V3` from
+ModelScope, and the reporter's closing question "ascend quantization must be employed; the
+source model cannot be used directly?" — answer **yes for that checkpoint at that ref**. The
+reporter's own frame numbers land on this pin (`quant_config.py:110` is the
+`VocabParallelEmbedding` branch, `:143` the hard index at this pin's `:142`), and every link
+is one line at it: `self.quant_description = quant_config` (`:57`),
+`get_config_filenames → ["quant_model_description.json"]` (`:76-77`), the unconditional
+`override_quantization_method` (`:84-88` — same body as the v0.7.1rc1/v0.11.0rc0 rows
+above, a third pin for that claim), upstream
+`if hf_quant_config is not None: return quant_cls.from_config(hf_quant_config)`
+(`weight_utils.py:145,165-166`, before the glob whose `Cannot find the config file for
+ascend` raise sits at `:199`), the override loop that runs whenever `config.json` carries
+*any* `quantization_config` (`vllm/config.py:853,864,866,896`), and the three quantizers
+this pin can dispatch (`W4A8_DYNAMIC`, `W8A8`, `W8A8_DYNAMIC` — `quantizer.py:295-298`, no
+`fp8`). So **dropping `--quantization ascend` changes nothing** on an FP8 release, and the
+pin's own guide already says the fix in two places: `--quantization ascend` needs a
+modelslim conversion with no `quantization_config` left in `config.json`
+(`docs/source/user_guide/feature_guide/quantization.md:5,11,28,37,105` at v0.9.1), and the
+DeepSeek-V3 multi-node tutorial's `--quantization ascend` line belongs to the W8A8 directory
+it names one comment above (`docs/source/tutorials/multi_node.md:118`). The sample's
+TP4/`-local 2`/`--max-model-len 32768` and #2984's TP8/`-local 1` over four nodes/4096 are
+not this question either — construction precedes any device work — so the recipe diff is
+one flag against one directory, not a bug.
 
 **The decisive check is the weight dtype, not `config.json`.** Reporter-confirmed on
 #3534 (2025-10-22): "check the weight dtype … If E4M3 weights are included, it can be

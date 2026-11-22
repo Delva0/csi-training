@@ -208,9 +208,12 @@ How to read that:
 - `errNo 0x...05000004` / `hcclRet -> 4` is CANN's internal error number; the
   human-readable cause string is what you quote, because the numeric meanings are
   version-specific and the pipeline sources are not in the public exports.
-- `ERR00100 PTA call acl api failed` (blocking mode) and `ERR01100 OPS call acl
-  api failed` (with `HcclAllreduce, error code is 4`) are PTA/runtime-level
-  wrappers of the same HCCL failure.
+- `ERR00100 PTA call acl api failed` and `ERR01100 OPS call acl api failed` are the
+  PTA-layer and op-api-layer wrappers of the same HCCL failure, and **which one prints
+  follows the layer of the sync point, not the run mode**: the recorded #7477 paste
+  carried `ERR00100` on the async launch, and its `--enforce-eager` +
+  `ASCEND_LAUNCH_BLOCKING=1` rerun carried `ERR01100` beside `HcclAllreduce, error code
+  is 4`. Neither code selects a lane, so do not read the pair as a before/after.
 
 ## Step 4 — decide where the fault lives
 

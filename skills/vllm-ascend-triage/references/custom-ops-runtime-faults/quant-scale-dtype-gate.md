@@ -78,6 +78,10 @@ and never passes it:
 
 So `rg -n '<param>_fp32'` finding the name proves nothing about the call site: read
 `apply()` (the launch), not `process_weights_after_loading()` (the declaration).
+The pair is old, not a v0.17.0rc1 regression: at v0.8.5rc1 (`ec27af34`) the same
+declaration/launch split sits at `vllm_ascend/quantization/w8a8_dynamic.py:367`
+(creates `weight_scale_fp32`) vs `:352` (passes `layer.weight_scale`), so a report at
+an older ref is the same gate and the audit script finds it there too.
 
 ## Rule 2 — sweep the parameter family before answering; the sibling site is the second round trip
 
@@ -101,9 +105,28 @@ every site above (and the `_list` variants, which the fix must cover too).
 
 One call for the sweep, at the pinned tree:
 `uv run --no-project python <skill_root>/scripts/quant-scale-dtype-audit.py <vllm-ascend-root>`
-— prints every scale argument handed to a quant/grouped matmul, each `_fp32`
-companion, the copies nobody reads, and the sites whose output dtype is derived from
-a scale tensor.
+— its `START HERE` block lists, in order, the `_fp32` companions that are created
+and never read (with the launch line that still passes the non-fp32 twin), every
+quant-method launch site whose scale is not float32, and every site that takes the
+op's output dtype from a scale tensor; the full inventory of scale arguments and
+the companion list follow. Three reading rules for its output:
+
+- **It resolves one alias hop**, which is where the MoE twin hides: the launch is
+  `fused_experts(w2_scale=w2_scale)` at `:251`, and `w2_scale` is bound at `:249`
+  (`[layer.w2_weight_scale]`, or `layer.w2_weight_scale_list` on the EPLB branch).
+  Without that hop the sweep reports only the local variable and misses the defect
+  — grepping `weight_scale` by hand is what turns `:249` up.
+- **Read it whole.** It is ~114 lines at v0.17.0rc1 and the inventory plus
+  companion list are at the end, so `| head -60` keeps the candidate block and
+  drops the sweep (a recorded run truncated it and then re-grepped by hand for the
+  exact lines the tail already held).
+- `CREATED BUT NEVER READ` is the v0.17.0rc1 linear shape and is a **same-file**
+  fact; `no _fp32 companion in this file` is not yet a defect. Three benign shapes
+  sit in the same list: the static method's `deq_scale` is allocated `float32` for
+  bf16 and **`int64`** for fp16 (`w8a8_static.py:67-69`), so it is never a scale-dtype
+  candidate; `device_op.py` takes the scale from its caller; and `w8a8_pdmix.py:84`
+  delegates the launch to the dynamic method it wraps. Read the allocation and the
+  delegate before citing a site.
 
 ## Rule 3 — read *both* operands of the gate: the output dtype is derived from the scale
 

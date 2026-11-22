@@ -109,6 +109,35 @@ severity. They are rows 4-5, not causes. The hit/miss split (row 2b) is the chea
 sharpening available, since nothing in either report separates a cache-hit copy from a
 cache-miss recompute.
 
+## The mirror arm: #16979 at the same tag, and the note that claims the fix
+
+Another recorded report, **#16979**, same **v0.23.0** tag (the issue names the image,
+not a commit): Atlas 300I Duo 310P3, **Qwen3.8-27B non-quantised / fp16**, TP2,
+`--max-model-len 32768`, `--max-num-seqs 8`, `--gpu-memory-utilization 0.9`,
+`--limit-mm-per-prompt '{"image": 1, "video": 1}'`, `--enable-prefix-caching`,
+`{"method": "qwen3_5_mtp", "num_speculative_tokens": 1}` — corrupt text from the first
+short prompt, acceptance not pasted, and its control is the **other** arm: dropping
+`--speculative-config` with prefix caching still on made all seven cases normal.
+
+Read the two reports together *before* asking for an ablation. At that tag both
+single-feature-off arms are clean (the #17338 row dropped prefix caching, #16979
+dropped MTP), while TP (4 vs 2), the checkpoint (W8A8 vs fp16), the card count (4 vs 2)
+and the multimodal limit all **differ** between the two — so none of those axes can
+own the arm difference, neither feature alone is enough, and the pair is what is left.
+When a paste already carries one arm's result, name which arm it is and ask only for
+the other; do not send both rows back.
+
+That tag's own notes claim this repair, so quote the claim and refuse it in one line:
+`docs/source/user_guide/release_notes.md:80`, under `## v0.23.0 - 2026.07.31` /
+`### Stability and Bug Fixes` — *"Fixed Qwen3.5/Qwen3.6 speculative-decoding accuracy,
+**Mamba prefix-cache corruption**, block-table overflow, and Atlas 300I DUO graph
+failures. [#11337] [#11408] [#11353] [#11659] [#11920] [#12038]"* — while its
+`### Known Issues` (`:134-149`) carries no 310P MTP/prefix-cache row, only the
+Qwen3.5-2B-W8A8 GSM8K fluctuation (`:135`, #14335). Two reports on the very tag the
+bullet covers mean the repair does not reach 310P's fp16 SSM state over the torch/numpy
+fallback; that mismatch is the finding to write into the issue, and "already fixed" is
+not a reason to down-rank the pair.
+
 ## Stop rule
 
 The recorded run (#14339) read 14 files across `patch_mamba*`, `_310p/ops/fla`,

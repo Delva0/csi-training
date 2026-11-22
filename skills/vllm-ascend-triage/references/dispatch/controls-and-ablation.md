@@ -163,6 +163,14 @@ ends that lever. Then three readings decide the rest.
   at `80610e4`) — so it prints on every default MTP launch. It is a *lane* clue about
   which sampling path ran (`../hccl-and-hardware/worker-segfault-no-python-frames.md`
   uses it that way and A/Bs `enable_reduce_sample`), never a cause on its own.
+  **The emit site has a *position* as well as an owner**: a line logged only after the
+  failing step returns can neither be the cause nor be read as absence-evidence.
+  vllm-ascend's `… GiB for NPU graph memory … --kv-cache-memory=…` suggestion sits
+  after `capture_model()` (`worker.py:719,729-758` at v0.23.0rc1 `f4a08bd`), so a paste
+  whose capture died cannot carry it, and treating that gap as proof of the unfunded
+  graph-pool reservation is the same error as ranking a `warning_once`
+  (`../startup-failures/acl-graph-capture.md`, the v0.21–v0.23 section): read whether
+  the line is *reachable* in a failing run before you ask for it.
 - **Capacity guesses are refuted by the report's own startup numbers.** "降低
   `max_model_len` / `gpu_memory_utilization` 以避免 DDR 地址越界" is not a description of
   a device address fault on a graph replay: the same paste's startup lines size the KV

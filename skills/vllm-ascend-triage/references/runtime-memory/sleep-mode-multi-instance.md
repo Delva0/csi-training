@@ -4,8 +4,22 @@ Scope: reports that use **sleep mode as a model switch** — `enable_sleep_mode=
 `llm.sleep(level=…)`, "多卡环境下 sleep 掉模型 A，再加载一个运行模型 B 的新实例" — and the
 RL sleep/wake runtime around them. The second engine does **not** die of OOM: it dies
 creating a communicator. Worked case #3172 (vllm-ascend v0.9.1 `0740d10`, vllm v0.9.1
-`b6553be`, 8×910B3, torch_npu 2.5.1.post1, CANN 8.2.RC1, `VLLM_USE_V1=1`, TP8 across 8 cards; the only evidence was a screenshot, OCR'd under
-`/workspace/attachments/<issue>/`). The call site is
+`b6553be`, 8×910B3, torch_npu 2.5.1.post1, CANN 8.2.RC1, `VLLM_USE_V1=1`, TP8 across 8 cards;
+the only evidence was one screenshot of the rank-0 worker error, OCR'd at
+`/workspace/attachments/3172/screenshot-e0b273921f.ocr.txt`). Quote these as the
+reporter's own paste, so the answer does not depend on that mount:
+
+- `(VllmWorker rank=0 pid=1196) ERROR … [multiproc_executor.py:527]`
+- `… hccCommInitRootInfoConfig(numRanks, &rootInfo, rank, config, &(comm->hccComm_)) …
+  HCCL function error: … error code is 7`
+- `ERR02200 DIST call hccl api failed.`
+- `EJ0001: [PID.1196] … Failed to initialize the HCCP process. … training process is
+  running`
+
+(Offline zh-Hans OCR: symbol names are mangled, `HCCP` stays legible.) An empty
+`ls -d /workspace/attachments/*/` in your session is **not** evidence that the case had
+no attachment — open the named file, and if it is truly absent say the OCR is missing
+rather than that the report carried nothing. The call site is
 `../hccl-and-hardware/comm-create-errors.md`; this page owns "what sleep does not
 release".
 

@@ -149,7 +149,7 @@ not a causal chain.
    that matches character for character (the recorded case below) exonerates "a missing mount"
    but the list is a **minimum**: it carries no `--privileged`/`--cap-add`. A paste that
    **omits** a line is a finding on its own even when the container answers `npu-smi` —
-   see *A responding `npu-smi info` is not a mount check* below. Inference
+   see §*A responding `npu-smi info` is not a mount check* above. Inference
    to keep the ranking straight: `get platform info` / `drvGetDevNum` refuse **before**
    any `/dev` node is opened, so a `/dev` list shorter than the tutorial's cannot be the
    owner of a *count* failure — when the host's own `npu-smi` is healthy, go to rung 3

@@ -40,7 +40,11 @@ of its record heading and how many tokens its entry contains — so the entry is
 `sed` away without a second grep. When no entry matches a token, the line falls back
 to the file's number of `**#<id>**` entries, so a many-case page is greped for the
 report's id rather than read whole. `[index]` marks a topic `index.md`, a route, not
-an owning page; `[dispatch]` marks a wording table.
+an owning page; `[dispatch]` marks a wording table; `[row]` marks a
+`first-checks/signature-routes/` page, whose matching **row** is the decision itself — it
+is printed right after the `[case]` lines and, when both appear on the all-token grade,
+the script says to read the row with the case arrow, because several recorded cases can
+share three or four tokens and the arrow then names a neighbour in another lane.
 Matching is case-insensitive and fixed-string unless `--regex` / `--case` is
 given. Exit 0 always (2 only on a bad root or an unusable rg); a thin or empty
 result is a fact about the tokens, not an error.
@@ -146,6 +150,8 @@ def case_pointers(abs_path, tokens, regex, case, limit=2):
 def tag(path):
     if "recorded-cases" in path:
         return " [case]"
+    if "/signature-routes/" in path:
+        return " [row]"
     if path.endswith("/index.md"):
         return " [index]"
     if "/dispatch/" in path:
@@ -181,7 +187,8 @@ def case_entries(path):
 
 
 def order(path):
-    return (0 if "recorded-cases" in path else 1,
+    rank = 0 if "recorded-cases" in path else 1 if "/signature-routes/" in path else 2
+    return (rank,
             1 if path.endswith("/index.md") else 0,
             1 if "/dispatch/" in path else 0,
             path)
@@ -285,6 +292,13 @@ def main():
             if h:
                 line += "  \u2014 " + h
             print(line)
+        if (grade == n and any("recorded-cases" in h for h in hits)
+                and any("/signature-routes/" in h for h in hits)):
+            print("  (a [row] member is a signature table: several recorded cases can share")
+            print("   three or four tokens, so a [case] arrow may name the neighbour in another")
+            print("   lane \u2014 read that row's own line together with the entry. Recorded #2984:")
+            print("   the arrow pointed at #3494, a `\u2026-w8a8` export another section owns,")
+            print("   while the row held this report's verdict and its pin lines.)")
         if len(hits) > cap:
             print(f"  +{len(hits) - cap} more")
             if grade == n:

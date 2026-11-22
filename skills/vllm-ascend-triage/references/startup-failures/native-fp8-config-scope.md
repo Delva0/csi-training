@@ -62,9 +62,14 @@ no flag permutation escapes.
 3. **`--quantization fp8` is not an escape.** The name resolves to the same
    `AscendFp8Config` (`fp8_config.py:68`), so flag permutations (`--dtype`,
    `--enforce-eager`, TP/DP size, graph mode) are spent turns. Say "no serve
-   flag fixes this" early and give the two routes that do work at the pin: serve the
-   BF16 checkpoint, or re-export with msmodelslim (`quant_model_description.json`
+   flag fixes this" early and give the two routes that bypass the class at the pin:
+   serve the BF16 checkpoint, or re-export with msmodelslim (`quant_model_description.json`
    present → detection case 1 returns `ascend`, and the fp8 config is never built).
+   Label them **source-reasoned, not reporter-confirmed**: the record for #14467 ends at
+   a fix-PR link, its only other later content is a maintainer suggestion the reporter
+   agreed to try (not in the case view) and a 「how to resolve」 pointer (see rule 6), and
+   nobody reports having served either route. Do not write "this works today" — write
+   which detection branch each route takes and what to paste back.
 4. **A `getattr(hf_config, "o_groups", 0)` guard removes the exception, not the
    defect.** `process_weights_after_loading` (`methods/fp8.py:56-70`) re-blocks *every*
    linear's `weight`/`weight_scale` for the DS block-128 layout regardless of family,
@@ -86,7 +91,21 @@ no flag permutation escapes.
    `quant_method: fp8` checkpoint to a DeepSeek-V4 MLA scheme. In #14467 the reporter's
    later resolution is exactly a code change — the issue closed on a linked PR
    (#14852), which is a link only: its contents are not in the case view, so do not
-   claim which of the two defects it fixes.
+   claim which of the two defects it fixes. (Their other follow-up was a bare
+   「how to resolve」 pointing at a sibling filing, #14466 — same reporter, same bug; if
+   a report cites it, its mechanism is this page, because the case view does not carry
+   that issue's body.)
+7. **A report at a ref newer than v0.23.0 is a version question, and one grep splits it
+   before any ladder is re-derived.** Run
+   `rg -n 'register_quantization_config|self\.ignore' vllm_ascend/quantization/fp8_config.py`
+   in the reporter's own tree (or the snapshot's newer pin): the generic `fp8` name
+   mapped to `AscendFp8Config` with no `self.ignore` consumer means the report is this
+   page at a later ref; if the generic name is gone (only `deepseek_v4_fp8` registers
+   `AscendFp8Config`) or the ignore list is now consulted before scheme selection, one
+   half of the #14852 repair is present — say which half the grep shows, ask whether they
+   are serving the build they think they are, and do not answer with the stopgap ladder.
+   The grep cannot tell you the *other* half, and a negative on both proves only that
+   this pin's code is still what runs.
 
 ## A model-specific rescue patch is re-armed by the platform's own auto-detect
 

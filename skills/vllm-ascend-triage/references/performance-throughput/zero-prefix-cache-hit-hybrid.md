@@ -73,7 +73,12 @@ is **not** explained by this page any more, and an explicitly enabled prefix cac
 on a GDN model is a live, less-validated combination — the block/state geometry it
 selects is `align` + chunked prefill (asserted at `config.py:366-369`), which is the
 setting `../spec-decode-mtp/acceptance-collapse.md` and
-`../accuracy-benchmarks/hybrid-block-size-corruption.md` rank first. Check which
+`../accuracy-benchmarks/hybrid-block-size-corruption.md` rank first. On a
+**310P/Atlas 300I** box **with MTP** the corruption shape of that same pair is owned by
+`../accuracy-benchmarks/mtp-prefix-cache-310p.md` instead (both single-feature-off arms
+are recorded there at this tag), so take that page rather than the two generic ones —
+recorded #16979's own paste is that accuracy report, and this page cites #16979 only for
+the v0.23.0 flag/default check. Check which
 regime the paste is in before reusing the v0.14 reasoning.
 
 ## A documented model whose zero-hit was fixed in a later release: DSV4-Flash

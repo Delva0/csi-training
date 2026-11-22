@@ -187,7 +187,7 @@ spellings:
 | `PYTORCH_NPU_ALLOC_CONF=expandable_segments:False` | the cure above (rung 1); the `:True` that crashed is the value the model's own **A2/A3** tab exports (`Qwen3.6-35B-A3B.md:187`) |
 | `HCCL_OP_EXPANSION_MODE="AIV"`, `HCCL_BUFFSIZE=512` | live, HCCL-side. Both are in this model's tutorial **A2/A3** tab (`docs/source/tutorials/models/Qwen3.6-35B-A3B.md:184-192`, there with `HCCL_BUFFSIZE=1024`), and vllm-ascend only reads `HCCL_OP_EXPANSION_MODE` itself for MiniMax-M2 graph capture (`vllm_ascend/patch/platform/patch_minimax_m2_config.py:118-124`). AIV changes the selected collective path, so an AIV-off relaunch is a real ablation, not a placebo (`../hccl-and-hardware/aiv-mc2-env-ablation.md`) |
 | `USE_MULTI_GROUPS_KV_CACHE=1` | **not an env read**: `vllm_ascend/patch/platform/patch_kv_cache_coordinator.py:35` is a module constant `USE_MULTI_GROUPS_KV_CACHE = True`, and no other **code** file in either tree mentions it |
-| `USE_MULTI_BLOCK_POOL=1` | no reader in vllm-ascend or vllm; the only hit is a commented line in `docs/source/tutorials/models/GLM5.2.md:316` |
+| `USE_MULTI_BLOCK_POOL=1` | no reader at this pin in vllm-ascend or vllm; the only hit is a commented line in `docs/source/tutorials/models/GLM5.2.md:316`. Version-scoped: at `bbe9bc0` (v0.13.0rc3) it is a **live gate** — `vllm_ascend/patch/platform/__init__.py:28-34` imports six platform patch modules under it — so an old-pin "patch 未生效" report is this env (`../upstream-downstream-drift/patch-import-side-effect.md`) |
 | `ACL_OP_INIT_MODE=1` | docs/CI-only shell export (GLM5 / DeepSeek-V4-Pro tutorial blocks, weekly e2e yaml) — a CANN-side name, read by neither Python tree |
 
 The model's own **310P tab** (`Qwen3.6-35B-A3B.md:234-293`, serve block `:236-259`)

@@ -311,6 +311,18 @@ worth quoting because it changes what the older precedent can be used for:
   `# … to pad weight` comment (`:27-28`). `enable_pad` still keys on
   `head_size` in the open interval (64, 128) (`:101-103`), so a Qwen2.5-VL-family
   3B/7B vision tower (1280/16 → 80) is still in the branch.
+- **`USE_OPTIMIZED_MODEL` now gates that activation pad, so row 1 is live for
+  Qwen3-VL at this pin and later** — the opposite of the fourth pin's registry gate.
+  `enable_pad` reads it (`ops/mm_encoder_attention.py:101-103` here, `:102` at
+  v0.14.0rc1; `vllm_ascend/envs.py:71`, default `1`) and the substitution is by
+  class *name* through
+  `vllm_ascend/utils.py`'s OOT table (`"MMEncoderAttention": AscendMMEncoderAttention`
+  at `:716`; the 310P pair at `:731`) — verified at vllm-ascend v0.14.0rc1
+  (`52d4acf`, the #6525 pin; the table line is `:697` at v0.13.0rc1, so re-grep it).
+  With no per-model registration left to bypass, "`USE_OPTIMIZED_MODEL=0` changes
+  nothing here" is true **only** of the ≤v0.11.0rc0 tree: do not repeat it against a
+  ≥v0.13 report, where it is a one-restart row for every VL model whose vision
+  `head_size` sits in (64, 128).
 - Consequence: **#976's "multi-card ViT qkv weights are zero"** mechanism cannot be
   quoted at this pin; only its symptom shape (TP-sensitive vision path) transfers.
   Say that in the answer instead of citing the weight-pad fix.

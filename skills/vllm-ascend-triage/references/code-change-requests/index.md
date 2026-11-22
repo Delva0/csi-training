@@ -188,3 +188,12 @@ page (`../tutorial-verification/index.md`).
    run spent its whole output budget on fourteen turns of silent source verification,
    began the answer with a correct verdict paragraph and was cut at 392 characters, and the
    reporter's reply was "If you have any drafted patch, I am happy to test with it".
+14. **A proposed unit case is graded against the shape that reaches the function, not
+   against the value it asserts.** Reports that carry hunks usually carry suggested tests
+   too, and a fixture can produce the expected number without ever exercising the defective
+   path — recorded #11877's `{"kv_cache_spec": {"num_kv_heads": 8}}` is a flat int dict the
+   connector's own serializer never emits (it sends a per-layer dict, or a `repr` string), so
+   its asserted `4` is a property of the fixture while the production value came from an HF
+   fallback. Say which proposed case discriminates and which pins nothing, before endorsing
+   either. Read the production input from the serializer/caller, not from the reporter's
+   fixture: `pd-disaggregation/asymmetric-tp-pull-count.md` §Step 2 carries the worked pair.

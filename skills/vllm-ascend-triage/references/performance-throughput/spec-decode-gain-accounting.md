@@ -64,9 +64,20 @@ per-token cost  = TPOT(with spec) / TPOT(plain)               # here 1.09×  (+9
 
 - `step ratio > token ratio` ⇒ spec decode is already losing; per-token cost is the
   number to quote, not the reporter's wall clock.
-- The headline percentage is usually **E2EL**, which also carries TTFT
-  (635 → 801 ms, +26 % here, ≈5 s of the 4.7 s regression on its own) — separate the
-  two before ranking anything.
+- The headline percentage is usually **E2EL**, and the paste decomposes it with no log:
+  `E2EL ≈ TTFT + (n−1)·TPOT` per request, so
+  `ΔE2EL ≈ ΔTTFT + Δn·TPOT_plain + n_spec·ΔTPOT`. On #8967 that is **166 ms of TTFT
+  (3.6 %) + 147 extra output tokens × 14.80 ms (2.18 s) + 1 545 tokens × 1.40 ms
+  (2.16 s) ≈ 4.51 s of the 4.65 s regression** — the TTFT term is a rounding error, and
+  about half the headline is the longer output, so run the three terms before ranking
+  anything. A report whose complaint *is* TTFT, on both nodes of a PD/EPD pair, is
+  `spec-on-prefill-ttft-regression.md`; a quarter-point TTFT move inside a decode
+  complaint is not a reason to open it.
+- **Locate the reporter's percentage on one of the table's axes, or ask.** #8967's title
+  says 30 % while its own axes read E2EL +21.8 %, output throughput −9.2 %, prefill
+  throughput −20.7 % — none of them 30 %. Quote per-token +9 % as the number to act
+  on, say the 30 % reproduces on no axis, and ask which metric produced it, in the first
+  section; adopting the title's figure puts a wrong target in front of the business.
 - Normalize per output token: the two runs did **not** emit the same text
   (#8967: 39 146 vs 43 274 generated tokens, min completion 548 vs 364). A
   length/termination change is not the MTP mechanism; say which number survives
@@ -142,6 +153,22 @@ concurrency>1 run; those two turn the arithmetic into a measurement.
 Scope: pins above (vllm-ascend `da421afad719`, vllm `b1388b1fbf5a`); the reporter was
 on vllm 0.18.rc1, so every source claim needs the one-command recheck on their tree.
 The gain model is a bandwidth/dispatch argument, not a measured profile — say so.
+
+**Replay cost, and why this page means "answer on turn 3".** The truncated #5605 runs
+above are the failure mode to beat (the second had this page in hand at turn 6 and lost
+the answer anyway). A replay of #8967 spent **8 066 completion tokens and six tool
+calls** (`skill_view`, the orient pair, one script, two `sed`s) and shipped the whole
+answer: `reference-locate.py` with four tokens (`qwen3_5_mtp`, `num_speculative_tokens`,
+`FULL_DECODE_ONLY`, `enforce_eager`) put this page on its all-token list, where the
+`[case]` arrows named *neighbours* (#9003, #15536) — the owner was the page whose
+opening sentence is this case — and Steps 1-2, 5 and 6 then supplied the ratios, the
+two refutations and the ladder verbatim, with no repo grep because the page's pin equals
+the snapshot's (`SOURCES.json`). What it still left out is now Step 2's arithmetic (it
+quoted E2EL +21.8 % beside per-token +9 % and never split the 4.65 s), so landing here
+is not licence to skip the division. Do not re-verify this page's citations against a
+neighbouring pin before sending: label them `source-verified at <commit>` and append
+the recheck command, as the #5605 replays were told and one of them still lost its
+answer to.
 
 ## Worked case: PD 双机, DeepSeek-R1-w8a8, MTP K=2/3 against K=1 (#5605)
 

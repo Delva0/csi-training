@@ -89,10 +89,18 @@ different, rarer batch reaches. Check these in order, each with one launch or on
    `num_input_tokens <= MLAPO_MAX_SUPPORTED_TOKENS` (1024, `mla_v1.py:52`) through the
    fused `_sfa_preprocess_decode`, which writes the cache without `exec_kv`; on the MLA
    path MLAPO covers **decode only** (`mla_v1.py:1497-1499`: `not has_prefill and
-   num_decode_tokens <= 1024`), so a prefill batch always reaches `exec_kv_prefill`. A
-   traceback inside `exec_kv` therefore means MLAPO is off, or the batch was a prefill /
-   exceeded 1024 tokens — a long prompt's chunked-prefill chunk, not a decode step. Ask
-   for the request's prompt length and `--max-num-batched-tokens`.
+   num_decode_tokens <= 1024`), so a prefill batch always reaches `exec_kv_prefill`. What
+   the frame implies therefore depends on the pin's **default for the switch**, and that
+   default moved — settle it with one grep, `rg -n -A2 'VLLM_ASCEND_ENABLE_MLAPO'
+   vllm_ascend/envs.py`, before reading anything into the stack:
+   - `'0'` at v0.13.0rc2 (`envs.py:109-110`), i.e. off in **#6243's own generation**: there
+     `exec_kv` is every batch's path, so the frame carries **no** regime information — do
+     not infer a prefill / long prompt from it, and do not spend the ask on the request's
+     prompt length or `--max-num-batched-tokens`.
+   - `"1"` from v0.14.0rc1 (`envs.py:96` at v0.15.0rc1 `3d43ed99`), and *then* a frame
+     inside `exec_kv` does localize: MLAPO was cleared for that layer (non-W8A8
+     `fused_qkv_a_proj`, or SFA with CP — `sfa_v1.py:448-465`) or that step's
+     `num_input_tokens` exceeded 1024.
 2. **Graph buckets.** A captured FULL decode bucket pads tokens up to the bucket, so the
    batched operand can hold the bucket's rows while `cos` was built from `num_input_tokens`
    — and the bucket that faults is the one the load happens to hit. #2732 is the graph-mode

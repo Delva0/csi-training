@@ -363,9 +363,10 @@ output, or did no request ever reach a decode engine?**
   `prompt_logprobs`, or `echo: true`: the decode node never runs the prompt forward,
   so prompt-derived outputs cannot exist there and the fix is a split — strip the
   field for the decoder and/or harvest it on the prefiller. The mechanism (upstream's
-  uninitialised `torch.empty(int32)`), the `echo` alias on both endpoints, what the
-  prefiller can return, and the three patch sites in the example proxy →
-  `prompt-side-outputs-on-decode-node.md`.
+  uninitialised `torch.empty(int32)`), the `echo` alias on both endpoints, which of
+  `prompt_logprobs` / `prompt_token_ids` / `prompt_text` the prefiller can return and
+  under which request flag, and the four patch sites (produce, harvest, strip, merge
+  into the proxy's own stream assembly) → `prompt-side-outputs-on-decode-node.md`.
 
 - The deployment **serves every request** while one prefiller (or decoder) is chosen
   far more often than its peers — "高并发场景下 proxy 请求概率异常", "proxy 的负载分发机制有问题",
@@ -476,8 +477,10 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   (or `echo: true`): the node that skips the prompt forward cannot produce
   prompt-derived outputs, so the deliverable is a split. Upstream's
   `torch.empty(int32)` mechanism with its `path:line`, the `echo`→logprobs alias on
-  both endpoints, the prefiller-harvest check in one curl, and the three sites in the
-  example proxy that has no handling at all (recorded #13363).
+  both endpoints, the prefiller-harvest check in one curl, the `return_token_ids` gate
+  on `prompt_token_ids`, and the four sites in the example proxy that has no handling
+  at all — with the merge landing in the proxy's always-`StreamingResponse` chunk
+  loop, not on a JSON body (recorded #13363).
 - `proxy-endpoint-vs-api-server-count.md` — the deployment runs and the *requests* do
   not arrive: "D 实例未接收到请求" / `proxy通信超时` with P-side `Force freed expired
   request … (480 seconds)` lines. Why that line is a prefiller-only bookkeeping record
@@ -555,7 +558,9 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   the divergences that are *not* the mechanism (decode `--max-num-batched-tokens`,
   `--block-size`, `enforce_eager` inside `--speculative-config`), the one-launch-per-row
   ablation ladder, and the no-log scale-fault variant with two verified non-answers
-  (GDN chunk-meta buffer arithmetic, #7863's 310P-only masked assign). Its §*Hybrid
+  (GDN chunk-meta buffer arithmetic, #7863's 310P-only masked assign) plus the third
+  lane its own knob list opens — `--max-model-len` → `mamba_block_size = max_model_len`
+  → one whole-context state page per layer. Its §*Hybrid
   families* carries the **by-design asymmetric** P/D lattice of the DeepSeek-V4-Pro A2
   (4 P + 4 D) recipe at `f4a08bd` — P `--enforce-eager` + `enable_dsa_cp` + 4096/16,
   D `--async-scheduling` + `--block-size 128` + `FULL_DECODE_ONLY` + `recompute_scheduler_enable`
@@ -633,9 +638,11 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   version.
 - `asymmetric-tp-pull-count.md` — P/D with different TP sizes on an MLA/DSA-sparse
   model: `chosen_rank_list(…) does not match num_group_pulls(…)`, the three
-  derivations of the pull count and the one that omits the MLA/sparse rule, the
-  ambiguous `num_kv_heads` of a `UniformTypeKVCacheSpecs` group, which groups make
-  `_is_hma_required` true (and why turning Eagle3 off is not predicted to help),
+  derivations of the pull count and the one that omits the MLA/sparse rule, why the
+  pasted pull count is the TP ratio rather than a head count (an int `num_kv_heads`
+  of 1 would make the assert pass, so the wire carries none — per-layer
+  `UniformTypeKVCacheSpecs` dict, or the serializer's `repr` fallback), which groups
+  make `_is_hma_required` true (and why turning Eagle3 off is not predicted to help),
   and why the assertion is load-bearing. Verified at vllm-ascend v0.22.1rc1
   `5f6faa0cb883` / vllm v0.22.1 `0decac0d96c4` (#11877).
 - `kv-group-count-mismatch.md` — the **decode** worker dies on the first request with

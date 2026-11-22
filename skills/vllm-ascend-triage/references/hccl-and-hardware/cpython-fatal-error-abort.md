@@ -38,6 +38,15 @@ after the `Fatal Python error:` line, verbatim, from the rank that died** — th
 rank's own stderr / worker log, not `plog` (a clean plog is expected and is not
 evidence of anything here).
 
+Phrase that ask so one reply can satisfy it: name the file and the extraction
+(`grep -n -A 300 'Fatal Python error' <worker stderr file>`, or `tail -300` of it),
+say a screenshot of that region is fine, and ask for the **end** of the log rather
+than its head. This report's own later follow-ups are the evidence: the reporter
+answered with a single image attachment and then re-pasted the launch command the
+opening body already contained, so the block still never arrived as text. A reply
+like that keeps this ask open — the next turn is one narrower command for the same
+file, never another mechanism pass.
+
 If the block carries no Python frames at all, nothing was executing Python at that
 moment: treat it as native memory corruption and go straight to a core dump
 (`ulimit -c unlimited` before the next run, `gdb "$(command -v python)" core`,

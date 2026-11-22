@@ -283,7 +283,12 @@ only"), and on 2025-12-08 reported the accuracy issue **solved by PR #4484** (th
 maintainer had asked them to apply it and offered to pick it to dev). Two consequences for
 a report pinned before that PR: the connector backend is not the axis, and the repair is
 not in the snapshot — so "re-run on the release carrying the fix" is rung 1 while the
-mechanism ranking stays open (SKILL rule 5, the rc-pin paragraph).
+mechanism ranking stays open (SKILL rule 5, the rc-pin paragraph). **Name the carrier as
+the dev branch / the next minor release class, not "the latest rc"**: the merge is
+2025-12-08, after this pin's rc chain, and the maintainer's own wording offers a pick to
+dev — so a reporter on the reported rc line has nothing to upgrade to yet, and an existing
+rc of that line is not the control. Say that the snapshot cannot answer "is it fixed"
+rather than predicting a tag.
 
 ## Precedent in the issue corpus
 

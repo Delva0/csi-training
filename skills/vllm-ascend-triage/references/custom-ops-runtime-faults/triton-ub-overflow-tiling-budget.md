@@ -80,14 +80,27 @@ kernel's own `tl.constexpr` tile sizes multiplied by the model's shape.
    rotary_dim 64), or >128 q heads is **unvalidated**, and "this is a supported
    configuration" cannot be argued from the presence of a model in the tree.
 6. **Levers at that pin, cheapest first.** (a) Shrink the tile constant in the installed
-   file — `BLOCK_SIZE_HEAD` 64 → 16/8 (it must stay a power of two for `tl.arange`) is
-   numerically exact: the tiling is a scheduling detail, and the check that it stayed
-   exact is the same request's output against the non-Triton path. (b) Remove the compile
-   step: the same function's `else` branch (`rotary_embedding.py:189`, `:205`) and the
-   310P impl (`vllm_ascend/_310p/ops/rotary_embedding.py:121,141,157` — "`npu_apply_rotary_pos_emb`
-   only supports rotary_dim 64 or 128") call `torch_npu._npu_rotary_embedding` /
-   `torch_npu.npu_apply_rotary_pos_emb`, which have no Triton compile and therefore no UB
-   tiling — but **no env switch forces that branch at v0.20.2**: `rope_forward_oot`
+   file — **divide that branch's own value, whichever it is**: `BLOCK_SIZE_HEAD` is 64
+   (neox) / 32 (interleaved) at `:273-277`, and it must stay a power of two
+   (`tl.arange(0, BLOCK_SIZE_HEAD)`, `:105,144`), so the patch is
+   `largest power of two ≤ value ÷ ratio` from rule 1. At 9.9× that is **64 → 4**, and
+   **32 → 2** on the interleaved branch; **8 is not enough** (64 → 8 leaves the demand at
+   1.24× of the budget, i.e. the same failure one step later), while at 1.17× `64 → 32`
+   clears. The tiling is a scheduling detail, so the change is numerically exact and the
+   check that it stayed exact is the same request's output against the non-Triton path;
+   if it still overflows, the recompile prints a fresh `requires … while …` pair — read
+   that remainder instead of guessing another step. (b) Remove the compile
+   step: the same function's `else` branch (`:189`, `:205` calls
+   `torch_npu._npu_rotary_embedding`) has no Triton compile and therefore no UB tiling,
+   and it handles a partial rotary **itself** — `q_rot = query[..., :rotary_dim]`,
+   the op called with `rotary_dim`, then `torch.cat((q_rot, q_pass))` and `reshape`
+   (`:177-200`). So do not gate this rung on a `rotary_dim ∈ {64, 128}` statement: that
+   one is a comment about **`npu_apply_rotary_pos_emb` in the 310P override**
+   (`vllm_ascend/_310p/ops/rotary_embedding.py:214`, its calls at `:141`, `:153`, `:218`)
+   and says nothing about the generic `_npu_rotary_embedding`. What the tree cannot
+   answer is whether that aclnn op accepts an unusual `rotary_dim`; the reporter's own
+   run settles it, so rank the rung on the structural difference and label that residue.
+   **No env switch forces the `else` branch at v0.20.2**: `rope_forward_oot`
    (`:153`) selects Triton on `if HAS_TRITON:` (`:166-168`), and `HAS_TRITON`
    (`vllm/triton_utils/importing.py:12-13`) is `find_spec("triton")` plus an active-driver
    count, disabling itself only when that driver check fails. Uninstalling triton to reach

@@ -347,8 +347,15 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   own iteration (`attention/attention_v1.py:234-238`, `.to(self.device, non_blocking=True)`),
   so a later group's values cannot reach an earlier group's device copy — settle that
   with one `sed` instead of deriving it (recorded #2976 spent five turns on the
-  derivation and never shipped an answer). Two facts worth carrying: the mamba group is
-  rewritten to `block_size=max_model_len` with one block per sequence
+  derivation and never shipped an answer). The second replay of that report read
+  this very bullet on its 4th turn and still shipped nothing: it re-read
+  `model_runner_v1.py:1300-1370` and `attention_v1.py` (the offsets here are the
+  snapshot's own pins, so no re-grep is owed), then took five unrelated side reads —
+  two scheduler pages, the triton-autotune warning page, vllm's `kv_cache_utils` and
+  a `num_gpu_blocks` grep — before an exact-line `rg` for the offsets it was about to
+  cite, and its answer was cut mid-sentence at ~2 K characters. Two facts worth
+  carrying: the mamba group is rewritten to `block_size=max_model_len` with one block
+  per sequence
   (`model_runner_v1.py:2838-2846`) and prefix caching is refused for mamba on that path,
   so `num_gpu_blocks` cannot be recovered by dividing the logged `GPU KV cache size`
   token counts (the four lines with one differing value are per-rank budgets) — do the
@@ -357,7 +364,8 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   EP and MTP do not work (`docs/source/user_guide/release_notes.md:9`), and the
   reporter's serve line is the tutorial's own
   (`docs/source/tutorials/multi_npu_qwen3_next.md:89`), so the command is not the
-  variable.
+  variable. Then stop: for this shape the bullet **is** the answer — one `sed` for the
+  copy site, the release-contract line, ship before any further source read.
 - **A pre-launch `TORCH_CHECK` from a host adapter is a table-slot bound keyed on a
   tensor dimension, and the number it prints is the op's own constant.** `RuntimeError:
   batchIdx is out of range: 1024` out of `torch.ops._C_ascend.batch_matmul_transpose`

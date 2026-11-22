@@ -177,11 +177,12 @@ its 6-row defect table. So budget it explicitly:
   30 %) and 4.0 K of message text (9 %) — 45 417 characters, exactly the 16 384-token cap
   at 2.77 characters per token — and had its closing message cut inside defect row 4 of
   6. So: **when the row's verified rows are already tabulated** (`tutorial-command-audit.md`
-  "Second worked page" for this row), write §1 as the three scores + **only** the rows that
-  changed since the recorded pin + a pointer to the table; new rows still get written, the
-  re-typed seven cost ~2 K characters of the message's tail. Cap the message's own defect
-  list at 4 rows — the file holds the rest — and keep the reasoning trail under ~25 K
-  characters if the closing message is to survive;
+  "Second worked page" for this row), §1 is the three scores plus that table's rows
+  **copied** into the file in one write — copying is not auditing, and the file keeps the
+  full graded row set because the tester cannot open this library and *What the report must
+  not do* below forbids citing it. What is capped is the **message**: 4 defect rows with
+  `path:line` → fix and a pointer at the file, not a second copy of the table. Keep the
+  reasoning trail under ~25 K characters if the closing message is to survive;
 - **size each write against what is *left*, not against what the section needs.**
   #11753 wrote the graded §1 as one 4.4 K block early (it landed) and then put
   §2 deploy + §3 curl + §4 bench into a single append: the cap cut that command
@@ -290,6 +291,30 @@ the heredoc; a 2.8 K block did the same for §2-3), and the write order put the 
 section last. Convert the draft block into the heredoc in the turn that produces it,
 and let the table go first.
 
+**Its replay: table first, three writes, both files and the message.** A later session on
+this row took the protocol from the top — headings, the "Fourth worked page" table, one
+197-line page read that re-verified the seven pinned lines — then wrote §1 (3.7 K), the
+two scripts (1.0 K + 0.9 K) and one §2-§6 append: 14 assistant turns, 18 tool calls,
+18.6 K characters of reasoning, 13 559 of 16 384 completion tokens, `completed`, a 10.6 K
+report and a complete 1 837-character closing message (verdict, both file paths, the three
+scores, four `path:line` rows, the slots the tester must fill). So the ≤8 K report figure is
+a padding target, not a survival one: what the budget cannot absorb is re-deriving a table
+you already have and writing one section twice. The one defect it produced was self-inflicted
+and delivery-side, not diagnostic:
+
+- **`bash -n` does not check a `docker run` block's line continuations.** It added
+  `--privileged=true` to the heredoc'd run line, then removed it with
+  `sed -i 's/ --privileged=true \\//'`, which ate that line's trailing `\`; `bash -n`
+  returned clean because the remaining `--device …` lines merely became separate commands,
+  and the break surfaced only when the block was re-printed. After any in-place edit of a
+  delivered shell block, re-print it and diff it against the doc block — the same blind spot
+  `../startup-failures/device-id-invalid-at-worker-init.md` records for a reporter's own paste
+  (`\` followed by spaces before `#`), here caused by your own `sed`. The second half of the
+  lesson is upstream of the `sed`: `--privileged=true` was in neither the page's validated run
+  line nor any evidence, so a 交付件 script should not have carried it — take the doc's run line
+  as the floor, and label (and tier) any addition, e.g. the `-v /root/.cache:/root/.cache` mount
+  the page's own comment implies but its `docker run` omits.
+
 ## #11741, the fifth run: the protocol held, and the verified defect set
 
 Same shape and same image (row 6, `hjh3-Qwen3-VL-30B-A3B-Instruct`, 2×Atlas 800I
@@ -383,6 +408,19 @@ re-opened the one settled cosmetic — `--random-input 200` was written into its
 message as 基准无法运行 instead of check 2's cosmetic tier, which is exactly the
 severity slip #12562 paid for. Read the table, then spend the turns on what it
 does not have.
+
+A **third replay** of this row (`#11739`, fresh session) is the cheapest delivery recorded
+for the shape: 11 assistant turns, 17 tool calls, **9 878 of 16 384 completion tokens**, an
+8 953-byte report in two writes, a 1 693-byte `deploy-*.sh` that passed `bash -n`, and a
+1 682-character closing message — every 交付件 section present. Neither earlier defect
+reached the file: `--random-input 200` was graded cosmetic (check 2) and §1's rows were
+copied from the "Sixth worked page" table. What it still paid is the **order**. It read
+this page to `:386` (14.9 K + 14.3 K characters of tool output) before reaching the table,
+then re-read five slices of the tutorial page to rebuild the `docker run` block — because
+the table supplies the defect rows and nothing about the deploy script. The cheapest order
+is therefore: `index.md` → its *First call* `rg` → the worked-page table (writes §1) →
+**this page's Staged emission protocol lines only**, for the write sizes → one `sed` slice
+of the tutorial page for the `docker run`/curl/bench block that §3-§4 copy verbatim.
 
 Two lessons, both already stated above and now gated in `index.md` rule 6:
 

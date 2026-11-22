@@ -211,7 +211,13 @@ after that keeps the header, not this text.
   not a `recorded-cases*` file (`image-dependency-faults/pip-index-visibility.md   →
   #855:557 (3/4)`): topical pages keep their case history in the same record-heading
   forms, and that entry is the case to `sed` first — recorded #855's replay read the
-  line as "a topical page" and shipped the premise its entry refutes.
+  line as "a topical page" and shipped the premise its entry refutes. Two rules keep
+  that arrow on the owner: an entry **ends** at the next heading that carries an id or
+  sits at or above its own level (an id-less `## Doc drift` section used to be credited
+  to the last case, which handed recorded #11863 `→ #2973:215 (3/3)` and sent it into
+  another case's ladder while its own `## Worked case #11863` graded 1-of-3), and an
+  entry is **credited for the block that names it**, so a signature row saying
+  `(worked case: #<id>)` scores that case even when its section sits paragraphs lower.
   `[case]` = a `recorded-cases*` page (open it first), and its line
   names the entries inside that file that share most of the query tokens —
   `→ #12985:488 (3/3)` is id, record-heading line and matched-token count — so a hit

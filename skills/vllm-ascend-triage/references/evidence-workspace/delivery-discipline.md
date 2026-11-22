@@ -45,6 +45,13 @@ leads were.
   tree (the PCP reduce-scatter is `:469-470`, which the page already said, while the stale
   number was the DP slice's). A drift you have not re-grepped is a recalled number, and
   rule 6 does not let a matching-looking line number count as proof.
+- **An announced check has to be a tool call.** "I'm running the two call-site greps
+  to pin `path:line` at your commit" written into a message that carries no such call is
+  un-auditable, and the same message then ships the page's offsets as 「以上 `path:line`
+  全部核对于 <pin>」 — a provenance the run never produced. Recorded #16001's replay did
+  exactly this: two pages were read, no grep ran, and the answer credited its offsets to
+  the reporter's commit. Either run it in that turn and quote what it printed, or attribute
+  it as the page's pin and drop the sentence about work in progress.
 - **Every written artefact has a source and a date — never hand the reporter their own words
   back unverified.** A `recorded-cases-*` entry or an owning page can hold a serve line, a
   script or a log fragment that arrived **after** the opening body (a later comment, a
@@ -148,7 +155,14 @@ leads were.
   confirming it. A draft/pending/TBC label on a ranking that already names the owner
   is worse than no text: it turns the next turn into a re-write instead of an append.
   Drop the label, keep the confidence tag (`source-verified at <commit>` /
-  `hypothesis`), and append each correction to the text already delivered.
+  `hypothesis`), and append each correction to the text already delivered. The same
+  cut follows a **plan-shaped** note — mechanism named, fix deferred: recorded #11863
+  sent "the rejection is upstream `arg_utils` … next I'll check the connector" on its
+  37th message, then spent ~9 K reasoning tokens on the real answer and was cut inside
+  ladder option C, with the fix line, the "what to send back" list and the doc verdict
+  never delivered. On a launch-config shape the *fix line* is the answer, so it goes in
+  that message; each rung after it is one clause, and a rung the page itself calls a
+  hypothesis gets no serve block.
 - **The entry shape sets what the first paragraph must carry, and a correct verdict can still
   be an undelivered answer.** For a report that already contains a proposed hunk — a bug report
   whose body writes the patch, a "I have a fix ready, should I open the PR", a reporter offering

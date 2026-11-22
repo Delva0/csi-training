@@ -165,7 +165,12 @@ Rules for this topic:
    asks for the per-position rate line. On the v0.19.x hybrid families
    (Qwen3.5/Qwen3-Next, `expected src to have a size equal to the slice of self`) that page's
    §*v0.19.x hybrid layers* separates layer 0's SP-sized buffer from its two writers and its two
-   enable gates — use it instead of grepping `copy_`.
+   enable gates — use it instead of grepping `copy_`. On a MoE + shared-expert paste, read the
+   launch's `--additional-config` for `multistream_overlap_shared_expert` /
+   `multistream_overlap_gate` and for `VLLM_ASCEND_ENABLE_FUSED_MC2` before naming the
+   `shared_out` producer: the two keys are distinct (different streams, only the second computes
+   it before `prepare`), both are shape-preserving ablations of one flag each, and a report can
+   carry either without the page's earlier readings mentioning it.
    **FlashComm2 is a different switch with a different failure**: when
    `VLLM_ASCEND_FLASHCOMM2_PARALLEL_SIZE` > 0 is combined with
    `"layer_sharding": ["o_proj"]` and a worker dies while loading weights with

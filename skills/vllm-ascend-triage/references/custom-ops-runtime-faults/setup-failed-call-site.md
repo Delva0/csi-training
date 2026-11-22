@@ -285,8 +285,13 @@ branch's mask.
 2. `enable_chunked_prefill=True` instead: the same step takes the splitfuse path
    (`:619-629` builds `chunk_mask` from `max_seq_len`; `:880-905` calls
    `_npu_paged_attention_splitfuse`), so the mask is sized by the schedule.
-3. Keep both flags and still crash ⇒ out of this page: `--enforce-eager` then
-   `ASCEND_LAUNCH_BLOCKING=1`, and get the plog.
+3. Both flags left where you need them and it still crashes ⇒ the pack itself is the
+   defect at that release: get the plog at that second plus four numbers
+   (`query_lens`, `context_lens`, the block table's width, the model's `head_dim`)
+   and the rollout engine's kwargs. Do **not** spend a run on `--enforce-eager` or
+   `ASCEND_LAUNCH_BLOCKING=1` — nothing was launched and the ATB call sits on the
+   eager path too (*Not useful* below), so an "eager replica still dies" result
+   settles nothing.
 4. If they must keep prefix caching without chunked prefill, the fix is the code at
    `:615-617` (build the mask from the branch's own maxima) — say so as the patch
    proposal, not as the first action.

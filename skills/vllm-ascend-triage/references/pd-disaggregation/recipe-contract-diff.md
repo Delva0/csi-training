@@ -168,13 +168,44 @@ evidence about the guide, not about the deployment.
 ## The variant with no log at all: fault only at raised scale (#9578)
 
 "Reduce `max-num-batched-tokens` / `max-model-len` / `max-num-seqs` / capture sizes and
-it works" puts the owner in the **capture path** (`../startup-failures/acl-graph-capture.md`;
-the decode-node recipe is capture sizes `n × (mtp+1)`, `n ≤ max-num-seqs`,
-`Qwen3.5-397B-A17B.md:407,518` and `max-num-batched-tokens 128` there, `4096` on
-prefill, both read in the v0.19.1rc1 tree) or in the **chunked-prefill compute path**
+it works" — the paste is the title plus that ledger and a bare
+`RuntimeError: ACL stream synchronize failed` with no code, no frames, no log, so the
+`error code:` line under it is the first thing to ask for. It puts the owner in the
+**capture path** (`../startup-failures/acl-graph-capture.md`; the decode-node recipe is
+capture sizes `n × (mtp+1)`, `n ≤ max-num-seqs`, `Qwen3.5-397B-A17B.md:407,518` and
+`max-num-batched-tokens 128` there, `4096` on prefill, both read in the v0.19.1rc1 tree)
+or in the **chunked-prefill compute path**
 (`../hccl-and-hardware/collective-error-chain.md`; plog `fault kernel_name=`), never in
-KV transport: the title's sync call is the reporting point, and the code after it
-(`507015`, `507035`, `107027`) names the family. Two verified non-answers at v0.19.1rc1
+the **HCCL/EP** transport: the title's sync call is the reporting point, and the code
+after it (`507015`, `507035`, `107027`) names the family. Ask for the capture-size
+artefacts *this* pin prints, not another pin's: `Calculated maximum supported batch sizes
+for ACL graph: N` (`vllm_ascend/utils.py:545,568`) and `Adjusted ACL graph batch sizes
+for <arch> model (layers: L): 67 → 6 sizes` (`:590`). `Starting to capture ACL graphs for
+cases: […]` appears in no file of the v0.18.0rc1 or v0.19.1rc1 trees, so a reporter on
+either cannot supply it: a recorded run asked for it and the ask could not be met.
+
+**`--max-model-len` is not a compute-shape knob, and it keeps a third lane open.** With
+prefix caching off — what the model's own 8-node PD block ships on both sides
+(`Qwen3.5-397B-A17B.md:314,393`) — `patch_mamba_config.py:104-107` assigns
+`mamba_block_size = max_model_len` (the `block_size` alternative needs
+`--enable-prefix-caching` *and* `--mamba-cache-mode align`, and upstream's default is
+`mamba_cache_mode = "none"`, `vllm/config/cache.py:109` at vllm v0.19.1), and a layerwise
+Mooncake connector moves exactly **one** mamba block per layer, at index 0 unless the
+mode is `align` (`kv_p2p/mooncake_layerwise_connector.py:288-293`, "only support one
+block transfer for mamba"). The D node's per-request GDN state transfer is therefore one
+whole-`max-model-len` page per layer, so that knob moves transfer volume, not only
+compute shapes. Rank it below the two compute lanes and do not close it: same geometry
+as the D-node *device* fault recorded in #9944 (`hybrid-state-transfer.md` §1 —
+`507057` + MTE `DDR address … out of range`, layerwise connector, prefix caching off,
+`--max-model-len 262144`; signature row
+`../first-checks/signature-routes/device-ops-and-collectives.md:40`). One check splits
+them: the launch's `--no-enable-prefix-caching` / `--mamba-cache-mode` plus the D node's
+`Registering KV_Caches … shape` line (`kv_p2p/mooncake_connector.py:1218`) and its
+startup `Padding mamba page size by …%` (`patch_mamba_config.py:99-102`) say whether the
+page is a whole-context one; a compute-side `fault kernel_name=` in the same window
+retires this lane.
+
+Two verified non-answers at v0.19.1rc1
 (`da421af`) that otherwise cost a session each:
 
 - **The GDN chunk-meta buffers cannot overflow from those knobs.**

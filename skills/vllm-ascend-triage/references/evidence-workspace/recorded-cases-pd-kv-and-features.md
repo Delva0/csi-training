@@ -339,11 +339,18 @@ and answered *real, upstream's, and the mitigation is not in the snapshot* — `
 the three patch sites, the `echo`→`prompt_logprobs` alias on **both** endpoints
 (`chat_completion/protocol.py:577-579`, `completion/protocol.py:275-277`), `prompt_text` being
 chat-only at that pin, and the one-curl check that decides harvest-vs-no-mitigation. Two
-corrections to keep: the detokenize helper is `vllm/tokenizers/detokenizer_utils.py:83,98`
-(the run cited the nonexistent `vllm/v1/tokenizers/…:100`), and a strip must cover `echo`.
+corrections to keep: the detokenize helper is `vllm/tokenizers/detokenizer_utils.py:83,100`
+(the run cited the nonexistent `vllm/v1/tokenizers/…:100`; the line number was right, the
+directory was not), and a strip must cover `echo`.
 Delivery: it completed with the verdict text present from turn 3 and the ranked answer at the
 end, but spent ~520 K cumulative prompt tokens re-reading trees whose anchors the page now
-carries. Page: `../pd-disaggregation/prompt-side-outputs-on-decode-node.md` (new).
+carries. Page: `../pd-disaggregation/prompt-side-outputs-on-decode-node.md` (new). A replay
+with that page installed landed the same verdict in 10 assistant turns / ~427 K prompt tokens
+and added the two facts now on it: the **merge site** (the proxy answers every request with
+`StreamingResponse`, `:1087-1088`, so a non-streaming body is assembled in the chunk loop with
+the `if retry_count > 0 and not stream_flag:` re-serialize precedent at `:1059-1065`), and
+`prompt_token_ids` being gated by the request's `return_token_ids` — the third field the
+report's own mitigation harvests, which the first page omitted.
 
 **#4866** — vllm-ascend v0.11.0rc2 (`a2e4c3f`), vllm v0.11.0, CANN 8.3.RC2,
 8×910B2 per node, image `v0.11.0rc2`: 2P2D `MooncakeConnectorV1` (DeepSeek-R1-W8A8,

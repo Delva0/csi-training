@@ -816,20 +816,22 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    「请排查设备是否被其他容器、进程等占用」), and the name then picks the rung. Cite the
    pin you read it at; hedge the *holder*, not the name
    (`references/startup-failures/no-npu-in-container.md`). **Two families the same call
-   now resolves are outside every ACL table**, and a plog paste using them reads "not
-   found" if you only search those:
-   a hex `retCode=0x2a` beside `[aicpu exception]` is `TS_ERROR_AICPU_EXCEPTION` in the driver's
-   `tag_ts_error` enum (`cann/driver/…/tsch/task_scheduler_error.h`, whose comment *is* the
-   bracketed text), and the `errcode:N, msg:execute kernel param invalid` field of an AICPU record
-   is `enum rtAICPUErrorType` (`cann/runtime/…/device_error_info.hpp`: `1` =
-   `KERNEL_EXECUTE_PARAM_INVLID`, `21001` = the aicpu scheduler layer, i.e. a different owner) —
-   `references/hccl-and-hardware/aicpu-task-exception-empty-kernel.md`. That name is the lane: `507010` =
+   now resolves are outside every ACL table**, so a plog paste using them reads "not
+   found" if you search only those — the hex `retCode=0x2a` beside `[aicpu exception]`
+   (`TS_ERROR_AICPU_EXCEPTION`) and the AICPU record's `errcode:` field (`enum
+   rtAICPUErrorType`, where `1` is a kernel-param rejection and `21001` the scheduler
+   layer, i.e. different owners): `references/hccl-and-hardware/
+   aicpu-task-exception-empty-kernel.md` carries both tables and the file paths. That
+   name is the lane: `507010` =
    `LOST_HEARTBEAT` "ts lost heartbeat", `507014/507015/507016` = aicore timeout/exception/
    trap, so such a paste has no vllm-ascend cause to find
-   (`references/hccl-and-hardware/device-health-checks.md`). Two of its answers change the
+   (`references/hccl-and-hardware/device-health-checks.md`). Three of its answers change the
    lane outright:
    `7 = HCCL_E_UNAVAIL` beside `EJ0001` means **the previous process is still alive**
-   (sleep mode, an engine that never exited), not a parameter or NIC fault; and `EI0006`'s
+   (sleep mode, an engine that never exited), not a parameter or NIC fault; the same `7`
+   with `tsd client wait response fail` / `check hdc service` is the host driver-firmware
+   pairing instead (`references/hccl-and-hardware/comm-create-errors.md` §*Code 7 with
+   the `tsd … check hdc service` line*); and `EI0006`'s
    solution text names `HCCL_CONNECT_TIMEOUT` before any link theory. When
    the reported title is the end of a
    chain (`Failed to infer device type`, `Failed to load plugin ascend`), the owning

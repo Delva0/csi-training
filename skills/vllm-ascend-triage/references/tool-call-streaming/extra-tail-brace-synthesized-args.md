@@ -78,9 +78,21 @@ The reporter's `tools` schema decides whether this path is open: without a decla
 ## 4. The checks, cheapest first
 
 1. **`stream: false` on the same body** (plus `return_token_ids: true` on the streamed
-   one). The non-streaming path parses the whole text once through `extract_tool_calls`;
-   a single `}` there moves the owner to the model's own text / decoding, two `}` keeps
-   it in the synthesized-close lane.
+   one). Both paths run the **same** state machine, so this rung removes the *chunk
+   boundary*, not the parser: `extract_tool_calls` (`:1163`) calls
+   `self.parser.parse_single_streaming_chunks(model_output)` (`:1173`) with the whole
+   text as one chunk, and the streaming entry point is `:1228`. Read the brace count
+   off the **non-streamed** `arguments`, where one `}` is balanced:
+   - **still one extra `}`** ⇒ the chunk-local `</function>` fallback (`:105-137`,
+     whose `has_function_close` scans only the deltas of the current chunk) is not the
+     emitter. What remains is chunk-independent: the model's own text / the unquoted
+     numeric-parameter passthrough (`:1078-1093`, `:1105-1113`), or — when one response
+     carries two calls — the new-`<tool_call>` guard on a residual
+     `current_function_name` (`:270-283`). Rung 2 separates model text from both.
+   - **balanced again (the extra brace is gone)** ⇒ the emitter needs a chunk boundary,
+     i.e. that `</function>` fallback, and the `qwen3_xml` streaming state is the owner.
+   Do not read "the same braces as the stream" as "the parser is exonerated": the guard
+   at `:270-283` survives single-chunk input.
 2. **Drop `--tool-call-parser`** (and `--enable-auto-tool-choice`): the raw
    `<tool_call><function=…><parameter=…>` text then appears in `content`, so whether the
    model itself wrote the extra `}` before `</parameter>` is visible in one request.

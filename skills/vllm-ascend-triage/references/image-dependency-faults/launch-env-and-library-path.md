@@ -71,13 +71,26 @@ Ask for the `~/.bashrc` grep before blaming the reporter's launcher: vllm-ascend
 `Dockerfile.a3:80-81`, `Dockerfile.openEuler:78-79`, `Dockerfile.310p:63-64`,
 `Dockerfile.a3.openEuler:78-79`, `Dockerfile.310p.openEuler:59-60` (v0.16.0rc1
 `a78a00e`; the same pair is at `:75-76`-ish in the v0.19.1rc2 tree of #12059, so this
-spans versions). Consequences to state, each checkable in one grep:
+spans versions). The boundary matters for #6949's own pin, v0.15.0rc1 `3d43ed99`: there
+the second half does not exist yet — `rg -n '/usr/local/lib|ldconfig' Dockerfile*` returns
+nothing, and all six variants write **only** `LD_PRELOAD` (`Dockerfile:81`, `.a3:80`,
+`.openEuler:78`, `.310p:63`, `.a3.openEuler:78`, `.310p.openEuler:59`). That image also
+`make install`s mooncake itself (`ARG MOONCAKE_TAG="v0.3.8.post1"` `:21`, clone `:37`,
+`cmake .. -DUSE_ASCEND_DIRECT=ON && make install` `:43-44`) into the default
+`/usr/local/lib`, and runs no `ldconfig` afterwards (whether the base image's cache lists
+that directory is not in this snapshot). So on a v0.15.0rc1 build nothing in the recipe
+puts the plugin's directory on the loader path, the reporter's one-line export is the
+expected outcome rather than evidence of a broken image, and a reporter who finds no
+`/usr/local/lib` line at `:82` is on a pin that predates it (`3d43ed99`-era), not on one
+whose `~/.bashrc` was trimmed — read the pin before calling the grep result a defect.
+Consequences to state, each checkable in one grep:
 
 - **The image's own default start never gets them.** `CMD ["/bin/bash"]`
-  (`Dockerfile:84` and its siblings) without a TTY is non-interactive, so bash skips
+  (`Dockerfile:84` at v0.16.0rc1, `:83` at `3d43ed99`, and its siblings) without a TTY
+  is non-interactive, so bash skips
   `.bashrc`; `docker run <image>`, k8s and CI are all in that state. The advertised
   default is broken by the same mechanism as `--entrypoint`.
-- **The values are frozen at build time.** Both lines are `RUN echo "…$VAR…" >>
+- **The values are frozen at build time.** Each such line is `RUN echo "…$VAR…" >>
   ~/.bashrc`, executed by `/bin/sh -c`, so `$LD_LIBRARY_PATH` is whatever the base
   image's `ENV` held (`FROM quay.io/ascend/cann:…`, `Dockerfile:18`; there is no
   `ENV LD_*` in the recipe) and `$LD_PRELOAD` expands empty — the visible artifact is

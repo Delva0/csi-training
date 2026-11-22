@@ -207,13 +207,32 @@ beside it — the family is older than the v0.19 regression reading.
   upstream's tuple is `(shared_out, fused_out)` (`fused_moe/shared_fused_moe.py:58`) and the
   downstream override keeps that order (`vllm_ascend/ops/fused_moe/fused_moe.py:752` at
   v0.18.0rc1 `99e1ea0f`). `shared_out` is computed from the MoE block's **input** rows
-  (`:743`; the `multistream_overlap_gate` branch does the same *before* `prepare` at `:491`),
+  (`:743`; the separate `multistream_overlap_gate` branch computes the same tensor
+  *before* `prepare` at `:452-468`),
   and `shared_expert*` prefixes are excluded from both SP op selections (`linear_op.py:638`,
   `:681`), so **`a` in the paste is the block's input row count and `b` is the routed
   count after prepare/finalize**. #7996's `a = 4096`, `b = 8192` therefore says: the input
   arrived TP-sharded, and the routed side gained rows in prepare without losing them in
   finalize. Two prints, no gate walk: the row count entering the block, and which
   `finalize()` branch ran (`prepare_finalize.py:436-437`).
+- **Read the reporter's `--additional-config` before naming the producer: two similarly
+  named keys move `shared_out` onto another stream, and only one computes it early.**
+  `multistream_overlap_shared_expert` (`ascend_config.py:87`) switches
+  `_forward_shared_experts` onto `shared_experts_calculation_stream`
+  (`ops/fused_moe/fused_moe.py:585-586`, `:693`); `multistream_overlap_gate`
+  (`ascend_config.py:88`) computes it on `gate_stream` before `prepare` (`:452-468`) and the
+  return path then reads it back from the flash-common-3 context (`:738-746`). Inside the
+  gate branch an `ALLTOALL`/`MC2`/`FUSED_MC2` comm type with `shared_expert_dp` off
+  additionally all-reduces `shared_out` (`:462-467`) — **shape-preserving, so neither key
+  can move the row count and neither is a verdict**; each is one flag of a re-run, together
+  with `VLLM_ASCEND_ENABLE_FUSED_MC2`, which selects that comm type. The first key also
+  divides `max_num_batch_sizes` under `HCCL_OP_EXPANSION_MODE=AIV`
+  (`utils.py:512` in `parallel_factor`, `:526` the floor), i.e. it shortens the ACL-graph
+  capture list — a second observable effect of the same single flag. #7996's own command
+  carried `multistream_overlap_shared_expert: true` **and** `VLLM_ASCEND_ENABLE_FUSED_MC2=1`,
+  which the readings above never named: the replay added it as the fourth rung of that ladder
+  (after the FC1-off ablation, the finalize-branch print and the layer-entry row print) and
+  still shipped in 8 assistant turns / 12.0 K completion tokens.
 - **`use_sequence_parallel_moe` needs DP > 1, so the model's own chunk is not the
   sharder in a single-DP command.** `is_sequence_parallel` is
   `parallel_config.use_sequence_parallel_moe` (`qwen3_next.py:268`), which requires an

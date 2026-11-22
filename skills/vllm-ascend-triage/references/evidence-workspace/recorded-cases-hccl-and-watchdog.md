@@ -457,9 +457,18 @@ was whether the comm existed at all: the reporter's later full-card plogs open w
 `LINK_ERROR_INFO` table (device[7], port 16666, one `time out` peer and seven
 `connecting`), i.e. `ret = 4` from `HcclAllocComResourceByTiling` wraps a link timeout and
 no budget lever applies. The maintainer's own reply says the aclnn error
-"不一定是根因". Delivery: 12 assistant turns, 39 K characters of reasoning, **one**
+"不一定是根因". The thread's public tail: the reporter uploaded `log0.zip` / `log1.zip`
+(per node: an interconnect test log, the startup log and the plog) on the day of the
+first request, the maintainer quoted the `ret[9]` block back and asked for a
+connectivity check, and the reporter answered with a card-to-card `ping` sweep of all
+8 dies — so what remains to ask is the port/listener state, not the logs
+(`../hccl-and-hardware/link-establish-timeout.md` §*A `ping` between the cards is not
+the check*). Delivery: 12 assistant turns, 39 K characters of reasoning, **one**
 partial message (2.9 K) that was cut mid-answer, after it had verified everything except
-this. Pages: `../hccl-and-hardware/link-establish-timeout.md` (new),
+this; the replay of this case reached the owning page on its 4th tool block and shipped
+5.5 K characters — verdict, both wrapper codes and a five-rung ladder — before being cut
+inside rung 5, the order surviving only because it was in the first paragraph. Pages:
+`../hccl-and-hardware/link-establish-timeout.md` (new),
 `../startup-failures/environment-correspondence.md` (the `collect_env` ENV filter that
 makes the missing `HCCL_*` block meaningless).
 
@@ -564,7 +573,10 @@ separation in `../hccl-and-hardware/comm-create-errors.md` §code 7.
 **#8975** — vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be96`), CANN 8.5.1,
 8×910B / 16 dies with both engines' `VLLMWorker_DP` ranks resident, a P/D deployment:
 偶发性卡死, the API server still listening, `curl` returning nothing, `AICore 0 %` on every
-chip. The body was a Feishu link plus a QR image — no log at all. The recorded run ranked
+chip. The body was a Feishu link plus a QR image — no log at all. **The same body was filed
+twice and is also issue #8974**, so `rg -n '#8974'` must land here: match this entry by its
+quoted wording (the Feishu link + QR, the 16-die DP host, the pin pair), not by the number,
+and take the lane below rather than re-deriving it. The recorded run ranked
 the **host-side** DP barrier `dist.all_reduce(…, group=get_dp_group().cpu_group)`
 (`worker/model_runner_v1.py:512-552`) as cause #1 on the strength of "AICore 0 ⇒ no kernel
 ran ⇒ the host is stuck"; the follow-up plog showed a **device-side** MC2 AlltoAll deadlock:

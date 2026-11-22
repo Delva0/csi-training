@@ -179,7 +179,9 @@ this before your first grep in a new case. Inherit the rules in SKILL.md.
   four reasoning patterns that consume a session (the archaeology loop, the late plan,
   the ownership hunt and the "one more angle" source walk). Read it when a report has
   more than two plausible mechanisms or when the report is "a flag did nothing"; its
-  per-session evidence table is `delivery-recorded-sessions.md`.
+  per-session evidence tables are `delivery-recorded-sessions.md` (first runs and their
+  outcome) and `delivery-recorded-sessions-replays.md` (repeats of a paste the library
+  already held).
 - `version-contract.md` — rule 5's other half: the doc-URL/`latest` question, a
   title/body release disagreement, a dependency's **patch** release (and the release
   that pins the broken one), the image recipe that installs its own pairing, a mixed

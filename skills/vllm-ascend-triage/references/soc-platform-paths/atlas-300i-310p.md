@@ -151,8 +151,8 @@ recorded for #1684 (`vllm-ascend:v0.9.1rc1-310p`, Atlas 300I Duo, Qwen2.5-VL-7B
 and -32B, no log — a pure status question). The reporter has no traceback, so the
 verdict comes from the docs at that pin and from one code fact, not from a walk of
 the rope implementation. Deliver it first: **no statement at this pin validates a
-VL model on 300I, and the 32B does not fit one Duo card** — then the two
-ablation-sized facts below.
+VL model on 300I, and the 32B cannot fit a single die (a Duo card is two dies, ~44 GB
+each)** — then the two ablation-sized facts below.
 
 At a v0.9.x pin **the docs tree has a different shape**, and grepping the layout
 you remember wastes calls: `docs/source/tutorials/` is flat (`single_npu.md`,
@@ -200,13 +200,27 @@ registered unconditionally at this pin (`vllm_ascend/models/__init__.py:11-13,
 23-31`, padded and without-padding variants). Grade the pair **unvalidated**, not
 unsupported-by-code, and say which of the two you mean.
 
-**Sizing decides the 32B before any rope question.** 7B at bf16 is ~15 GB and the
-pin's own 300I tutorial serves Qwen2.5-7B-Instruct on **2 cards**; 32B at bf16 is
-~64 GB, i.e. ~4× that footprint, so it needs several times that card count — a
-memory verdict plus `--max-model-len` arithmetic (`scripts/card-budget.sh`,
-`../startup-failures/max-model-len-budget.md`). Take the per-card HBM from the
-reporter's `npu-smi info`, not from a datasheet this snapshot cannot check, and
-state the arithmetic with the number you were given.
+**Sizing is a division, not a multiple of the tutorial's card count.** Take the
+per-die HBM from the reporter's own `npu-smi` rows, never from a datasheet this
+snapshot cannot check — #1141 prints four `310P3` dies at
+`1460 / 44280 MB`, so ~44.3 GB usable per die and two dies per Duo card — then divide
+the weight footprint by it: Qwen2.5-VL-7B fp16 is ≈16 GB and fits **one die** (the
+pin's 300I row for Qwen2.5-7B-Instruct runs `--tensor-parallel-size 2
+--gpu-memory-utilization 0.5`, i.e. a 22 GB per-die budget already above that
+footprint); Qwen2.5-VL-32B fp16 is ≈65 GB, i.e. 33 GB per die at TP=2 across the
+Duo's **two** dies — the same topology that row already runs — so it is near the
+limit, not "several times the cards". Never turn the tutorial's row into a floor
+(「7B 单卡大概率也不够」) or a multiplier (「32B 是 7B 的 4 倍，所以需要数倍卡数」):
+the recorded #1684 session wrote both to a reporter who owns one Duo, and neither
+follows from those 44 280 MB rows. That row also carries knobs the A2 VL tutorial has
+none of — `--disable-custom-all-reduce`, `--gpu-memory-utilization 0.5`,
+`--max-num-seqs 4`, `--max-model-len 1024`,
+`--compilation-config '{"custom_ops":["+rms_norm","+rotary_embedding"]}'` — so a VL
+launch made by changing only dtype and eager is a *derived* command, not that
+channel's: say so, keep the reporter's own util and `--max-model-len` from their HBM,
+and price the context from the same rows, stating the arithmetic with the number the
+reporter gave (`scripts/card-budget.sh`,
+`../startup-failures/max-model-len-budget.md`).
 
 The one grep that would change the answer is on a *later* pin, so name it as the
 recheck: a later `-310p` image carries the `_310p/` package (its gate list is in

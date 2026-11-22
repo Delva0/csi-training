@@ -20,6 +20,16 @@ also being claimed. Verified at vllm-ascend **v0.23.0.post1** (`1cdb8c4db6e5`) +
    `Available KV cache memory` ÷ the engine's `GPU KV cache size` token count (both printed at
    startup), or available KV ÷ (`num_blocks × --block-size`). A reporter who already did this
    has given you two measured numbers; the work left is the term list, not the total.
+   **Then check that the two numbers are the same row's.** The startup capacity check prices
+   *one* request at `--max-model-len` (`needs X GiB, available Y`), while the pool division
+   prices the tokens the engine actually allocated; when the reporter changed `--block-size`
+   or `enable_dsa_cp` between rows these disagree, and the gap is not a missing term.
+   Recorded #17616 carried both: `15.63 GiB` for 1 048 576 tokens ≈ **16.0 KB/token** from the
+   check against `12.57 GiB / 493 233` ≈ **27.4 KB/token** from the pool — 1.7× apart, from
+   rows that also differed `--block-size 128` vs `32` and `enable_dsa_cp` on vs off (step 4's
+   replication). Ask for `Available KV cache memory`, `GPU KV cache size` and `--block-size`
+   **per row** and price each row separately; inventing terms to close a cross-row gap is how
+   a sizing answer turns into a dtype theory.
 2. **Enumerate the kinds from the model file, per pin.** On a DSV4 serve there is no single KV
    spec: `rg -n 'def get_kv_cache_spec' vllm_ascend/models/deepseek_v4.py` returns
    `AscendDeepseekV4IndexerCache.get_kv_cache_spec` (`:152-169`, an

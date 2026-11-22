@@ -670,7 +670,10 @@ recommended widening the gate over the deletion. One correction left for this pa
 **only** for `method == 'deepseek_mtp'`, so the Qwen MTP batch at that ref reaches
 the branch as `ChunkedPrefill`/`DecodeOnly` and the "widen to `SpecDecoding`" patch
 as phrased would miss it. Page (new):
-`../performance-throughput/graph-mode-slower-than-eager.md`.
+`../performance-throughput/graph-mode-slower-than-eager.md`. A later replay delivered
+the corrected verdict but paid one call to `rg -n '_build_attn_state' -A 28 | head -45`,
+which prints only the call sites at `:1270`/`:1374` and stops before the definition —
+the `:1609-1633` range the page already prints is one `sed` away.
 
 **#770** reported vllm-ascend `v0.8.4rc2` ("[Usage]: 推理速度太慢"), snapshot pins
 vllm-ascend v0.8.5rc1 (`ec27af3`) + vllm v0.8.5.post1. The body was the template stub plus

@@ -193,7 +193,11 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   >0.1"*, after the same script had "failed from v0.7.3 to v0.11.0". So here the
   greedy row is the reproducing condition rather than the control that the
   `sampler-side-stream-corruption` / `repeated-run-nondeterminism` rules below
-  impose, and the first ladder rung *raises* the temperature. Read the pasted
+  impose, and the first ladder rung *raises* the temperature. **Check the sampler row
+  only after the layout row**: when the same body and the same `temperature: 0` answer
+  normally on another parallel layout (`--tensor-parallel-size 2` vs
+  `--tensor-parallel-size 1 --data-parallel-size 2`) the newline run is the DP replica,
+  not the sampling value (`dp-replica-degenerate-output.md`, #6671). Read the pasted
   `SamplingParams` as a claim about the run, not as the run: #7191's body names
   0.6 while its sample is the low-temperature one →
   `short-prompt-corruption.md` §*Grade the symptom first*. Recorded #892 is the same
@@ -401,6 +405,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   `[total_num_scheduled_tokens, with_prefill]`
   (`vllm_ascend/worker/model_runner_v1.py:547-559`) — and #1791's cause was never
   established: ask for the DP1/DP2 A/B with EP fixed instead of naming a kernel.
+  **The same replica lane when the symptom is the answer itself rather than a score**
+  — one body returning `content` made only of `\n` (or one repeated token) under
+  `--tensor-parallel-size 1 --data-parallel-size 2` while `--tensor-parallel-size 2`
+  answers it: `dp-replica-degenerate-output.md` (#6671, v0.14.0rc1, and the DP replica
+  plus a `FULL_DECODE_ONLY` capture list are the two axes there — one `--enforce-eager`
+  restart separates them).
 
 - **A corruption report whose only differing flag is `--enable-expert-parallel` (EP on =
   garbage, EP off = correct) is a reduce-contract question, not a kernel one.** On a MoE
@@ -568,6 +578,14 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   zero-restart row to run before any dtype/wheel restart: a damaged or mixed-revision
   **copy** of the checkpoint loads, serves and still emits one id (recorded #6136,
   fixed by the reporter's re-download).
+- `dp-replica-degenerate-output.md` — the same checkpoint and the same body answered with
+  `content` made only of `\n` (or one repeated token) under `--tensor-parallel-size 1
+  --data-parallel-size 2` while `--tensor-parallel-size 2` answers it (#6671, v0.14.0rc1):
+  the two axes (the DP replica and a `FULL_DECODE_ONLY` capture list) separated by one
+  `--enforce-eager` restart, the id-level `return_token_ids` grade before any source read,
+  the pin's DP MoE all-gather pad target (`max_tokens_across_dp` from a per-step CPU
+  all-reduce, skipped entirely at `dp_size == 1`), and why its only `tp1/dp2` + ACL-graph
+  e2e (`assert choices[0].text, "empty response"`) is liveness coverage, not correctness.
 - `first-generate-degenerate.md` — the first offline `LLM.generate()` is garbage
   (constant token id / immediate stop) or dies while call 2 is correct, on a
   hybrid GDN checkpoint of a VL-capable architecture at TP≥2: the response-field

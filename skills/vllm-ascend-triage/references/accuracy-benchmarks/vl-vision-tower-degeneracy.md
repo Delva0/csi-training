@@ -160,9 +160,13 @@ unrelated text** is this page's wrong-but-not-repeated surface with the *topolog
 axis. Recorded #5628: the request (served name `dotsocr`, shell working directory
 `…/models/Qwen/Qwen2.5-VL-7B-Instruct`) answered `请告诉我这张图片上有些什么？` with 18
 tokens of unrelated Chinese prose at HTTP 200, `prompt_tokens: 1424` (all figures read from
-the screenshot OCR), no error and no `null` content. Do not start in the connector or
+the screenshot OCR), no error, and a body that is present rather than `null`. Do not start in the connector or
 `kv_p2p/`: the answer is coherent text, so nothing here says the transfer failed, and the
-first question is whether the defect survives without the split.
+first question is whether the defect survives without the split. A reporter who describes
+the same runs as 「有时为null」 *and* as prose is naming the **empty half of one lane** — an
+unconditioned decode ends in an immediate EOS instead of a fluent guess — not a second
+fault: the rows below settle both, so do not split the report into two investigations
+(the mechanism for the empty half is a hypothesis, not the page's established one).
 
 - **The pinned tree ships a 1P1D single-node recipe on Qwen2.5-VL-7B**, so "VL is not
   supported under PD" is not the answer —
@@ -200,7 +204,13 @@ first question is whether the defect survives without the split.
   `Qwen2.5-VL-7B-Instruct` vs `dotsocr`).
 - Ask for: both serve commands, `usage.prompt_tokens` of one good and one bad run, and the
   same body against a non-PD instance. Two screenshots of the same image are one
-  observation — #5628's export held only the bad-result OCR under two file names.
+  observation — #5628's export held only the bad-result OCR under two file names — and the
+  reporter's later update (2026-01-06, 「更新精度下降时的图片」) added a further degraded-run
+  screenshot with still no command, log or token count, so the export is not the thread and
+  the ask does not shrink. Because that body's image is a remote `https` URL fetched per
+  request, the same image inlined (base64, or a `file://` path with
+  `--allowed-local-media-path`) removes a per-side fetch as a variable in one launch — a
+  control, not a mechanism.
 
 ### Random characters, not fluent prose (the same lane)
 
@@ -225,6 +235,23 @@ request at `:607`. A decode node that did not receive a feature payload therefor
 text-only positions for the image tokens and decodes garbage with no exception — the same
 file asserts `mm_features is not None` at `:1025` and `:1040` on the paths that *do* run a
 prompt forward, so PD's skipped forward is exactly where it goes quiet.
+
+Re-anchor that paragraph before citing it: at **v0.13.0rc1** (`1b5d5abf`) `vllm_ascend/`
+holds no `_init_mrope_positions`, no `mrope_position_delta` and no `mm_feature.data is
+None` (one `rg` over the package returns nothing — the whole VL path is upstream at that
+pin), so a report at or after it is answered from vllm `v0.13.0` (`72506c98`):
+`vllm/v1/worker/gpu_model_runner.py:1057` `_init_mrope_positions` → `:1065`
+`get_mrope_input_positions(prompt_token_ids, mm_features)` →
+`vllm/model_executor/models/qwen2_5_vl.py:1045`, whose
+`MultiModalFeatureSpec.gather_kwargs` (`vllm/multimodal/inputs.py:343-353`, with `:347-348`
+dropping every feature whose `data is None`) is the skip that contributes no
+`image_grid_thw`; the encoder batching skips the same features at
+`gpu_model_runner.py:2105` inside `_batch_mm_kwargs_from_scheduler` (`:2078`). The
+`mm_features is not None` asserts quoted above belong to the v0.11.0rc2 runner; at v0.13.0
+the only such assert upstream is `vllm/v1/core/sched/scheduler.py:903` on the scheduler's
+encoder-budget path, so do not quote `:1025`/`:1040` against a ≥v0.13 report. An empty
+downstream grep is the re-anchor, not a refutation: say where the skip lives now and keep
+the cause.
 
 Rows to add, one launch each, fixed prompt, `temperature: 0`:
 
@@ -314,8 +341,9 @@ worth quoting because it changes what the older precedent can be used for:
 - **`USE_OPTIMIZED_MODEL` now gates that activation pad, so row 1 is live for
   Qwen3-VL at this pin and later** — the opposite of the fourth pin's registry gate.
   `enable_pad` reads it (`ops/mm_encoder_attention.py:101-103` here, `:102` at
-  v0.14.0rc1; `vllm_ascend/envs.py:71`, default `1`) and the substitution is by
-  class *name* through
+  v0.14.0rc1; `vllm_ascend/envs.py:79-80` at `1b5d5abf`, default `1` — the dict entry moves
+  between rcs, so grep `USE_OPTIMIZED_MODEL` rather than a line number) and the substitution
+  is by class *name* through
   `vllm_ascend/utils.py`'s OOT table (`"MMEncoderAttention": AscendMMEncoderAttention`
   at `:716`; the 310P pair at `:731`) — verified at vllm-ascend v0.14.0rc1
   (`52d4acf`, the #6525 pin; the table line is `:697` at v0.13.0rc1, so re-grep it).
@@ -326,6 +354,10 @@ worth quoting because it changes what the older precedent can be used for:
 - Consequence: **#976's "multi-card ViT qkv weights are zero"** mechanism cannot be
   quoted at this pin; only its symptom shape (TP-sensitive vision path) transfers.
   Say that in the answer instead of citing the weight-pad fix.
+- The decode-side position machinery is **upstream** at this pin too: re-grep
+  `_init_mrope_positions|mrope_position_delta|mm_feature.data is None` in `vllm_ascend/`
+  (empty here) before quoting any downstream line for it, and cite the upstream sites
+  listed in §*PD/EPD split*'s re-anchor paragraph instead.
 
 ## Third pin: v0.17.0rc1 — the ViT sharding lever is `--mm-encoder-tp-mode`
 

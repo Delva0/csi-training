@@ -11,6 +11,14 @@ signature index (`../../first-checks/signature-routes/index.md`) routes by signa
 topical pages by track, and `scripts/history-titles.sh '<regex>'` by earlier-issue
 title.
 
+**Publication ceiling when you edit these pages:** the harness refuses any file whose
+content exceeds 100 000 characters, and `recorded-cases-accuracy-and-output.md`
+already stands at 101 427 — a write to it fails outright, so route a new accuracy
+case to a shorter sibling or replace text in place rather than appending.
+`../first-checks/signature-routes/startup-and-load.md` is within ~110 characters of
+the same wall, so a row there must be tightened in the same edit that grows it.
+Entries that keep growing belong in a content page, not in an index.
+
 The entries are split by track family into the six pages below, one index line per
 case: the version, the symptom, and — where the case has a topical page — a
 `../../<topic>/<page>.md` pointer. A line that ends in `…` is a condensed index
@@ -19,7 +27,7 @@ line, so read that page before quoting the case. A line that stops at a full sto
 complete as written. Where the recorded session's ending is the point, the line
 keeps it in a `(run: …)` marker — `no answer shipped`, `cut mid-answer` — because
 that is the delivery axis rule 1 turns on; the turn counts and sizes are in the
-family page and in `../delivery-recorded-sessions.md`. Open the page whose track matches the
+family page and in `../delivery-recorded-sessions.md` / `../delivery-recorded-sessions-replays.md`. Open the page whose track matches the
 classified shape, or `rg -n '#8826'` across this directory. A new report's issue id is
 unknown, so search it with the **paste's own** token (the error sentence, the op or
 kernel name, the numeric code) before the first source read: a line that matches on

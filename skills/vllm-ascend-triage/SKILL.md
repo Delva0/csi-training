@@ -74,8 +74,9 @@ the turn the shape is classified, not a second copy of it here.
    whether the message exists. The runs that shipped **no answer at all** each had a
    usable lead in hand (#1255/#5772 the owning line, #2807/#15394 every fact of a
    ranked answer, #4296 one traceback), while the thinnest wrote 0-2 234 characters
-   against 43-48 K of reasoning (the id/count table is in
-   `delivery-recorded-sessions.md`), the newest **#18691 nothing** (21 turns / 34 tool
+   against 43-48 K of reasoning (the id/count tables are in
+   `delivery-recorded-sessions.md` and its replay sibling
+   `delivery-recorded-sessions-replays.md`), the newest **#18691 nothing** (21 turns / 34 tool
    results) with the decisive correction — a `/health` 200 is not liveness — already on
    its tenth turn. Each ended on a reasoning block with no message and no tool call: the
    cap landed on the answer's shape. Per-run ids, counts and cut points: `delivery-discipline.md`,
@@ -90,7 +91,10 @@ the turn the shape is classified, not a second copy of it here.
    further checks confirm or correct a named claim — or drop them. The recorded
    undoing is *verification as a precondition*: **#5605 was cut twice**, the second
    run holding its ladder by turn six before source-verifying citations from another
-   pin in 8-12 K-character blocks and shipping no text. A page whose Scope names
+   pin in 8-12 K-character blocks and shipping no text, and **#5628 once** — its own
+   page matched on turn 9 and the four turns after it went into re-anchoring one
+   *moved* symbol plus expanding the ranking, ending at the 16 384-token cap with an
+   empty final message. A page whose Scope names
    another ref is still the case: send the ladder with its confidence labels, then
    append each recheck as a two-line correction.
    Hard stops:
@@ -105,7 +109,16 @@ the turn the shape is classified, not a second copy of it here.
      read" is **not** G2: a recorded run wrote text on all 13 turns that way (43 K of
      reasoning against 2.9 K of text) and ended on an empty final message.
    - **G3 — 12th assistant turn:** answer text only; no reasoning, no tool call,
-     no "one more thing".
+     no "one more thing". **If the ranked answer already shipped, that turn is its
+     delta and never a re-issue**: 2-4 lines naming the one fact and the rung it
+     changes. A "consolidated / final answer" restating the shipped ranking spends the
+     rest of the cap on a second copy, and the copy is what gets cut — recorded #15927's
+     replay delivered the whole ranking on its 11th turn, opened the 12th planning
+     "a consolidated final answer … complete, with the corrected point 3", and the cap
+     landed after **60 characters**, so the delivered answer stayed the uncorrected one
+     (recorded #5227's follow-up turn is the same miss;
+     `references/evidence-workspace/delivery-discipline.md`, *a follow-up turn is a
+     delta turn*).
    - **A new user turn restarts the gates, as a delta turn.** Answer only what the
      reply changes — lane, artefact, cheapest rung — before fresh source work, with
      `rg -n '<the new token>'` against `references/` as the one call that finds the
@@ -226,6 +239,12 @@ the turn the shape is classified, not a second copy of it here.
    grep at the tree in your hand before ranking that defect. Presence claims and
    absence claims both belong to the pin they were seen at (recorded #12339,
    `references/pd-disaggregation/hybrid-state-transfer.md`).
+   When that re-grep comes back **empty because the code moved** (the VL path left
+   `vllm_ascend/models/` for upstream at v0.13.0rc1, taking `_init_mrope_positions`
+   with it), it is a re-pointed citation, not a refuted cause: name the new site in the
+   version-scope line and keep the ladder instead of re-deriving the mechanism
+   (`references/accuracy-benchmarks/vl-vision-tower-degeneracy.md` §*PD/EPD split*;
+   recorded #5628 spent its remaining budget on that substitution and shipped nothing).
    **A page's *rank order* can rest on an arithmetic, and that arithmetic is pin-bound
    too**: before quoting a ladder that turns on a division, a chunk split or a token
    gate, recompute it from the pin's own source — one read, and it is the step that
@@ -380,109 +399,47 @@ the turn the shape is classified, not a second copy of it here.
     of the answer, and the task environment asks you to flag stale/incomplete
     knowledge. Missing lines are a data gap, not a fact.
 11. **A log sentence — or a `/health` 200 — is not a diagnosis: some of them are
-    fixed wrapper text.** vllm-ascend
-    logs canned advice inside `except` blocks and re-raises, so the sentence names a
-    cause the code never checked — the `ACLgraph has insufficient available streams
-    … Recommended solutions` block prints for *any* capture exception
-    (`model_runner_v1.py:3553-3565` at v0.11.0rc0, `:3143-3152` retCode-gated at
-    v0.12.0rc1, absent at v0.18.0rc1, back `207008`-gated by v0.21+: re-grep per
-    version) — so **classify the appended error, not the wrapper**: Step 2 of
-    `references/startup-failures/acl-graph-capture.md` sends a collective/transport code
-    (`EI0006 … Remote Rank did not send the data in time` inside an `HcclAllreduce`, the
-    `[Create][DestLink]Create Dest error!` beside it), a plain Python exception, a
-    synchronize refusal (`107027`), a capture-mode copy (`107030`) and an aclop refusal
-    each to its own page, while `capture-stream-table-exhaustion.md`'s stream arithmetic
-    applies only when that inner line is the capture-begin resource refusal (`207005` /
-    `Alloc sq cq fail` / `stream_id=…`). Its "Recommended solution 2" is a lever a
-    pooling serve refuses, so price a logged recommendation against the engine's own
-    gates before repeating it
-    (`references/startup-failures/capture-stream-table-exhaustion.md` §4). Before
-    adopting a log's own explanation, `rg -n '<fragment>'
-    vllm_ascend/` — and in the upstream `vllm/` tree when that comes back empty, since
-    a message naming triton/torch internals is usually upstream's: `Failed to import
-    Triton kernels … please make sure your triton version is compatible` is vllm's
-    `logger.error` around an optional `triton_kernels` import, so its advice names the
-    action the reporter already tried and the crash is elsewhere
-    (`references/image-dependency-faults/triton-kernels-import-error.md`) — and read
-    the emitting site: an `except Exception` that appends
-    `{str(e)}` and re-raises carries the inner error as evidence, not the wrapper.
-    Same family as procedure step 3's sync-point trap: where an error surfaced is
-    not necessarily its owner. **One member of the family is a warning that names a
-    harmless feature**: `Failed to import vllm_ascend_C:<tail>. Sleep mode will be
-    disabled.` reads as a sleep-mode notice, but an extension that never imported
-    registers **no** `_C_ascend` op, so the `AttributeError: '_OpNamespace'
-    '_C_ascend' object has no attribute '<op>'` that follows — at a request *or* in
-    the memory-profiling dummy run — names whichever op was reached first, never an
-    unsupported one (#3342/#3090 `weak_ref_tensor`, #6527 `moe_gating_top_k`). Read
-    that warning's **tail** before ranking the op: `No module named …` = no `.so` in
-    the image, `: undefined symbol: …` = present and refused by a SoC source-list
-    gate (`references/image-dependency-faults/custom-op-extension-missing-from-image.md`,
-    Step 0). CANN prints the same kind of wrapper under the code:
-    `[Error]: Failed to apply for memory.` / `Check the remaining storage space in the
-    hardware environment` + `EL0006 … resources are insufficient` is the canned text of
-    a *resource-alloc* refusal (`207005`), so read the `[SqCqManage]Alloc sq cq fail …`
-    line under it before treating such a paste as an HBM, disk or container-size report
-    (`references/startup-failures/capture-stream-table-exhaustion.md`).
-    The rule covers *advice* too: `Cannot run aclop operators during NPU graph capture …
-    please try to set torch.npu.config.allow_internal_format = False` is torch_npu's
-    capture guard quoting a suggestion, and vllm-ascend assigns that option `True` at
-    import (`worker/model_runner_v1.py:138` at v0.11.0rc0, `:154` at v0.18.0rc1), so it
-    cannot be applied from the launch shell; the op named in the message is the subject
-    and the FX trace beside it names the owner
-    (`references/startup-failures/aclop-op-during-graph-capture.md`).
-    The same rule covers the multiproc wrapper, in the one direction that changes what
-    you ask for: `WorkerProc failed to start.` is `logger.exception`
-    (`vllm/v1/executor/multiproc_executor.py:749` at vllm v0.14.1), so the rank's whole
-    stack is printed **below** it, every line under that same
-    `[multiproc_executor.py:749]` prefix — ask for the block below the line, not above
-    it. When the paste cannot carry that block at all (a screenshot whose `*.ocr.txt`
-    is noise, a title-only report), the wrapper is all the evidence there is: classify
-    from the serve path's own tokens — a quant variant in the model directory
-    (`…-W8A8`, `…-w8a8_dynamic`) decides the lane — and put the traceback request in
-    the answer. Two quant lanes start there, and the launch line separates them before
-    any page read: **no** `--quantization ascend` / `quantization="ascend"` anywhere in
-    the command is the gate that never fires (the msmodelslim export's `config.json`
-    carries no `quantization_config` on purpose, so upstream's auto-detect cannot fire
-    and a dense engine meets int8 tensors — the quant gate's §B
-    (`references/startup-failures/quantization-method-gate.md`), recorded #2015, where
-    the pin's `DeepSeek R1 ✅` row says nothing about it), while the aux-key family
-    (`…weight_scale`, `w2_weight_offset` —
-    `references/startup-failures/weight-scale-keyerror-quant-variant.md`) needs a
-    traceback that names such a key.
-    Reading `supported_models.md` first is the recorded detour: the flag, not the model
-    row, is the discriminator. **The oddest flag in the command is not a
-    substitute**: `--mm_processor_cache_type shm` ranks only with its own
-    `Data for address:id …` string. Recorded #7744 demoted that flag correctly and
-    still led with the wrong lever — "the `--quantization ascend` flag is missing" — on
-    a load-phase `KeyError: 'layers.37.mlp.experts.w2_weight_offset'`, while its
-    resolution was the newer tag (reporter-confirmed `v0.17.0rc1`). So price a
-    flag-omitted verdict against the model dir's own `quantization_config` first: the
-    override only *renames* an existing `quant_method`, and the VL-MoE expert branch is
-    still unguarded at v0.18.0, so a flag-omitted engine fails the same way on the newer
-    tag (item 4 of
-    `references/startup-failures/weight-scale-keyerror-quant-variant.md`
-    §*The VL-MoE offset form*;
-    `references/startup-failures/silent-worker-exit.md`). **Check a suspect env var
-    against the pin's own default before calling it the reporter's knob** —
-    `rg -n '<ENV>' vllm_ascend/envs.py` — because a launch line that restates the
-    default carries no information about the fault (`VLLM_ASCEND_ENABLE_MLAPO=1` is the
-    default at v0.14.0rc1 `envs.py:95-99` and v0.18.0rc1 `:82-86`, and the tutorials
-    export the same), while `=0` on that key is still a legitimate one-launch ablation;
-    recorded #7015 shipped "你自己加的非默认开关" for exactly that line
-    (`references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md`, refuted rows).
-    **A 200 from `/health` is the same kind of wrapper where it decides a verdict**: on
-    vllm v0.23.0 the route reads frontend flags only — `errored` =
-    `engine_dead or not is_running(output_handler)`
-    (`async_llm.py:900-903,1045-1055` behind `health.py:30-34`) — while the executor's
-    real `check_health` RPC (`multiproc_executor.py:491-493`) has **no caller**
-    (`rg -n 'check_health' vllm/`) and could not be answered anyway (`worker_busy_loop`
-    serves one RPC at a time, `:969-997`), so a worker blocked mid-step looks healthy
-    for the RPC deadline. One grep settles it per pin (v0.18.0 `async_llm.py:874-877`;
-    an older release does reach a 10 s probe, `rpc-watchdog-timeouts.md`); then say
-    "health is not a liveness probe here" once, with the lines — not another poll, not a
-    health-defect row: `references/scheduler-admission/background-helper-death-wedge.md`
-    (#18691, a dead Dynamic-EPLB planner subprocess; its `platform.py:1275-1282` floor
-    also makes a launch-side `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=8` inert).
+    fixed wrapper text.** vllm-ascend logs canned advice inside `except` blocks and
+    re-raises, so the sentence names a cause the code never checked: classify the
+    **appended** error, not the wrapper. The `ACLgraph has insufficient available
+    streams … Recommended solutions` block prints for *any* capture exception (its
+    line numbers and gates move per pin), and its "solution 2" is a lever a pooling
+    serve refuses — Step 2 of `references/startup-failures/acl-graph-capture.md`
+    sends each appended code to its own page. Before adopting a log's own
+    explanation, `rg -n '<fragment>' vllm_ascend/` then the upstream `vllm/` tree (a
+    message naming triton/torch internals is usually upstream's), and read the
+    emitting site: an `except Exception` that appends `{str(e)}` carries the inner
+    error as evidence, not the wrapper.
+    Four members of the family, one line each: `Failed to import vllm_ascend_C:<tail>`
+    names a missing or refused `.so`, and the tail decides which
+    (`references/image-dependency-faults/custom-op-extension-missing-from-image.md`
+    Step 0); CANN's `Failed to apply for memory … resources are insufficient` is a
+    stream-pool refusal, not HBM or disk
+    (`references/startup-failures/capture-stream-table-exhaustion.md`); torch_npu's
+    `Cannot run aclop operators during NPU graph capture …` is a suggestion the
+    plugin makes inapplicable at import
+    (`references/startup-failures/aclop-op-during-graph-capture.md`); and
+    `WorkerProc failed to start.` is `logger.exception`, so the rank's whole stack is
+    printed **below** that prefix — ask for the block below it, and classify a
+    wrapper-only paste from the serve path's own tokens, where a quant variant in the
+    model directory picks the lane
+    (`references/startup-failures/quantization-method-gate.md` §B, then
+    `weight-scale-keyerror-quant-variant.md`).
+    **The oddest flag in the command is not a substitute**: `--mm_processor_cache_type
+    shm` ranks only with its own string, and a flag-omitted verdict is priced against
+    the model dir's `quantization_config` first (recorded #7744). **Check a suspect
+    env var against the pin's default** (`rg -n '<ENV>' vllm_ascend/envs.py`): a
+    launch line that restates the default carries no information
+    (`VLLM_ASCEND_ENABLE_MLAPO=1` is the default at both v0.14.0rc1 and v0.18.0rc1),
+    while `=0` on that key is still a legitimate ablation (recorded #7015). **A
+    `/health` 200 is the same kind of wrapper**: on vllm v0.23.0 the route reads
+    frontend flags only and the executor's `check_health` RPC has no caller, so a
+    worker blocked mid-step looks healthy — say it once with the lines and do not
+    build a health-defect row
+    (`references/scheduler-admission/background-helper-death-wedge.md`, #18691).
+    The quoted lines, per-pin sites and recorded ids for every item are
+    `references/observability-and-logs/wrapper-text-vs-owner.md`; read it when the
+    paste's decisive line is one of these sentences.
 12. **A crash inside a native module the image installed is an environment
     question, and it is answerable without that module's source.** Three forms — a
     `python -c "import <pkg>"` glibc allocator abort, `std::logic_error` /
@@ -581,7 +538,14 @@ the turn the shape is classified, not a second copy of it here.
     the other way, so price each step from those rows before writing any GB figure:
     `Δ × total` per card — 0.85→0.80 on the 32768 MB 910B4 rows is ≈1.6 GB, while
     the #8809 replay wrote 「每卡空出 ~6.5 GB」 for exactly that step, 4× off and
-    contradicted by arithmetic the reader has in the same paste. Then map each
+    contradicted by arithmetic the reader has in the same paste. **A card-count
+    verdict is that same division read the other way** — weights ÷ the paste's per-die
+    HBM — and the tutorial's card count for that weight set is its *validated*
+    configuration, neither a floor (「7B 单卡大概率也不够」) nor a multiplier (「32B 是 7B
+    的 4 倍，所以需要数倍卡数」); the recorded #1684 session wrote both to a reporter
+    who owns one Duo, and a single `npu-smi` row refutes each
+    (`references/soc-platform-paths/atlas-300i-310p.md` §*A capability question at an
+    old pin*). Then map each
     enforced constraint to the error text it raises, so the reporter can place their
     own two errors, and stage the experiment one axis per launch. Three turns,
     `references/feature-enable-recipes/index.md`. Three traps: a pinned doc's narrower
@@ -622,8 +586,16 @@ the turn the shape is classified, not a second copy of it here.
     predicts the working path failing is not yet the answer: name the difference
     first and rank the mechanism below it, with the log line or ablation that
     separates them (#1534 ranked a plugin fix above the working `vllm serve` path and
-    left the follow-up unanswered; which path compiled and which process loaded the
-    plugin: `references/image-dependency-faults/mindie-turbo-graph-break.md`).
+    left both follow-ups to the next round — whether the serving entry point simply
+    runs no acl graph, and which optional-plugin version pairs with the reported
+    release — though the entry point is not a knob at all: one
+    `check_and_update_config` gate, the same V1 selection, and a dummy forward
+    *inside engine init* on both paths; and a pairing question about a reported
+    release is read from the **newest** export, whose compatibility matrix
+    accumulates rows and whose release notes record the retirement, never "the
+    pinned tree cannot answer this":
+    `references/image-dependency-faults/mindie-turbo-graph-break.md` §3-§4,
+    `references/startup-failures/environment-correspondence.md`).
     **The same test governs your own ablations and every control the report offers**:
     an ablation only rules out a phase it actually removes and its own log line has to
     be in the paste (`--enforce-eager` is neither universal nor free, and
@@ -646,9 +618,13 @@ the turn the shape is classified, not a second copy of it here.
     named lever against the pin (`scripts/env-knob-liveness.py`; `ABSENT` ends it) and
     each cited log line's emit site first (#10700: a name no tree defines, and a
     `warning_once` on the default config); and a control the reporter only *asserts* —
-    another platform, a healthy node, a direct `curl`, a repro over lower-level primitives —
-    is a premise, not a finding, so build the ranking so it holds if the premise is
-    false. `references/dispatch/controls-and-ablation.md` carries the seven forms, the
+    another platform, a healthy node, a direct `curl`, a `ping` sweep between the two
+    nodes' dies, a repro over lower-level primitives — is a premise, not a finding, so
+    build the ranking so it holds if the premise is false, and name the one command that
+    would turn it into a finding (the `ping` case: ICMP says nothing about the TCP
+    control port HCCL dials —
+    `references/hccl-and-hardware/link-establish-timeout.md`).
+    `references/dispatch/controls-and-ablation.md` carries the seven forms, the
     pin splits that make an ablation inert, and the recorded cost of each (#2763,
     #13964, #10910, #9447, #15527, #13688, #10700).
 16. **A release candidate's experimental mode is a version question before it is a
@@ -884,7 +860,11 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    path, then the near-miss grades. **Read that all-token list to its last line**: the
    all-token grade prints every member when it has at most 25, while near-miss grades
    cap at 8, and `[case]` aggregates sort first, so the owner is often the tail (#6972:
-   13 members; the owning page was in the five a capped list hid). A flag is a token as
+   13 members; the owning page was in the five a capped list hid). **Never cap that
+   printout's line count**: a 13-member ALL list plus the grades below it runs past 80
+   lines, and the grades are where the owner sits — recorded #6671's call was cut at a
+   `[row]` line, its owner (`accuracy-benchmarks/index.md`) sat in a grade the cap
+   removed, and ~15 hand greps followed. A flag is a token as
    written (`'--compilation-config'`). The page on every list is the
    owning page; one list is periphery (membership in all = the case, rule 8), and the
    heading chooses between four candidates without opening them. Two hand-run
@@ -894,8 +874,8 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    A `[case]` line ends with the entry sharing most tokens — `→ #12985:488 (3/3)`:
    `sed -n '488,528p'` on that path is the case history, and its ladder is the
    message — open it even when the heading reads as another model's case
-   (`references/evidence-workspace/delivery-recorded-sessions.md`: #12985's second
-   session saw the `[case]` file first, opened no entry, and shipped no text).
+   (`references/evidence-workspace/delivery-recorded-sessions-replays.md`: #12985's
+   second session saw the `[case]` file first, opened no entry, and shipped no text).
    **An arrow in the *near-miss* or family-word block is still the case** (an entry
    quotes the reporter's own wording, so it grades 2-of-4 while family words fill 100+
    pages), and while no page carries every token the script prints it as a
@@ -911,6 +891,21 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    sits one grade down. Recorded #5075's printout already carried `→ #5075:82 (2/4)` in its
    `3-of-4` grade, no entry was opened, and ~20 turns re-derived (less completely) what
    that entry and `soc-platform-paths/atlas-300i-310p.md`'s pin-keyed block already held.
+   **The arrow's id need not match the report's.** One body can be archived under a
+   neighbouring number, so match the entry's quoted wording, versions and stack: the paste
+   answered as **#8974** (Feishu link + QR image, no log, 16 dies with both engines'
+   `VLLMWorker_DP` ranks resident, v0.18.0rc1 + v0.18.0) is recorded as **#8975**, and that
+   entry already holds the plog-confirmed lane (`group_name_233`, 32 ranks over 2 servers,
+   `newtag[…mc2RunAlltoAllDirectFullmesh_device]`, operator counts frozen at the same
+   second) plus the correction that `AICore 0 %` is also the state of a rank waiting inside
+   a collective. The run judged #8975 a neighbour, read four topically-named PD pages
+   instead (mooncake-handshake, waiting-queue, kv-transfer-thread, background-helper),
+   reached the same lane only through `pd-disaggregation/index.md`'s own row, and was cut at
+   the 16 384-token cap inside its third cause. When the top near-miss bucket holds a
+   `[row]` and a `[case]`, the script now says so in one line ("the N-of-M grade below is
+   the owner set") — that turn's message is the bucket's ladder, not a
+   topically-named page: a page whose *name* fits the paste and which grades on no list is
+   periphery.
    **A `[row]` line and a `[case]` line on the same all-token list are one decision, not
    two**: several cases can share three or four tokens (the `is_layer_skipped_ascend`
    `KeyError`s are #2984's stock-FP8 release, #3494/#569's `…-w8a8` exports and #5564's
@@ -928,7 +923,9 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    "$t" <skill_root>/references/; done`) when no token is distinctive — all lists
    longer than ~20 pages means the tokens are family words, so shorten them to the
    attribute, flag or code the paste names; the script now prints a family-word
-   guard and names the two moves that work. **A paste with no distinctive token has
+   guard and names the two moves that work (it withholds that guard, and names the
+   near-miss bucket instead, as soon as one rare token and a `[row]`/`[case]` member
+   make the bucket a decision list). **A paste with no distinctive token has
    no grade to run** (two tables, two screenshots, "X is slower than Y"): take the
    shape's row in `references/dispatch/classified-shapes.md` and open the `[case]`
    file by the report's own wording (#5605's five family tokens graded `4-of-5: none`,

@@ -61,20 +61,39 @@ lines, and the one-command repro below is the answer to send.
   imports **only** upstream `vllm.*` names — but the export is one commit
   (`git rev-list --count HEAD` = 1), so what the reporter's `v0.11.0rc0` image holds
   is not checkable here (stop rule below).
-- A **missing** triton is not what #2889 shows: vllm substitutes placeholders when
-  `find_spec("triton")` fails (`vllm/triton_utils/__init__.py:7-14`,
-  `triton_utils/importing.py:14-17`) and the release image removes the wheel on
-  purpose (`Dockerfile:42-44`, "triton doesn't work correctly" on Ascend). An
-  `AttributeError` on `triton.language` therefore means a triton **is** installed and
-  it is the wrong one (the triton-ascend pairing). The Qwen3-Next tutorial pulls the
-  other way and is a distractor here: its mandatory "The Triton Ascend is required
-  when you run Qwen3 Next" step plus the `Ascend-BiSheng-toolkit` install
-  (`docs/source/tutorials/multi_npu_qwen3_next.md:41-72` at v0.11.0rc1) is a
-  **kernel-compile** prerequisite for a serving engine, not an import-time one — an
-  *absent* triton renders placeholders and cannot raise, so it cannot produce this
-  signature. #4206 ranked a missing triton first on the strength of that page, then
-  refuted it four turns later against `find_spec`, with the reproducing one-liner
-  already in hand.
+- **An absent triton produces exactly this text at the 0.11-line pins — it is a live
+  cause, not a refuted one.** The release's own recipe has no `triton` at all
+  (`Dockerfile:42-44` at `v0.11.0rc1`, "in Ascend, triton doesn't work correctly. we
+  need to uninstall it") and its `requirements.txt` names no `triton-ascend`, so
+  `HAS_TRITON` is false
+  (`vllm/triton_utils/importing.py:12-15`) and `triton_utils/__init__.py:11-14` binds
+  `tl`/`tldevice` to `TritonLanguagePlaceholder`. At vllm `v0.11.0` (`b8b302c`) that
+  class sets only `constexpr/dtype/int64/int32/tensor` (`importing.py:88-96`) and
+  defines **no** `__getattr__`, so the import-time line `fla/ops/op.py:26 exp = tl.exp`
+  raises `AttributeError: module 'triton.language' has no attribute 'exp'` — reached
+  from `fused_recurrent.py:16 from .op import exp`, itself reached from
+  `vllm_ascend/models/qwen3_next.py:22`. (Executing the pin's own class with the pin's
+  own attribute list reproduces the message; nothing here is inferred.) So a
+  Qwen3-Next start on the stock image dies in inspection until the tutorial's *Install
+  Triton Ascend* step is done — `docs/source/tutorials/multi_npu_qwen3_next.md:41-61`
+  at v0.11.0rc1, "The Triton Ascend is required when you run Qwen3 Next", a **hand**
+  install because that release pins no `triton-ascend`
+  (`../image-dependency-faults/triton-ascend-pair.md`, pin table). #3325 put this lane
+  first and the lane is right (its inner frame is `tl.exp`); what not to inherit is its
+  sub-claim that a triton must therefore be **installed** — the probe decides that, and
+  the run that "refuted" the lane had the refutation wrong.
+- **The placeholder is version-dependent, so probe it rather than trusting either
+  answer.** At vllm `v0.16.0` (`89a77b103ae2`) the same class grew `exp/log/log2`
+  (`importing.py:93-103`) and `fla/ops/op.py` guards its remaining reads
+  (`is_gather_supported = hasattr(triton.language, "gather")`, `fla/ops/utils.py:154`;
+  `op.py:37` sits in the `else`), so an absent triton no longer raises on that import
+  there. This snapshot holds no tag between those two, so run
+  `scripts/triton-placeholder-probe.py <vllm-root>` before saying either way: it prints
+  the pin's placeholder attributes beside every module-level `tl.*`/`tldevice.*` read in
+  `fla/ops`, with the guarding branch. `HAS_TRITON == False` also covers an **installed**
+  triton that reports no active driver (`importing.py:42-49`), so `pip show vllm
+  triton triton-ascend` still separates absent from mispaired — the two produce the same
+  sentence and the mispaired one is the other half of the pair.
 - One command reproduces the real error, no server needed:
   `python -c "import vllm_ascend.models.<model_file>"` in the image (plus
   `pip show vllm vllm-ascend triton triton-ascend`, `uname -m`).
@@ -95,13 +114,16 @@ classification (not the gate, not a defect in the architecture), the
 `python -c "import vllm_ascend.models.<file>"` line, the two side facts
 (`pip show vllm` to test "the installed vllm is not the tag", `uname -m` /
 `pip show triton triton-ascend` for the pair), and the request for the
-`[registry.py]` lines — then list the recorded inners as candidate classes (wrong
-triton pair → #2889's `tl.exp`; a downstream module the image lacks → #2929) without
-choosing between them. The mistake to avoid is reconstructing the *reporter's
-image* from the pinned tag: #4206 did exactly that after correctly
-refuting the triton lane, spent 37 messages and its whole output budget on it, and
-shipped **no answer at all**. The cut tail is obtainable; the predecessor image's
-file content is not.
+`[registry.py]` lines — then list the recorded inners as candidate classes (absent or
+mispaired triton → #2889's `tl.exp`; a downstream module the image lacks → #2929)
+without choosing between them; when the image recipe itself has no triton and the probe
+above marks that line MISSING, say so in the same message instead of asking first. The
+mistake to avoid is reconstructing the *reporter's image* from the pinned tag: #4206's
+first run spent 37 messages and its whole output budget on that, after wrongly refuting
+the triton lane it had ranked first, and shipped **no answer at all**; that case's replay
+ranked the same lane first off the placeholder's own attribute list and shipped the
+answer at turn 8. The cut tail is obtainable; the predecessor image's file content is
+not.
 
 ## Answer the literal question first
 

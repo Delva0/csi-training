@@ -212,6 +212,17 @@ attachments cover. For the second incident in a set, remember the UTC offset
 crosses local midnight — the record dates then read one day *earlier* than the
 log lines they belong to.
 
+A container log often arrives with a **host-side companion** — a `dmesg` dump under a
+misspelt name (`demsg.txt` in recorded #11171, attached beside the engine log) — and for a
+device or collective fault that file, not the engine log, names the owner: it speaks in
+kernel clock (`[600.985841]`) and prints `receive ts exception message from device(N)` /
+`device(N) is not working` / `ts is down` before the container reports anything
+(`../hccl-and-hardware/device-health-checks.md`, *Device lost / heartbeat lost*). Two more
+lines to read in the engine log itself before quoting the pasted serve script: its
+`non-default args:` dict is the launch that actually ran (that case's body said
+`--max-model-len 8192`, the log ran `32768`), and `Asynchronous scheduling is enabled.`
+appears there with no `--async-scheduling` on the command line.
+
 Checklist for the final answer: repo+ref+commit cited once; every code claim has
 `path:line`; precedent ids quoted; missing artefacts listed; OCR/snapshot limits stated.
 

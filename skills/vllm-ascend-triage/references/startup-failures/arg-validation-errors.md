@@ -156,6 +156,33 @@ Fix ladder:
   `--data-parallel-rank` sets external LB (`data_parallel_size_local = 1`) and is
   *not* the compared number, so "drop `--data-parallel-rank`" is not the fix here.
 
+Two follow-up traps in this shape, both hit by the #8345 replay:
+
+- **The pod's visible-device set is the next thing to look at, but never name the
+  `local_world_size <= visible_device_count` assert as the error that follows.**
+  At v0.18.0rc1 that guard is a five-term conjunction —
+  `data_parallel_size > 1 and data_parallel_size_local > 0 and backend not in
+  ['ray', 'external_launcher'] and data_parallel_backend != 'ray' and
+  nnodes_within_dp == 1` (`vllm_ascend/worker/worker.py:280-292`, assert at `:288`)
+  — and `--data-parallel-rank` sets external LB, i.e. `data_parallel_size_local = 1`
+  (`vllm/engine/arg_utils.py:1630-1636`), so with the default `nnodes = 1` the last
+  term is `1 // (2 // 1) = 0` (`vllm/config/parallel.py:607-617`) and the assert
+  never runs. The paste can still be impossible — `ASCEND_RT_VISIBLE_DEVICES=0,1`
+  beside `--tensor-parallel-size 8` — so state the mismatch (Pod 内
+  `echo $ASCEND_RT_VISIBLE_DEVICES`, the serve line, the `npu-smi info` row count)
+  and leave the next error unnamed; that assert is live on the internal-DP form
+  (`--data-parallel-size-local K > 1`). Read the whole condition list before you
+  predict any assert's message: the replay shipped cause 3 as "修好 DP 之后会立刻撞上"
+  and the terms retire it.
+- **The `dp_size: 2` recipe's MoE provenance is one grep in the same file.** The
+  guide names its model on its own lines — `vllm serve "/xxxxx/DeepSeek-V2-Lite-Chat"`
+  (`examples/disaggregated_prefill_v1/mooncake_connector_deployment_guide.md:37`), a
+  MoE checkpoint — next to "The total number of cards equals `dp_size*tp_size`"
+  (`:73-74`), so quote those two lines instead of asserting "it is a MoE recipe".
+  The same block also carries `kv_buffer_device` / `kv_parallel_size` / `kv_rank`,
+  which a dense reproduction usually drops; this page does not establish whether the
+  connector still reads them at the pin, so do not call the omission a cause.
+
 ## Third raise site: the model-parallel group reshape (world size vs TP)
 
 Signature: engine start dies on every rank with

@@ -207,6 +207,10 @@ Conditional routes:
   (#6572 for the post-sizing shape, #4474 for the pool-loop shape, where
   `already allocated > gmu × total` is expected and the number to check is
   `#tensors × page_size × num_blocks` against the `Available memory:` line).
+  A **single** command — no comparative run, sometimes no serve line at all —
+  whose frame is the KV pool's own `initialize_kv_cache_tensors`
+  (`torch.zeros(kv_cache_tensor.size)` right after `GPU KV cache size:`) is the
+  same page's sub-shape B: the comparison is not an entry condition (#6611).
 - A **VL/omni** start whose innermost frame is in the **vision tower**
   (`_process_video_input` / `visual(...)` / `split_qkv` / `all_gather_interleave` /
   `torch.cat`) and whose report argues from "TP4 OOMs, TP1 works" →

@@ -66,7 +66,12 @@ Inherit the rules in SKILL.md. Rules that decide success here:
    supported on Ascend. Resetting to False.` (`vllm_ascend/platform.py:774-783` at
    v0.18.0rc1), so the answer is "unsupported on this backend", not a logging config.
 4. **A log line the report quotes can be fixed wrapper text** (SKILL.md rule 11):
-   before accepting a sentence as the cause, grep its emitting site. One recorded
+   before accepting a sentence as the cause, grep its emitting site. The inventory —
+   the `ACLgraph … Recommended solutions` block and which appended code owns which
+   page, the `vllm_ascend_C` tail, the CANN resource-alloc and aclop-capture wrappers,
+   `WorkerProc failed to start.`, the flag/env-default checks and the `/health` route's
+   own code — is `wrapper-text-vs-owner.md`; read it whenever the decisive line is
+   canned text. One recorded
    instance to recognise by its wording: `skip this step for we receive the data from
    remote disaggregate prefill node` sits under `if not
    scheduler_output.total_num_scheduled_tokens:` **and** `if not
@@ -127,6 +132,11 @@ Inherit the rules in SKILL.md. Rules that decide success here:
 
 Conditional routes:
 
+- A quoted log line or a raise site *is* the decisive evidence, and the report expects you
+  to accept its wording: grep the emitting site and classify the appended error first —
+  `wrapper-text-vs-owner.md` (the `ACLgraph … Recommended solutions` wrapper, the
+  `vllm_ascend_C` tail, CANN's resource-alloc block, the aclop-capture guard,
+  `WorkerProc failed to start.`, and why a `/health` 200 is not liveness).
 - "怎么查看当前HBM上kvcache的使用情况 / 总量、已使用量", `curl metrics` 有没有 kvcache
   统计, a `/metrics` gauge stuck at `0.0` or carrying the old name
    `vllm:gpu_cache_usage_perc` → `kv-cache-capacity-and-usage-metrics.md` (the four

@@ -145,12 +145,28 @@ is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
   `export VLLM_ASCEND_ENABLE_FLASHCOMM1=1`, or put `"enable_flashcomm1": true` in
   the same `--additional-config` (`ascend_config.py:84-89`), or drop
   `enable_dsa_cp`; the tutorial's A2 block carries the export
-  (`docs/source/tutorials/models/DeepSeek-V4-Flash.md:196,228`, whose notes say
-  "DSA-CP depends on FlashComm1, and both options must be enabled explicitly",
-  `:331`). Do not patch out the check — SP also decides how DSA-CP shards and
-  communicates. Warn the reporter that the same doc block's `--async-scheduling`
-  is a separate axis (spec-decode bookkeeping), so it goes on after the serve
-  starts.
+  (`docs/source/tutorials/models/DeepSeek-V4-Flash.md:196,228`, whose notes say "DSA-CP
+  depends on FlashComm1, and both options must be enabled explicitly", `:331`) — and
+  that is the **single-node** block (`:201` `--max-model-len 133120`): the pinned A2
+  **PD** rows omit `enable_dsa_cp` altogether (`:801` prefill and `:896-904` decode,
+  both at `135000`), while the A3 1M PD prefill sets it (`:545`). So "DSA-CP is the
+  documented A2 recipe" holds only for the single-node row and only at that
+  `--max-model-len` — quote the row, not the flag. Do not patch out the check — SP also
+  decides how DSA-CP shards and communicates. Warn the reporter that the same doc
+  block's `--async-scheduling` is a separate axis (spec-decode bookkeeping), so it goes
+  on after the serve starts. **The gate's shape moves across releases, so read the
+  reporter's own log before treating "`enable_dsa_cp` on vs off" as one variable.** At
+  v0.23.0.post1 (`1cdb8c4`) `rg -n 'DSA-CP is|Auto-enabling' vllm_ascend/` is empty and
+  the launch fails outright, while recorded #17616's tag (v0.27.1rc1, past the pin)
+  prints `DSA-CP is enabled. Auto-enabling SP.` (its paste cites `ascend_config.py:586`
+  for the DSA-CP log lines) — it turns SP on for you. On such a report, a command with
+  **no** `VLLM_ASCEND_ENABLE_FLASHCOMM1` export is not evidence that SP was off; it
+  means the flag silently added FlashComm1/SP as an unset variable, so that on/off pair
+  moves the attention sharding *and* the SP collective path at once and attributes
+  nothing until the two rows are re-run with SP matched. Also keep the sub-modes apart:
+  `enable_dsa_cp_with_layer_shard()` (P-side of a PD launch only) and
+  `enable_dsa_cp_with_o_proj_tp()` (non-PD / `kv_both`) change `o_proj`'s weight layout
+  (`utils.py:1539-1565`), so a P/D pair is not a same-flag pair either.
 - **A per-token KV footprint on this family is a sizing question, not a dtype
   theory.** When the measured bytes/token/card are several times the reporter's own
   arithmetic from the compressed latent layout, the missing terms are the indexer K
@@ -174,3 +190,14 @@ is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
   length, that single request is the discriminator — the recorded #10984 run spent its
   turns on code rows and offered it third
   (`glm-moe-dsa-tag-regression-corruption.md`).
+- **Grade the spec-decode axis as coverage, not as "the draft is mandatory".** On
+  **DeepSeek-V4-Flash** *every* row of the pinned tutorial (v0.23.0.post1 `1cdb8c4`) carries
+  a speculative config
+  (`--speculative-config '{"num_speculative_tokens": 1, "method": "mtp", …}'` at
+  `docs/source/tutorials/models/DeepSeek-V4-Flash.md:219,267,535,614,802,878`;
+  `deepseek_mtp` at `:310,986,1056`), so a **no-draft** serve of that family has no pinned
+  row to diff against and a "spec removed ⇒ corrupt" pair reports that gap. The recipe
+  metadata often quoted for it (`verified_model_types: [<model>-DSpark]`, `config_id`) is
+  ModelSlim **calibration** coverage, not a vllm-ascend runtime support statement, so it
+  cannot carry the claim either. Say both, and ask for the non-spec row measured (token ids,
+  `finish_reason`) instead of arguing the metadata.

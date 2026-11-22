@@ -29,6 +29,17 @@ leads were.
   fact reads 「这条路径量级不足以解释 3.4 点,不要排在前面」. Cite a precedent as
   `#<id>: <fact>` (an issue id is public evidence; a session history is not), and state
   a rung's low yield as a verdict about the path, with its one number.
+- **Every written artefact has a source and a date — never hand the reporter their own words
+  back unverified.** A `recorded-cases-*` entry or an owning page can hold a serve line, a
+  script or a log fragment that arrived **after** the opening body (a later comment, a
+  maintainer's request, another thread). Your current user turn may not contain it, and then
+  the sentence is "the published recipe for this stack uses X, and the line you sent is Y" —
+  or an ask — never 「你贴的列表」/ "your paste shows". Recorded #9944: the owning entry carried
+  the D node's capture list from the reporter's *later* comment, and the replay ranked a bucket
+  off it as "the list you pasted", i.e. a config the body never mentioned. The other
+  direction matters more: a config a page holds but your body lacks is still an artefact to
+  **request** in one line of the answer — that ask is what produced the #9944 scripts — so do
+  not reconstruct it and do not skip it.
 - **A follow-up turn is a delta turn.** When the reporter replies and the harness sends
   the reply as another user turn, the earlier answer is already in the thread and
   the second cap is often smaller (recorded #8294: 16 384 then **8 192**). Write
@@ -427,7 +438,8 @@ lead existed, classified by what the run already had in hand when it kept going.
 
 The per-run table — what each session already had in hand and what the reporter
 received, annotated with `no answer shipped` / `cut mid-answer` — is
-`delivery-recorded-sessions.md`; open it only when a delivery decision is
+`delivery-recorded-sessions.md`, with the repeat sessions that had the owning page from
+the start in `delivery-recorded-sessions-replays.md`; open them only when a delivery decision is
 contested or a run is about to spend turns after a usable lead.
 
 Two consequences worth restating: an "I'll start by…" line is not an answer and

@@ -25,12 +25,22 @@ op / kernel name, numeric code, flag, or symptom phrase. The script greps
    in 100+ pages;
 3. the next grades down (`N-1`, `N-2`, …) capped, because an empty top grade is
    not "no page" and a near-miss pair is what a renamed spelling looks like;
-4. a **family-word guard**: when no page carries all the tokens and the widest
-   one alone hits 40+ pages, the grade cannot name the owner — it says so and
-   names the moves that do (the shape's row in `references/dispatch/
-   classified-shapes.md`, a `[case]` file opened by the report's own wording, or,
-   for a paste that is only a serve command, the shape grade plus the pin's own
-   defaults, `references/dispatch/index.md` rule 4);
+4. an **owner-set line** when the widest near-miss bucket holds a `[row]`
+   (signature route) or a `[case]` member, one token is rare (<= 6 pages) and the
+   bucket is a decision list (<= 8 members): a page carrying every token is not the
+   test, because the everyday words a reporter quotes ('curl', '卡死', 'error') are
+   never all on one page — so that bucket is the owner set, its `[row]` row is
+   the decision and its `[case]` arrow is the history. Recorded #8974 was shown
+   `first-checks/signature-routes/device-ops-and-collectives.md [row]` and a `#8975`
+   arrow in its 3-of-4, read four topically-named PD pages instead and was cut at the
+   16 384-token cap with its third cause unfinished. Without a rare token the bucket
+   is family words (every near-miss then holds some `[case]` file) and a
+   **family-word guard** fires instead: the widest token alone hitting 40+ pages
+   means the tokens cannot name the owner, and it names the moves that do (the
+   shape's row in `references/dispatch/classified-shapes.md`, a `[case]` file
+   opened by the report's own wording, or, for a paste that is only a serve
+   command, the shape grade plus the pin's own defaults, `references/dispatch/
+   index.md` rule 4);
 5. when no page carries two tokens, the two shortest lists, which is what has to
    be read by hand at that point.
 
@@ -48,7 +58,9 @@ A `[case arrows]` block is printed above the grades whenever a recorded entry sh
 two or more tokens and `case_first` did not already print it. A thick all-token grade
 is often family words while the report's own entry sits one grade down and is never
 opened: recorded #5075 had `-> #5075:82 (2/4)` in its printout, opened no entry, and
-re-derived it from source for ~20 turns. Pass `--issue <N>` with the report's own
+re-derived it from source for ~20 turns. The arrow is matched by the entry's quoted
+wording and versions, not by id equality: one body filed twice lands under two numbers
+(the paste answered as #8974 is recorded as #8975). Pass `--issue <N>` with the report's own
 number (from the task title, with or without `#`) to have that entry marked
 `[YOUR CASE]` with its `sed` range — it is looked up by id across
 `evidence-workspace/recorded-cases*`, so it is found even when the tokens never
@@ -242,9 +254,13 @@ def case_first(refs, counts, tokens, regex, case, best_grade, ntok):
             if not m:
                 continue
             best.append((-int(m.group(3) or 0), rel, m.group(1), int(m.group(2))))
+    # Sort BEFORE the gate: `best` is built in set-iteration order, so testing
+    # `best[0]` first made the strongest arrow (e.g. `#8975:564 (3/4)`) survive only
+    # in the runs where it happened to be appended first \u2014 the block appeared in
+    # roughly half of repeated identical calls.
+    best.sort()
     if not best or -best[0][0] < 2:
         return set()
-    best.sort()
     print("[case-first] a recorded case carries this paste \u2014 open it before any")
     print("  /workspace/repos grep:")
     seen = set()
@@ -342,11 +358,14 @@ def case_arrows_early(refs, counts, tokens, regex, case, printed, own_issue=None
         print("  report's own earlier run; open it before the topical pages below:")
         limit = 2
     else:
-        print("[case arrows] an arrow whose id is this report's own issue number is an")
-        print("  earlier run of this case \u2014 its entry already holds the ladder and the")
+        print("[case arrows] an entry whose quoted wording, versions and symptom are this")
+        print("  paste is this case \u2014 its entry already holds the ladder and the")
         print("  corrections, so open it before the topical pages below (#11450; recorded")
         print("  #5075 skipped its own arrow and re-derived it for ~20 turns). The (n/m)")
-        print("  does not rank them: an entry quotes the reporter's own wording.")
+        print("  does not rank them: an entry quotes the reporter's own wording. Match the")
+        print("  wording, not the number \u2014 one body can be filed under two ids (the paste")
+        print("  answered as #8974 is recorded as #8975), so an entry that looks like a")
+        print("  neighbour on the id can be this very case.")
         limit = 3
     if own:
         print("  [YOUR CASE] sed -n '{},{}p' <skill_root>/references/{}   (#{}, line {})"
@@ -419,7 +438,37 @@ def main():
     widest_tok, widest_files = max(sets.items(), key=lambda kv: len(kv[1]))
     widest = len(widest_files)
     best = max(counts.values(), default=0)
-    if n >= 2 and best < n and widest >= 40:
+    # A near-miss bucket that holds the symptom `[row]` and/or a `[case]` entry *is* the
+    # owner set: membership in every token is not the test, because the everyday words a
+    # reporter quotes ("curl", "卡死", "error") are never all on one page. Calling such a
+    # bucket "unable to name the owner" sends the run into pages picked by title instead
+    # (recorded #8974: four PD pages read, then the 16 384-token cap inside cause 3 —
+    # while its 3-of-4 already held `device-ops-and-collectives.md [row]` and `#8975`).
+    owner = sorted((f for f, c in counts.items() if c == best and c >= 2
+                    and ("recorded-cases" in f or "/signature-routes/" in f)),
+                   key=order)
+    # ...but only when a distinctive token exists and the bucket is a decision list:
+    # with all-family tokens ('error', 'warning') a case file and a row page appear on
+    # every near-miss bucket, and calling that the owner set would suppress the
+    # family-word moves for a paste that really has no specific token.
+    rare = min((len(files) for files in sets.values() if 1 <= len(files) <= 40),
+               default=0)
+    bucket = [f for f, c in counts.items() if c == best]
+    if n >= 2 and best < n and owner and rare <= 6 and len(bucket) <= 8:
+        print(f"no page carries all {n}, but the {best}-of-{n} grade below is the owner set "
+              f"\u2014 read it first:")
+        print("  - the [row] page's row for this paste's wording is the decision: its middle")
+        print("    cell carries the discriminator and the one check. Open it before any")
+        print("    topical page — a page whose *name* fits the paste but which grades on no")
+        print("    list is periphery (membership in all = the case).")
+        print(f"  - the [case] arrow is the case history: `sed` its entry and adopt its ladder.")
+        print(f"  Re-grading the paste's everyday words ('{widest_tok}' alone hits {widest}"
+              f" pages) cannot")
+        print(f"  improve on this. Recorded #8974: this bucket held the [row] and the arrow,")
+        print(f"  four topically-named PD pages were read instead, and the run was cut at the")
+        print(f"  16 384-token cap with its third cause unfinished.")
+        print()
+    elif n >= 2 and best < n and widest >= 40:
         print(f"family words, not a case: '{widest_tok}' alone hits {widest} pages and no")
         print(f"page carries all {n}, so this grade cannot name the owner. These moves do:")
         print("  - re-grade the two or three shortened tokens in one more call, and open")

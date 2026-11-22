@@ -168,6 +168,16 @@ v0.9.1 the notes say Turbo is **not needed** and the old version is incompatible
 (`release_notes.md:141` at v0.11.0rc1), so a 0.9.1+ stack carrying it is a compatibility
 question (`../image-dependency-faults/mindie-turbo-graph-break.md`), not an old release
 line.
+
+That sentence is also the generic instrument for a **pairing question about the
+reported release** ("mindie_turbo 2.0rc2 是和 vllm-ascend 0.9.1rc2 搭配使用的吗", "is
+<plugin X> paired with <release Y>?"): read the **newest** export, not the reported pin,
+because both artefacts accumulate — the compatibility matrix gains rows (at v0.11.0rc3
+`community/versioning_policy.md:25-39` every row above `v0.8.4rc2`, `v0.9.1rc2`
+included, still has an empty MindIE Turbo cell) and a component's retirement stays in
+`release_notes.md` under its own `## vX` header. A "cannot be answered from the pinned
+tree" verdict on such a question — `mindie-turbo-graph-break.md` §3 said exactly that for
+#1534 until the reporter re-asked — is usually a missed second pin.
 Answering "官网骗人" or "去问维护者" is wrong: both facts are in the pinned docs.
 Recorded #2378 replay: it shipped this verdict on its seventh assistant turn, and the only
 paragraph it spent on itself was withdrawing the sentence above

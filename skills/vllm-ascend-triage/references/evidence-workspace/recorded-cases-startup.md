@@ -200,7 +200,12 @@ asserts). Delivery: answered on turn **15** (G1/G2 missed), after ~41 K characte
 of reasoning against 3.4 K of message text, and cut inside its final section; four
 turns went into `ParallelConfig`/`arg_utils` before the twelve-line
 `run_engine_core` branch resolved it — the cheap route is
-`rg -n 'is_moe\|data_parallel_size = 1' vllm/v1/engine/core.py`.
+`rg -n 'is_moe\|data_parallel_size = 1' vllm/v1/engine/core.py`. The replay reached
+the owning page on its 2nd turn and answered in full on its 9th, adding the paste's
+own `ASCEND_RT_VISIBLE_DEVICES=0,1` vs `--tensor-parallel-size 8` as a caution — but
+named the `local_world_size <= visible_device_count` assert as the error that follows,
+which the guard's own `nnodes_within_dp == 1` term retires for external LB (page,
+*Two follow-up traps*).
 
 **#2015** vllm-ascend v0.9.2rc1 (`b5b7e0e`) + vllm v0.9.2 (`a5dd03c`), 910B
 (Ascend910B2C) 16 cards, `DeepSeek-R1-bf16-hfd-w8a8`, offline `LLM(...)` with
@@ -424,12 +429,18 @@ language: not a version gate (the arch is registered at
 `vllm_ascend/models/__init__.py:59-60` and a tutorial exists), inspection runs in a
 subprocess so the cut tail is the finding, then triton-ascend pairing ranked first with
 `#2889`'s `tl.exp` inner frame, `#2929`'s `ModuleNotFoundError` second, and the
-tutorial's `--enforce-eager` / shorter context as the follow-up. What it added beyond
-the paste: an absent triton cannot produce `AttributeError: module 'triton.language'`
-(vllm substitutes placeholders), so a triton is installed and mispaired. Cost: one
+tutorial's `--enforce-eager` / shorter context as the follow-up. Cost: one
 `cat SOURCES.json` (~21 KB, rule 7) and a full read of the tutorial including its
 x86_64 "Coming soon" tab. Route:
 `../startup-failures/model-type-not-recognized.md` (inspection-crash section).
+Its stated reason was wrong and the ranking was right: it argued that "an absent triton
+cannot produce `AttributeError: module 'triton.language'` because vllm substitutes
+placeholders". At vllm `v0.11.0` the placeholder itself is the producer — it defines no
+`exp` and no `__getattr__` (`triton_utils/importing.py:88-96`,
+`triton_utils/__init__.py:11-14`), so an absent triton raises that exact text at
+`fla/ops/op.py:26`; re-derived and executed at the pins in this batch. Keep the lane,
+replace the inference with `pip show triton triton-ascend` +
+`scripts/triton-placeholder-probe.py <vllm-root>`.
 
 **#4206** image `quay.io/ascend/vllm-ascend:v0.11.0rc0` (snapshot pin: vllm-ascend
 `v0.11.0rc1` `c5fe179` + vllm `v0.11.0` `b8b302c`), Qwen3-Next-80B-A3B, body in
@@ -445,14 +456,25 @@ registered (`_raise_for_unsupported`); the replacing class is downstream
 subprocess import goes through `vllm_ascend/models/qwen3_next.py`, which at rc1 imports
 **only** upstream `vllm.*` names and no `vllm_ascend` internal module; and Qwen3-Next
 was supported from v0.10.2 and "stable" at `v0.11.0rc0` (`release_notes.md:22`), so the
-architecture is not the question. Delivery: **no answer at all** — 37 messages, every
-turn after the opener a bare tool call, the whole output budget spent on two dead
-lanes: a missing `triton` ranked first off the tutorial's mandatory `triton_ascend` +
-BiSheng install step, then refuted against `find_spec`/`HAS_TRITON` placeholders four
-turns later; and reconstructing the `v0.11.0rc0` image's `qwen3_next.py` from the
-`v0.11.0rc1` export, which a one-commit snapshot cannot contain. Owed at turn 5: the
-classification, one `python -c "import vllm_ascend.models.qwen3_next"`, and the ask for
-the `[registry.py]` lines.
+architecture is not the question. First run: **no answer at all** — 37 messages, every
+turn after the opener a bare tool call, the whole output budget spent on one wrong turn
+and one dead one: the missing-`triton` lane ranked first off the tutorial's mandatory
+`triton_ascend` + BiSheng install step was then *refuted* against
+`find_spec`/`HAS_TRITON` placeholders four turns later — the refutation is the error,
+since the placeholder defines no `exp` at that pin (see #3325) — and then reconstructing
+the `v0.11.0rc0` image's `qwen3_next.py` from the `v0.11.0rc1` export, which a
+one-commit snapshot cannot contain. Owed at turn 5: the classification, one
+`python -c "import vllm_ascend.models.qwen3_next"`, and the ask for the `[registry.py]`
+lines.
+Replay in a later batch (35 messages, same pins): shipped the answer at turn 8, ranked
+an absent triton first with the pin's own placeholder attribute list and the
+`Dockerfile`'s `pip uninstall -y triton`, gave the `HAS_TRITON` and import one-liners plus
+the tutorial's hand install (`multi_npu_qwen3_next.md:41-61`), and kept the mispaired
+pair and the "installed vllm is not the tag" rows below it. What the replay still spent
+turns on was re-deriving that proof instead of running
+`scripts/triton-placeholder-probe.py <vllm-root>` once: turn 8 already carried the
+answer, and assistant turns 9-15 re-walked `find_spec`, `TritonLanguagePlaceholder`, the
+`Dockerfile` and the tutorial, ending at 767 K cumulative prompt tokens.
 
 **#4948** vllm-ascend v0.11.0rc3 image (`quay.nju.edu.cn/…`, tree `b6d63bb`) + vllm v0.11.0,
 "部署满血版 DeepSeek R1 0528 BF16 失败" on Atlas 800I A2 / 910B4, `--tensor-parallel-size 8

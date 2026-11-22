@@ -217,10 +217,12 @@ deployment served.
   foreign `triton`/`triton_kernels`, never another triton version.
 - Same pair at **startup**, before any kernel runs: an `Error in inspecting model
   architecture '<Arch>'` whose logged tail is an import-time
-  `AttributeError: module 'triton.language' has no attribute '<x>'` (a triton is
-  installed and it is the wrong one — an absent triton only gives vllm's
-  placeholders) → `../startup-failures/model-type-not-recognized.md`, inspection
-  section.
+  `AttributeError: module 'triton.language' has no attribute '<x>'` — **both** an
+  absent triton (the release image uninstalls it; at vllm v0.11.0 the placeholder
+  defines no `exp`, so `fla/ops/op.py:26` raises) and a mispaired one raise that
+  sentence, so `pip show triton triton-ascend` plus
+  `scripts/triton-placeholder-probe.py <vllm-root>` decides it, not the wording →
+  `../startup-failures/model-type-not-recognized.md`, inspection section.
 - Same pair, performance side: `../performance-throughput/qwen3-next-decode-throughput.md`
   (a hybrid GDN model is slow when the Triton FLA kernels are absent/replaced).
 - `../custom-ops-runtime-faults/index.md` for the aclnn/AscendC lane that this

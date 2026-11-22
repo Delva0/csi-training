@@ -34,7 +34,12 @@ settle which path compiled and which process loaded the plugin — `PIECEWISE
 compilation enabled on NPU` / `Compilation disabled, using eager mode by default`,
 plus the wheel's INFO line
 (`../image-dependency-faults/mindie-turbo-graph-break.md`); `enforce_eager=True` on
-the failing path is the one-line ablation.
+the failing path is the one-line ablation. **But refute the embedded hypothesis in
+the same message rather than booking it as an open question**: the entry point is
+not a knob (one `check_and_update_config` gate, the same V1 selection, and a dummy
+forward *inside engine init* on both paths — §4 of that page), so those two log
+lines interrogate the *process*, and "serve defaults to no acl graph" needs one
+grep to rule out instead of a round trip.
 
 ## A first request that works: the scheduler state, not a warm-up
 

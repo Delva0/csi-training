@@ -150,6 +150,46 @@ One line settles this lane before any vLLM flag is audited:
 missing), and a `107001` ends the vllm-ascend part of the case
 (`../startup-failures/device-id-invalid-at-worker-init.md`).
 
+## The per-worker device-env question — the GPU build does not do it either
+
+A recurring shape is "the device plugin gave the pod two **non-first** cards and vLLM
+opened the wrong ones", arriving with a proposed patch that sets
+`ASCEND_RT_VISIBLE_DEVICES` per worker inside `AscendWorkerProc.make_worker_process()`
+by analogy with "the GPU build sets `CUDA_VISIBLE_DEVICES` per worker". Grade both
+halves at the pin before acting on it (vllm-ascend `v0.17.0rc1` `e20f0b1` + vllm
+`v0.17.0` `b31e932`):
+
+- **Neither tree sets a per-worker device variable.**
+  `AscendWorkerProc.make_worker_process`
+  (`vllm_ascend/patch/platform/patch_multiproc_executor.py:151-195`) builds
+  `process_kwargs` and calls `context.Process(...).start()` with no `os.environ`
+  write, and upstream's `WorkerProc.make_worker_process`
+  (`vllm/v1/executor/multiproc_executor.py:604-640`) is the same shape; the only env
+  the parent sets on workers' behalf is `OMP_NUM_THREADS`
+  (`set_multiprocessing_worker_envs`, `:927-952`, and vllm-ascend's patch calls that
+  same helper). The index into the visible set *is* the mechanism:
+  `device = torch.device(f"npu:{self.local_rank}")`
+  (`vllm_ascend/worker/worker.py:249-250`, the GPU worker's `cuda:{local_rank}` in
+  other clothes), so "Ascend lacks the GPU build's isolation" is not a finding.
+- **The mapping is decided by how many device nodes the container holds**, and the
+  two states need opposite answers: `_parse_visible_devices()` returns
+  `list(range(64))` when `ASCEND_RT_VISIBLE_DEVICES` is unset
+  (`torch_npu/npu/__init__.py:341-346`), later trimmed at `drvGetDevNum()`, so
+  `npu:0`/`npu:1` are then the driver's raw devices 0 and 1.
+
+| `ls /dev/davinci*` in the pod | what `local_rank` 0/1 opens | the answer |
+|---|---|---|
+| only the allocated nodes (a device-filtered pod) | those two dies | the mapping is **right** — close that suspicion and read the log's own error |
+| all eight host nodes (`--privileged`, no device filter) | host 0 and 1 | real; the in-container cure is `export ASCEND_RT_VISIBLE_DEVICES=<allocated ids as they index /dev/davinci*, ascending>` |
+
+The pod's own `npu-smi info` row count is the same tell — a filtered pod prints only
+its own dies, under the host's NPU labels (#8068's container held `davinci0,1` for
+the dies `npu-smi` calls NPU 1 and 2; #9428's listed two rows, NPU 3 and NPU 4).
+
+#9428 is the worked case for the first row: its attached 根因分析 blamed the missing
+per-worker variable, its own paste refuted that, and the surviving error was co-tenant
+HBM on one die (`../runtime-memory/kv-budget-per-instance-vs-device-global.md`).
+
 ## Then the arithmetic: does the layout you just wrote fit?
 
 ```bash

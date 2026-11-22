@@ -57,13 +57,16 @@ Two properties of the proposed hunk worth stating in the review:
 
 - `qwen3_xml` is registered at `vllm/tool_parsers/__init__.py:161-163` at the pin, so
   "legacy" means superseded on main, not unreachable in the image.
-- vllm-ascend ships no patch for this path: `rg -l 'qwen3xml|qwen3_xml'` over the
-  downstream tree hits only `.github/workflows/scripts/upstream_config.yaml:594`,
+- vllm-ascend ships no patch for this path: `rg --hidden -l 'qwen3xml|qwen3_xml'`
+  over the downstream tree hits only `.github/workflows/scripts/upstream_config.yaml:594`,
   which lists upstream's `tests/tool_parsers/test_qwen3xml_tool_parser.py` as a test
-  the plugin CI runs. So the file in `/vllm-workspace/vllm/` is upstream's
-  byte-for-byte (`Dockerfile:42` `ARG VLLM_TAG=v0.23.0`, `:49 git clone --depth 1 -b
-  $VLLM_TAG`), the fix belongs upstream (a `v0.23.x` patch release, not just main),
-  and **downstream CI cannot gate it**.
+  the plugin CI runs. (`--hidden` is not optional here: a recursive grep from the repo
+  root skips `.github/`, so the plain form exits 1 on this very tree and reads as "no
+  downstream mention" — `../evidence-workspace/case-layout.md` §*Search-command
+  traps*.) So the file in `/vllm-workspace/vllm/` is upstream's byte-for-byte
+  (`Dockerfile:42` `ARG VLLM_TAG=v0.23.0`, `:49 git clone --depth 1 -b $VLLM_TAG`),
+  the fix belongs upstream (a `v0.23.x` patch release, not just main), and
+  **downstream CI cannot gate it**.
 - The tests cannot either: `tests/tool_parsers/test_qwen3xml_tool_parser.py:57-68`
   carries `xfail_streaming` entries — `"Qwen3XML streaming has systematic issues"`,
   including `test_surrounding_text` and the reconstruction case — so the very
@@ -74,6 +77,13 @@ Two properties of the proposed hunk worth stating in the review:
   `vllm_ascend/patch/platform/` already holds `patch_glm_tool_call_streaming.py`,
   `patch_glm47_tool_call_parser.py`, `patch_minimax_m2_tool_call_parser.py`,
   `patch_deepseek_v4_tool_call_parser.py`, `patch_tool_choice_none_content.py`.
+- **Answer the ownership verdict before the ladder, because that is the literal
+  question** ("fix/backport it into the release image, or document it as a known
+  limitation?"): the file is upstream's byte-for-byte, so a downstream backport is not
+  an action the project has — documented limitation + the rung-1 client suppression is
+  the proportionate answer and a patch shim is the exception. Do not promise the
+  backport, and do not read "downstream cannot gate it" as "nobody owns it": the
+  release notes row (rung 3) is the downstream artefact that owns it.
 
 ## Ladder
 
@@ -82,7 +92,11 @@ Two properties of the proposed hunk worth stating in the review:
 2. Patch upstream's two sites with `strip()` (+ the tests above); do not "fix" the
    third — it is already right, and making it unconditional would change
    between-call text handling.
-3. Only if the release image is a release blocker: a downstream patch file under
+3. If the answer is "documented known limitation", it has a concrete home:
+   `docs/source/user_guide/release_notes.md:134` is the `### Known Issues` list under
+   `## v0.23.0` (fourteen rows at the pin, **no** tool-parser row yet), and each row
+   names its issue; put the client-side workaround in the same row.
+4. Only if the release image is a release blocker: a downstream patch file under
    `vllm_ascend/patch/platform/`, with the upstream PR linked from it.
 
 ## Recheck conditions

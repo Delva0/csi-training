@@ -29,6 +29,22 @@ leads were.
   fact reads 「这条路径量级不足以解释 3.4 点,不要排在前面」. Cite a precedent as
   `#<id>: <fact>` (an issue id is public evidence; a session history is not), and state
   a rung's low yield as a verdict about the path, with its one number.
+  **The library's own paths and offsets are replay artefacts too.** Hand back the
+  *computation* — the field to read, the command and what it must print — never a
+  `<skill_root>/scripts/…` path or a `references/…` page, which exist only in this
+  workspace. Recorded #13522's replay closed with 「可以用 `uv run --no-project python
+  /workspace/.agents/skills/vllm-ascend-triage/scripts/310p-rope-branch.py <模型目录>`
+  把拆分打出来」 as a step the reporter could run; the same check is 「从模型目录的
+  `config.json` 读 `head_size` 与 `partial_rotary_factor`」. Cite a page as the fact it
+  holds, not as a file to open. G2b binds the page you worked from exactly as it binds
+  recorded sessions: its `path:line`, its pins, and any "the page says X, the file has Y"
+  drift are analyst bookkeeping too, because the reporter has neither the page nor a use
+  for the offset. Ship the citation you re-grepped in your own version-scope line, or ship
+  nothing about it. Recorded #8579's replay closed with four lines of "line-drift
+  corrections against the owning skill page" — and one of the two was wrong at the pinned
+  tree (the PCP reduce-scatter is `:469-470`, which the page already said, while the stale
+  number was the DP slice's). A drift you have not re-grepped is a recalled number, and
+  rule 6 does not let a matching-looking line number count as proof.
 - **Every written artefact has a source and a date — never hand the reporter their own words
   back unverified.** A `recorded-cases-*` entry or an owning page can hold a serve line, a
   script or a log fragment that arrived **after** the opening body (a later comment, a

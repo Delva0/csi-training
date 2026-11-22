@@ -92,8 +92,11 @@ open — instead of writing a contradiction into the answer.
 ### The first row without a co-tenant of yours: a shared die under a device plugin
 
 Recorded #9428 (vllm-ascend `v0.17.0rc1` `e20f0b1`, vllm `v0.17.0`, 910B4 64 GB, a K8s
-pod given two **non-first** cards by the Ascend device plugin, `--tensor-parallel-size 2
---gpu-memory-utilization 0.90`, Qwen3.5-27B):
+pod given two **non-first** dies by a **vGPU** device plugin — HAMi's, per the pod's
+own `hami.io/Ascend910B4-1-devices-allocated` / `hami.io/bind-phase` annotations, and
+that plugin is in no pinned tree, so what *it* writes to the environment is
+unverifiable here; the official `ascend-device-plugin` is a different component —
+`--tensor-parallel-size 2 --gpu-memory-utilization 0.90`, Qwen3.5-27B):
 
 ```text
 ValueError: Free memory on device (51.26/60.96 GiB) on startup is less than desired GPU
@@ -130,6 +133,34 @@ things before proposing a config change:
   durable one. Verify the reading first with the per-device loop in the pod
   (`torch.npu.set_device(i); torch.npu.mem_get_info()`), which also separates "the card
   is occupied" from "we are mapped to a different die".
+
+The **ceiling is arithmetic in the paste**, so quote it instead of a ratio to try:
+`gmu_max = free_min / total` (#9428: 51.26 / 60.96 = 0.84, so `0.80` is the one-run
+value), and each step is priced `Δ × total` per card (0.90 → 0.80 on a 60.96 GiB die
+≈ 6.1 GiB). Then say what the lowered ratio buys before the reporter runs it: a
+Qwen3.5-27B at `max_model_len 133000` may stop in `No available memory for the cache
+blocks` — that is the next rung (shrink `max-model-len` or take the die exclusively),
+not this refusal repeating. #9428's pod annotations list each die with `65536` MB
+(the full-die template) and `npu-smi` in the pod showed `3202` / `12824` MB used with
+`No running processes found`, so the missing ~9.7 GiB is somebody outside the
+container — a tenant or a previous container's residue, and the **host's** table
+decides which; do not read it as a small requested quota.
+
+**Grade the attached 根因分析, do not adopt it.** #9428's `bug-report.md` blamed a
+missing per-worker `ASCEND_RT_VISIBLE_DEVICES` in
+`AscendWorkerProc.make_worker_process()` and cited `507033` / `E39007` with a
+`torch.npu.set_device(0)` timeout. Three answers, all at the pins: the per-worker
+env claim is refuted for **both** trees (isolation is the container's device set with
+`local_rank` indexing it —
+`../deploy-sizing/card-budget-and-device-visibility.md`, *The per-worker device-env
+question*), the paste's own `npu-smi` holds two rows so the mapping was right, and
+`507033 = ACL_ERROR_RT_DEV_SETUP_ERROR`
+(`cann/runtime/include/external/acl/error_codes/rt_error_codes.h:115`) /
+`E39007 = Inner_Error_Device_Subprocess_Startup_Timeout`
+(`cann/metadef/error_manager/error_code.json:215`) are the **device-open** phase — a
+failure this paste does not contain, so ask which run produced it rather than
+reconciling the two, and keep the pre-check (the reply above applies: the KV budget
+is derived from `requested_memory`, `worker.py:362-363`).
 
 ## Finding the twin
 

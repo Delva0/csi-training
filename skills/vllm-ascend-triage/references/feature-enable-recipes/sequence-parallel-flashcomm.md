@@ -320,7 +320,17 @@ four reads at the pin settle it:
   `cudagraph_dispatcher._bs_to_padded_graph_size` (`eagle_proposer.py:534`; context at
   `:704-712` with `num_actual_tokens=num_tokens`), and
   `pad_size = (tp_world_size - num_tokens % tp_world_size) % tp_world_size` uses that
-  same value (`ascend_forward_context.py:114-117`).
+  same value (`ascend_forward_context.py:114-117`). **Scope that refutation to
+  `dp_world_size == 1`** — see the next bullet.
+- **`dp_world_size > 1` re-opens the reporter's pad intuition, as one check, not a
+  verdict.** `ascend_forward_context.py:135-142` then overrides both fields from a
+  different source: `padded_length = ceil(max_tokens_across_dp_cpu / tp) * tp`,
+  `pad_size = padded_length - num_tokens`. The pad rows no longer follow from the count
+  being sharded, so a target-vs-drafter offset is available again without any
+  graph-padding story. The issue carries no serve line, so dp is unknown: the cheap
+  discriminator is `--data-parallel-size 1` with tp/ep unchanged (acceptance recovers
+  ⇒ this branch owns it) or one print of `padded_length` / `max_tokens_across_dp` in
+  the target's and the drafter's context.
 - The scatter/gather pair is symmetric for `method == "mtp"`: the scatter gates on
   `_EXTRA_CTX.flash_comm_v1_enabled` (`eagle_proposer.py:1624-1626`), the gather on
   `self.enable_shared_expert_dp` (`:1641-1646`), which is `shared_expert_dp_enabled()` =
@@ -329,19 +339,31 @@ four reads at the pin settle it:
   all-gathered to full length before the handoff (`model_runner_v1.py:1841`,
   `_all_gather_hidden_states_and_aux` `:1758-1779`), so no double shard from that side.
 
-What remains is a per-draft-step row-shape question, and the reporter's own metrics hold
-the discriminator: ask for the `Per-position acceptance rate:` line with FC1 on **and**
-off. Read the shape before any source walk: a drop that appears only from position 2
-onward is K-dependent (the later draft steps), a uniform drop is not. Send it with
+Attribution comes before the shape question, and it costs one launch: send the *same*
+greedy request (`temperature: 0`, fixed `seed`, `return_token_ids: true` — a request
+field at this pin, `vllm/entrypoints/openai/completion/protocol.py:134` and
+`.../chat_completion/protocol.py:311`) with FC1 off and on, and compare the **target's**
+own token ids. Divergence beyond a token or two there makes the drafter a bystander and
+moves the owner to target-side SP numerics on a w4a8 checkpoint — the reading that also
+fits output TPS *rising* at concurrency 16 while acceptance falls. Only a stable target
+leaves the drafter as the suspect.
+
+What remains is then a per-draft-step row-shape question, and the reporter's own metrics
+hold the discriminator: ask for the `Per-position acceptance rate:` line with FC1 on
+**and** off. Read the shape before any source walk: a drop that appears only from
+position 2 onward is K-dependent (the later draft steps), a uniform drop is not. Send it with
 `--enforce-eager` (removes graph padding, so `num_input_tokens == num_tokens`) and an
 FC1 on/off pair at `num_speculative_tokens: 1`. Which of the two this report is stays
 open — the reporter's later comment (2026-06-23) carries only `collect_env` output
 (v0.18.0, 910B2, CANN 8.5.1) and no resolution.
 
-Cost note: the answer is those four refutations plus the two-row ask, and it is
-deliverable before any MLA/proposer line walk. #10504 spent its entire 16 384-token
-output budget re-deriving `eagle_proposer.py` / `mla_v1.py` offsets over 11 turns and
-shipped no answer text before the cap.
+Cost note: the answer is those four refutations plus the attribution pair and the
+`--enforce-eager` row, and it is deliverable before any MLA/proposer line walk. An
+earlier #10504 replay spent its entire 16 384-token output budget re-deriving
+`eagle_proposer.py` / `mla_v1.py` offsets over 11 turns and shipped no answer text
+before the cap; a later replay that led with the four reads above shipped the refutations
+and the asks in 8 assistant turns / 9.6 K output tokens, and the dp rung above is what
+that replay added to this section.
 
 ## Procedure
 

@@ -155,6 +155,15 @@ at request time. The shapes:
   This is the one acceptance-collapse shape that is decided *above* the positions and
   block-table code, so the family grep comes before `acceptance-collapse.md`'s Step 3.
 
+- or acceptance is **low but non-zero** while the target's own text stays correct,
+  on a **self-converted, rotation-suppressed checkpoint** ("加了 QuaRot 离群值抑制并
+  重新量化后，mtp 的采纳率非常低（<40%)"), normal before the requantize: the rotation
+  is fused into the weights at export and only the separately-loaded draft is
+  anti-rotated at load (EAGLE3 class, `patch_draft_quarot.py:88`), so the question is
+  **which side produced the drafter's weights** — and it is *not* "MTP × QuaRot is
+  unsupported": the pin's own DeepSeek-V3.1/V3.2 tutorials serve `…-mtp-QuaRot` with
+  `method: mtp` (`quarot-rotation-basis-draft-acceptance.md`, recorded #8179).
+
 - or the request dies with a plain **`IndexError: list index out of range`** whose
   deepest frame is upstream `vllm/model_executor/layers/mamba/mamba_utils.py`
   `get_temporal_copy_spec` (`src_block_id = block_ids[cur_block_idx + num_accepted_tokens - 1]`),
@@ -428,6 +437,19 @@ from the acceptance numbers.
   v0.22.1 reclassifies at `:236-247`, vllm-ascend v0.22.1rc1 mirrors it in
   `ops/gdn_attn_builder.py:1010-1015`), the ladder (MTP off → async off → version) and the
   worked #7532 row (v0.17.0rc1, Qwen3.5-27B TP2, 400 pods).
+- `quarot-rotation-basis-draft-acceptance.md` — acceptance **low but non-zero** with a
+  correct target on a rotated (QuaRot) checkpoint the reporter converted: the two
+  owners of a rotation (the export owns the target *and* any `mtp.*` head shipped
+  inside it; the runtime owns only a separate EAGLE3 draft — `patch_draft_quarot.py:88`
+  assigns `Eagle3LlamaForCausalLM.load_weights`, `:111-114` `block_diag(Q,Q,Q)` on
+  `fc.`, `:121-124` the shared `embed_tokens @ Q.T`, call site
+  `model_runner_v1.py:2573` gated on `self.drafter` + `quant_config` alone), the
+  documented `-mtp-QuaRot` DeepSeek recipes that keep "unsupported" off the answer,
+  `Qwen3_5MTP`'s **two**-half `fc` concat (`qwen3_5_mtp.py:126-128`, built at `:85`) against EAGLE3's
+  three, the trap of adding `mtp` to that patch (it would break a correct export), the
+  description census, the K-flat vs K-threshold discriminator, and the coverage facts
+  (`test_quarot_eagle.py` is eagle3-only; `Qwen3.5-397B-A17B.md:21-22` publishes no
+  QuaRot/w4a8 weight). Recorded #8179.
 - `acceptance-collapse.md` — the acceptance metric reading, the ordered ablation,
   the async-spec-decode `num_computed_tokens` drift correction, the
   `mamba_block_size` prefix-caching gate, where capacity fits, and the worked

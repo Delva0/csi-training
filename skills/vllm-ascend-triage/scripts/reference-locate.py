@@ -3,7 +3,7 @@
 
     uv run --no-project python scripts/reference-locate.py TOKEN [TOKEN ...] \
         [--root DIR] [--max N] [--min-grade N] [--regex] [--case] [--quiet] \
-        [--issue N]
+        [--issue [N]]
 
 One token per argument: the paste's own error sentence, attribute / function /
 op / kernel name, numeric code, flag, or symptom phrase. The script greps
@@ -400,14 +400,28 @@ def main():
     ap.add_argument("--regex", action="store_true", help="treat tokens as regexes")
     ap.add_argument("--case", action="store_true", help="match case-sensitively")
     ap.add_argument("--quiet", action="store_true", help="suppress the token summary")
-    ap.add_argument("--issue", default=None,
+    ap.add_argument("--issue", nargs="?", const="", default=None,
                     help="the report's own issue number: marks that case arrow as this "
-                         "task's earlier run")
+                         "task's earlier run. Omit the flag when the report carries no "
+                         "id: a bare (or non-numeric) --issue is ignored rather than "
+                         "fatal, so the grades still print")
     args, extra = ap.parse_known_args()
     # A flag is a first-class token here: the paste's own `--compilation-config`
     # begins with dashes, so argparse must not eat it as an unknown option.
     if extra:
         args.tokens = list(args.tokens) + list(extra)
+    # `--issue` with no id is the common slip when the report carries no issue
+    # number: it used to be an argparse error that killed the whole grade call
+    # (recorded #6370 replay lost one turn to it). Ignore it, and hand anything
+    # non-numeric that it swallowed back to the token list.
+    if args.issue is not None:
+        want = str(args.issue).strip()
+        if want.lstrip("#").isdigit():
+            args.issue = want.lstrip("#")
+        else:
+            if want:
+                args.tokens = [want] + list(args.tokens)
+            args.issue = None
 
     root = args.root or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     refs = os.path.realpath(os.path.join(root, "references"))

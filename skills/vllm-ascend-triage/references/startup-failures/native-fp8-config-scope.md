@@ -149,6 +149,23 @@ Two checks, in this order:
    `--additional-config '{"enable_cpu_binding":true,"multistream_overlap_shared_expert":true}'`,
    TP4/DP4/EP, KV store on mooncake, then 已成功拉起服务 after a modification).
 
+**That record also fixes the ask list.** What this page does not hold is the whole of what
+to request: `<model dir>/config.json`'s `quantization_config` (`quant_method` /
+`weight_block_size` / `ignored_layers`), the shard census for `*_scale_inv` (it decides
+whether the copy route below is safe), which of the two log lines appear in the
+*unfiltered* block above the traceback, and the SoC — `npu-smi info`'s own row or
+`get_ascend_device_type()`, because A5 vs A2/A3 decides whether a newer pin's gate helps.
+The `vllm serve` line is **already here** (no `--quantization`,
+`--additional-config '{"enable_cpu_binding":true,"multistream_overlap_shared_expert":true}'`,
+TP4/DP4 + `--enable-expert-parallel`, `FULL_DECODE_ONLY` + `--async-scheduling`,
+`--max-num-seqs 48 --max-model-len 40690 --max-num-batched-tokens 16384
+--gpu-memory-utilization 0.85 --no-enable-prefix-caching`, an `AscendStoreConnector` KV
+store with `backend: mooncake` under `MOONCAKE_CONFIG_PATH`, and the env trio
+`HCCL_OP_EXPANSION_MODE=AIV` / `VLLM_ASCEND_ENABLE_NZ=2` / `VLLM_ASCEND_ENABLE_FLASHCOMM1=1`),
+so **cite it instead of asking for it** — a replay of this case requested the serve command
+it had already printed. Read it as the reporter's own configuration, not a validated BF16
+recipe: the success came after an unspecified modification.
+
 From the reporter's side the route that works is a **copy** of the model directory with
 `quantization_config` removed (detection falls to its Case 3, `utils.py:137`), and it is
 safe **only if the weights really are BF16** — census the shards for `*_scale_inv` /

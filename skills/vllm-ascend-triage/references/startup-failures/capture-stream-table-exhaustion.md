@@ -31,6 +31,17 @@ graph: 72` then `No adjustment needed for ACL graph batch sizes: … with 51 siz
 the device still refused at graph **38 of 51** with `stream_id=2011` — ~53 streams per
 captured graph against the formula's `layers + 1 = 25` (§2).
 
+**#9596** (vllm-ascend `v0.19.1rc1` `da421af` + vllm `v0.19.1` `b1388b1`,
+Qwen3-4B-Instruct-2507 TP=8 over eight dies, `--max-model-len 131072`, the default
+PIECEWISE serve) is the same failure at a *trimmed* budget: `Capturing CUDA graphs (mixed
+prefill-decode, PIECEWISE): 12/15` then `Alloc sq cq fail, stream_id=1984,
+retCode=0x7020023` / `New capture stream failed … event_id=[-1->70202]` /
+`Create capture stream failed … error=117571619` / `rtStreamWaitEvent … resource alloc
+fail` / `stream wait event failed, runtime result = 207005`, ending
+`AclmdlRICaptureEnd … error code is 507903 … invalidated the stream capture sequence`.
+Its value is the question family it poses — three of the reporter's own controls
+“work” — answered below in *When the paste's own controls say one mode works*.
+
 **Not this page — classify the appended inner error first.** The `ACLgraph has
 insufficient available streams …` sentence is unconditional wrapper text at
 v0.11.0rc0-v0.12.0rc1 (§3), so its presence says nothing about a budget. This page owns
@@ -66,8 +77,10 @@ own list.
 - The downstream budget is written against the same number: "we can only capture 1800
   graphs at most … bounded by the number of streams, which is 2048, we save 248 streams
   as a buffer" (`vllm_ascend/utils.py:459-464` at v0.18.0rc1 `99e1ea0`). `stream_id=1984`
-  sitting next to that 2048 is consistent with the table being at its wall; it is an
-  inference from the code's own comment, not a device readout.
+  sitting next to that 2048 is consistent with the table being at its wall, but the **same
+  literal id recurs** in #2629, #8393 and #9596, so it is not a per-case fill level: read
+  the paste's `N/M` progress denominator together with the computed budget (§3) and
+  keep the 2048 itself as an inference from the code's own comment, not a device readout.
 - This is **not** an `NPU out of memory` and not the KV pool: `--gpu-memory-utilization`
   and `--max-model-len` do not move it, while `--enforce-eager` (no capture at all) does.
 - It is also not a defect owed a fix at the reported ref: the project documents exactly
@@ -170,6 +183,62 @@ vllm_ascend/` returns nothing), and back `207008`-gated by v0.21+
 an earlier rc the advice block *is* in the paste, its presence says nothing about a
 fix, and at any ref it is printed for this retCode rather than for a measured stream
 budget.
+
+## When the paste's own controls say "one mode works, TP=1 works"
+
+The shape: the reporter pastes three commands that *do* start — `--enforce-eager`, an
+explicit `FULL_DECODE_ONLY` plus `--cudagraph_capture_sizes`, and `--tensor-parallel-size
+1` — beside the default that dies, and asks why the default PIECEWISE capture fails,
+whether PIECEWISE consumes more capture stream / event / SQ-CQ resource than
+FULL_DECODE_ONLY, and why TP=1 survives. Everything below is §3's arithmetic plus five
+pinned lines; it changes no rung, so answer from it and stop rather than reading the
+capture path further (recorded #9596 had the budget match in hand on its eighth turn and
+spent its remaining output budget on the two upstream capture loops).
+
+1. **Their mode control moves two variables, and the second one is the bigger.** The
+   `FULL_DECODE_ONLY` line also passed five capture sizes, so it changed mode *and* graph
+   count. A mode switch also changes the graph set by itself: only the PIECEWISE branch
+   calls `update_aclgraph_sizes` (`vllm_ascend/platform.py:410`; the FULL_DECODE_ONLY /
+   FULL branch at `:413-420` prints its banner and returns to the shared path), so a
+   full-decode launch keeps the **untrimmed** size list, and upstream builds the keys per
+   mode — `vllm/v1/cudagraph_dispatcher.py:188-201` makes one relaxed key per capture size
+   only when `mixed_mode() != NONE` (PIECEWISE, hence the `mixed prefill-decode` banner),
+   while a decode-FULL run has `mixed_mode() == NONE` and keeps only
+   `uniform_decode_query_len <= x <= max_num_seqs * uniform_decode_query_len`
+   (`:211-227`). Isolate the mode by passing the **same explicit size list in both
+   launches**; the number of graphs, not the mode name, is the variable that moved.
+2. **The event half of that question is a second pool that scales the same way.** During
+   capture each attention layer creates one `torch.npu.ExternalEvent()` and appends it to
+   `graph_params.events[num_tokens]` (`vllm_ascend/attention/attention_v1.py:650-653`,
+   `:734-737`; the per-size dicts are `vllm_ascend/compilation/acl_graph.py:248-266` at
+   v0.19.1rc1), so event demand is ≈ capture sizes × attention layers — at #9596 15 × 36
+   against 5 × 36 in the control. That is why the paste's chain reports the same failure
+   three ways (`Alloc sq cq fail`, then `New capture stream failed … event_id=[-1->70202]`,
+   then `rtStreamWaitEvent … resource alloc fail`, then `AclmdlRICaptureEnd … 507903 …
+   invalidated the stream capture sequence`): one exhausted resource, several reporting
+   paths, not several faults. The serving-time half of the event pool is
+   `../hccl-and-hardware/acl-event-resource-exhaustion.md`.
+3. **TP=1 is answered twice by `num_comm_groups`.** `sum(dp > 1, tp > 1)` goes 1 → 0, so
+   `floor((1800 - 1*40)/37/(1 + 1*2)) = 15` becomes `floor(1800/37/1) = 48` — and a TP=1
+   captured graph carries no collective at all, so its real per-graph cost is far below
+   `layers + 1`. Both readings point the same way, which is what makes a TP=1 paste that
+   *still* exhausts the table a different case: there the table is small (a vNPU card,
+   #5557), not the budget.
+4. **Decode the codes before counting faults.** `0x7020023` = `117571619`, so the
+   `Create capture stream failed … error=117571619` line and the `Alloc sq cq fail …
+   retCode=0x7020023` line are one refusal written in two bases; `stream_id=49` is
+   torch_npu's own capture-stream ordinal while the `stream_id=1984` on the sq/cq line is
+   the device table's.
+5. **The progress denominator is the computed budget, so it pins the layer count.** Price
+   the set with `scripts/aclgraph-size-budget.sh` for the model's layers: at TP=8 FFTS+,
+   `15` ⇒ 36 layers (34 ⇒ 16, 32 ⇒ 17), so a `12/15` denominator both proves the auto-trim
+   ran and cross-checks `num_hidden_layers` without the checkpoint's `config.json`. A paste
+   whose `Starting to capture ACL graphs for cases` list is still the upstream 51 had no
+   trim (wrong mode branch, or a ref without the call).
+
+One thing not to rank: the pasted `npu-smi` process table can be the reporter's own run —
+#9596 lists eight PIDs across NPU 4-7's two dies each, exactly its TP=8 launch — so match
+PIDs before proposing a co-tenant holding the streams.
 
 ## 4. Levers in order, and the one-variable rule
 

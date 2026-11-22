@@ -69,8 +69,13 @@ v0.11.0. Lower the value only as a cheap third row, not as the theory.
 
 `--quantization ascend` is driven by the checkpoint's own
 `quant_model_description.json`, and the tree at v0.11.0 has **no** rotation
-handling at all: `rg -il 'quarot|qua_rot|hadamard' vllm_ascend/` → 0 hits
-(re-verify per ref). A name like `DeepSeek-V3.2-w8a8-QuaRot` is therefore outside
+handling at all: `rg -il 'quarot|qua_rot|hadamard' vllm_ascend/` → 0 hits. **That is
+a v0.11.0 fact and not a property of the project** — the same grep returns nine
+files at v0.18.0rc1, `patch/worker/patch_draft_quarot.py` among them (landed with
+the `## v0.16.0rc1` section, `release_notes.md:74,132`), so a later report about a
+rotated checkpoint or a dropped spec-decode acceptance rate is a draft-basis
+question, never "the engine cannot handle rotations":
+`../spec-decode-mtp/quarot-rotation-basis-draft-acceptance.md`. A name like `DeepSeek-V3.2-w8a8-QuaRot` is therefore outside
 the validated set that the tutorial tab names, and its description can route
 modules to a scheme (`FLOAT`/`W8A8` vs `W8A8_DYNAMIC` rows) whose fused path the
 torchair graph never exercised. Two checks, one command each:

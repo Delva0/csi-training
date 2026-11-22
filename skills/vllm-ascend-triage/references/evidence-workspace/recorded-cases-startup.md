@@ -507,8 +507,11 @@ graph failed … [FUNC:ge_api.cc][LINE:1365]` — from `_compile_torchair_graph`
 `_dummy_run(is_torchair_compile=True)` (`torchair_model_runner.py:286,245,223` at v0.11.0),
 i.e. host-side before any kernel. Verified locally: `ascend_config.py:285` refuses
 `torchair_graph_config` + `--enforce-eager`, so the graph-off ablation is deleting the
-key; the pin has **no** rotation handling (`rg -il 'quarot|qua_rot|hadamard' vllm_ascend/`
-→ 0) while `docs/source/tutorials/multi-node_dsv3.2.md:298-340` validates
+key; at v0.11.0 it has **no** rotation handling
+(`rg -il 'quarot|qua_rot|hadamard' vllm_ascend/` → 0; the same grep returns nine files
+at v0.18.0rc1, so scope this to the pin, not the project —
+`../spec-decode-mtp/quarot-rotation-basis-draft-acceptance.md`) while
+`docs/source/tutorials/multi-node_dsv3.2.md:298-340` validates
 `vllm-ascend/DeepSeek-V3.2-Exp-W8A8` on exactly this DP2/TP8 shape; the
 `graph_batch_sizes` torchair fix (#2760) predates the pin, and no `tests/e2e/**` case
 compiles DS3.2 in torchair mode. `cann/ge` (the error's own files) and the

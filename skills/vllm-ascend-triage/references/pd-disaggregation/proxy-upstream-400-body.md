@@ -71,26 +71,47 @@ reporter can see. Two ways to recover the reason, both cheap:
    `stream_service_response_with_retry`'s (`:853-869`), add
    `logger.error("upstream body: %s", getattr(exc, "response", None) and exc.response.text)`.
 
-## Step 3 — the four frontend rejections at this pin, all `VLLMValidationError` → 400
+## Step 3 — the four frontend rejections at this pin, every one of them a 400
 
-`create_error_response`'s default is `status_code=HTTPStatus.BAD_REQUEST`
-(`vllm/entrypoints/openai/engine/serving.py:167-171`, and `:178-182` for the
-streaming twin), so every entry below
-reaches the proxy as a bare 400.
+Three raise `VLLMValidationError`; the fourth (`get_max_tokens`) raises a plain
+`ValueError` and **still answers 400** — do not re-rank it as a 500 on the class
+alone. The status comes from the handler pair, not from a default argument:
+`app.exception_handler(VLLMValidationError)(exception_handler)` and the catch-all
+`app.exception_handler(Exception)(exception_handler)`
+(`vllm/entrypoints/openai/api_server.py:254-255`) both end in
+`create_error_response(exc)`, whose `isinstance` chain maps `VLLMValidationError`
+(`vllm/entrypoints/serve/utils/error_response.py:32-35`) **and**
+`(ValueError, TypeError, OverflowError)` (`:40-44`) to `BadRequestError` +
+`HTTPStatus.BAD_REQUEST`, with everything else a 500 (`:58-60`). So every entry
+below reaches the proxy as a bare 400, and the **body text** — not the exception
+class — is what names the rejecting check.
 
 | body text | site | condition |
 |---|---|---|
 | `max_tokens=N cannot be greater than max_model_len=… Please request fewer output tokens.` | `vllm/renderers/params.py:209-220` (`TokenizeParams.__post_init__`) | `max_output_tokens > max_total_tokens` |
 | `This model's maximum context length is {max_total_tokens} tokens. However, you requested {max_output_tokens} output tokens and your prompt contains {len(text)} characters (more than {max_input_chars} characters …)` | `params.py:324-343` `_text_len_check` | a **character** bound applied *before* tokenization: `len(text) > max_input_tokens * tokenizer.max_chars_per_token` |
 | `… and your prompt contains {qualifier}{token_count} input tokens, for a total of {qualifier}{total} tokens.` | `params.py:415-439` `_token_len_check` | `len(tokens) > max_input_tokens` |
-| `Input length ({input_length}) exceeds model's maximum context length ({max_model_len}).` | `vllm/entrypoints/serve/utils/api_utils.py:183-187` (`get_max_tokens`) | `max_model_len < input_length` |
+| `Input length ({input_length}) exceeds model's maximum context length ({max_model_len}).` | `vllm/entrypoints/serve/utils/api_utils.py:184-188` (`get_max_tokens`, plain `ValueError`) | `max_model_len < input_length` |
 
 `max_input_tokens = max_total_tokens - max_output_tokens` (`params.py:188-193`),
 `max_total_tokens = model_config.max_model_len`, and `max_output_tokens` is the
 **raw request value** — `build_tok_params` (`vllm/entrypoints/openai/chat_completion/protocol.py:504-524`,
 `.../completion/protocol.py:202-211`) passes `self.max_tokens or 0`, *not* the
 `get_max_tokens` clamp. So an oversized client `max_tokens` reaches the first
-three checks unclamped; `get_max_tokens`' own raise is the fifth, separate gate.
+three checks unclamped; `get_max_tokens`' own raise is a separate gate downstream
+of them.
+
+**Row 4's sentence is two adjacent f-string literals** (`api_utils.py:185-188`:
+`f"Input length ({input_length}) exceeds model's maximum "` then
+`f"context length ({max_model_len})."`), so a whole-sentence
+`rg -n "exceeds model's maximum context length"` returns **zero hits at this pin**
+— that is the literal split, not a retired check
+(`../evidence-workspace/case-layout.md`, *Search-command traps*). Grep the first
+half (`exceeds model's maximum`, one hit) or `def get_max_tokens`. Recorded cost:
+the #15527 replay read the zero hit as a stale row and told the reporter this
+rejection was a bare `ValueError` that "usually" surfaces as a 500, then spent two
+more turns correcting itself — the class in that sentence is wrong, the 400 is
+not.
 
 ### The prefill leg's arithmetic decides the case
 
@@ -169,7 +190,9 @@ direct curl used the identical body.
 Proxy lines: vllm-ascend v0.23.0 `5cb98caadeff42b5b62b996e34bb2aaa29d20fd`.
 Frontend checks: vllm v0.23.0 `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`. Both
 move between releases — re-grep `def build_prefill_request`, the two
-`Attempt %s failed` strings and `_text_len_check` before quoting. The recorded
+`Attempt %s failed` strings, `_text_len_check` and `def get_max_tokens` before
+quoting. The recorded
 reporter's follow-up is not in the snapshot, so the mechanism (prompt length vs
 another validation) stayed open; what is source-verified is the leg arithmetic,
-the four 400 sites and the discarded body.
+the four 400 sites, the handler mapping that turns even a plain `ValueError` into a
+400 and the discarded body.

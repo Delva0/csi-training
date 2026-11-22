@@ -67,7 +67,7 @@ Verified at the pin above (`rg -n` re-checks in the last section):
 | Upstream hands that dict to the manager untouched — the only filter is `req.use_structured_output` | vllm `vllm/v1/core/sched/scheduler.py:1030-1057` (`:1043`) |
 | The manager advances the FSM **once per scheduled draft token** and asserts | vllm `vllm/v1/structured_output/__init__.py:264-292`, assert at `:288` |
 | xgrammar rejects `-1` as out of vocab → the two log lines | vllm `vllm/v1/structured_output/backend_xgrammar.py:170-186` (message at `:181`; the paste's `:180` is line drift, not another site) |
-| `recompute_scheduler_enable` defaults to `False` and is a plain `additional_config` key | `vllm_ascend/ascend_config.py:90-91`, pulled in by `platform.py` |
+| `recompute_scheduler_enable` defaults to `False` and is a plain `additional_config` key, and **only that flag installs the fork**: `if ascend_config.recompute_scheduler_enable:` → `vllm_config.scheduler_config = recompute_scheduler_config` | `vllm_ascend/ascend_config.py:90-91`; `vllm_ascend/platform.py:333`, swap at `:335-337` |
 
 The repo's own DeepSeek-V3.2 P/D **decode** recipe ships both halves of the gate —
 `--speculative-config '{"num_speculative_tokens": 2, "method":"deepseek_mtp"}'`
@@ -83,8 +83,12 @@ predicted to remove it. Remove `"recompute_scheduler_enable"` from
 request:
 
 - assert gone → the placeholder path is the mechanism; Step 3 applies, and the
-  parity diff is secondary (the same launch also removes the recompute-retry
-  behaviour on decode — say what it costs).
+  parity diff is secondary. Say what the same launch costs: the recompute-retry
+  behaviour on decode, and — in the same `platform.py` block — the
+  `vllm_ascend.patch.worker.patch_model_runner` import that exists so decode nodes do
+  not sit in eager mode when spec config + `kv_transfer_config` + `method == "mtp"`
+  (`platform.py:339-345`). A decode-side slowdown or an eager-mode banner after the
+  ablation is therefore the ablation's own cost, not evidence against this reading.
 - assert still there with `-1` → the ids came from somewhere else, Step 1 owns the
   case, and the missing artefact is the two serve commands plus each side's
   `--speculative-config`.

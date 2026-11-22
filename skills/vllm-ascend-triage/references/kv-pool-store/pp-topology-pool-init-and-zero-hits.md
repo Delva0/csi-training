@@ -22,6 +22,18 @@ Not this page: a pool fault on the **second** request (`HCCL watchdog`,
 zero hits with a healthy write path on a hybrid model → `cross-engine-lookup-zero-hits.md`;
 a PD pair that cannot connect at all → `../pd-disaggregation/index.md`.
 
+**Rung order is not the step order, and this page is the case that proves it.** The
+sections below are numbered by what each one settles (the paste's own line numbers →
+the discarded return code → the lazy-init gate → the PP algebra → the 0 % key axis →
+coverage); the **answer's ladder is at the end and leads with the release that
+carries the post-pin fixes** (#13349 / #12762 / #13028 / #12643, the reporter's own
+follow-up), because a code merge is how this report was closed. A message assembled
+by walking the steps in the order they are written inverts that: #13418's replay
+shipped the fix set as ranked cause **5** and the `protocol ≠ device_sdma` inference
+as cause **2**, so the reporter's first instruction was a `cat` of the conf file
+while the one rung the thread confirmed sat below the evidence table. Read the
+*Answer ladder* before composing, and put its rung 1 in the first paragraph.
+
 ## Pins
 
 Verified here at vllm-ascend **v0.23.0rc1 `f4a08bdd`** (upstream vllm v0.23.0
@@ -31,20 +43,24 @@ Verified here at vllm-ascend **v0.23.0rc1 `f4a08bdd`** (upstream vllm v0.23.0
 
 ## Step 0 — the paste's own line numbers are the pin check (one call)
 
-Five Python frames of that traceback land on exactly these statements at
-`f4a08bdd`:
+Five Python frames of that traceback land on, or within two lines of, these
+statements at `f4a08bdd`:
 
 | Paste frame | In the pinned tree |
 |---|---|
 | `worker/worker.py:896`, `initialize_from_config` | `vllm_ascend/worker/worker.py:896` `ensure_kv_transfer_initialized(self.vllm_config, kv_cache_config)` |
-| `ascend_store/ascend_store_connector.py:115` | `:115` `self.connector_worker = KVPoolWorker(` |
+| `ascend_store/ascend_store_connector.py:115` | `:113` `self.connector_worker = KVPoolWorker(` — the paste's only near-miss, **two lines high** |
 | `ascend_store/pool_worker.py:105` | `:105` `self._init_backend(parallel_config, extra_config)` |
 | `backend/memcache_backend.py:58`, `__init__` | `:58` `self.store = self._setup_store()` |
 | `backend/memcache_backend.py:95`, `_setup_store` | `:95` `assert res == 0` |
 
-Five of five ⇒ the reporter's tree is that release's lineage (a "vllm-ascend
-0.23.0" string is the release, not proof of a self-build), so the pin's code can be
-quoted as *their* code. Say that in the answer; it is what makes the rest citable.
+Four frames land verbatim, the connector frame two lines above the paste's own
+number ⇒ the reporter's tree is that release's lineage (a "vllm-ascend 0.23.0"
+string is the release, not proof of a self-build), so the pin's code can be quoted as
+*their* code. Say "four of five verbatim, the connector frame two lines off" in the
+answer, not "five of five": whoever re-greps `:115` finds nothing there and reads the
+mismatch as a different tree — #13418's replay came back with exactly that
+correction.
 
 ## Step 1 — the assert carries no cause; memcache already logged it
 
@@ -144,9 +160,15 @@ non-zero `Prefix cache hit rate` on the same line is this shape's fingerprint.
 
 ## Step 5 — coverage at the pin is part of the verdict
 
-- No PP>1 case exists in the pool's own tests: `rg -n 'pipeline_parallel_size'
-  tests/ut/distributed/ascend_store/` is empty, and the only e2e that builds an
-  `AscendStoreConnector` (`tests/e2e/weekly/single_node/models/test_qwen3_30b_acc.py:95-124`)
+- No PP>1 case exists in the pool's own tests, and the grep shows it by what it
+  **returns**, not by being empty: `rg -n 'pipeline_parallel_size'
+  tests/ut/distributed/ascend_store/` prints 27 hits at `f4a08bdd`
+  (`test_pool_scheduler.py` 17, `test_pool_worker.py` 10) and every one of them is
+  `pipeline_parallel_size = 1`. This bullet used to call that grep empty; it never
+  was — #13418's replay re-ran it, reported the `= 1` lines back as a correction, and
+  the coverage verdict (no PP>1 case) survives only in that form. The only e2e that
+  builds an `AscendStoreConnector`
+  (`tests/e2e/weekly/single_node/models/test_qwen3_30b_acc.py:95-124`)
   is TP-only (`--tensor-parallel-size`, no `--pipeline-parallel-size`).
 - The project does refuse one PP combination at this ref:
   `platform.py:436-447` raises `ValueError: PP+MTP is only supported on
@@ -188,6 +210,10 @@ non-zero `Prefix cache hit rate` on the same line is this shape's fingerprint.
   `AssertionError` only. The later resolution is a code merge, not a stated
   mechanism, so keep the cause open and label the config-side reading a hypothesis.
 - Whether the fix set touched `pool_worker.py` / `memcache_backend.py` or the
-  memcache/memfabric pin: inaccessible from this snapshot; say so.
+  memcache/memfabric pin: inaccessible from this snapshot; say so. The case view's
+  history corpus does not carry the four ids either (`/workspace/history/13418/` has no
+  `13349.md` / `12762.md` / `13028.md` / `12643.md`, whose cutoff is 2026-08-01 and
+  whose scope is redacted titles/bodies with no PRs), so one `ls` settles it — do not
+  spend a titles/body search on them.
 - The PP participant arithmetic is documented per card and per `world_size`
   (`kv_pool.md:496-498`) but never verified against a run here.

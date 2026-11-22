@@ -32,7 +32,13 @@ that tests it: `../pd-disaggregation/decode-step-latency-tpot-anomaly.md`.
 as the only evidence, no numbers on either side. Then the baseline may carry an
 accelerator the new image no longer ships and a weight layout whose default flipped
 twice inside three releases, so the deliverable is the one-launch A/B list plus the
-removed-switch checklist, not a mechanism: `upgrade-vs-older-baseline.md`.
+removed-switch checklist, not a mechanism: `upgrade-vs-older-baseline.md`. That page's
+*Step 1b* owns the variant where the two sides are **Ascend dev-image build tags**
+(`26.1.0-B050`, `dev-26.1.0.B050-cann9.0.0-800I-A2-…`) rather than `vX.Y.Z` releases,
+with or without a number on each side:
+the release-notes grep for that number is empty by naming, the tag carries CANN as well
+as the plugin, and "the same degree on A2 as on A3" is free evidence that a shared layer
+moved — take it before pricing per-SoC levers.
 
 This is a *measurement* track, not a defect hunt: no `WorkerProc` line, no device
 dump, no traceback. The deliverable is arithmetic over the pasted numbers, the

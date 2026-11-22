@@ -27,10 +27,20 @@ Second worked case: **#5687** — vllm-ascend **v0.11.0rc3**, the same
 posted the dump this page had been missing, and it is the page's only
 **reporter-confirmed** view of the hole itself: "在第二个batch的时候 ...
 初始化请求的时候是 `[None,None,xxx,297]`, 请求增加之后变成了 `[None,298,299,xx]`,
-初步排查是因为condense侧的删除逻辑有问题" (#5687, comment 2026-01-07). Two facts
-to read off that dump: the holes sit *inside* `[0, num_reqs)` and not only at the
-tail, and they survive while new ids keep appending after them — which is exactly
-what `condense`'s `del _req_ids[num_reqs:]` leaves behind.
+初步排查是因为condense侧的删除逻辑有问题" (#5687, comment 2026-01-07). Read that
+dump before proposing another probe. Both `None`s sit at the **head** of the list and
+are still there in the second print, while the two entries behind them changed
+(`xxx`,`297` -> `298`,`299`); `297`-`299` cannot be slot indices under
+`--max-num-seqs 256`, so those are the bench client's request-id strings and each
+print is the batch's four slots. Admissions therefore land at `num_reqs` =
+`len(req_id_to_index)`, which counts live ids only — i.e. on slots that already hold
+an entry — and that is also why a **trim-only** `condense` is the wrong repair here:
+with the holes at the head, `del _req_ids[num_reqs:]` drops *live* entries, not the
+holes. What the dump leaves open is whether the overwritten occupants were still
+live, which is the only difference between the two symptoms below (`KeyError: None`
+versus a silently wrong vector). It does not clear the condense side either: the
+reporter's own 「初步排查」 names this page's `condense` delete path, so quote it as an
+attribution to check, never as 「已排除」 (SKILL.md rule 6).
 
 Third worked case: **#4156** — vllm-ascend **v0.11.0rc0** (`00ba071`, 2025-09-30) +
 vllm **v0.11.0rc3** (`8ce5d31`), a **Qwen2.5-VL-3B** *generate* checkpoint served on

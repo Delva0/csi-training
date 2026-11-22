@@ -253,6 +253,14 @@ the turn the shape is classified, not a second copy of it here.
    gate tests the **step's** count (`sfa_v1.py:763`, `model_runner_v1.py:615`), which
    *raises* the shared candidate
    (`references/dsa-sparse-attention/concurrency-crash-with-no-log.md`).
+   **A reporter's own attribution is quoted in the direction it was written, and the
+   later evidence is graded against it rather than turned into a clearance.**
+   「初步排查是因为 X 有问题」 / 「怀疑是 X」 names X as the suspect: a new dump may
+   strengthen it or leave it open, and neither reads as "X 已排除". The #5687 replay
+   shipped "后续 dump … 并已排除 condense 侧删除逻辑" *while* delivering this library's
+   mechanism, which is that same `condense` delete path — inverted, so a reporter reading
+   it back loses the one hypothesis they had
+   (`references/pooling-embedding/batch-index-desync.md`, the #5687 dump paragraph).
 7. **Keep reads small and exact.** Use `rg -n -C2 <symbol>` and
    `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines — the
    exception is the page that **is** the protocol for the deliverable in hand
@@ -284,12 +292,18 @@ the turn the shape is classified, not a second copy of it here.
    rewrite or dump whole lines; an empty pattern matches every line), so a result whose matched
    text is missing or replaced by `n` is that accident, not a finding: re-run without the flag
    before quoting it, and never read a `self.…n == "align"` line as source (recorded #13863
-   reached for it **four times in one session** with this warning already in context, and
-   `rg -n '_update_states_after_model_execute' -r ''` printed a `self.(sampler_output…)` line); a pasted message is
+   reached for it **four times in one session** with this warning already in context,
+   `rg -n '_update_states_after_model_execute' -r ''` printed a `self.(sampler_output…)` line,
+   and #9596 lost two calls to `rg -rn` — `def get_capture_descs` came back as `n(self)` —
+   while #10068 paid the same slip); a pasted message is
    often split across adjacent literals, so grep the shortest clause (or `-A1`); a
    `--glob '!<dir>/**'` exclusion is matched against the path you passed; a piped
    `sed -n 'A,Bp' | rg -n` numbers the stream (`A + n - 1`); scope every grep to one
-   repo; **a page's `vllm/<file>` anchor is repo-relative, and for vllm the package
+   repo; **a recursive grep from a repo root does not enter `.github/`, so any CI
+   claim ("no workflow invokes this test", "downstream ships no patch") needs
+   `--hidden` and an exit-1 from the plain form is not absence** (an explicitly named
+   `.github/workflows/` path is searched normally, which is why the two forms disagree;
+   recorded #15911); **a page's `vllm/<file>` anchor is repo-relative, and for vllm the package
    sits one level *below* the repo root** (`<repo>/vllm/config.py`, while
    `vllm_ascend/` and `docs/` sit at the vllm-ascend root), so an `IO error … No such
    file or directory` from the bare tail means the prefix, not a missing file — the
@@ -596,6 +610,17 @@ the turn the shape is classified, not a second copy of it here.
     pinned tree cannot answer this":
     `references/image-dependency-faults/mindie-turbo-graph-break.md` §3-§4,
     `references/startup-failures/environment-correspondence.md`).
+    **Read the same test backwards to price the rung you are about to ship**: a sibling
+    report at the same pin, image tag and card that already ran that exact lever and died
+    at the same frame makes it a spent rung, so quote the sibling and move to the size the
+    arithmetic needs — #3316 answered `--gpu-memory-utilization 0.9→0.80` with a to-the-GiB
+    prediction while #3479, same `-310p` tag and 310P3 card at that pin, had already run
+    `0.8` and died at the same `_convert_torch_format` frame, and the reporter's own second
+    box (93.96 GB card, a 0.6B model) died there as well; both were above the real bound
+    (`peak + 2 × pool ≤ total`, because the raw int8 pool and the converted tensors are
+    both live), so the lever was a halving
+    (`references/runtime-memory/kv-init-and-format-cast-alloc.md`,
+    `references/dispatch/controls-and-ablation.md` §*A sibling that already ran your rung*).
     **The same test governs your own ablations and every control the report offers**:
     an ablation only rules out a phase it actually removes and its own log line has to
     be in the paste (`--enforce-eager` is neither universal nor free, and
@@ -624,9 +649,9 @@ the turn the shape is classified, not a second copy of it here.
     would turn it into a finding (the `ping` case: ICMP says nothing about the TCP
     control port HCCL dials —
     `references/hccl-and-hardware/link-establish-timeout.md`).
-    `references/dispatch/controls-and-ablation.md` carries the seven forms, the
+    `references/dispatch/controls-and-ablation.md` carries the eight forms, the
     pin splits that make an ablation inert, and the recorded cost of each (#2763,
-    #13964, #10910, #9447, #15527, #13688, #10700).
+    #13964, #10910, #9447, #15527, #13688, #10700, #3316).
 16. **A release candidate's experimental mode is a version question before it is a
     mechanism question.** When the mode printed its own banner
     (`FULL_DECODE_ONLY compilation enabled on NPU`, `PIECEWISE …`), every rank finished
@@ -887,8 +912,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    entry stated (the sampler body holds no indexed write). Hand the script the number:
    `reference-locate.py <tokens> --issue <the report's own id, from the task title>` prints
    a `[case arrows]` block above the grades and marks that arrow `[YOUR CASE]` with its
-   `sed` range — because a thick all-token grade is often family words while the own entry
-   sits one grade down. Recorded #5075's printout already carried `→ #5075:82 (2/4)` in its
+   `sed` range — and **when the paste carries no id, pass no flag at all** (a bare
+   `--issue` is ignored rather than fatal, which cost a recorded call) — because a
+   thick all-token grade is often family words while the own entry sits one grade
+   down. Recorded #5075's printout already carried `→ #5075:82 (2/4)` in its
    `3-of-4` grade, no entry was opened, and ~20 turns re-derived (less completely) what
    that entry and `soc-platform-paths/atlas-300i-310p.md`'s pin-keyed block already held.
    **The arrow's id need not match the report's.** One body can be archived under a

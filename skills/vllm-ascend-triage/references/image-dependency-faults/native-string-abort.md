@@ -53,7 +53,8 @@ do not chase `wait_for_ready`, the balance patch or `--model-loader-extra-config
   registration, LFS `tokenizer.json`, optional `decord`/`lmdb`/`cv2` imports,
   `_get_num_multimodal_tokens()`, nulled `rope_scaling`/`template`/
   `transformers_version`, `_attn_implementation` `magi`→`sdpa`, `_name_or_path`,
-  V0 vs V1). Do not rank "the architecture is unregistered" or "the model config
+  V0 vs V1 — and that last item is inert, see *Do not spend the session on these*).
+  Do not rank "the architecture is unregistered" or "the model config
   is malformed" for this text: registration and config already succeeded — that
   is why the config printed at all. **The reporter's own "a null/missing config
   field is passed to `std::string`" theory does not survive the frame boundary**:
@@ -213,6 +214,16 @@ do not chase `wait_for_ready`, the balance patch or `--model-loader-extra-config
 - **Reading the custom model's modeling/processing files.** They explain nothing
   about a throw inside a bundled `.so`; the AutoModel load the reporter already ran
   is the proof they are fine.
+- **Crediting (or asking for) a V0/V1 control.** There is no V0 engine to select at
+  either of this page's vllm pins: `vllm/v0/` does not exist and `VLLM_USE_V1` appears
+  nowhere in the tree (vllm v0.18.0 `bcf2be96` and v0.20.2 `bc150f5`; one check,
+  `rg -n 'VLLM_USE_V1' vllm/envs.py; ls vllm/v0`). So #10943's "tried both V0 and V1"
+  is not a control at all — it is further evidence that no engine-side control was
+  exercised — so never carry it into the open-questions list. The live knob of that name
+  family is `VLLM_ENABLE_V1_MULTIPROCESSING` (`vllm/envs.py:129`, `:1103-1104` at
+  v0.20.2), which is step 4's child-vs-parent discriminator: redirect the reporter
+  there, and say plainly that `--enforce-eager` likewise only gates compilation and
+  graph capture, so it cannot remove a worker-init native call.
 
 ## Answer shape for this class
 

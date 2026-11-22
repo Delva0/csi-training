@@ -309,6 +309,20 @@ These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
   lines that read exactly like doc prose — and `.po` files are machine
   translations whose `#: ../../source/x.md:N` references lag the source, so
   neither their text nor their line numbers are citable.
+- **A recursive `rg` from a repo root does not enter `.github/`, so a CI-wiring or
+  "downstream ships no patch" claim built on it is an artefact.** Verified at the
+  v0.23.0 export: `rg -l 'qwen3xml|qwen3_xml' .` inside
+  `/workspace/repos/<case>/vllm-project/vllm-ascend` exits **1** with no output, while
+  `rg --hidden -l` returns `.github/workflows/scripts/upstream_config.yaml:594`. So the
+  two claims that depend on that tree — "no workflow invokes this test" and "the only
+  downstream mention is in CI config" — need `--hidden` (or `-uu`), and an exit-1 from
+  the plain form is *not* evidence of absence. The trap is the **recursive-from-root**
+  form only: an explicitly named hidden path is searched normally
+  (`rg -n 'test_pipeline_parallel' .github/workflows/` does hit the commented-out e2e
+  line), which is why the recorded grep that "worked" and the one that "found nothing"
+  differed only in how the path was spelled. Recorded #15911 spent an extra call on
+  this after the owning page's own command read as a no-hit, and #2974's index rule
+  cites the explicit-path form.
 - **A piped `sed -n 'A,Bp' file | rg -n '<pat>'` numbers the stream, not the file.**
   `rg` counts its stdin from 1, so every match line is `A + n - 1` — an off-by-one
   that lands as a wrong `path:line`. Cross-check one match against an absolute

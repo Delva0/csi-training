@@ -121,6 +121,9 @@ and give the confirmation step, rather than calling the crash a regression.
 ## Limits
 
 Source-verified only — no PP cluster is reproducible from this snapshot, so the
-verdict is "consistent with" plus the ablation, not a measured fix. If the reporter
+verdict is "consistent with" plus the ablation, not a measured fix. The recorded
+#10910 run is **not** reporter-confirmed either: its only later public message is a bump
+(「Is there any update on this」), so the stage-start fingerprint above is a reading of the
+reporter's own two keys, not a confirmed cause — send it labelled that way. If the reporter
 cannot run the one-node ablation, ship the fingerprint result and the
 `Hidden layers were unevenly partitioned` grep as the two facts that decide it.

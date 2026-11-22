@@ -138,6 +138,24 @@ E89999 … When layout is TND, queryT(1) must be equal to the last element of
   (`:674-675`), so a *stable* mismatch there needs the metadata itself to be wrong — and
   a paste with **two different `M` in one record** (33 then 2) shows more than one
   refusal was recorded, so the pair does not describe a single step's bookkeeping.
+- The `E89999 … queryT(1)` line carries its **own** log time
+  (`E89999[PID: 39839] 2025-12-08-03:17:23.250.718`), eight seconds before the block that
+  prints it (03:17:31) and before the `SpecDecoding metrics` line that reports the first
+  request finishing (`Drafted: 15, Accepted: 2`) — so it is not the bookkeeping of the
+  step that died either. Quote the two dates; it retires the padding reading without
+  another derivation.
+- **The kernel name is decidable in the tree at this pin.** `ScatterElements` in
+  `libcpu_kernels.so` with `funcName=RunCpuKernel` is a CPU-fallback op, so the owner is
+  the Python statement that launched it, and the only device `scatter_` on a host-built
+  index in `vllm_ascend/` at v0.11.0rc2 is
+  `worker/model_runner_v1.py:1169` (`self.input_ids.scatter_(dim=0,
+  index=input_ids_index_tensor, src=self.input_batch.prev_sampled_token_ids[
+  prev_common_req_indices_tensor, 0])` in `_prepare_input_ids`): the common case is the
+  `copy_` at `:1154-1157`, and the scatter branch runs only when the batch composition
+  changed between iterations — which is exactly "first request fine, second one dies".
+  Name it as the **hypothesis with its check** (the `ASCEND_LAUNCH_BLOCKING=1` run under
+  `--enforce-eager`, which is what turns this launch site into a Python frame), never as
+  the cause: the recorded paste has no log between the two.
 
 What to do with that shape: treat the **device record as the primary evidence** — the
 kernel name, `task_id`, `stream_id`, `chipId` and `retCode=0x2a` belong to the AICPU

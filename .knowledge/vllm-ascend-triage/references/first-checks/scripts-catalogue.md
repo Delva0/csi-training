@@ -186,7 +186,14 @@ after that keeps the header, not this text.
   report's id rather than read whole. `[index]` = a topic index (a route, not an owner),
   `[dispatch]` = a wording table. **A family-word guard prints before the grades** when
   no page carries all tokens and the widest token alone hits 40+ pages: the grade then
-  cannot name the owner, and the two moves that do are the shape's row in
+  cannot name the owner, and the moves that do are, in order, a **re-grade of the two or
+  three shortened tokens** (the owner is usually already on the near-miss lines the first
+  call printed, and nothing absent from the printout is opened — a page recalled by
+  *name* from the `skill_view` `linked_files` inventory is periphery: recorded #2105
+  opened `startup-failures/profile-run-logits-gather-eof.md` that way, its name matching
+  the paste's `profile_run` frame while it is the V0 `EOFError` sibling and graded on no
+  list, and never opened `hccl-and-hardware/collective-error-chain.md`, which the same
+  grade listed at 3-of-5 holding the case entry), the shape's row in
   `references/dispatch/classified-shapes.md` and the `[case]` file opened by the report's
   own wording — a token-less paste (two benchmark tables, two screenshots, "X is slower
   than Y") is that case by construction (recorded #5605's five family tokens graded
@@ -614,7 +621,9 @@ after that keeps the header, not this text.
   `--additional-config '{"enable_weight_nz_layout": true}'` with its **`False` default**
   (v0.9.1rc2 `b9f715d6`, where int8 weights therefore run ND) — the speed-direction
   lever on that line; and only when none of the three exists does it say the layout is
-  not a flag there at all.
+  not a flag there at all — with the v0.11.0rc0 caveat that a launch template under
+  `examples/` can still carry the old spelling (`examples/external_online_dp/run_dp_template.sh:46`),
+  which is not a reader.
 - `scripts/toolcall-raw-output-audit.py <dir-or-file> [...] [--markers '<a>,<b>']`
   — read a case's request / rendered-prompt / tokenized-request / completion
   dumps and print the lane: no tool-call marker in the engine's own completion

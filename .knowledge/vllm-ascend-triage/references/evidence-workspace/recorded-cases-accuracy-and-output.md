@@ -91,11 +91,13 @@ Page: `../accuracy-benchmarks/batch-invariant-coverage.md`.
 310P3 box, CANN 9.1.0-beta.1: GLM-OCR and MinerU2.5-2509-1.2B both "可以正常拉起，但是精度有问题 /
 随便跑个图片识别就能复现", while PaddleOCR-VL was "好像没问题" (MinerU2.5 appears in **both** lists of the
 same paragraph). Track: unvalidated model/SoC pair, returning as an accuracy report. The paste is a full
-environment dump plus the PaddleOCR-VL serve command only — no response body, no log. Reporter-confirmed
-later on the same issue: both models *do* launch and infer on the official image with no extra
-operations, the symptom is garbage text from simple image recognition, neither is officially supported
-yet, and GLM-OCR is meant to run with PP-DocLayout-V3. So the ranked answer is pipeline stage >
-unvalidated pair > engine numerics, and the support half is a two-grep doc lookup: at this ref
+environment dump plus the PaddleOCR-VL serve command only — no response body, no log. Later evidence on
+the same issue is a commenter's reply plus the reporter's rebuttal of it: the commenter said neither model
+is officially supported yet and GLM-OCR needs PP-DocLayout-V3, and the **reporter** answered that both *do*
+launch and infer on the official image with no extra operations, 只是输入简单的图片识别都是输出乱码. So the
+launch half is closed by the reporter and the artefact is open: the ranked answer stays pipeline stage >
+unvalidated pair > engine numerics, recorded as hypothesis, with the support half a two-grep doc lookup that
+is context rather than a verdict: at this ref
 `docs/source/tutorials/models/` has the PaddleOCR-VL page with an Atlas-300 tab (`:51, :60, :93-115`)
 and **no** GLM-OCR or MinerU page, while `hardwares/310p.md:96-172` validates text-only Qwen3-W8A8SC.
 The recorded run spent 28 assistant turns and its whole 16 K output budget inside the 310P rope and
@@ -103,7 +105,11 @@ attention internals, emitting **zero** message text, after guessing the split wa
 M-RoPE / partial-rotary branches" — partly refuted, since `uses_mrope` comes from the checkpoint config
 (`mrope_section`), not the family (`paddleocr_vl.py:1097` defines `get_mrope_input_positions` anyway).
 The page now carrying it, with the branch map and the verified dead ends (`scale_value`, the head-dim pad
-path, `ApplyRotaryEmb`), is `../soc-platform-paths/310p-vl-ocr-garbage-output.md`.
+path, `ApplyRotaryEmb`), is `../soc-platform-paths/310p-vl-ocr-garbage-output.md`. **The next replay of
+the same paste delivered**: it took that page's pins at face value (they equal `SOURCES.json`), re-ran the
+two doc lookups, and shipped the verdict, three ranked legs with one probe each, the dead-end list and the
+ask list in one answer on assistant turn 5 (~5.5 K output tokens) — the procedure holds when the page is
+read before `_310p/`, and its `MinerU in both lists` catch is what the ask list led with.
 
 **#8022** vllm-ascend v0.18.0rc1 (`99e1ea0`) + vllm v0.18.0 (`bcf2be9`),
 Qwen3.5-27B, streaming chat: with `--reasoning-parser qwen3` (or `deepseek_r1`)

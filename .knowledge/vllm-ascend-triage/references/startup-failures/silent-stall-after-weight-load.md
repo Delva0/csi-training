@@ -112,9 +112,15 @@ vllm serve /llm --served-model-name deepseek-r1-distill-qwen-1.5b --enable-reaso
 ```
 
 No `--max-num-batched-tokens` + `--max-model-len 10000` ⇒ the dummy prefill is
-`max(10000, 2048) = 10000` tokens, split over the 128-default `max_num_seqs` into
-128 × 78-79. A 10 K-token prefill of a 1.5 B model whose weights are 3.35 GB is a
-small batch beside any 910B4's HBM budget (32 GB on the common variant, and the
+`max(10000, 2048) = 10000` tokens, split over the default `max_num_seqs` into 39-40
+tokens per sequence at 256, 78-79 at 128. Which divisor applies has to be read off
+the pin: `SchedulerConfig`'s dataclass fallback is `128` (`vllm/config.py:1961-1965`),
+but the V0 `EngineArgs` path overwrites it with `256` before the config is built
+(`vllm/engine/arg_utils.py:1561-1563` `_set_default_args_v0`, verified at vllm
+v0.8.5.post1), so a `// 128` split is the dataclass value, not the running one
+(the same trap as the multimodal profile batch,
+`../deploy-sizing/vl-profile-run-multimodal-budget.md`). A 10 K-token prefill of a
+1.5 B model whose weights are 3.35 GB is a small batch beside any 910B4's HBM budget (32 GB on the common variant, and the
 paste does not state which), so on this report "the profiling forward is too big
 for the box" is the weakest row of the ranking; the live pair is a device op
 that never returns versus a process killed with no line printed, which is why the

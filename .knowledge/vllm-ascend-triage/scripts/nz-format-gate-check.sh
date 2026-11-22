@@ -14,8 +14,9 @@
 #   2. what the NZ gate does with a float32 weight at the checked-out ref, which
 #      is the difference between the fp32 pooling head crashing and surviving;
 #   3. which spelling the reported ref has (`enable_weight_nz_layout` in
-#      additional_config before v0.10, `VLLM_ASCEND_ENABLE_NZ`, `weight_nz_mode`
-#      after) and, at a three-valued ref, how `weight_nz_mode` resolves and whether anything
+#      additional_config before v0.10 — dead by v0.11.0rc0, where it survives only in
+#      an examples/ template — `is_enable_nz` from v0.11.0rc3, `VLLM_ASCEND_ENABLE_NZ`
+#      / `weight_nz_mode` later) and, at a three-valued ref, how `weight_nz_mode` resolves and whether anything
 #      tests the weight's shape: `_should_trans_nz` never does (so a bf16 MoE
 #      shared-expert gate `[1, hidden]` crashes at mode 2 from v0.20.2rc1 on),
 #      while from v0.23.0 the *caller* in `ops/linear.py` keeps `n == 1` / `k == 1`
@@ -114,9 +115,16 @@ if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
     v0.9 line:    NO gate function; the switch is additional_config
       'enable_weight_nz_layout', default FALSE (ascend_config.py:60-62), consumed by
       the quant methods — so int8 weights stay ND unless it is set true
-    up to ~v0.11: vllm_ascend/utils.py is_enable_nz(dtype) — False ONLY for
+    v0.11.0rc0:   NO gate function and no dense hook at all (utils.py has no
+      is_enable_nz, ops/linear.py has no process_weights_after_loading): the casts are
+      inline in the quant methods and the only unquantized one is 310P-gated
+      (worker/model_runner_v1.py:2633-2643), so there is no switch and no bf16/fp32
+      cast; the old 'enable_weight_nz_layout' spelling survives only in
+      examples/external_online_dp/run_dp_template.sh:46 (a template hit is not a reader)
+    v0.11.0rc3:   vllm_ascend/utils.py:74-84 is_enable_nz(dtype) — False ONLY for
       float16/bfloat16, so fp32 passes; cast in
-      AscendUnquantizedLinearMethod.process_weights_after_loading (ops/linear.py)
+      AscendUnquantizedLinearMethod.process_weights_after_loading (ops/linear.py:43-51)
+      (the gate arrives INSIDE the v0.11 line, so the rc decides the inventory)
     v0.20.2rc1:   utils.py _should_trans_nz / maybe_trans_nz — fp32 -> ND, 310P ->
       always NZ, mode 0 -> ND, bf16/fp16 -> NZ only at mode 2, other dtypes -> NZ;
       no shape test, cast in ops/linear.py process_weights_after_loading
@@ -230,7 +238,12 @@ else
   echo "  NO weight_nz_mode / VLLM_ASCEND_ENABLE_NZ / enable_weight_nz_layout at this ref"
   echo "  — the layout is not a flag here, so 'set weight_nz_mode' is advice that does"
   echo "  nothing. The answer is the per-path inventory (which weights are already NZ)"
-  echo "  plus a code change, not a switch:"
+  echo "  plus a code change, not a switch."
+  echo "  Careful with the spelling: a launch template under examples/ can still carry"
+  echo "  'enable_weight_nz_layout' at such a ref (v0.11.0rc0:"
+  echo "  examples/external_online_dp/run_dp_template.sh:46). A template hit is not a"
+  echo "  reader — grep the whole repo before calling the key documented, and never"
+  echo "  credit it as an experiment the reporter ran:"
   echo "  references/feature-enable-recipes/weight-nz-layout-by-soc.md"
 fi
 LIN="$ROOT/vllm_ascend/ops/linear.py"

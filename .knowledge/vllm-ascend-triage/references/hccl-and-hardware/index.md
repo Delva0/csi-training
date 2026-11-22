@@ -136,8 +136,12 @@ the same derived capacity is compared per rank against that rank's own batch at 
 time, so a serve whose `--max-num-batched-tokens` (or `max_num_seqs ×
 (1 + num_spec)`) exceeds `capacity` can have some DP ranks on MC2 and the others on
 the fallback dispatcher in one step — same script, "branch-split" section (recorded
-#9887). If the reporter has already run the env matrix, treat it as closed
-(`aiv-mc2-env-ablation.md`, "When the whole matrix has already been run").
+#9887). If the reporter has already run the env matrix, close only the names it
+covered: on the `VLLM_ASCEND_*` knobs that is done, but `HCCL_OP_EXPANSION_MODE`
+(× MC2) is this family's own lever and is **not** closed unless it was one of them —
+the reading is in `aiv-mc2-env-ablation.md`, "When the whole matrix has already been
+run". A single A2 node is not a control for either row: `tp8 dp1` gives
+`ep_world_size = 8`, so MC2 is never selected there.
 
 **Then separate a *shapeless* hang from a collective error.** A DP>1 MoE run
 whose dummy/`profile_run` batch passes and whose first **real request** stops a
@@ -249,6 +253,19 @@ with `soName=`/`funcName=`/`kernelName=` all empty, the record's `retCode=0x2a` 
 later `507018` / `context is abort, status=0x715002a` / `EnterFailureAbort` line is one poisoned
 context, and the owner has to come from the device DFX dump and the peers' plogs —
 `aicpu-task-exception-empty-kernel.md` (recorded #12776; the named-descriptor contrast is #12487).
+
+**The same code at engine start is a third shape, and neither page above owns it**:
+`errcode:21008, msg:inner error` (not `1`), `fault op_name=` empty, every live rank
+reporting in the same second during the memory-profiling window, deepest frame
+`hidden_states = hidden_states[logit_indices]` in `profile_run` and
+`(function copy_between_host_and_device_opapi)` in the block, on a MoE launch with
+`--enable-expert-parallel` (W8A8 or bf16). No DFX dump will arrive — the process never
+served a request — so the owner is reachable only through `ASCEND_LAUNCH_BLOCKING=1` or
+the plog `[AIC_INFO] fault kernel_name=` for that `task_id`/`chipId`; and at a pre-0.12
+pin the EP branch there is `All2All` (never MC2, whatever the EP size), so the MC2 /
+fused-MC2 pages are off the route. Read
+`collective-error-chain.md` §Step 1a's `opapi 507018` bullet first (recorded #2105,
+cause still open).
 
 **Then separate a bind/port line from the incident.** If the title or the paste
 carries `Communication_Error_Bind_IP_Port(EI0019)` / `port <n> have already been

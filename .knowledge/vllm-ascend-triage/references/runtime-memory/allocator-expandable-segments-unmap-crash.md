@@ -114,49 +114,68 @@ theory (`ERR00100` here wraps the allocator's failing unmap; there is no `hcclRe
 ## If the same reporter returns with a different failure after the fix
 
 The allocator change unblocks startup; it proves nothing about the rest of the
-command. On #12534 the follow-up was TP=2 working and **TP=4 stalling at
-`shm_broadcast`** on a `-310p` image with
-`--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY", "cudagraph_capture_sizes": [1,4]}'`.
-Read that pair as the reporter's **prose**: the command in the same reply carries
-`--tensor-parallel-size 8` (with `--max-model-len 12800`, `--gpu-memory-utilization 0.5`,
-a different `--additional-config` and no `--compilation-config` line), so the TP
-number and the graph mode of the stalling run are unconfirmed until the reporter
-sends that launch verbatim.
-Three cheap splits, in this order:
+command. On #12534 the follow-up reads: with `expandable_segments:False` it deploys,
+"2 cards run, 4 cards stall at `shm_broadcast`" — and the serve line in that same
+reply is `--tensor-parallel-size 8 --max-model-len 12800 --gpu-memory-utilization 0.5
+--max_num_seqs 4 --no-enable-prefix-caching --dtype float16
+--additional-config '{"ascend_compilation_config":{"fuse_norm_quant":false,
+"enable_npugraph_ex":false,"enable_static_kernel":false},"enable_cpu_binding":"true",
+"multistream_overlap_shared_expert":false,"multistream_dsa_preprocess":false}'` plus
+the export block below. It carries **no** `--compilation-config`: the
+`FULL_DECODE_ONLY … cudagraph_capture_sizes: [1,4]` block belongs to the *first*,
+crashing launch. Four reads, in this order:
 
-1. **Reconcile the TP number with the container's device set before any theory.**
-   The report's `docker run` exposes four cards (`--device=/dev/davinci4`…`7` with
-   `ASCEND_RT_VISIBLE_DEVICES=4,5,6,7`) and its serve line was
-   `--tensor-parallel-size 4`; the follow-up's line says `8`. If the stalling run
-   really asked for eight ranks on four devices, no collective is involved and the
-   watchdog is only the survivors waiting — the fingerprint is a rank that died at
-   device open (`107001` / `invalid device`,
-   `../startup-failures/device-id-invalid-at-worker-init.md`) or a
-   `Worker … died unexpectedly` line. Grep the per-rank logs for those two before
-   ranking a communication mechanism; if neither is there, this split is closed.
-2. `No available shared memory broadcast block found in 60 seconds` is the
-   EngineCore writer's INFO watchdog (`VLLM_RINGBUFFER_WARNING_INTERVAL`), and in a
-   *startup* log it fires while workers compile: the original #12534 log has it at
-   10:22:53 with the ranks saving compiled graphs at 10:22:59-10:23:01, i.e. it
-   recovered. Check whether **every** rank printed its compile/AOT line; the rank
-   missing from that set is the one that stopped, and its per-rank log is the next
-   artefact (`../hccl-and-hardware/rpc-watchdog-timeouts.md`).
-3. On 310P the documented graph budget shrinks with TP: "the number of capturable
+1. **Count dies, not cards, before any theory.** A 300I Duo is two 310P chips on one
+   physical card (`../hccl-and-hardware/transport-destlink-ipc-import.md`; recorded
+   #4148's `npu-smi` puts devices 0,1 on one Bus-Id and 2,3 on another), so the first
+   launch's `--device=/dev/davinci4`…`7` is four dies = **two** cards at TP=4, and the
+   follow-up's TP=8 is eight dies = **four** cards. Prose and command then agree
+   (`2 卡能部署 / 4 卡不行`) and the stall is a genuine eight-rank one — do not spend
+   turns proving a rank asked for a device that does not exist; `npu-smi info` settles
+   the count in one command (the SoC index's #12985 entry carries the same
+   reconciliation and the reporter's two-command diff:
+   `../soc-platform-paths/index.md`). Only if it really is eight ranks on four dies does
+   the survivor reading apply: grep each rank for `107001` / `invalid device`
+   (`../startup-failures/device-id-invalid-at-worker-init.md`) or `Worker … died
+   unexpectedly`, and stop there.
+2. **This launch still captures graphs, so `enable_npugraph_ex:false` clears nothing.**
+   Without `--compilation-config`, vllm's default optimisation level is O2
+   (`vllm/config/vllm.py:364`) whose table sets `cudagraph_mode =
+   FULL_AND_PIECEWISE` (`:252`); at v0.23.0rc1 that mode satisfies
+   `requires_piecewise_compilation()` and takes the piecewise branch
+   (`vllm_ascend/platform.py:595`), which itself writes
+   `enable_npugraph_ex = False` (`:622`) and applies the v1 splitting ops. Both
+   `ascend_compilation_config` keys in the paste are therefore what the platform does
+   anyway (`enable_static_kernel` additionally asserts `npugraph_ex`,
+   `vllm_ascend/ascend_config.py:627-628`), and eight ranks still capture piecewise
+   ACL graphs. Rank the capture lane first and make the ablation real:
+   `--enforce-eager` (= `mode:none` + `cudagraph_mode:none`,
+   `vllm/config/vllm.py:1064-1067`), then a reduced `cudagraph_capture_sizes`; the
+   log's `Capturing ACL graphs (mixed prefill-decode, PIECEWISE): k/N` says whether
+   capture was progressing (`../startup-failures/acl-graph-capture.md`,
+   `../startup-failures/graph-mode-not-applied.md`).
+3. `No available shared memory broadcast block found in 60 seconds` is EngineCore's
+   writer watchdog (`VLLM_RINGBUFFER_WARNING_INTERVAL`) — the consequence, never the
+   cause: it fires while a worker is inside `profile_run`/capture. In the *first*
+   #12534 log it recovered (the line at 10:22:53, ranks saving compiled graphs at
+   10:22:59-10:23:01); a follow-up that repeats it for minutes is a stall. Ask for the
+   per-rank stop line **and** `npu-smi info` taken while it stalls (rising AICore = a
+   slow forward, flat with no HBM growth = a hang). `../startup-failures/mm-encoder-profile-stall.md`
+   §*Scope variant* is the recorded shape, reached from the same `2 卡能部署 / 4 卡不行`
+   wording (#12985), and that section also owns the "do not re-derive the checkpoint's
+   multimodal-ness" instruction — do not ask for it as a separate round.
+4. On 310P the documented graph budget shrinks with TP: "the number of capturable
    graphs is limited and depends on the model depth. For example, Qwen3-32B can
    capture and replay 2 graphs … no such limitation when TP=1"
-   (`docs/source/tutorials/hardwares/310p.md:23-26` at v0.23.0rc1). A TP=4 stall with
-   two capture sizes is therefore a candidate before any HCCL theory: run
-   `--enforce-eager`, then `cudagraph_capture_sizes: [1]`
-   (`../soc-platform-paths/atlas-300i-310p.md`,
-   `../startup-failures/acl-graph-capture.md`). The tree backs the eager-first order
-   twice over at v0.23.0rc1 (`f4a08bbd`): the 4×310P MoE tests that run are eager
+   (`docs/source/tutorials/hardwares/310p.md:23-26` at v0.23.0rc1), and the tree backs
+   the eager-first order twice over: the 4×310P MoE tests that run are eager
    (`tests/e2e/pull_request/four_card/_310p/test_moe_model_310p.py:24-38`
    Qwen3-30B-A3B TP4 fp16, `:41-56` TP2-W8A8, both `enforce_eager=True`,
    `max_model_len=16384`, `max_num_batched_tokens=2048`), while the file's
-   `Qwen/Qwen3.5-35B-A3B` TP4 case — this reporter's model and card count — is
-   `@pytest.mark.skip("Probabilistic failure, need fix")` (`:59-74`). So a TP=4 310P
-   run of this model has **no passing validation at this pin**: say that as scope
-   and put eager first, rather than promising a flag that makes TP=4 work.
+   `Qwen/Qwen3.5-35B-A3B` TP4 case — this reporter's model — is
+   `@pytest.mark.skip("Probabilistic failure, need fix")` (`:59-74`). So TP=4/TP=8
+   310P runs of this model have **no passing validation at this pin**: say that as
+   scope and put eager first, rather than promising a flag that makes it work.
 
 Then read the follow-up's **export block** (v0.23.0rc1, `f4a08bbd`): of its six names
 only two are read by this project's Python — the allocator value and the AIV switch — one

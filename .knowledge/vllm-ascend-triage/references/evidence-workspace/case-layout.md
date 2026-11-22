@@ -285,6 +285,22 @@ These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
   prompt tokens — #5687's same block cost 3 KB only because `SOURCES.json` was piped
   through `head -50`. A missing `/workspace/attachments` also makes a bundled listing
   exit 2, which reads like a failed orientation.
+- **A `[case]` arrow's `(n/m)` is token share, not fit — two arrows can both hold the
+  paste.** Recorded #9263 (image `v0.19.1rc1-a3` = `da421af`, one A3, GLM-5-w4a8
+  TP16 + EP, `FULL_DECODE_ONLY` + `deepseek_mtp` 3 + `enable_npugraph_ex` +
+  `--async-scheduling`, first `curl` dies on a capture-mode `rtMemcpy … 107030` record)
+  graded `recorded-cases-accuracy-and-output.md → #10700 (5/5)` above
+  `recorded-cases/device-and-communication.md → #9263, #9278 (4/5, 3/5)` — the arrow's
+  numbers were `560` and `26`/`62` then; grep the id, since an entry edit moves them. The
+  5/5 entry is another pin and another SoC (v0.21.0rc1, 2× **A2**, GLM-5.1); the 4/5
+  line was the paste's own case, whose ladder starts with the recipe diff — the
+  tutorial's `multistream_overlap_shared_expert: true` against the nightly's `false`
+  (`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §7). The session opened
+  the 5/5 entry, then the MTP page that entry cites, and led with a drafter-graph row;
+  it read neither arrow on the `[case]` line it owned. One `sed -n '<line>,<line+40>p'`
+  per arrow settles it, because an entry's first two lines carry its image tag, card
+  count and stack — and the near-miss files (`recorded-cases-<family>.md`, no slash)
+  hold the same entries at different line numbers.
 - **Attachments are the exception: a manifest grep is not an existence test.**
   `ATTACHMENTS.txt` lists names and SHA256s only, so a grep for the issue's
   tokens proves nothing (#12658 read that as "no attachments", skipped

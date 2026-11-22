@@ -11,6 +11,40 @@ Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
 family carries one line per case in this file and in
 `recorded-cases-device-and-communication.md` (the device, op and capture half).
 
+**#2105** vllm-ascend v0.9.2rc1 (`b5b7e0ec`) + vllm v0.9.2 (`a5dd03c1`), Qwen3-235B
+W8A8 under `--enable-expert-parallel`; the env block is a `profile_run` code snippet, not a
+`collect_env.py` dump, so torch_npu/CANN stay unknown. Engine start dies in the
+memory-profiling window on **every live rank in the same second**:
+`worker_v1.py:152 determine_available_memory` → `model_runner_v1.py:1701 profile_run` →
+`hidden_states = hidden_states[logit_indices]` with `RuntimeError: ACL stream synchronize
+failed, error code:507018`, `retCode=0x2a [aicpu exception]`, `errcode:21008, msg:inner
+error`, `fault op_name=` **empty**, and `(function copy_between_host_and_device_opapi)`
+under the raise. The frame is the sync point (`../hccl-and-hardware/collective-error-chain.md`
+§Step 1a's `opapi 507018` bullet) and the empty descriptor cannot name the kernel. Pin-checked
+narrowings, all at `b5b7e0ec`: `with_prefill` in `profile_run` forces `All2All` for any
+`ep_size` (`utils.py:473-489`), so the MC2 / fused-MC2 workspace pages are off the route; the
+branch that runs is `fused_experts_with_all2all` (`w8a8_dynamic.py:223, :800`) whose
+`npu_moe_init_routing` / `npu_moe_compute_expert_tokens` / `bincount` / `all_to_all` are the
+AICPU-class candidates; reaching that file proves the ascend quant config built the MoE
+method (`quantizer.py:29`), excluding "no `--quantization ascend`"; `is_deepseek_v3_r1 =
+global_num_experts == 256` (`ops/fused_moe.py:1034`) makes
+`VLLM_ENABLE_FUSED_EXPERTS_ALLGATHER_EP` inert on this 128-expert model; and the pin's only
+EP e2e is `tests/e2e/multicard/test_fused_moe_allgather_ep.py` (256-expert allgather), so the
+combination here is untested. Ladder: `ASCEND_LAUNCH_BLOCKING=1` (no in-tree refusal at that
+pin — the ACL-graph incompatibility line postdates it), `--enforce-eager` (the pin's default
+is `PIECEWISE … using only ACL Graph mode`, `platform.py:160-180`, so it does remove the
+graph), the plog `[AIC_INFO] fault kernel_name=` for `task_id=285/286` at the failure second,
+`--enable-expert-parallel` off, then the release's torch_npu pairing (`release_notes.md:14` →
+`2.5.1.post1.dev20250619`). The replayed run shipped its verdict, classification and four
+ranked causes, then was cut at the 16 384-token cap inside its evidence table (19 assistant
+turns, ~26 K characters of reasoning against ~8.5 K of text) so the ask list and version scope
+never went out; it never opened `collective-error-chain.md`, which its own first grade listed
+at 3-of-5 with this entry, and instead read `../startup-failures/profile-run-logits-gather-eof.md`
+(recalled by name from the skill's file inventory; on no grade list; the V0 `EOFError`
+sibling) and `../hccl-and-hardware/aicpu-task-exception-empty-kernel.md` (the v0.23 long-run
+variant), then spent eight turns re-deriving the branch above. Cause **open**: no serve
+command and no `[EP Rank r/N]` line.
+
 **#13688** image `vllm-ascend:v0.22.1rc1-a3` (pin v0.22.1rc1 `5f6faa0`), torch_npu
 2.10.0, CANN 9.0.0, 910C ×4 double-die = 8 chips; GLM-4.6V TP8+EP8 with
 `HCCL_OP_EXPANSION_MODE=AIV`: `rtEventRecord execution failed, reason=task not
@@ -140,9 +174,15 @@ and also refuted the A2 no-ops (`VLLM_ASCEND_ENABLE_FUSED_MC2` is A3-only there)
 corrected the reporter's "EP needs FLASHCOMM1" (the real dependency is
 `enable_shared_expert_dp` → `enable_sp`). Post-hoc, the reporter reported (2026-04-17)
 that all combinations of three envs, including all unset, still fail at the same
-phase — the env lane is closed and the symmetry/transport rows are what remain. The
-second (follow-up) turn restated the whole ranking under a 8 192-token cap and was cut
-in its closing section: `../evidence-workspace/delivery-discipline.md`.
+phase — that closes the three `VLLM_ASCEND_ENABLE_{FLASHCOMM1,FUSED_MC2,TOPK_OPTIMIZE}`
+rows (the ones the run's own answer named, and no-ops at that pin) but **not**
+`HCCL_OP_EXPANSION_MODE`: both pasted scripts set `AIV` and the device block is
+`fftsplus aivector error`, i.e. `../hccl-and-hardware/aiv-mc2-env-ablation.md`'s family
+stays open, and the symmetric-config rerun was never reported back, so Step 1b is
+untested rather than cleared. The second (follow-up) turn restated the whole ranking
+under a 8 192-token cap and was cut in its closing section; it also asked for the
+reporter's single-node launch line as "the only control", which `tp8 dp1` cannot be
+(`ep_world_size = 8`, MC2 never selected) — `../evidence-workspace/delivery-discipline.md`.
 Tracker: `../hccl-and-hardware/mc2-dispatch-profile-run-hang.md` (Step 1b, and
 `scripts/mc2-capacity-asymmetry.sh`).
 

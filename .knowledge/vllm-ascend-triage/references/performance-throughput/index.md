@@ -79,6 +79,18 @@ while the colocated blocks run `--async-scheduling` + `FULL_DECODE_ONLY`). Answe
 second or third turn with the chain, the pinned tutorial's own PD anchor and the one-flag
 A/B on the prefiller: `../pd-disaggregation/pd-vs-colocated-ttft.md`.
 
+**And this topic, one switch away from that one:** the two runs differ by adding
+`--speculative-config` to a PD pair and the regression is **TTFT alone** — 64 K/1 K at
+"prefix 90 %" going 2.2 s → 22 s while decode throughput is not in the complaint. That
+factor is `1/(1−reuse)`, i.e. a full re-prefill, so read the **prefiller's**
+`Prefix cache hit rate` before any draft-model theory, and diff P against the model
+tutorial's own spec-decode PD recipe in the same turn: DSV4-Flash's prefill block
+exports `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096` and runs
+`--max-num-batched-tokens 8192`, both of which recorded #16997 omitted (and turning
+spec decode off on P alone is not a legal rung — the doc requires the same
+`num_speculative_tokens` on both sides, and the asymmetric pair is #16177's decode
+crash): `spec-on-prefill-ttft-regression.md`.
+
 **And this topic:** a MoE serve whose own command omits `--enable-expert-parallel`
 (usually because "开 EP 会胡言乱语") has moved every MoE layer onto the TP all-gather
 path — the perf complaint and the garbled-output complaint are one decision:
@@ -584,6 +596,15 @@ Not this topic, leave immediately:
   eager step at 4× — worked #5605, which shipped no message text in **either** of its
   two recorded runs (the second identified the case at turn 6 and then deferred to
   re-verify the page's citations at another pin).
+- `spec-on-prefill-ttft-regression.md` — the one-switch sibling of that page: adding
+  `--speculative-config` to **both** nodes of a PD/EPD pair regresses **TTFT alone**
+  (#16997, A5 single-node split, DeepSeek-V4-Flash + `dspark` K=5, 64 K/1 K at "prefix
+  90 %": 2.2 s → 22 s): the factor is `1/(1−reuse)` so it is a full re-prefill on the
+  prefiller, the deliverable is P's `Prefix cache hit rate` plus the model tutorial's own
+  spec-decode prefill recipe (`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=4096`,
+  `--max-num-batched-tokens 8192`, both omitted on the reported P node), the DSV4
+  min-over-groups hit bookkeeping that lets one group zero the prefix, and the P/D
+  spec-token parity rule that forbids the P-only ablation.
 - `graph-mode-from-the-serve-line.md` — a 2×N 910B MoE serve at v0.10.x whose *command*
   has `--enforce-eager` (or the `torchair_graph_config` key, or a ray backend) and whose
   complaint is a 300-500 ms/token decode: read the compiled level off the command

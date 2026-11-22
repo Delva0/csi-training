@@ -54,6 +54,18 @@ construction.
 - The env did reach the worker if the serve started at all with `tp>1`: `enable_sp()`
   asserts `tensor_parallel_size > 1` (`utils.py:833-836`), so no need to re-ask for a
   `collect_env` to prove the variable was read.
+- **The threshold is dense-only, and that decides two questions.** The MoE context
+  branch enumerated above is `enable_sp(...) and num_tokens is not None` — no threshold —
+  so on a MoE trunk (Qwen3-MoE, the Omni thinker, Qwen3-Next) SP is engaged in **every**
+  forward, including the `profile_run`/`_dummy_run` pass used for memory profiling. That
+  is why a MoE × SP shape error is a *startup* failure in `determine_available_memory`
+  rather than a first-request failure, and why no batch size or
+  `--max-num-batched-tokens` value avoids it (recorded #6261: the reporter's 4096 was
+  never the variable). `--enforce-eager` does not avoid it either — it only drops the
+  dynamo/fake-tensor wrapper, so the same `add` fails on real tensors; offer that one
+  launch as the confirmation that the shape, not the graph path, is wrong. Conversely,
+  on a MoE model an allreduce-only profile **cannot** be this gate: go to the
+  earlier-branch question below with the launch line in hand.
 
 ### When the big-schedule profile still shows allreduce: an earlier branch claimed the layer
 
@@ -140,7 +152,9 @@ quantized checkpoint stay out of the matrix. Procedure therefore: verify the mod
 everything the matrix marks `x`.
 
 **The guard predates the reporter's "works on v0.13.0" — expect the predicate, not the guard, to be
-what changed.** `release_notes.md:498`, under `## v0.11.0rc2`, records "Add a check that to ensure
+what changed.** `release_notes.md:296` at this ref, under `## v0.11.0rc2` (`:272`; the same bullet sits at `:498`
+on the v0.15.0rc1 pin, which is what `../evidence-workspace/recorded-cases-pd-kv-and-features.md`
+quotes — cite the line for the ref you are on), records "Add a check that to ensure
 FLASHCOMM feature doesn't work with vl model. It'll be supported in 2025 Q4 [#4222]". So when a
 reporter says an older release worked, the likely difference is the VL predicate (thinker-only →
 `vision_config`) or the error class (ValueError → assert), not the guard's existence. A one-commit
@@ -160,9 +174,11 @@ The Qwen3-Omni thinker does exactly that: `Qwen3MoeLLMModel.forward` adds
 `deepstack_input_embeds[f"deepstack_input_embeds_{layer_idx}"]` after every decoder
 layer (`vllm/model_executor/models/qwen3_omni_moe_thinker.py:644-650` in upstream
 v0.14.1), and the deepstack tensors are built at full prompt length from the vision
-tower (`:540-568`). `grep -rn deepstack vllm_ascend/` and `grep -rln omni
-vllm_ascend/` are both **empty** at this ref: there is no downstream patch sharding
-them, so this is a model × feature gap, not a flag the reporter got wrong.
+tower (`:540-568`). `grep -rln deepstack vllm_ascend/` is **empty** at this ref, and
+`grep -rln -i omni` returns only the `is_vl_model` comment in `utils.py:905-915` — no
+model file and no sharding code: nothing downstream shards them, so this is a model ×
+feature gap, not a flag the reporter got wrong. Expect that second grep to look
+non-empty and read what it matched before concluding otherwise.
 
 Generalise it as a pre-check before promising SP for any model: does the model's
 `forward` combine the decoder output with an auxiliary tensor of full sequence length

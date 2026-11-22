@@ -514,7 +514,13 @@ operand. The recorded run correctly separated the two `161002` families, read th
 — then spent the remaining budget deciding what `quant_mode=-1` *means*, which no export carries
 (`rg -ln 'moe_init_routing' Ascend/` is empty in that case view), and shipped **no message text at all**. Page:
 `../custom-ops-runtime-faults/quant-scale-dtype-gate.md` rule 5 (the two owners, the effective anchors, the
-`--enforce-eager` rung, and the "do not derive an op attribute's semantics locally" stop).
+`--enforce-eager` rung, and the "do not derive an op attribute's semantics locally" stop). **A later session on
+the same case delivered it** — the ranked ladder in the first paragraph, rung 1 `--enforce-eager` before any
+patch — after four verification calls that added two anchors the page then lacked and now carries: the branch is
+chosen in `AscendW8A8DynamicFusedMoEMethod.__init__` (`quantization/w8a8_dynamic.py:281`, `use_aclgraph = level ==
+PIECEWISE and not enforce_eager and not torchair`, `:291-294`) and `--enforce-eager` reaches it as `NO_COMPILATION`
+(`platform.py:145-147`), which is why rung 1 is a path switch rather than an ablation; the paste's own frame
+line separates the branches (`unified_fused_experts` at `:390` vs `unified_fused_experts_eager` at `:418`).
 
 **#2387** image `v0.10.0rc1` (vllm-ascend `4604882a3e2c` + vllm `6d8d0a24c02b`),
 4×910B4, `Qwen3-32B-w8a8` served with no `--dtype` (so the checkpoint's

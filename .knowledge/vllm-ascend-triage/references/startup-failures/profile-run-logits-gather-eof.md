@@ -6,6 +6,16 @@ the same second with `EOFError: Ran out of input`, and the traceback's bottom fr
 TP > 1, V0 engine, dense model. The driver then dies ~2 min later on a collective the
 peers can no longer join.
 
+**Not this page when the raising line carries a device code** — `RuntimeError: ACL stream
+synchronize failed, error code:507018` (or any `507xxx`) at the same
+`hidden_states[logit_indices]` line, with `retCode=0x2a` / `[aicpu exception]` beside it or
+`(function copy_between_host_and_device_opapi)` under the raise: that is the
+memory-profiling **device fault** lane, where this frame is a sync point, not the owner —
+`../hccl-and-hardware/collective-error-chain.md` §Step 1a's `opapi` bullet (recorded
+#2105, cause open) and, for the code decodes, the topic entry
+`../hccl-and-hardware/index.md`. This page owns the `EOFError` shape only: no device code,
+`dist.broadcast_object_list` at the bottom frame.
+
 Recorded case **#1579**: vllm-ascend `v0.9.1rc1` (`c30ddb8`), vllm `v0.9.1`
 (`b6553be`), torch_npu `v7.1.RC1.alpha002` (`d33df55`) / torch 2.7.1, image
 `quay.io/ascend/vllm-ascend:v0.9.1rc1-310p`, one 310P node × 8, Qwen3-32B dense,

@@ -213,6 +213,21 @@ re-executes the same forward).
 | `FULL_DECODE_ONLY` keeps `npugraph_ex` on; PIECEWISE/NONE turn it off | `vllm_ascend/platform.py:550`, `:575`, `:586` |
 | flat `enable_npugraph_ex` / `fuse_*` under `additional_config` is ignored (only the nested `ascend_compilation_config` dict is read) | `vllm_ascend/ascend_config.py:40`, `:500`, `:536`; `vllm_ascend/compilation/graph_fusion_pass_manager.py:59` |
 
+**Anchors at v0.19.1rc1 (`da421af`, the #9263/#9278 pin): the gates move and so does the
+class name.** Verified by `rg`/`sed` on that tree — the spec-scoped lever is
+`vllm_ascend/spec_decode/eagle_proposer.py:144`
+(`self.use_cuda_graph = self.runner._use_aclgraph() and not self.speculative_config.enforce_eager`,
+on `class AscendSpecDecodeBaseProposer`, `:94`); there is **no** `llm_base_proposer.py` at that
+pin, and `deepseek_mtp` is not a downstream proposer module at all — it is the upstream model,
+patched at `patch/worker/patch_deepseek_mtp.py`. `enable_npugraph_ex` defaults `True`
+(`ascend_config.py:352`, stored `:386`) and is forced `False` at `platform.py:391` (`NONE`),
+`:411` (`PIECEWISE`) and `:440` (unhandled mode → the fallback branch), while the
+`FULL`/`FULL_DECODE_ONLY` branch writes only `use_inductor = False` plus the experimental
+warning — so a 0.19.x `FULL_DECODE_ONLY` launch does run npugraph_ex. Four greps; run them
+before quoting the v0.21.0rc1 rows above at a 0.19.x pin, and cross-read
+`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §7 when the paste is a
+first-request 507011 on one A3 with TP16 + EP (its recipe diff is the cheaper rung).
+
 ## Scope and open items
 
 - Traced at v0.21.0rc1 / vllm v0.21.0 and reproduced by the reporter on v0.22.1rc1;

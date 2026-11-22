@@ -420,3 +420,8 @@ turn that the message gets written in.
   removed" needs the `rg -n` at *that* version; see `tutorial-command-audit.md`).
 - Grade 完整性/易用性/正确性 without citing the defects behind the score.
 - Blame the reporter's environment for a doc line that cannot parse.
+- Cite this library, an earlier session of the same row, another row's run, or your own
+  token/character budget — in the report **or** in the closing message. Everything above
+  about *runs* is written for you; the tester reads a deliverable. A recorded replay of
+  #11750 spent part of its closing message on 「本 row 此前一次运行（#11750）在无文件、无消息的情况下被截断」 —
+  provenance the reporter cannot act on, and the last thing the cap cuts.

@@ -1009,9 +1009,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    grep: an entry matching the report's versions, model and
    stack *is* the case history, and its ladder is the message (#6275 read two route
    pages past its own entry; #11863 re-derived what
-   `startup-failures/arg-validation-errors.md:8` already held). Redirect: the moment a
-   hit's title or index line names the paste's symptom, the next call opens that file; a repo grep for the
-   raising line is step 3's move, after that read.
+   `startup-failures/arg-validation-errors.md:8` already held). Two `[case]` arrows can
+   both hold the paste — open the entry naming its own image tag and card count, not the
+   higher `(n/m)` (`evidence-workspace/case-layout.md`). The raising-line repo grep is step 3's
+   move, not this one.
 
 3. Take the track's cheap checks before source archaeology:
    - **The recipe diff that pays is by key name, not by flag position.** A reporter's

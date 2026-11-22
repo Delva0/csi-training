@@ -94,6 +94,17 @@ checkpoint fact is involved.
    Do not add `--enforce-eager` beside the key — `check_ascend_config` raises
    `Can't enable graph mode and eager mode at the same time…` (`ascend_config.py:277-286`),
    so "keep the key and add eager" is one launch that refuses to start.
+   **Two rungs the #4847 thread already spent — do not re-propose them as findings.**
+   The thread's first guess was the container's device/volume mapping; the reporter
+   answered 「Container里npu-smi两个info都有响应的」, which is why the mount list is
+   diffed as a *separate, earlier* rung (0) and never as this crash's cause. Its last
+   message before the resolution was 「试着降低显存利用率，与文档对齐。并且尝试清除NPU缓存与内存缓存」
+   — and the reporter's closing message reports only the launch without the
+   `torchair_graph_config` key as the one that started the service, says nothing about
+   trying the utilization change, and quotes no memory error. So `--gpu-memory-utilization
+   0.95` and cache clearing are *untested-spent*: mention them only as "already
+   suggested in the thread, not the lever", or omit them, and never rank an
+   HBM/占用 reading on this paste (there is no OOM line in it).
 2. **If graph mode is required, use the configuration the pin documents for it.**
    `docs/source/user_guide/feature_guide/graph_mode.md:39` scopes TorchAirGraph to the
    DeepSeek series and `:46` states "TorchAirGraph is only work without chunked-prefill
@@ -117,7 +128,9 @@ checkpoint fact is involved.
 ## What this is not
 
 - Not `NPU out of memory`, not a `--max-model-len`/KV-block budget: the phrase is an
-  index into a placeholder and no block was ever allocated.
+  index into a placeholder and no block was ever allocated. The thread's own
+  utilization/cache-clearing advice is spent (ladder, after rung 1) — do not re-raise it
+  as a new hypothesis.
 - Not the `E89999` GE infershape or the `DelayGraphBreakVariable` dynamo lanes — both
   arrive after `Capturing torchair graph, this usually takes 1.0~3.0 mins.` at
   `compile_or_warm_up_model` (`torchair-ge-infershape-rejection.md`,

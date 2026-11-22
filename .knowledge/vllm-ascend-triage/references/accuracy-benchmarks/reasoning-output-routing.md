@@ -3,6 +3,16 @@
 Source: `vllm/reasoning/qwen3_reasoning_parser.py` and
 `vllm/entrypoints/openai/chat_completion/serving.py` at vllm commit `b1388b1f`.
 
+**Two flags, two registries — name both before recommending either, and put it in the
+first answer.** `--reasoning-parser` reads `vllm/reasoning/__init__.py`;
+`--tool-call-parser` reads `vllm/tool_parsers/__init__.py`. `qwen3_coder` exists only in
+the second, so putting it in the reasoning slot fails at boot with
+`KeyError: "Reasoning parser 'qwen3_coder' not found. Available parsers: deepseek_r1, …"`
+(reporter-confirmed #8022 follow-up). A Coder / non-thinking checkpoint wants **no**
+`--reasoning-parser` at all — keep `--tool-call-parser qwen3_coder` (+
+`--enable-auto-tool-choice`) for tools. Both KeyError spellings, the registry-at-pin
+grep and why the printed list is a version fingerprint: *The parser name space* below.
+
 ## The mechanism
 
 `Qwen3ReasoningParser.extract_reasoning` (documented in its own docstring):
@@ -152,6 +162,13 @@ One line covers it: 「`--reasoning-parser` 只能取上面那份 reasoning pars
 `qwen3_coder` 是 tool-call parser 名，要配 `--tool-call-parser qwen3_coder`
 （+ `--enable-auto-tool-choice`），不要填进 reasoning 位」, plus "a Coder/non-thinking
 checkpoint wants no reasoning parser at all".
+
+That paragraph was not enough on its own: a replay **at the same pin** re-diagnosed the
+field/routing half correctly and shipped it without the registry split, because it read
+the then-533-line page as `sed -n '1,120p'` and this section's header landed on the
+read's last line (`SKILL.md` rule 7's window trap). Hence the same boundary now sits
+above *The mechanism*, where any head read reaches it — an owning page's decisive
+pre-emption does not belong only in its deepest section.
 
 ## DeepSeek / `deepseek_v3`: the delegation is per request, and `thinking` *is* its key
 

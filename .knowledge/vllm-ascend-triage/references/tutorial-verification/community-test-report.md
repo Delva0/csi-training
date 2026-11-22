@@ -9,7 +9,7 @@ each one forces:
 |---|---|
 | 蓝区镜像 `quay.io/ascend/vllm-ascend:v0.18.0` | the pinned vllm/vllm-ascend pair to audit against — check it with `scripts/sources-summary.sh` before citing any code |
 | 权重链接 (ModelScope / HF) | the checkpoint identity; the repo snapshot rarely carries the HF config, so context length stays a "verify with one command" item |
-| 配套信息 `Ascend HDK 25.5.0.B078`, 卡数 `2`, 内存 `1T` | the hardware envelope the report may assume, and the card count for the sizing arithmetic |
+| 配套信息 `Ascend HDK 25.5.0.B078`, 卡数 `2`, 内存 `1T` | the hardware envelope the report may assume, and the card count for two decisions: the sizing arithmetic, and **which of the page's routes is executable at all** — a conversion/quantisation step that asks for more cards than the row grants is dead, so the pre-quantised-weight route is the one to document, and it then needs a download command *and* a `docker run -v` mount of that directory (`tutorial-command-audit.md` "Second worked page", the 1-卡 row from #11769) |
 | 核心要求 / 测试方法 | the doc page under test is named there — this is the artefact you actually grade |
 | 交付件 `测试报告` + required sections | the report's table of contents: 使用权重, 部署脚本, 测试配置 (curl + `vllm bench`), 测试结果, 资料验证 (完整性/易用性/正确性 各 5 分), 问题记录/FAQ |
 
@@ -166,11 +166,22 @@ of a 15.4 K-character report (36 %)** and 3.8 K of message text (9 %). Nothing
 failed loudly: the file was complete and the *message* was cut inside row 5 of
 its 6-row defect table. So budget it explicitly:
 
-- file body **≤ ~8 K characters** in total, 2-2.5 K per write. A 15 K-character
-  report is a "how to write it" document, not a "what I found" one — the defect
-  set is 5-6 rows. It is a target for the *message*, not a cap: the eighth run (#11759)
-  wrote 9 675 characters and still shipped its closing message because it kept reasoning
-  at 24 K characters, so size each write against what is left, not against this number;
+- file body **≤ ~8 K characters** in total, 2-2.5 K per write, **plus the script**.
+  A 15 K-character report is a "how to write it" document, not a "what I found" one —
+  the defect set is 5-6 rows. It is a target for the *message*, not a cap, and the pair
+  to measure is (report + deploy script): the eighth run (#11759) wrote 9 675 and still
+  shipped its closing message at 24 K characters of reasoning, while the ninth (#11769,
+  same row, this protocol followed to the letter — §1 in one 2.9 K write, script + §2
+  next at 3.1 K, one 2.8 K append for §3-6, both files landing) spent 27.8 K characters of
+  reasoning (61 %), 8.8 K of heredoc arguments (13.7 K for the whole tool-call channel,
+  30 %) and 4.0 K of message text (9 %) — 45 417 characters, exactly the 16 384-token cap
+  at 2.77 characters per token — and had its closing message cut inside defect row 4 of
+  6. So: **when the row's verified rows are already tabulated** (`tutorial-command-audit.md`
+  "Second worked page" for this row), write §1 as the three scores + **only** the rows that
+  changed since the recorded pin + a pointer to the table; new rows still get written, the
+  re-typed seven cost ~2 K characters of the message's tail. Cap the message's own defect
+  list at 4 rows — the file holds the rest — and keep the reasoning trail under ~25 K
+  characters if the closing message is to survive;
 - **size each write against what is *left*, not against what the section needs.**
   #11753 wrote the graded §1 as one 4.4 K block early (it landed) and then put
   §2 deploy + §3 curl + §4 bench into a single append: the cap cut that command

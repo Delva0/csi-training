@@ -106,6 +106,23 @@ KeyError: 'model.layers.40.mlp.experts.w2_weight_offset'    # PP1 rank; the PP0 
    `quantization_config` if the description was merged there, and the value of
    `model.layers.<failing>.mlp.experts.weight` — the documented recipe needs
    `W8A8_DYNAMIC` on the experts, not `W8A8` and not `FLOAT`.
+   **Which of the two inputs the run actually used is one line of code, and it
+   decides what to ask for.** At this ref a `config.json` `quantization_config`
+   block short-circuits the file entirely: `override_quantization_method` returns
+   `"ascend"` whenever `torch.npu.is_available()`, without reading the block's
+   `quant_method` (`quant_config.py:77-81`), and `from_config` hands that dict
+   straight in as the description (`:72-74`) — so a hand-merge counts only when the
+   description itself is nested under `quantization_config`, and *any* foreign quant
+   block (compressed-tensors', a stale one) selects `ascend` too, after which
+   `is_layer_skipped_ascend`'s `quant_description[prefix + '.weight']` (`:104-131`)
+   raises a `KeyError` at **construction**, not the load-phase offset `KeyError` in
+   the paste. With no quant block it falls back to the file, so the name must be
+   exact (`quant_model_description_w8a8_dynamic.json` ends differently and is not
+   discovered). Both readings keep the same ask; an expert-`_offset`-only paste leans
+   to the built-config one (with no config at all the dense/attention `_weight_scale`
+   names are missing too and `deepseek_v2.load_weights` has no guard that skips them),
+   but shard order and threaded loading decide which key is printed first — the
+   `mlp.experts.weight` value is what settles it.
 4. **One log line says which quantizer decided.** `Using the vLLM Ascend Quantizer
    version now!` (`quantizer.py:88`) is printed only when `mindie_turbo` is *not*
    importable (`:50-53`). Without that line a `MindIETurboQuantizer` in the image owns

@@ -755,7 +755,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   cache-miss split), the stop rule that cost #14339 its answer (42 K characters of
   reasoning, no text on 17 turns), the re-check at the release pin `5cb98caa`, and the
   second recorded report #17338 (27B W8A8, TP4, `FULL_DECODE_ONLY`) where the corruption
-  arrives at 70-100 % acceptance.
+  arrives at 70-100 % acceptance, the mirror report #16979 (27B fp16, TP2, 32768 ctx) whose
+  own MTP-off control closes the other arm at that tag, and the tag's release-note bullet
+  that claims the repair (`release_notes.md:80`) with the Known-Issues absence that refutes
+  it for 310P.
 - `ep-mode-reduce-double-count.md` — 开启 EP 后输出乱码/胡言乱语、关掉 EP 正常 on a
   MoE serve (A2/A3), and the code-change form of the same report: the downstream
   `maybe_all_reduce_tensor_model_parallel` override and its `ALLTOALL|MC2|FUSED_MC2|sp_enabled`

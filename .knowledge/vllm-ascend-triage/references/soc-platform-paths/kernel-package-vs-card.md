@@ -212,6 +212,10 @@ binary_info_config.json failed, please check if the opp_kernel package is instal
 [ERROR] ERR01100 OPS call acl api failed
 ```
 
+When the report in front of you **is** #573, that id in the heading is this page's own
+provenance, not a third-party precedent: write "your paste", never "#573 was
+recorded …" (`SKILL.md` rule 6).
+
 `NnopbaseInit` never received a collector: opbase had **no kernel manifest to read**, which
 is a different failure from both wordings above (no kernel for the running SoC; op not
 registered for the SoC). The phrase that separates the three is one clause:

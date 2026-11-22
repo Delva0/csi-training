@@ -493,7 +493,9 @@ debugging" caveat.
    tracks batch composition instead of hardware, the named op *is* the owner's evidence —
    the caller's index tensor. See `../dsa-sparse-attention/indexer-cache-scatter-fault.md`
    (#4296) before asking for device health.
-7. `device-health-checks.md` — check every device's health, correlate the
+7. `device-health-checks.md` — check every device's health **on the host** (the
+   launch's `ASCEND_RT_VISIBLE_DEVICES` is not the scan's scope: #7477 exposed 0-3 and
+   the flagged chips ran to 7), correlate the
    failing device id, then decide hardware vs software. In the recorded case the
    answer was a physical HCCS link fault on 6 of 8 cards. Its device-lost section is
    the entry for 「设备失联 / Device Lost / Heartbeat Lost」 and a bare `507010`

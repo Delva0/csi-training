@@ -326,16 +326,36 @@ image is not byte-verified.
   and feeds a `--kv-cache-memory=…` suggestion for the next launch (`:728-757`) —
   never a re-size. So at `--gpu-memory-utilization 0.9` the KV cache fills the
   requested budget and capture must fit in the slack above it.
-  **The recorded logs disagree, and the ref decides it:** startup logs at
-  v0.21.0rc1 / v0.22.1rc1 do carry
+  **The peak that sizes the KV budget is the pre-capture one, so the pool is outside
+  it by construction.** `worker.py:563-571` records `allocated_bytes.all.peak` *inside*
+  the profiling context and *before* graph capture ("so that graph pool allocations
+  don't inflate the activation peak") and then overrides `torch_peak_increase` with
+  that value, so `available_kv_cache_memory_bytes = requested_memory −
+  non_kv_cache_memory` (`:590`) never contains the pool: capture must fit in `total −
+  requested`, about a tenth of the die at util 0.9. Rank 1 is therefore arithmetic on
+  this pin, not a log reading.
+  **Which pool line can exist is a *phase* question, and reading it the other way
+  inverts the check.** The v0.21.0rc1 / v0.22.1rc1 logs carry
   `ACL graph memory profiling is enabled (default since v0.21.0) …` /
-  `ACL graph pool memory: … (actual), … (estimated)` and `… GiB for NPU graph memory`
-  (#10700, quoted in `../runtime-memory/index.md`, *Reading a v0.21+ startup memory
-  block*), while neither pinned v0.23.0rc1 tree contains those strings (upstream still
-  prints `CUDA graph …`). Therefore the presence of that line in the reporter's log is
-  the check: present ⇒ the pool was accounted for and the reserving gap is *not* the
-  cause; absent on a v0.21+-era image ⇒ the gap is live. #16581 never opened its two
-  linked repro logs, so this stayed open there.
+  `ACL graph pool memory: … (actual), … (estimated)` (#10700, quoted in
+  `../runtime-memory/index.md`, *Reading a v0.21+ startup memory block*); those are
+  *pre-capture estimates*, so there presence does mean the pool was accounted for and
+  the reserving gap is not the cause. Neither pinned v0.23.0rc1 tree carries that
+  ACL-worded pair (upstream v0.23.0 keeps the CUDA wording,
+  `vllm/v1/worker/gpu_worker.py:421-425,496-514`, which vllm-ascend's override never
+  reaches on NPU). **The downstream v0.23 tree does print `… GiB for NPU graph
+  memory`**, but inside the suggestion message (`Free memory on device (…/…) on
+  startup. Desired GPU memory utilization is (…). Actual usage: … for weights, … for
+  peak activation, … for non-torch memory, … for NPU graph memory. Replace
+  gpu_memory_utilization with --kv-cache-memory=…`, built `worker.py:729-757`, logged
+  `:758`, gated `kv_cache_memory_bytes is None` at `:728`), which is emitted only
+  *after* `capture_model()` returns (`:719`). So at this pin: that line present ⇒
+  capture finished, and its GiB is the measured pool to hand back as
+  `--kv-cache-memory=…`; a run that dies *inside* capture cannot print it, so its
+  absence proves nothing about the reservation. Use it to confirm success, never to
+  convict the reserving gap — the reservation question is decided by
+  `rg -c profile_cudagraph_memory vllm_ascend/` and the pre-capture peak override.
+  #16581 never opened its two linked repro logs, so this stayed open there.
 - **The default capture set is large at this ref.** `platform.py:207-261` injects
   `max_cudagraph_capture_size = min(max_num_seqs * decode_query_len, 512)` (upstream's
   trailing `* 2` deliberately removed) and upstream's expansion

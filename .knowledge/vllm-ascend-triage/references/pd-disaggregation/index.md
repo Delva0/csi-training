@@ -552,7 +552,9 @@ Inherit the rules in SKILL.md. Rules specific to this topic:
   + 120/60, `MooncakeHybridConnector` 30000/0 vs 30100/1 — the `use_mamba` guard that
   makes the 4/8 ↔ 8/4 geometry legal, and the UT-only coverage. Worked for
   #13381 and #9578 at v0.23.0rc1 / v0.19.1rc1; #12792's recipe lane closed on the
-  reporter's own paste.
+  reporter's own paste, leaving the pin's release-known-issue row for PD transfer
+  precision (`release_notes.md:87`) plus the decode-node log and one raw
+  request/response pair.
 - `pd-vs-colocated-ttft.md` — "PD 的 TTFT 是混部/多机部署的 2 倍" as filed (DSv3.1,
   v0.13.0, no log, no numbers): the TTFT chain (P queue + prefill + transfer + D's first
   step + proxy hop) and precedent #3099 that makes PD > colocated structural; the pinned

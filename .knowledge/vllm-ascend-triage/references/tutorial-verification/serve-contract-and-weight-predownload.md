@@ -104,9 +104,18 @@ concurrent read into network I/O when that path is a mount.
 
 Fix ladder: `modelscope download --model <id> --local_dir <dir>` once on the host
 → node-local disk → pass the **local path** as `--model` (this also short-circuits
-check 1, so `VLLM_USE_MODELSCOPE` can be dropped). Tier the missing pre-download
-step **完整性/易用性**; the graded defect is that the page has no such step and
-never says "local path".
+check 1, so `VLLM_USE_MODELSCOPE` can be dropped) → **mount that directory into the
+container**. The last leg is its own graded row, and one grep of the page's
+`docker run` block decides it: `sed -n '<block>' <page> | grep -n '^-v'`, then ask
+whether any `-v` covers the path the serve line reads. `Qwen3-32B-W4A4.md` at v0.18.0
+fails it — six mounts (`:25-30`: dcmi, npu-smi, driver `lib64`, `version.info`,
+`ascend_install.info`, `/root/.cache`), **none a model directory**, while `:100`
+serves `/[HOME_DIRECTORY_1]/Qwen3-32B-w4a4`; the host-downloaded checkpoint is invisible
+inside the container, and on a **1-card** row this is the blocker rather than a
+nicety because the page's conversion step needs two cards (`:59`) —
+`tutorial-command-audit.md` "Second worked page". Tier the missing pre-download
+step and the missing mount **完整性/易用性**; the graded defect is that the page
+has no such step, never says "local path", and never mounts one.
 
 Keep the timing claim open: the 3 h figure quantifies bandwidth, so say the wall
 time needs splitting (download vs read vs profile) rather than calling it a

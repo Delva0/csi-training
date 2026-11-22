@@ -191,6 +191,17 @@ then every request" with a rising `Prefix cache hit rate` before the first bad a
 is consistent, while a serve that degenerates on its *first* request belongs to Step 3.
 Command: `rg -n -i 'known issue' -A8 <pin>/docs/source/user_guide/release_notes.md`.
 
+**The row dies with the fork.** The bullet names the *Ascend scheduler*, and at
+vllm-ascend v0.14.0rc1 (`52d4acf`, the #6525 pin) there is no such class and no
+`ascend_scheduler_config` key left (`vllm_ascend/core/` is `recompute_scheduler.py` +
+`scheduler_dynamic_batch.py`; the key is gone from
+`docs/source/user_guide/configuration/additional_config.md`) — a `--additional-config`
+carrying it is read by nothing. On a ≥0.13-era report lead with
+`--no-enable-prefix-caching` as a plain prefix-cache ablation and say the project's
+sentence no longer applies to their tree, instead of quoting it as their pin's own
+warning (`../upstream-downstream-drift/scheduler-fork-missing-status.md`
+§*Pin boundary*).
+
 ## Step 4 — the onset-after-hours ladder (recorded #3547)
 
 One launch per rung, same load, same request, recording minutes-to-onset (a rung whose

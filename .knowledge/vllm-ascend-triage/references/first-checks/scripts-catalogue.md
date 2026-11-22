@@ -125,14 +125,19 @@ after that keeps the header, not this text.
   asserts, at fp32 instead of the test's discarded `torch.allclose`.
 - `scripts/quant-scale-dtype-audit.py <vllm-ascend-root>` — the sibling sweep for a
   quant-scale dtype gate (`EZ1001 … Tensor scale not implemented for DT_FLOAT16`,
-  `161002`): prints every weight-side scale handed to `npu_quant_matmul` /
-  `npu_grouped_matmul*` / `fused_experts` with `file:line`, whether each parameter has
-  a `_fp32` / `_fp32_list` companion in the package, which companions are `CREATED
-  BUT NEVER READ` (the v0.17.0rc1 linear site), and which call sites take the op's
-  output dtype from a scale tensor (`moe_mlp.py:144`, `device_op.py:142`) — the
-  second operand of the same gate (#7443). Run through
-  `uv run --no-project python …`; per-token/activation scales are excluded by design,
-  and a site it lists still has to be read in `apply()` before it can be cited.
+  `161002`), candidate-first: `START HERE` lists the `_fp32` companions that are
+  `CREATED BUT NEVER READ` with the launch line still passing the non-fp32 twin (the
+  v0.17.0rc1 linear site, `w8a8_dynamic.py:103` vs `:86`), every quant-method launch
+  site whose scale is not float32, and the sites taking the op's output dtype from a
+  scale tensor (`moe_mlp.py:144`, `device_op.py:142` — the gate's second operand);
+  the full inventory and companion list follow. It resolves **one alias hop**, the
+  only way the MoE twin appears (`fused_experts(w2_scale=w2_scale)` `:251` ←
+  `[layer.w2_weight_scale]` `:249`, #7443). Companions are a **same-file** fact, so
+  `no _fp32 companion in this file` must be read against the allocation (static
+  `deq_scale` is `float32` for bf16 and `int64` for fp16, `w8a8_static.py:67-69`) or
+  the delegate before it is cited. Run it whole through
+  `uv run --no-project python …` (~114 lines at v0.17.0rc1 — a `head -60` keeps the
+  verdict and drops the sweep); per-token/activation scales are excluded by design.
 - `scripts/pp-layer-partition.sh --layers N --pp P [--key-layer K]` — the PP layer
   split and stage-start fingerprint (#5724). Mirrors `get_pp_indices`: the
   `layers % pp` remainder goes to `[-2], [-3], …`, never the last partition, so
@@ -184,7 +189,11 @@ after that keeps the header, not this text.
   names the case to read, not just the file; when no entry matches, the line carries the
   file's number of `**#<id>**` entries instead, so a 30-80-case page is greped for the
   report's id rather than read whole. `[index]` = a topic index (a route, not an owner),
-  `[dispatch]` = a wording table. **A family-word guard prints before the grades** when
+  `[dispatch]` = a wording table, `[row]` = a `first-checks/signature-routes/` page —
+  printed right after the `[case]` lines, and when an all-token grade carries both the
+  script says to read that row's line with the `[case]` arrow, because several recorded
+  cases can share three or four tokens and the arrow then names a neighbour in another
+  lane (recorded #2984: arrow → #3494, a `…-w8a8` export, while the row owned the report). **A family-word guard prints before the grades** when
   no page carries all tokens and the widest token alone hits 40+ pages: the grade then
   cannot name the owner, and the moves that do are, in order, a **re-grade of the two or
   three shortened tokens** (the owner is usually already on the near-miss lines the first
@@ -668,7 +677,10 @@ after that keeps the header, not this text.
   (`../hccl-and-hardware/device-health-checks.md`); 107030 points back into graph-mode
   code. Until this branch existed the script answered a `507010` report with
   "no HCCL_E_* = 507010" (#11171). `--root` defaults to `/workspace/repos`; scope it to
-  `/workspace/repos/<issue>`. Exit 0 when every argument resolved, 1 otherwise, 2 on bad
+  `/workspace/repos/<issue>`. A full scan of that root takes ≈2 s, past the 1 s
+  foreground cap, so the call comes back as a background job — pass a longer timeout
+  (a `timeout_ms` of ~30 s) instead of paying a second `job_output` round trip to
+  collect it, as recorded #16581 did. Exit 0 when every argument resolved, 1 otherwise, 2 on bad
   usage. When no table is exported it says so instead of implying absence (the
   v0.9.1-era `cann/` export holds only `catlass` — #3172). Quote the printed Solution as
   the vendor's statement, then keep the cause open until the code is matched to the line

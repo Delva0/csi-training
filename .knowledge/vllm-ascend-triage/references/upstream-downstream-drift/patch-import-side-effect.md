@@ -139,7 +139,7 @@ second prints `vllm_ascend.ops.fused_moe` once the import is forced.
 Recorded #10870 (vllm-ascend `v0.13.0rc3` `bbe9bc0d` + vllm `v0.13.0` `72506c98`,
 `quay.io/ascend/vllm-ascend:v0.13.0rc3`, A3 single node, DeepSeek-V4-Flash): "在线推理正常
 拉起，离线推理报错 … deepseek_v4 相关 patch 未生效，所以 patch 需要在离线脚本前 import",
-with no error text at all. Two verified facts scope that claim rather than repeat it:
+with no error text at all. Four verified facts scope that claim rather than repeat it:
 
 - **For the engine itself the timing is identical in both paths.** `EngineArgs.__post_init__`
   calls `load_general_plugins()` (`vllm/engine/arg_utils.py:576-589`, at this pin) — which
@@ -148,9 +148,50 @@ with no error text at all. Two verified facts scope that claim rather than repea
   `vllm.general_plugins`) — and `create_engine_config()` calls
   `current_platform.pre_register_and_update()` (`:1312`) **before** it builds `ModelConfig`.
   That hook is `adapt_patch(is_global_patch=True)` → `vllm_ascend.patch.platform`
-  (`utils.py:372-376`; `patch/platform/__init__.py:33` imports `patch_transformers`). So
-  `from vllm import LLM` and `vllm serve` reach the platform patches at the same point in
-  their lifecycles; the same two lines were re-read at vllm `v0.14.1` and did not move.
+  (`utils.py:372-376`). So `from vllm import LLM` and `vllm serve` reach the platform
+  patches at the same point in their lifecycles; the same two lines were re-read at vllm
+  `v0.14.1` and did not move. **Which patches arrive there is a different question, and at
+  this pin it is an env var** — see the next bullet, which is why `patch_transformers`
+  alone does not settle the claim.
+- **At this pin the whole platform patch set sits behind `USE_MULTI_BLOCK_POOL`.**
+  `vllm_ascend/patch/platform/__init__.py:28` is `if envs.USE_MULTI_BLOCK_POOL:` and
+  `:29-34` imports six modules only inside it — `patch_kv_cache_coordinator`,
+  `patch_kv_cache_utils`, `patch_model_config`, `patch_speculative_config`,
+  `patch_transformers`, `patch_vllm_config`. For DeepSeek-V4 that block carries
+  everything the model needs: `AutoConfig.register("deepseek_v4", DeepseekV4Config)`
+  (`patch_transformers.py:10`), `ModelConfig.is_deepseek_mla` with `deepseek_v4` in its
+  list (`patch_model_config.py:14,33`), the MTP architecture rewrite
+  (`patch_speculative_config.py:18-23` → `DeepSeekV4MTPModel`). With the flag unset,
+  `deepseek_v4` is in neither `_CONFIG_REGISTRY` nor upstream's model map, so config load
+  falls through to `AutoConfig.from_pretrained` (`vllm/transformers_utils/config.py:148`)
+  and raises transformers' unknown-`model_type` `ValueError` — no vllm-ascend frame — and
+  the MTP drafter has no registered architecture. The flag defaults to `'0'`
+  (`vllm_ascend/envs.py:143-144`, a lazy lambda) and is read **once**, when
+  `vllm_ascend.patch.platform` is first imported, so it must be in the environment before
+  the first engine construction; setting `os.environ` after that raises nothing and
+  changes nothing. This is the form in which the reporter's sentence is literally true:
+  every V4 serve block in the tutorial exports it
+  (`docs/source/tutorials/DeepSeek-V4.md:142,181,345,416,487`) and a hand-written offline
+  script usually does not — so the two paths differ in the *shell*, not in the engine.
+  One command on the reporter's box decides it: `echo $USE_MULTI_BLOCK_POOL` in the shell
+  that ran the offline script, plus `python -c "import os;
+  os.environ['USE_MULTI_BLOCK_POOL']='1'; import vllm_ascend.patch.platform.patch_transformers
+  as m; print(m.__file__)"` for the "does importing it fix it" side of their story.
+  **Version scope:** this gate is retired later — at v0.23.0rc1 (`f4a08bd`) the name
+  survives only as two commented `#export` lines in
+  `docs/source/tutorials/models/GLM5.2.md:316,373` and `patch/platform/__init__.py`
+  imports unconditionally — so quote it as a v0.13/v0.14-era mechanism and re-grep
+  `patch/platform/__init__.py` at the reported pin.
+- **The other offline-only trap is upstream's DP guard.** `LLM(data_parallel_size=N)`
+  raises `ValueError: … is not supported for single-process usage and may hang. Please
+  use the explicit multi-process data-parallel example at
+  'examples/offline_inference/data_parallel.py'` unless
+  `distributed_executor_backend="external_launcher"`
+  (`vllm/entrypoints/llm.py:302-315`; identical code at vllm `v0.23.0` `0fc695f`, so
+  re-grep per version). A tutorial serve line with `--data-parallel-size 2
+  --tensor-parallel-size 8` therefore cannot be copied into `LLM()`, and the base for a
+  hand-written offline script at this pin is the downstream
+  `examples/offline_data_parallel.py` / `examples/offline_inference_npu.py`.
 - **The one place an offline script really can run earlier is the script's own code.**
   `patch_transformers.py` registers the config class as a *module-level* side effect
   (`AutoConfig.register("deepseek_v4", DeepseekV4Config)`, `:10`), so any
@@ -169,10 +210,20 @@ with no error text at all. Two verified facts scope that claim rather than repea
 So the answer shape for this family is: state the coverage (at `v0.13.0rc3`
 `docs/source/tutorials/DeepSeek-V4.md` is a **serve-only** recipe — no `from vllm import
 LLM`, `LLM(` occurs nowhere in it, its only "offline" mention is the benchmarking section —
-and no `tests/` or `examples/` file references the model), name the one order-sensitive
-step above, and **ask for the failing traceback**; without it the mechanism is open. Same
+and no `tests/` or `examples/` file references the model, so "there is no official V4
+offline script" is the literal answer and belongs in the first line), then rank the three
+causes above — env gate, DP guard, the script's own pre-engine `from_pretrained` — because
+the reporter's own traceback separates them by its `ValueError` text, and a script derived
+from `examples/offline_data_parallel.py` is the deliverable, labelled as derived and not
+validated. Plus **ask for the failing traceback**; without it the mechanism is open. Same
 family of requests already in the corpus: #8727 (the `deepseek-v4-agentic-support.patch`
 "patch does not apply"), #8699 and #8802 (`[Doc]` deployment example / verification script).
-Reading the config-parser internals is not the answer: #10870's run spent its full
-16 384-token output budget in reasoning across 25 tool-only turns — including this
-`_CONFIG_FORMAT_TO_CONFIG_PARSER` question — and emitted no text at all.
+
+Send that on the turn the shape is classified. Reading the config-parser internals is not
+the answer: #10870's first run spent its 16 384-token output budget in reasoning across 25
+tool-only turns — including this `_CONFIG_FORMAT_TO_CONFIG_PARSER` question — and emitted
+no text. The replay with this section already in place did it again: 25 assistant turns, 38
+tool results, `content` empty on **every** turn, 43 K characters of reasoning against
+1.62 M cumulative prompt tokens, `output_truncated`, zero characters reaching the reporter.
+The env gate was in its reasoning by its 7th turn and the DP guard by its 17th; either
+sentence, typed, was the answer.

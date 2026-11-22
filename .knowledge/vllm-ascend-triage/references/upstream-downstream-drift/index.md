@@ -573,7 +573,14 @@ answer is not "downstream drift".
   module is `NPUPlatform.check_and_update_config` — which runs once, where
   `VllmConfig` is built. Ray ranks and `spawn` workers keep upstream's
   `forward_oot`; the default `fork` inherits the patched class. Includes the
-  frame-file discriminator and the two-line host check.
+  frame-file discriminator and the two-line host check. **Second shape on the same
+  page:** "在线推理正常，离线推理报错 … patch 未生效，需要在离线脚本前 import" (#10870,
+  v0.13.0rc3) — the install hook is identical in `LLM()` and `vllm serve`, and at
+  that pin the six platform patch modules hang off `USE_MULTI_BLOCK_POOL`
+  (`patch/platform/__init__.py:28-34`), which every V4 serve block exports and a
+  hand-written offline script does not; upstream's `LLM(data_parallel_size>1)` guard
+  is the second offline-only row. Rank those two before any plugin/entry-point
+  theory.
 - `scheduler-fork-missing-status.md` — worked case vllm-ascend #3979
   (v0.11.0rc0 `00ba071` / vllm v0.11.0rc3 `8ce5d31`): a `guided_choice` request
   raises `RuntimeError: Invalid request status: WAITING_FOR_FSM` at

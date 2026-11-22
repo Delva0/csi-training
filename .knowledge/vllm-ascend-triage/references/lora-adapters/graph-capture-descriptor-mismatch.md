@@ -89,6 +89,24 @@ and `:2010` (dispatch), `:1394` (live-batch `has_lora` at runtime), `:2828`
 armed `:4789` … disarmed `:4846`, wrapper guard `acl_graph.py:126` (debug line
 `%s,%s` at `:124`). So the defect spans at least v0.13.0rc2 → v0.14.0rc1.
 
+**Grade the paste's own decode step before spending a DEBUG round trip.** The other
+three descriptor fields come from the scheduled batch, so the dumped
+`SchedulerOutput` names them: `total_num_scheduled_tokens` / `num_scheduled_tokens` give
+`num_tokens`, `scheduled_new_reqs` + `scheduled_cached_reqs` give `num_reqs`, and one
+live request on a decode step is `uniform=True`. Compare that with the
+`cudagraph_capture_sizes` list the same paste prints in its `compilation_config`
+(default `[1, 2, 4]` + steps of 8 and 16 — `vllm/config/vllm.py:1148-1158` at v0.14.0
+`b17039b`; newer pins add a `performance_mode="interactivity"` branch that is
+contiguous `1..N`, v0.23.0 `:1704-1706`, which still covers small counts) and with
+`cudagraph_specialize_lora`. A token count inside the list then leaves `has_lora` as the
+only field startup could have missed, and the DEBUG line above becomes confirmation
+instead of triage: recorded #7150's paste carried `total_num_scheduled_tokens=1` with one
+cached request against a list starting at `1`, so the size-gap variant was excluded from
+the report alone. A token count *outside* the list (a capture-size gap under
+`--async-scheduling`, or a non-uniform mixed batch) sends the same guard to the
+size/shape variant instead — state which one the paste is in before asking for logs, so
+the DEBUG ask is not spent on a field the paste already settled.
+
 One call reproduces the whole audit:
 `bash <skill_root>/scripts/lora-graph-descriptor-audit.sh <vllm-ascend-root> <vllm-root>`
 — it labels each `has_lora` producer `LIVE-BATCH` vs `CONFIG-CONST`, reports

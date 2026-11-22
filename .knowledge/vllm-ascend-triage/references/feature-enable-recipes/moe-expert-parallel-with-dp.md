@@ -220,9 +220,17 @@ The ladder is short because **no flag moves that count**:
 2. Enlarge the EP group until `global_experts / ep_size <= 24` (512 needs ≥ 22 ranks;
    `--data-parallel-size 4 --tensor-parallel-size 8` = 32 ranks → 16/card) — the only
    way to keep MC2 by hand.
-3. Otherwise take a build with the fallback: upstream added "local experts over the
-   MC2 limit → `ALLGATHER`" as **PR #7364** (postdates v0.17.0rc1;
-   reporter-confirmed: service starts, load test normal, possible comm cost). It is a
+3. Otherwise take a build that **carries the fallback**: upstream added "local
+   experts over the MC2 limit → `ALLGATHER`" as **PR #7364** (postdates v0.17.0rc1;
+   reporter-confirmed: service starts, load test normal, possible comm cost). Grade
+   this rung by whether the target build has that row, never by how new it is: in the
+   same thread a maintainer pointed the reporter at #7235 — a C++ change — with
+   "try update to the latest main branch, see if it fixes your problem?", and the
+   reporter answered 「cpp代码不方便验证，但似乎和问题无关」, which is right: the 24 is a
+   CANN tiling constant, so no vllm-ascend C++ change and no main-branch rebuild moves
+   it. The observation that confirms this rung is *the same serve line starting* on
+   the new build; a newer tag that still prints `561002` here means the fallback row is
+   absent, not that the reporter upgraded wrongly. The fallback is a
    per-batch selector decision, so EP weight sharding survives (`local_num_experts`
    is computed in `FusedMoE.__init__`, independent of the method chosen per batch) and
    only routing changes: `dp_group.all_gather` of hidden states + router logits
@@ -247,6 +255,21 @@ both): log the gate once when a fallback engages (at v0.17.0rc1 `moe_comm_type` 
 assigned with no log at all, `ascend_forward_context.py:70-72`, so the field cannot
 tell MC2 from ALLGATHER), and make the 24 a per-SoC/CANN value rather than a Python
 constant that silently disables MC2 for 512-expert layouts after a CANN bump.
+
+**The `E29999: Inner Error!` block above the cap line is op-store init, not this
+refusal.** #7635's paste interleaves `[InitOpInfoLib][InitOpKernel] Inconsistent format
+size [1] and data type size [2]!` → `… Node[TransposeKvCacheByBlock]: failed to initialize
+unknown shape dtype and format` → `[GraphOpt][Init][ConstructOpKernelInfo] OpKernelInfo
+TransposeKvCacheByBlock initialization failed`, and that block's own line carries its
+**earlier stamp** — `E29999[PID: …] 2026-03-25-01:50:48.960` against the
+`2026-03-25-01:52:21` of the enclosing `multiproc_executor.py:880` ERROR lines — so it
+records another op's kernel-info init ~90 s before the dispatch call and is merely
+re-printed inside this traceback. The refusal's own chain is the trio below it:
+`op[MoeDistributeDispatchV2], MoeDistributeDispatchA2 CheckAttrAndSetTiling Failed` →
+`MoeDistributeDispatchV2 do tiling failed, ret is -1.` →
+`Check NnopbaseExecutorDoTiling(executor) failed`. Compare the two stamps before
+ranking an op-store, format-size or `TransposeKvCacheByBlock` theory
+(`../hccl-and-hardware/error-report-timestamps.md`; `SKILL.md` rule 13).
 
 ## Step 2c — the other A2 dispatch tiling refusal: `batchsize is invalid` (the token dim)
 

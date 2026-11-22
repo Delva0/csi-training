@@ -294,25 +294,28 @@ the turn the shape is classified, not a second copy of it here.
    matching-looking number (tensor count, hostname, line number) as proof. A
    maintainer's clean run on different hardware is a data point, not a
    refutation of a reporter-confirmed fix on theirs; say what was verified on
-   which hardware. **A `path:line` at commit X is a claim about X, and a *defect*
+   which hardware.
+   **A page's provenance id is not a precedent when it is the report you are
+   answering.** Owning pages and `recorded-cases-*` entries open with the case they
+   were written from (`recorded for #573`, `recorded #4357`), so a report with its own
+   page meets its own id in the library; there write "your paste" / "this thread (as of
+   …)", never "#NNNN was recorded …". #573's answer closed on "**Precedent (same pin,
+   same wording):** #573 was recorded at v0.7.3rc2 …" — its own page's provenance
+   handed back; #4357 repeated it ("同形态的已记录报告 #4357"). Cite the page's pin as
+   `path:line`; a precedent, when owed, is a *different* id.
+   **A `path:line` at commit X is a claim about X, and a *defect*
    claim expires as readily as an absence one**: a page can prove a branch or an
    interface missing at an older pin that has since gained it, so re-run the page's own
-   grep at the tree in your hand before ranking that defect. Recorded #12339 was run
-   with "the generic Mooncake connector cannot describe a hybrid page" — true at
-   v0.18.0, `rg -c Mamba` empty — while its pin (v0.22.1rc1) carries a full `MambaSpec`
-   branch (`is_mamba_group`, `_append_mamba_transfer_meta`), so the mechanism had to be
-   demoted inside the answer; presence claims and absence claims both belong to the pin
-   they were seen at (`references/pd-disaggregation/hybrid-state-transfer.md`).
+   grep at the tree in your hand before ranking that defect. Presence claims and
+   absence claims both belong to the pin they were seen at (recorded #12339,
+   `references/pd-disaggregation/hybrid-state-transfer.md`).
    **A page's *rank order* can rest on an arithmetic, and that arithmetic is pin-bound
    too**: before quoting a ladder that turns on a division, a chunk split or a token
    gate, recompute it from the pin's own source — one read, and it is the step that
-   rescues a wrong ordering. Recorded #6240: its page argued the two reported load
-   cases died "on different code paths" because only the 1017-token request fits the
-   MLAPO `<= 1024`-token branch (`sfa_v1.py:763`); but that gate tests the **step's**
-   token count (`total_num_scheduled_tokens`, `model_runner_v1.py:615`), so the
-   8270-token prompt at `--max-num-batched-tokens 8192` is chunks 8192 + 78 and its
-   78-token tail takes the same branch — the shared mechanism *raises* that candidate
-   and reorders its A/B, where the page had used the split to demote it
+   rescues a wrong ordering. Recorded #6240: its page read a
+   `<= 1024`-token branch as "different code paths" for the two load cases, while the
+   gate tests the **step's** count (`sfa_v1.py:763`, `model_runner_v1.py:615`), which
+   *raises* the shared candidate
    (`references/dsa-sparse-attention/concurrency-crash-with-no-log.md`).
 7. **Keep reads small and exact.** Use `rg -n -C2 <symbol>` and
    `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines — the
@@ -324,7 +327,12 @@ the turn the shape is classified, not a second copy of it here.
    is the exception now that its *Route table* opens the file, so `sed -n '1,60p'`
    there reaches every route; a window like `sed -n '1,80p'` of the 386-line protocol
    or `'1,120p'` of that index is how the #11759 rerun walked past the worked table
-   for its own row. A
+   for its own row. **The recorded-case page for this issue is that same exception**
+   (its heading or `[case]` arrow carries the id): a later section is usually the
+   pre-emption of the reporter's next question. #8022's replay read its 533-line
+   owning page as `sed -n '1,120p'`, the registry-split header landed on that read's
+   last line, and the answer it shipped was re-asked as 「qwen3_coder可以吗？」 plus the
+   boot `KeyError` — a window that ends on a section header has not read that section. A
    20-40 KB full-file read of an AscendC kernel header buys one fact and costs
    the budget for several conclusions. Listing, dumping and a handful of
    search-command traps each cost a recorded run whole steps; the full text is in
@@ -351,17 +359,10 @@ the turn the shape is classified, not a second copy of it here.
    neither a glob nor that listing is an existence test
    (`references/evidence-workspace/case-layout.md` §*Attached log dumps*). Then open
    the files the issue links; a manifest grep is not an existence test either.
-   **A `| head -N` on a reference grep can cut the page that owns the case.** These
-   pages sit in large topic directories, so `rg -n -i '<feature token>'
-   references/<topic>/ references/<other>/ | head -60` can spend all sixty lines in
-   the first file and drop the hit that matters: recorded #10961 ran
-   `rg -i 'mtp' pd-disaggregation/ accuracy-benchmarks/ spec-decode-mtp/index.md |
-   head -60`, got sixty lines of `spec-decode-mtp/index.md`, and lost
-   `pd-disaggregation/hybrid-state-transfer.md:165` — the page holding that exact
-   case's refuted top rank — then re-derived the recipe from the tutorial and
-   re-shipped the refuted claim. `rg -l` over `references/` first, pick the page by
-   its heading's issue id, its title and its stack, then read it; raise the cap only
-   after reading the file list.
+   **A `| head -N` on a reference grep can cut the page that owns the case**: so
+   `rg -l` over `references/` first, pick the page by its heading's issue id, its title
+   and its stack, then read it, and raise the cap only after reading the file list
+   (recorded #10961 shipped a refuted rank that way; §*Search-command traps*).
 8. **The prior-month corpus is not evidence of absence, and a lexical accident is
    not "no precedent".** Search titles with **one** distinctive token — an op name,
    an error string, a numeric code, a fault kernel, a model id — never the failure
@@ -535,28 +536,19 @@ the turn the shape is classified, not a second copy of it here.
     export the same), while `=0` on that key is still a legitimate one-launch ablation;
     recorded #7015 shipped "你自己加的非默认开关" for exactly that line
     (`references/hccl-and-hardware/mc2-dispatch-profile-run-hang.md`, refuted rows).
-    **A 200 from `/health` is the same kind of wrapper in the one place it decides a
-    verdict**: every "it hangs while health stays 200" report rests on it, and at vllm
-    v0.23.0 the route only reads two frontend flags — `AsyncLLM.check_health` raises
-    `dead_error` when `errored`, and `errored` is
-    `engine_core.resources.engine_dead or not is_running(output_handler)`
-    (`vllm/v1/engine/async_llm.py:900-903,1045-1055` behind
-    `entrypoints/serve/instrumentator/health.py:30-34`) — while the executor's real
-    probe, `check_health` → `collective_rpc("check_health", timeout=10)`
-    (`multiproc_executor.py:491-493`), has **no caller** (`rg -n 'check_health' vllm/`
-    returns the definition, the `AsyncLLM` method and the route) and could not be
-    answered anyway: `worker_busy_loop` (`:969-997`) serves one RPC at a time. So a
-    worker blocked mid-step looks healthy for as long as the RPC deadline, and the 2 ms
-    200 is not evidence about the engine. One grep settles it per pin — the route has
-    drifted (vllm v0.18.0 carries the same `errored` pair at `async_llm.py:874-877`;
-    an older release does reach a 10 s `check_health`,
-    `references/hccl-and-hardware/rpc-watchdog-timeouts.md`) — and then the answer says
-    "health is not a liveness probe here" once, with the lines, instead of ranking a
-    health defect or asking for another health poll:
-    `references/scheduler-admission/background-helper-death-wedge.md` (recorded #18691,
-    v0.23.0, a dead Dynamic-EPLB planner subprocess; it also carries the
-    `platform.py:1275-1282` floor that makes a launch-side
-    `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=8` inert).
+    **A 200 from `/health` is the same kind of wrapper where it decides a verdict**: on
+    vllm v0.23.0 the route reads frontend flags only — `errored` =
+    `engine_dead or not is_running(output_handler)`
+    (`async_llm.py:900-903,1045-1055` behind `health.py:30-34`) — while the executor's
+    real `check_health` RPC (`multiproc_executor.py:491-493`) has **no caller**
+    (`rg -n 'check_health' vllm/`) and could not be answered anyway (`worker_busy_loop`
+    serves one RPC at a time, `:969-997`), so a worker blocked mid-step looks healthy
+    for the RPC deadline. One grep settles it per pin (v0.18.0 `async_llm.py:874-877`;
+    an older release does reach a 10 s probe, `rpc-watchdog-timeouts.md`); then say
+    "health is not a liveness probe here" once, with the lines — not another poll, not a
+    health-defect row: `references/scheduler-admission/background-helper-death-wedge.md`
+    (#18691, a dead Dynamic-EPLB planner subprocess; its `platform.py:1275-1282` floor
+    also makes a launch-side `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=8` inert).
 12. **A crash inside a native module the image installed is an environment
     question, and it is answerable without that module's source.** Three forms — a
     `python -c "import <pkg>"` glibc allocator abort, `std::logic_error` /
@@ -578,45 +570,39 @@ the turn the shape is classified, not a second copy of it here.
     (`references/hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`) — same
     words, runtime device fault, no import →
     `references/image-dependency-faults/host-cpu-isa-sigill-at-import.md`. The fifth
-    form is an **ACL/GE bring-up failure** at device open — `SetPrecisionMode … AclSetCompileopt(
-    aclCompileOpt::ACL_PRECISION_MODE …) error code is 500001` +
-    `PlatformInfoInit … SocVersion <name>` + `GEInitialize failed`, ending
-    `ERR99999` with no `vllm_ascend` frame. Owner, in this order: a **containerized**
-    run whose `docker run` already carries the documented `--device`/mount list takes
-    that same command plus `--privileged=true` as its first re-run (reporter-confirmed
-    #302, driver unchanged); then the driver/firmware × image-CANN pairing, with the
-    printed SoC name read against `npu-smi`. No precision/dtype flag is ever the cause →
+    form is an **ACL/GE bring-up failure** at device open — `ACL_PRECISION_MODE …) error
+    code is 500001` + `PlatformInfoInit … SocVersion <name>` + `GEInitialize failed`,
+    ending `ERR99999` with no `vllm_ascend` frame. Owner in order: a **containerized**
+    run whose `docker run` already carries the documented `--device`/mount list takes that
+    command plus `--privileged=true` first (reporter-confirmed #302, driver unchanged);
+    then the driver/firmware × image-CANN pairing against `npu-smi`'s SoC name. No
+    precision/dtype flag is ever the cause →
     `references/startup-failures/acl-init-500001-and-soc-version.md`. The **sixth** form is an
     **ATB op-create refusal**: `RuntimeError: LinearOperation CreateOperation failed!` (also
-    `GroupTopkOperation …`) out of a `torch_npu._npu_*` call — at a 310P engine start it is the
-    unconditional `_warm_up_atb` (`worker_v1.py:332,337-341` at v0.11.0) meeting an ATB/NNAL build
-    that cannot create the op, so the caller's shapes, the KV flags and `--enforce-eager` are all
-    spent levers and the wording exists in no export; three checks (one-op repro outside
-    vllm-ascend, the `nnal/atb` identity, the SoC stamp) plus the pin's own `-310p` recipe answer
-    it — `references/custom-ops-runtime-faults/atb-create-operation-failed.md` (#5170). **The same phase *without* `500001` is a file
+    `GroupTopkOperation …`) out of a `torch_npu._npu_*` call at a 310P engine start — the
+    caller's shapes, the KV flags and `--enforce-eager` are spent levers, and three checks
+    (one-op repro outside vllm-ascend, the `nnal/atb` identity, the SoC stamp) answer it —
+    `references/custom-ops-runtime-faults/atb-create-operation-failed.md` (#5170). **The same phase *without* `500001` is a file
     question, not a privilege or pairing one**: `RealPath:Path '<…>/<arch>-linux/lib64/
     ../data/platform_config' does not exist.` + `InitializePlatformInfo:File path[] is not
     valid.` ending `RuntimeError: Get ACL JitCompile default value failed.` names the FE `.so`'s
-    own directory plus a sibling `data/platform_config`
-    (`cann/runtime/src/platform/platform_info.cpp:27,955-981`), and `RealPath` prints that
-    sentence for *any* `realpath()` failure including EACCES — so check the directory as the
-    job's UID inside the worker container, and do not carry `--privileged`, the driver pairing
-    or a `lib64/data` symlink into it
+    own directory plus a sibling `data/platform_config` — and `RealPath` prints that for
+    *any* `realpath()` failure including EACCES, so check it as the job's UID inside the
+    worker container and do not carry `--privileged`, the driver pairing or a
+    `lib64/data` symlink into it
     (`references/startup-failures/platform-config-file-missing.md`). **The seventh form is a
     tiling line whose verb is `not support`** — `E89999 … When layout is TND, not support Page
-    Attention[FUNC:RunBigKernelTilingWithParams][FILE:prompt_flash_attention_tiling.cpp]` under
-    `call aclnnFusedInferAttentionScoreV3 failed, error code is 561002`: the sentence names a
-    mode × cache-kind combination the installed toolkit's tiling has no path for, so the reporter's
-    `ascend-toolkit/latest/version.cfg` against the pin's own documented CANN floor
-    (`docs/source/installation.md:15`) is rung 1 and the caller's arguments are not — reading the
-    launch pair instead costs the fix (reporter-confirmed #4373, CANN 8.3;
+    Attention[FUNC:RunBigKernelTilingWithParams]` under `call aclnnFusedInferAttentionScoreV3
+    failed, error code is 561002`: a mode × cache-kind combination the installed toolkit's
+    tiling has no path for, so the reporter's `ascend-toolkit/latest/version.cfg` against the
+    pin's documented CANN floor (`docs/source/installation.md:15`) is rung 1 and the caller's
+    arguments are not (reporter-confirmed #4373, CANN 8.3;
     `references/custom-ops-runtime-faults/tiling-capability-refusal-cann-release.md`). **The same
-    op and code with dims printed** — `queryD(256), keyD(256) and valueD(256) must be same equal
-    192/128/64 … [FUNC:CheckInputShapeWhenLayoutIsTND]` — is not that form: it compares the
-    model's `head_dim` (Qwen3-Next is 256) with the tiling's set, so the owner is which batch
-    state reached the paged-TND call (`ChunkedPrefill`; the paste's own `Dumping scheduler output`
-    line proves it) and the upgrade rung is inert for an image run whose `Dockerfile` base already
-    is the floor — `references/custom-ops-runtime-faults/fia-tnd-head-dim-refusal.md` (#4135).
+    op and code with dims printed** (`queryD(256) … must be same equal 192/128/64 …
+    [FUNC:CheckInputShapeWhenLayoutIsTND]`) is not that form: it compares the model's
+    `head_dim` with the tiling's set, so the owner is which batch state reached the paged-TND
+    call (`ChunkedPrefill`, per the paste's own `Dumping scheduler output` line) and the upgrade
+    rung is inert — `references/custom-ops-runtime-faults/fia-tnd-head-dim-refusal.md` (#4135).
 13. **A pasted error block is not necessarily this failure.** Ascend re-prints a
     recorded device/runtime error block inside a fresh traceback and keeps that
     block's original date, so the title's sentence can be a day older than the
@@ -628,17 +614,6 @@ the turn the shape is classified, not a second copy of it here.
     nearest the reported time before declaring the fault absent. Formats, the
     `W<MMDD>` blind spot and both worked cases:
     `references/hccl-and-hardware/error-report-timestamps.md`.
-    **The third mechanism is in the emitting macro, and it decides the code you would
-    otherwise rank on.** For `RuntimeError: <op>:<file> NPU function error: call aclnnX
-    failed, error code is N`, `N` is not necessarily this call's status: PTA's
-    `NPU_CHECK_ERROR` overrides the printed code with `AclrtPeekAtLastError(ACL_RT_THREAD_LEVEL)`
-    (peeked, never cleared) and `getDeviceErrorMessage` supplies the text — so a
-    capture-window `107030` can be printed two hours later by an unrelated aclnn op, with
-    that op's own words around it, and the op's real status is masked (the macro only fires
-    when the call itself returned non-zero). Test the number against what the named op can
-    mint (`107030` = `ACL_ERROR_RT_CAPTURE_MODE_NOT_SUPPORT`) rather than against the
-    timestamp gap, and deliver the plog at the failure second, not the capture block —
-    `references/hccl-and-hardware/latched-runtime-error-masking.md`.
 14. **A "how do I enable F" question is a capability question, and the verdict comes
     first.** When the report asks how to turn a feature on for a model/hardware pair
     and pastes no log, the reporter is asking whether it is *known to work*: give
@@ -698,15 +673,11 @@ the turn the shape is classified, not a second copy of it here.
     will work" — `references/feature-enable-recipes/unsupported-model-row.md`.
     **A deployment-recipe question ("现在支持 k8s ray 插件做分布式推理么") is answered
     from the docs tree at the report's ref, and an absence borrowed from another pin is
-    not a finding.** One `rg --files docs/source/tutorials | rg -i '<feature>'` decides
+    not a finding**: one `rg --files docs/source/tutorials | rg -i '<feature>'` decides
     recipe / no recipe, and the page it finds carries the support statement in its own
-    contents (docker + manual `ray start`, no KubeRay chapter) — quote that with the
-    pin. `tutorials/multi_node_ray.md` is **absent** at v0.10.2rc1 (`048bfd5`) and
-    **present** at v0.11.0rc1 (`c5fe179`, 182 lines), so recorded #8156 shipped "this
-    tag has no Ray deployment tutorial" in its first message and retracted it a turn
-    later; every absence recorded in this library is that pin's
-    (`references/startup-failures/ray-npu-resource-label.md`,
-    `references/tutorial-verification/missing-guidance-and-contributor-docs.md`).
+    contents — quote that with the pin
+    (`references/startup-failures/ray-npu-resource-label.md` holds the
+    `multi_node_ray.md` absent-at-v0.10.2rc1 / present-at-v0.11.0rc1 pair and #8156).
 15. **A working sibling path in the reporter's own evidence constrains the cause.**
     When the same box fails on one entry point and works on another — offline
     `LLM()` vs `vllm serve`, one flag, one model, one card — a mechanism that also
@@ -970,12 +941,20 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    owning page; one list is periphery (membership in all = the case, rule 8), and the
    heading chooses between four candidates without opening them. Two hand-run
    sessions paid 3.4-19.8 KB for what the script prints in ~1-3 KB (#6509, #9003);
-   it counts the file **name** as a hit and orders `[case]` first, `[index]` last.
+   it counts the file **name** as a hit and orders `[case]` first, then `[row]` (a
+   `first-checks/signature-routes/` page), `[index]` last.
    A `[case]` line ends with the entry sharing most tokens — `→ #12985:488 (3/3)`:
    `sed -n '488,528p'` on that path is the case history, and its ladder is the
    message — open it even when the heading reads as another model's case
    (`references/evidence-workspace/delivery-recorded-sessions.md`: #12985's second
    session saw the `[case]` file first, opened no entry, and shipped no text).
+   **A `[row]` line and a `[case]` line on the same all-token list are one decision, not
+   two**: several cases can share three or four tokens (the `is_layer_skipped_ascend`
+   `KeyError`s are #2984's stock-FP8 release, #3494/#569's `…-w8a8` exports and #5564's
+   empty prefix), so the arrow can name the neighbour in the *other* lane while the row's
+   middle cell carries the discriminator — read them together, before re-deriving either
+   pin. Recorded #2984 took the arrow, re-derived `weight_utils.py`/`config.py`/
+   `quantizer.py` at both pins for 12 turns, and was cut mid-ladder with the verdict right.
    Recorded #18315 — `MoeDistributeDispatch`,
    `HCCL_OP_EXPANSION_MODE`, `PYTORCH_NPU_ALLOC_CONF`, `107020`, lists of 13-20 pages
    each — left `hccl-and-hardware/aiv-mc2-env-ablation.md` as the only page on all four:
@@ -1224,7 +1203,8 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   correct — reporter-confirmed #562, `references/accuracy-benchmarks/
   precision-dtype-degeneracy.md`), an explicit `--max-model-len`, a re-run with
   `--enforce-eager` / `ASCEND_LAUNCH_BLOCKING=1`, `return_token_ids: true` on the
-  same request body, one `num_speculative_tokens` step, `asys health -d=$i`, a
+  same request body, one `num_speculative_tokens` step, `asys health -d=$i` over the
+  host's whole id range (`seq 0 7`, not the launch's `ASCEND_RT_VISIBLE_DEVICES`), a
   version correction — before any patch proposal.
 - The evidence table (`path:line` for code claims, precedent ids as
   `#<id>: <one-line fact>`) comes **after** the ladder, never between the verdict and

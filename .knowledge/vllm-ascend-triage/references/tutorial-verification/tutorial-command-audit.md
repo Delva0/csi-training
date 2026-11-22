@@ -96,6 +96,14 @@ resolves only from `/vllm-workspace`; from the container's default cwd it fails
 `No such file or directory`. Tier **breaks the command** (usability), give the
 absolute path, and note that the bench dependency install step itself has bitten
 before (#4737: v0.11.0rc2/rc3 images shipped without the bench dependencies).
+The defect is **not confined to model tutorials**: at the same pin the page a
+测试方法 "Run basic benchmark" step resolves to,
+`docs/source/developer_guide/performance_and_debug/performance_benchmark.md`,
+prints `cd /workspace/vllm-ascend` (`:42`) before
+`pip install -r benchmarks/requirements-bench.txt` (`:44`), so the tester who is
+sent there hits it too — same one-line correction, and the shared parent is
+`Dockerfile:30,32` (recorded #11769; that page's `## 3. Run basic benchmarks` is
+`:47` and `### 3.2 Run basic benchmark` `:93`).
 The same check covers every **helper script the doc tells you to run** — one
 `rg --files -g '<name>.sh'` settles it. Recorded #15389: the Qwen3.5-397B-A17B
 page's §5.6 A3 tab ends with `cd vllm-ascend/examples/disaggregated_prefill_v1/`
@@ -345,13 +353,15 @@ baseline, not an expected result. The same check catches a missing
 
 The same tree (`e18643f8`, vllm `bcf2be9612`), page
 `docs/source/tutorials/models/Qwen3-32B-W4A4.md` (143 lines). Verified findings,
-ready to reuse, each one `path:line`:
+ready to reuse, each one `path:line`, re-read at the same pin on the ninth run of
+the shape (#11769, which added the 1-card row):
 
 | Tier | Finding | Evidence |
 |---|---|---|
 | breaks intent | the verification curl sends `"max_completion_tokens": 128` to `/v1/completions`, which has only `max_tokens: int \| None = 16`; `OpenAIBaseModel` is `extra="allow"`, so the field is silently dropped and the doc's own request returns 16 tokens | page `:111`; `vllm/entrypoints/openai/completion/protocol.py:57`; `vllm/entrypoints/openai/engine/protocol.py:26-28` |
 | breaks the environment | `pip install transformers==4.51.0` against the image pins (check 9 above) | page `:51`; `requirements/common.txt:10`; `requirements.txt:42` |
-| breaks the command (conversion path only) | the container maps `/dev/davinci0` alone while the conversion step exports `ASCEND_RT_VISIBLE_DEVICES=0,1` — card 1 does not exist inside that container | page `:21` vs `:59`; harmless when the pre-quantised ModelScope weight is used, so tier it accordingly |
+| breaks the command (conversion path only) | the container maps `/dev/davinci0` alone while the conversion step exports `ASCEND_RT_VISIBLE_DEVICES=0,1` — card 1 does not exist inside that container | page `:21` vs `:59`; on a 2-card row tier it down (the pre-quantised ModelScope weight bypasses it), but a 1-card row has no other route, which is what the next row grades |
+| breaks the command on **1 卡** rows | the only feasible route — the pre-quantised ModelScope weight — has nowhere to land: `:37-40` is a bare link with no `modelscope download` line, and the `docker run` block maps six paths (`:25-30`: dcmi, npu-smi, driver `lib64`, `version.info`, `ascend_install.info`, `/root/.cache`) and **no model directory**, while the serve line reads `/[HOME_DIRECTORY_1]/Qwen3-32B-w4a4` (`:100`) | `sed -n '18,32p' <page> \| grep -n '^-v'` → 6, none a model path; conversion needs 2 cards (`:59`). Fix = `modelscope download --model vllm-ascend/Qwen3-32B-W4A4 --local_dir <dir>` + `-v <dir>:<dir>`; hand back the corrected docker line (`serve-contract-and-weight-predownload.md` Step 2) |
 | completeness | no card count, no accuracy section, no performance section, no CANN/HDK requirement, while the sibling `Qwen3-Dense.md:265-311` carries Accuracy and Performance/`vLLM Benchmark` sections for the same model family | page headings (Introduction … Offline Inference) |
 | cosmetic | the image line carries the `m.daocloud.io/` mirror prefix while the task book's 蓝区 image is `quay.io/...`; users behind other networks must strip it | page `:17` |
 | stale tag (正确性) | `export IMAGE=…\|vllm_ascend_version\|` renders **`v0.17.0rc1`** at the v0.18.0 tag, one release behind the row's own 蓝区 image: the substitution dict was not bumped at the release cut (`ci_vllm_version` is the only key at v0.18.0) | page `:17`; `docs/source/conf.py:68,72,75` vs `:80`; correction site `:63`; rank with `docs-version-space-and-image-tag.md:62-70` — do not present it as a new finding |

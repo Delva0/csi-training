@@ -18,6 +18,13 @@ non-fp16 KV cache (`--kv-cache-dtype fp8`) refused at the first store is
 
 ## A 310P `拉起失败` / startup report that pastes **no log**
 
+**Pin gate before any rung below**: `rg -ni '310p|300i' vllm_ascend/` plus
+`ls Dockerfile*`. Empty on a v0.7.3-era tree, and no `-310p` image exists before
+v0.9.1rc1 (§*The first official release has no 310P lane either*), so none of the
+ranking, tutorial or allocator guidance below applies there — the verdict is the image
+move. Both recorded #1993 sessions opened this section first for exactly such a
+v0.7.3 paste.
+
 The recorded form: a `-310p` tag will not start a VL model while an older `-310p`
 tag served the same tutorial command, and the whole evidence is the serve line.
 Rank and ask in one message:

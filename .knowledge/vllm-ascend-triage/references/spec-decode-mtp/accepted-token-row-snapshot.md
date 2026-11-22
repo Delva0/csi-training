@@ -58,7 +58,17 @@ Between the two, at the top of iteration N+1, `_update_states` mutates the same 
 counts between rows (`:659-664`). Both run at `gpu_model_runner.py:1437-1443`, i.e. **before**
 `_prepare_inputs` gathers at `:2019-2032`.
 
-So a previous row index can now belong to a different request, or hold `1`. The reporter's worked
+A **third** writer sits on the far side of the gather, and only on a hybrid `align` launch: in
+`execute_model`, `mamba_utils.preprocess_mamba` resets the row to `1` for every request whose
+recurrent state was copied to a new block, and the runner re-syncs that row to the GPU so the mamba
+kernel reads `init_token_idx = 0` from the right slot (`gpu_model_runner.py:4171-4184`; Ascend's
+copy of the same block at `model_runner_v1.py:2109-2134`, whose comment states the reset). So one
+row is written by three different concerns inside a single iteration — the gather's write-back, the
+postprocess D2H and this reset — and what iteration N+1 reads can come from any of them: the row is
+scratch space, never a history of the previous iteration.
+
+Either way, a previous row index can now belong to a different request, or hold `1`. The reporter's
+worked
 example, with the values they confirmed:
 
 ```text
@@ -114,6 +124,22 @@ current-row values back into `InputBatch.num_accepted_tokens_cpu[:num_reqs]`. Th
 already exist in all three read sites — the missing piece is the gather's **source**, so a patch
 that only reorganizes the write-back changes nothing.
 
+**That buffer is a new one, and the name collides with an existing one.** The reporter's wording
+("use the model runner's independent CPU/GPU accepted-token buffer as the previous-iteration
+snapshot") reads as `self.num_accepted_tokens`, and reusing it is a no-op patch: that buffer
+(`gpu_model_runner.py:762`) is this iteration's *destination* — the same block refills it from the
+mutable row before `copy_to_gpu()` (`gpu_model_runner.py:2027-2039`; Ascend
+`model_runner_v1.py:1089-1104`) — and the step consumes it downstream as the current value
+(`model_runner_v1.py:1128` into `update_num_computed_tokens_for_batch_change`, `:3159` into
+`GDNAttentionMetadataBuilder`). Write the snapshot where the counts are *produced*
+(`_update_states_after_model_execute`, `gpu_model_runner.py:1495-1540`, **not** overridden
+downstream — the Ascend runner says so itself at `model_runner_v1.py:2103-2107`). In `align` mode
+that helper hands the mutable row tensor straight to the fused postprocess
+(`:1524-1528`), so the snapshot there is either a second output argument to
+`postprocess_mamba_align_gpu` or its own non-blocking D2H of `self.num_accepted_tokens.gpu` taken
+right after the postprocess (at that moment it still holds iteration-N's counts, before the next
+iteration's refill) with its own event — the same event pattern as `:1534`/`:1540`.
+
 A regression test must be value-level and must build the reuse: `previous_counts[11] = 4` with a
 current batch whose `prev_positions` is `[11, -1, 4]`, after the row-11 index has been re-taken by a
 new request, asserting `[4, 1, 3]`. The pin's existing coverage does not do this: the only
@@ -160,3 +186,10 @@ settles with two greps and one arithmetic was re-derived there. Rule 1 and
 `../evidence-workspace/delivery-discipline.md` apply unchanged: the verdict ("your read is
 confirmed at `f4a08bdd`/`0fc695fc`, at three sites, fix the gather's source, here is the test
 shape") was shippable the moment the two writer sites were in hand.
+
+The replay that followed this page is the shape to copy: **nine assistant turns, a 5.5 K-character
+answer, `completed`** — locate call, page read, three pin greps, verdict first with two corrections,
+then the change plan. Those corrections are what the two greps do *not* show and are what this page
+gained: the `self.num_accepted_tokens` name collision (the reporter's wording is a no-op patch unless
+a new buffer is created) and the align-mode snapshot variant. The extra deliberation was all on the
+align-mode fix shape and stayed a one-grep branch for the reporter, which is where this page files it.

@@ -150,6 +150,23 @@ structured-output lane (`../serving-frontend-faults/tool-choice-required-500.md`
 and only a `RuntimeError: Invalid request status: …` from a tree that has the fork
 is this page. Check `ls vllm_ascend/core/` before quoting either.
 
+**The removal is earlier than that, and it retires a whole family of older rows.** At
+vllm-ascend v0.14.0rc1 (`52d4acf`, the #6525 pin) `vllm_ascend/core/` already holds
+only `recompute_scheduler.py` and `scheduler_dynamic_batch.py`,
+`rg -n 'AscendScheduler' vllm_ascend/` has no code hit (only the stale zh_CN
+`.po` doc translation and history sections of `release_notes.md`), and
+`ascend_scheduler_config` is documented nowhere in
+`docs/source/user_guide/configuration/additional_config.md`. So on a 0.13/0.14-era
+report none of these can be quoted: this page's `WAITING_FOR_FSM` raise, the
+`blocks[0]` crash of `scheduler-fork-block-index.md`, and the pre-0.12 known issue
+"do not enable chunked prefill with prefix cache when running with Ascend scheduler"
+(`../accuracy-benchmarks/constant-token-degeneracy.md` §*Step 4a*, whose anchors are
+all `00ba0710`). Say the fork is gone at their pin and rank the scheduler levers the
+pin *does* carry: `recompute_scheduler_enable` (default `False`,
+`ascend_config.py:86`, swapping in `core/recompute_scheduler.py` at
+`platform.py:369-373`) and `SLO_limits_for_dynamic_batch` (default `-1`; the only
+path that forces `enable_chunked_prefill = True`, `platform.py:376-381`).
+
 ## Is the fork even in play? Yes by default at both recorded pins
 
 The natural first guess — "the reporter must have enabled the Ascend scheduler" — is

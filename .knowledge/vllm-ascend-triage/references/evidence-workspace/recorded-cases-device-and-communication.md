@@ -369,8 +369,13 @@ right but it did not predict the project's own fallback. Caution from that sessi
 `rg -rn '<pattern>'` is `--replace n`, so it silently rewrote its own matches and cost
 a turn — use `-n` alone. Reporter-confirmed afterwards (2026-04-02): **PR #7364**
 switches this case to ALL GATHER — service up, load test normal, expected comm cost —
-with per-card experts > 24 as the CANN memory-safety cap. Now
-`../feature-enable-recipes/moe-expert-parallel-with-dp.md` § Step 2b instead of a
+with per-card experts > 24 as the CANN memory-safety cap. The thread's earlier rung
+was inert: a maintainer offered #7235 plus 「update to the latest main branch」, and the
+reporter's reply — 「cpp代码不方便验证，但似乎和问题无关」 — was right, because the 24 is a
+CANN tiling constant; what worked was the selector's fallback row. The paste also
+carries a re-printed op-store block (`[InitOpInfoLib]` / `TransposeKvCacheByBlock`,
+inner stamp `01:50:48` against the `01:52:21` ERROR lines) that is not this refusal.
+Now `../feature-enable-recipes/moe-expert-parallel-with-dp.md` § Step 2b instead of a
 plog/HCCL hunt.
 
 **#15985** vllm-ascend `v0.26.0rc1` (`f2f74a16`) + vllm `v0.26.0` (`568afb3a`), filed

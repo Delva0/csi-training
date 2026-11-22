@@ -11,6 +11,13 @@ rules. In both shapes the decisive cheap action is the same and comes **before**
 #13381 (GLM-5.2 560T W4A8C8, DSA/MLA + MTP, "1 + 1 = 2." ×2048 on the decode node)
 and #9578 (Qwen3.5-35B-A3B 8P8D, stream-sync fault only at raised scale, no log).
 
+**The diff decides whether the rest of this page applies, so run it first.** When the
+reporter pastes both serve blocks and they come out identical to the tutorial's —
+recorded #12792 — the four invariants below, the do-not-rank list and the ladder are all
+already closed for that report, and shipping them anyway puts six "your recipe may
+deviate" rows in front of the one owner that survives (§*Hybrid families*). Say in the
+first paragraph that the recipe matches, and rank from there.
+
 A model family named in the report is not a connector verdict. GLM-5/5.2 are **DSA
 sparse-attention MoE** models and DeepSeek-V3.x is MLA — neither is a GDN/Mamba
 hybrid; the hybrid connector is the DeepSeek-V4/Qwen3.5-family recipe
@@ -125,12 +132,38 @@ hybrid recipe is doc-only. Quote it as coverage, never as the cause.
 
 Recorded #12792 (A2 8-machine DSv4-Pro 1P1D, "请求回答乱码", body carrying no log and no
 serve command): the reporter later pasted both serve blocks and they match the table
-above flag for flag — including the P/D asymmetry, the 4/8 ↔ 8/4 extra-config and
-`VLLM_ASCEND_ENABLE_FLASHCOMM1=1` on the prefill side — so the **recipe lane closed on
-the reporter's own evidence**. The next artefacts are the decode node's log
-(`num_blocks: <N>` and `Initializing Mooncake Scheduler <engine_id>`,
-`mooncake_hybrid_connector.py:1610`, `:1187`) plus one raw request/response pair, not
-another flag diff.
+above flag for flag — the P/D asymmetry, the 4/8 ↔ 8/4 extra-config, both
+`--no-enable-prefix-caching` lines, MTP on both sides and
+`VLLM_ASCEND_ENABLE_FLASHCOMM1=1` on the prefill side; only the three `sysctl` lines were
+dropped — so the **recipe lane closed on the reporter's own evidence**. What that paste
+leaves, in order:
+
+1. **The pin's own release-known-issue row for PD transfer precision.** `v0.23.0rc1`
+   (`f4a08bd`) `docs/source/user_guide/release_notes.md:87`, under `### Known Issues`:
+   "KV-cache transfer can produce precision issues and TP-shard inconsistencies when
+   reformatting occurs before all pull tasks for a request have completed. [#12359]" —
+   and the link is a **pull**, i.e. the fix, listed under the rc's own headings, so the
+   version verdict is "this rc can still hit it, a tag after the fix should not". On this
+   row the action is an image/tag move plus the PD-vs-decode-only ablation, not a flag
+   change. Two neighbours in the same read bound it: `:83` (#12338, DSv4-Flash W8A8 MTP
+   PD, another card's worker appearing in the second aisbench round) and `:85` (#12345,
+   DSv4-Pro memory growth on **A3/A5** — wrong SoC, so not this report's row); `:84`
+   (#12339, Qwen3.5-397B hybrid alternation) is the hybrid-PD precedent, on Ascend 950.
+2. **A graph path this rc is the first to carry** — `:16` "Added DeepSeek V4 MTP graph
+   support. [#11062]" — while the A2 decode block is the only side that runs captured
+   (`FULL_DECODE_ONLY` + `--async-scheduling` + `enable_npugraph_ex`). An rc-only
+   corruption with a conformant recipe is a version verdict (SKILL.md rule 16) and its
+   rung is the decode node alone, same weights, `--enforce-eager`, no
+   `--kv-transfer-config`.
+3. The two artefacts that separate 1 from 2: the decode node's log (`num_blocks: <N>` and
+   `Initializing Mooncake Scheduler <engine_id>`, `mooncake_hybrid_connector.py:1610`,
+   `:1187`), and one raw request/response pair from the proxy — `return_token_ids: true`
+   on a `stream: false` call separates detokenisation from generation before any of the
+   above is argued.
+
+Do not re-open the flag table for such a report, and do not feed the *served* recipe's
+own lines back as findings: a body that says "根据官方指导" and then pastes the guide is
+evidence about the guide, not about the deployment.
 
 ## The variant with no log at all: fault only at raised scale (#9578)
 

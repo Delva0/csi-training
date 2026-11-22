@@ -55,6 +55,25 @@ number being missed: the tutorial has no throughput table. So the flag diff is
 experiment whose outcome at this pin is readable from a log line — not a promise
 and not a dead end.
 
+## The graph lane on this family has a recorded startup failure at this line
+
+#3865 ("Qwen3-Next-80B-A3B-Instruct vllm-ascend0.11.0cr1图模式加载失败") is the only
+recorded graph-mode *outcome* for this family on the 0.11 line: vllm-ascend
+`0.11.0rc1.dev167+gcd58a643c`, TP=8, `--gpu-memory-utilization 0.5`,
+`--additional-config '{"torchair_graph_config": {"enabled": true},
+"ascend_scheduler_config": {"enabled": true}}'`. It dies in
+`determine_available_memory` → `profile_run` → `_dummy_run` at
+`vllm_ascend/models/qwen3_next.py:197` `assert isinstance(attn_metadata, dict)`
+(`AssertionError`, then `EngineCore failed to start`), with `cudagraph dispatching keys
+are not initialized. No cudagraph will be used.` earlier in the same log. That is
+**torchair**, not ACL graph, so it does not predict what `FULL_DECODE_ONLY` does — but
+no recorded run of *any* graph mode on this family at this line has loaded, so rung 1
+is a probe to send **together with** rung 2, not a promise to send alone. Both lines
+sit at the same numbers in the v0.11.0rc2 tree
+(`vllm_ascend/models/qwen3_next.py:193` `if attn_metadata is None: return` for the
+profile path, `:197` the assert), so when the reporter's graph attempt dies at startup,
+look for this assert before reading the failure as a kernel or HBM fault.
+
 ## Ranked answer for this shape
 
 1. **The one-flag in-version experiment: drop `--enforce-eager`, add
@@ -62,6 +81,8 @@ and not a dead end.
    else.** At v0.11.0rc2 that mode is accepted (`platform.py:224-227`) and
    `_use_aclgraph()` is true for it (`model_runner_v1.py:591-592`), so this is the
    only in-version launch that touches the dominant term, and it costs one restart.
+   With #3865 in hand, say the startup-failure branch is a recorded one for this
+   family and keep the rung-2 ask in the same message rather than after the crash.
    Its three outcomes are each one log line, so say which line decides what:
    - `FULL_DECODE_ONLY compilation enabled on NPU …` **and** a faster
      `Avg generation throughput` on the same body ⇒ that is the finding; report the
@@ -114,9 +135,13 @@ tried and failed": the comment names no invocation and no version. So do not wri
 "removing `--enforce-eager` does not help" as a finding, and do not write "fixed by
 X" either; the rung-1 experiment above is still the open, cheap check, and the
 owning facts are the two rows this page pins (the downgrade, and the mode's
-skipped e2e).
+skipped e2e). What the 并没有 does support is the ordering in §*Ranked answer*: send the
+probe and the version move in one message, since the only recorded graph outcome for
+this family at this line is a startup failure (above, #3865).
 
-One attribution trap, recorded: a session answering this shape wrote to the reporter
+The class-level form of this trap is `SKILL.md` rule 6 (*a page's provenance id is not a
+precedent when it is the report you are answering*). One attribution trap, recorded
+— a session answering this shape wrote to the reporter
 with "同形态的已记录报告 #4357 里，报告者两天后回答并没有" — i.e. it cited the
 thread it was replying to as a *different* recorded case and dated its own reporter
 two days into the future. When the report in front of you **is** #4357 (or a

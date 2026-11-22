@@ -142,6 +142,22 @@ not a causal chain.
    bge-m3 `mis-tei` command runs on `--device /dev/davinci4` **while the vllm container
    holds `davinci0-7` with TP8**, so a chip shared by two containers is not by itself a
    DCMI blocker at this stack; the reporter attributes the cure to the image tag (ladder rung 3).
+   **Before ranking a co-tenant, read what the failing container was *created*
+   with.** A `docker run` assembled from the vllm-ascend install block copies the
+   `--device` lines and never the Ascend Docker Runtime's own input: when
+   `ASCEND_VISIBLE_DEVICES` is absent from the creation env the prestart hook mounts
+   nothing and writes no device-cgroup entry (`checkVisibleDevice` returns empty,
+   `Ascend/mind-cluster` `component/ascend-docker-runtime/runtime/process/process.go:545-548`),
+   so the container's device set is only what `--device`/`--privileged` gave it. One
+   call separates the two readings: `docker inspect -f '{{.Config.Env}}' <container>`
+   (creation env) against the failing shell's own `export`. Reporter-confirmed on
+   **#6942**: `export ASCEND_RT_VISIBLE_DEVICES=6,7` alone and `export
+   ASCEND_VISIBLE_DEVICES=6,7` alone both failed, `docker run -e
+   ASCEND_VISIBLE_DEVICES=6,7` plus the in-container RT export fixed it — the paste
+   itself (`Waiting for 1 local, 0 remote core engine proc(s) to start.`, so the
+   child is alive and stuck) is equally consistent with HBM co-tenancy, which is why
+   the env half is checked first: it is free and it was the actual cure
+   (`../deploy-sizing/card-budget-and-device-visibility.md`).
 3. **Host vs container user-space driver — for a vendor serving image this is rung 1,
    and the lever is the image tag.** The image mounts the host's `dcmi`, `npu-smi`,
    `driver/lib64/` and `version.info`, so read

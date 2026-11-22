@@ -20,6 +20,11 @@ RL loop over a Qwen2.5-VL/Qwen2-VL checkpoint (`vl-weight-pad-not-idempotent.md`
 weight sync that fails **inside a collective** is
 `../hccl-and-hardware/weight-sync-hccl-cascade.md` instead.
 
+A fourth shape is a **bug report that already carries hunks** — the reporter wrote the fix
+himself and asks for review or offers to test it ("If you have any drafted patch, I am happy to
+test with it", #10098). Deliverable: the verdict on *their* hunk (does it change behaviour at
+the pin?), the corrected hunk as text, and only then the ranking. Rule 13 governs the review.
+
 A third shape has no traceback either and no flag to retire: a contributor who has
 **already written the patch** and asks whether to open the PR, where the change moves an
 initialization call so that a fixed device allocation becomes visible to the KV budget
@@ -160,3 +165,26 @@ page (`../tutorial-verification/index.md`).
    SoC guard, `set_random_seed` ordering, the SoC override that inherits nothing, and
    the unit tests that assert the old call site. Mechanics, acceptance identity and the
    lane to keep out of the PR: `../runtime-memory/device-allocations-outside-profiling-window.md`.
+13. **A hunk that copies a sibling's pattern is reviewed against the *reader* of the field it
+   writes, not against the sibling.** Bookkeeping flags live beside unread twins: recorded
+   #10098's `set_finished_request(req_id)` is already called in
+   `KVCacheStoreLayerSendingThread` (`kv_transfer.py:494-497`, `:517`) and is called **nowhere**
+   that matters on the send path, because the worker derives `finished_sending` from the
+   `stored_requests` **counter** (`pool_worker.py:755-788`) and only the recv thread ever reads
+   `finished_requests` — while the Mooncake p2p connector's worker does read its send thread's
+   set (`kv_p2p/mooncake_connector.py:1345`), so the same hunk is correct in one connector and
+   inert in the other. So the hunk the reporter proposed was inert at the pin while the real
+   holes were two callers that never *registered* (layerwise `save_kv_layer`, preemption), and
+   the correct repair was to read the counter's `is None` branch as done. One grep settles it
+   before any patch is endorsed: `rg -n -A30 'def <the accessor you are about to feed>'` — then
+   ask which production path calls the writer you are adding, and whether that path's gate
+   (`can_save`, a `skip_save`, an `is_last_chunk`) is the same one the scheduler's decision
+   uses. When they differ, the patch is a *pair*: register where the work is enqueued **and**
+   teach the reader what absence means. Anchors, the two holes and the acceptance test:
+   `../kv-pool-store/ascendstore-held-blocks-never-finished.md`.
+   **Ship the diff, not the verdict about the diff.** In a report that already carries hunks,
+   the reporter's next action is to apply something, so message 1 carries the corrected hunk
+   (or, if their hunk is correct, "apply as written") beside the verdict — the recorded #10098
+   run spent its whole output budget on fourteen turns of silent source verification,
+   began the answer with a correct verdict paragraph and was cut at 392 characters, and the
+   reporter's reply was "If you have any drafted patch, I am happy to test with it".

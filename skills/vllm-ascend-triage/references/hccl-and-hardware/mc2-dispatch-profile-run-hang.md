@@ -360,8 +360,11 @@ last, and only with a per-card code or the same `pc start` on several chips
 (`device-health-checks.md`). Refuted rows to keep in the answer: the
 `HCCL_INTRA_*` pair, `HCCL_BUFFSIZE` (too small prints its own
 `HCCL_BUFFSIZE is too SMALL`, see #4051), `aclnnInplaceCopy`, and
-`VLLM_ASCEND_ENABLE_MLAPO` (MLA/SFA only, non-prefill branch, auto-disabled on a
-non-W8A8 checkpoint — `attention/mla_v1.py:845-856`).
+`VLLM_ASCEND_ENABLE_MLAPO` (MLA/SFA only, auto-disabled on a non-W8A8 checkpoint —
+`attention/mla_v1.py:845-856`; it is phase-guarded in the **dense-MLA** branch
+(`not has_prefill`, `:1497-1499`) but not in the **SFA/DSA** copy at v0.13.0rc2, where a
+≤ 1024-token prefill chunk takes it — `../dsa-sparse-attention/concurrency-crash-with-no-log.md` —
+so "non-prefill" is a per-path claim, not a property of the flag).
 
 Ladder, one axis per launch: (0) make the two nodes' commands identical (the
 symmetry check above) — cheapest, and when asymmetric it also restores the

@@ -868,3 +868,28 @@ import at best — the fused gating path stays unavailable on 310P, consistent w
 no message text until its 12th assistant turn (758 K prompt tokens over 13 turns): the library had no row
 for this signature, so the mechanism was re-derived from `CMakeLists.txt` and `torch_binding.cpp`.
 Route: `../image-dependency-faults/custom-op-extension-missing-from-image.md` Step 0 / Lane B.
+
+**#6942** image `quay.io/ascend/vllm-ascend:v0.14.0rc1-openeuler` (pin v0.14.0rc1
+`52d4acfa51fb`), two 910B cards on a node that also runs a `retrieval-pandora`
+container (`--privileged=true`, `--device /dev/davinci7`), `docker run --privileged
+--device /dev/davinci6 --device /dev/davinci7 …` then `vllm serve
+/data/model/Qwen3-30B-A3B --tensor-parallel-size 2 --enable-expert-parallel`: the
+whole evidence is two screenshot OCRs and the serve log stops after three
+`[v1/engine/utils.py:970] Waiting for 1 local, 0 remote core engine proc(s) to
+start.` lines, which at vllm v0.13.0 (`utils.py:1000-1025`) is printed only after
+the child's HELLO — so the EngineCore process is alive inside its own init, not
+missing, and no weight byte is loaded. The reporter's own control was "with no other
+container running the service starts". The recorded run read `../startup-failures/no-npu-in-container.md`,
+the card-budget page and `../runtime-memory/kv-budget-per-instance-vs-device-global.md`,
+then ranked **HBM co-tenancy on `davinci7`** first (precedents #5917/#7308/#8621) with
+a device-open refusal second, and was cut at the 16 384-token cap while writing the
+ladder (16 384 output tokens, ~660 K prompt). The reporter's later public follow-up
+(2026-03-09) supplies the recovery the run never asked about: `export
+ASCEND_RT_VISIBLE_DEVICES=6,7` alone and `export ASCEND_VISIBLE_DEVICES=6,7` alone
+both failed; `docker run -e ASCEND_VISIBLE_DEVICES=6,7` **plus** the in-container RT
+export fixed it. That is two variables at two moments — the creation-time one is read
+by the Ascend Docker Runtime prestart hook (mount + host device cgroup + CANN runtime
+libs), the in-process one by torch_npu — so "I already set the visible devices" was
+never a finding, and `docker inspect -f '{{.Config.Env}}'` versus the shell's `export`
+was the missing one-line discriminator. Route: `../deploy-sizing/card-budget-and-device-visibility.md`
+(§*Two visibility variables at two moments*).

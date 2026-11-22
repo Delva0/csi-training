@@ -121,6 +121,27 @@ and the recorded session never offered the upgrade
 this as licence to demote a real mechanism: quote what the pinned tree *does* carry
 and say that "is it fixed" cannot be answered from the snapshot.
 
+**A tag whose stack the pin does not carry at all promotes that rung to rung 1.** When
+the image is model- or feature-specific (`quay.io/ascend/vllm-ascend:deepseekv4` beside
+"框架版本：0.18.0") and the pinned tree lacks the whole feature the launch uses, the source
+lane is closed by construction, not merely out of date: at v0.19.1rc1 `da421afa`,
+`rg -l 'MooncakeHybridConnector'`, `rg -l 'deepseek_v4|DeepSeekV4'` and
+`rg -n 'USE_MULTI_GROUPS_KV_CACHE'` over vllm-ascend all return nothing and
+`docs/source/tutorials/models/` stops at DeepSeek-V3.2 — while the reporter's P and D
+commands set all three. Do both things: state the absence as the missing-artefact finding
+(rule 5) **and** put "re-run the same body on the current release image" in rung 1, with
+the mechanism ranked below it and labelled directional when it is borrowed from a later
+pin's page. Reporter-confirmed #9430 (DeepSeek-V4-Pro w4a8, 4-node 2P2D, v0.18.0
+`deepseekv4` image, `MooncakeHybridConnector` + `deepseek_mtp` 1 + hybrid KV, output
+fluent with an inserted meaningless word): the reporter's later comment on the issue —
+*"v0.20的版本问题解决了"* — closes it as a version boundary, while the recorded session
+shipped six ablated rungs (eager, EP off, MTP off, `recompute_scheduler_enable` off, TP
+parity, weight md5) and never offered the image change
+(`recorded-cases-accuracy-and-output.md` #9430). The trigger is narrow: the code the
+reporter runs is **not in the tree you hold**, so nothing below the rung can be verified
+locally — an off-pin report whose feature *is* in the pin keeps the older rule (age, and
+the direction of the reporter's own control).
+
 **And when the paste or a later comment already shows the reporter rebuilt from
 source and it still failed, the tag rung is spent** — recorded #5484 (reporter tried
 `vllm-ascend==0.11.0`, then `0.11.0-dev` `pip install -e`, same GE `E89999`

@@ -80,8 +80,11 @@ site `vllm/v1/core/sched/scheduler.py:1661` → `check_stop`:
 | `max_model_len` / `max_tokens` reached (`:112-116`) | `FINISHED_LENGTH_CAPPED` | `None` |
 
 `vllm/outputs.py:34-36` states the same ("None if the completion finished for
-some other reason including encountering the EOS token"). So an **integer**
-`stop_reason` proves the stopping token was declared in the request's stop set. On
+some other reason including encountering the EOS token"). The three-way split is
+unchanged at vllm **v0.17.0** (`b31e932`, `vllm/v1/core/sched/utils.py:94-117`),
+the pin a streamed-tool-call report most often carries — grep the `check_stop` body,
+not the line number. So an **integer** `stop_reason` proves the stopping token was
+declared in the request's stop set. On
 a request that sets none, where do extra ids come from? The checkpoint:
 `SamplingParams.update_from_generation_config` (`vllm/sampling_params.py:556-587`)
 reads `generation_config["eos_token_id"]` (an int **or a list**), discards the

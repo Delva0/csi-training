@@ -50,13 +50,25 @@ Inherit the rules in SKILL.md, plus these:
    (recorded #5559 spent 47 K characters of reasoning — 2.2 K of message text — much
    of it on a half-remembered GLM-4.6 geometry, reached "capacity is fine, so this is
    not plain capacity", and was cut for output tokens before answering).
-2. **The device-visibility env var is the second half of every such report.**
-   On Ascend the control variable is `ASCEND_RT_VISIBLE_DEVICES`
-   (`vllm_ascend/platform.py:101` at v0.19.1rc1; every multi-node launch script
-   in the same docs tree does `export ASCEND_RT_VISIBLE_DEVICES=$1`, e.g.
-   `GLM5.md`, `DeepSeek-V3.1.md`, and `CUDA_VISIBLE_DEVICES` occurs nowhere in
-   `docs/source/`). A command copied from a GPU page therefore exposes **all**
-   cards to **every** process, which looks exactly like a stage-collision bug.
+2. **The device-visibility env var is the second half of every such report — and
+   it is two variables at two moments, not one.** `ASCEND_RT_VISIBLE_DEVICES`
+   (`vllm_ascend/platform.py:101` at v0.19.1rc1; every multi-node launch script in
+   the same docs tree does `export ASCEND_RT_VISIBLE_DEVICES=$1`, e.g. `GLM5.md`,
+   `DeepSeek-V3.1.md`, and `CUDA_VISIBLE_DEVICES` occurs nowhere in
+   `docs/source/`) is read by torch_npu **inside every process**. The other
+   spelling, `ASCEND_VISIBLE_DEVICES`, is read by the **Ascend Docker Runtime
+   prestart hook** out of the container's *creation* environment: that hook is what
+   mounts the named `/dev/davinciN` and writes the host device-cgroup entry, so a
+   shell `export` of it reaches nothing and it has to be `docker run -e …` (or the
+   pod env the Ascend device plugin writes). Reporter-confirmed on **#6942**:
+   either variable alone failed, both together (`-e ASCEND_VISIBLE_DEVICES=6,7` at
+   creation plus `export ASCEND_RT_VISIBLE_DEVICES=6,7` inside) worked — and the
+   vllm-ascend `docs/source/installation.md` block carries no `-e` line at all, so a
+   hand-built `docker run` omits the hook's input by construction. A command copied
+   from a GPU page therefore exposes **all** cards to **every** process, which looks
+   exactly like a stage-collision bug; ask *which* variable was set and *where*
+   (`docker inspect -f '{{.Config.Env}}'` vs the shell's own export) before ranking a
+   co-tenant on the same die — `card-budget-and-device-visibility.md`.
    When the observation is at *runtime* rather than at start ("a worker process
    from another card appeared on this NPU, after the second benchmark round"),
    attribute the PID before the layout: `npu-smi info` lists a PID against a die

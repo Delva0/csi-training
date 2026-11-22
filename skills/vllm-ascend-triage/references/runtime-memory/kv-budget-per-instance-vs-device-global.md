@@ -113,13 +113,16 @@ things before proposing a config change:
   `cat /proc/<pid>/cgroup` + `tr '\0' ' ' < /proc/<pid>/cmdline` for the owner
   (the ladder is `../deploy-sizing/node-processes-and-device-attribution.md`).
 - **The variable the plugin injects is not the one torch_npu reads.** #9428's env dump
-  carried `ASCEND_VISIBLE_DEVICES=4,3` — no alias, and descending, which
-  `_device_count_ascend_hal()` would turn into *zero* devices. The isolation that
-  actually worked is the mounted `/dev/davinci3`, `/dev/davinci4`
-  (`../deploy-sizing/card-budget-and-device-visibility.md` has the three traps), so
-  "the pod sees only NPUs 3 and 4" proves the mount, not the variable — and the torch
-  ids are then `0,1` while `npu-smi` keeps the host labels. Do not open the answer with
-  "the variable took effect".
+  carried `ASCEND_VISIBLE_DEVICES=4,3`; torch_npu reads only
+  `ASCEND_RT_VISIBLE_DEVICES` (`torch_npu/npu/__init__.py:341-366`), so that name never
+  reaches the process — its reader is the Ascend Docker Runtime **prestart hook** at
+  container creation, which mounts the named `/dev/davinciN` and appends their cgroup
+  allow entries (`../deploy-sizing/card-budget-and-device-visibility.md`, two variables
+  at two moments). The isolation that actually worked is therefore the **mount**, not a
+  Python-side variable, so "the pod sees only NPUs 3 and 4" proves the mapping — and the
+  torch ids are then `0,1` while `npu-smi` keeps the host labels. Do not open the answer
+  with "the variable took effect", and do not read the plugin's descending list as a
+  zero-device torch list: the hook's own parser splits and sorts it.
 - **A per-container memory quota is invisible to `aclrtGetMemInfo`.** If the plugin
   shares the die by quota, the whole-card `free ≥ total × gmu` pre-check cannot be
   satisfied by any quota below `gmu`; lowering `gmu` (0.90 → 0.75 here) is the

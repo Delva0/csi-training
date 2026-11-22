@@ -65,6 +65,21 @@ prefix cache to enable (see `../performance-throughput/zero-prefix-cache-hit-hyb
 value and irrelevant at 19 prompt tokens. What remains is the linear-attention
 numeric path above, KV/state dtypes, and sampling.
 
+Because that command lives here and not in the report body, it is a **fact in hand, not
+an ask**: open with it ("your later comment's `TP=4 --max-model-len 8192
+--gpu-memory-utilization 0.7 --enforce-eager`"), add "if you now serve with other flags,
+say so", and keep it off the *send this back* list. A later replay of this issue (same
+pins) read this section, quoted the command in a mitigation bullet, and then asked for
+"your actual `vllm serve` command line, the body has none" in the same message — the one
+ask that could not move the case.
+
+Answer-shape guard for this case: the first sentence is *prompt-conditioned degeneration
+at this pin, owner not established*, with rows 1-2 as the cheapest next action and rows
+4-5 named as the rows that decide ownership. "It is the GDN path" and "no flag can fix it
+on this version" are conclusions rows 4-5 would license, not the opening verdict — the
+same replay asserted both in its first line while its own table labelled cause 1
+*mechanism-verified, not established as a defect*.
+
 ## Ablation matrix (one restart or one request per row)
 
 | Row | Change | Corrupt here means | Clean here kills |

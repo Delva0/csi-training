@@ -90,15 +90,18 @@ by itself *which* of the two cases a report hit; the checks below do.
    and an A2 code (220–225) means the device lane is fixed.
 3. **Fix by making env and mapping agree**: `--device /dev/davinci7` with
    `ASCEND_RT_VISIBLE_DEVICES=7`, or `ASCEND_RT_VISIBLE_DEVICES=0` with the
-   `davinci0` mapping. The list must be **ascending** and indexes the driver's
-   devices (`ls /dev/davinci*`), not `npu-smi`'s NPU labels;
-   `ASCEND_VISIBLE_DEVICES` is parsed by nothing, and a descending list yields
-   `device_count() == 0` (`torch_npu/npu/__init__.py:341` and
-   `_device_count_ascend_hal()` at `:375` in the 2.7 pin / `:386` in the 2.8
+   `davinci0` mapping. The list must be **ascending** and indexes the device list
+   the *container* exposes (`ls /dev/davinci*`), not `npu-smi`'s NPU labels; a
+   descending list yields `device_count() == 0` (`torch_npu/npu/__init__.py:341`
+   and `_device_count_ascend_hal()` at `:375` in the 2.7 pin / `:386` in the 2.8
    pin) — the four source lines and the #8068 worked case are in
-   `../deploy-sizing/card-budget-and-device-visibility.md`. A card that exists
-   but is busy shows in `npu-smi info`'s process table (`docker ps` for a stale
-   container on the same card).
+   `../deploy-sizing/card-budget-and-device-visibility.md`. The other spelling,
+   `ASCEND_VISIBLE_DEVICES`, is parsed by **no in-process code** (only the Ascend
+   Docker Runtime prestart hook reads it, out of the container's creation env), so
+   a shell `export` of it is inert while `docker run -e …` is not — the two-half
+   recipe and its reporter-confirmed case are on that same page. A card that
+   exists but is busy shows in `npu-smi info`'s process table (`docker ps` for a
+   stale container on the same card).
 4. **Only if `npu-smi info` inside the container is broken or empty** go to the
    driver × image-CANN pairing (`cat /usr/local/Ascend/driver/version.info`, image
    tag); `acl-init-500001-and-soc-version.md` has the four-file list. An `aclInit`

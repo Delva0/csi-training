@@ -49,37 +49,101 @@ Still unverified, because vllm-omni is in no snapshot: the merge order of
 physical ids, and whether two stages may share one id. Say so, and ask for the
 edited yaml plus each stage's own log line whenever an attempt disagrees.
 
-## The visibility variable, and the three traps in it
+## Two visibility variables at two moments — pin both, not one
 
-The control variable on Ascend is `ASCEND_RT_VISIBLE_DEVICES`
-(`vllm_ascend/platform.py:101` at v0.19.1rc1; every multi-node launch script in
-the same docs tree exports it — `GLM5.md`, `DeepSeek-V3.1.md` — while
-`CUDA_VISIBLE_DEVICES` occurs nowhere in `docs/source/`). A command copied from a
-GPU page therefore exposes **all** cards to **every** process, which looks exactly
-like a stage-collision bug.
+The card set reaches a process through **two** variables consumed at **two**
+different stages, and a report that set one has pinned neither:
 
-- **It has no alias.** #8068's env dump exported `ASCEND_VISIBLE_DEVICES=2,1`;
-  that spelling appears nowhere in the `Ascend/pytorch` Python tree nor in
-  `cann/runtime`, and `_parse_visible_devices()` reads
-  `ASCEND_RT_VISIBLE_DEVICES` only (`torch_npu/npu/__init__.py:341`, the same
-  line at both `v7.1.RC1.alpha002-pytorch2.7.1` and
-  `v7.2.0.1-pytorch2.8.0`). A reporter who "set the visible devices" under that
-  name has set nothing.
+| Variable | Read by | When it takes effect |
+|---|---|---|
+| `ASCEND_VISIBLE_DEVICES` | the **Ascend Docker Runtime prestart hook**, out of the OCI spec's own `Process.Env` — `component/ascend-docker-runtime/runtime/process/process.go:545` (`checkVisibleDevice` → `getValueByDeviceKey(spec.Process.Env)`), devices + cgroup entries added at `:426-443`, orchestrated by `processDevicesAndHooks` at `:672-688` | container **creation**, before PID 1 exists |
+| `ASCEND_RT_VISIBLE_DEVICES` | `torch_npu._parse_visible_devices()` (`torch_npu/npu/__init__.py:341-366`, `getenv("ASCEND_RT_VISIBLE_DEVICES")` only) | every vLLM process, at torch_npu import |
+
+The creation-time one does three things in that hook and nothing afterwards
+(`Ascend/mind-cluster` `v7.2.RC1.SPC2` `c5694eb`, `component/ascend-docker-runtime/README.md:21-23`):
+mounts the named `/dev/davinciN` into the container namespace, appends the
+`devices.allow` cgroup entry for the same majors/minors, and mounts the host CANN
+runtime libraries. Name constant `component/ascend-common/api/default_name.go:133-134`.
+So `export ASCEND_VISIBLE_DEVICES=…` **inside** a running container reaches no
+reader: the hook has already run, `checkVisibleDevice` returns empty when the name
+is absent from the spec env (`:546-548`, then "will not mount any ascend device"),
+and no Python in the pinned trees parses it. The half that has to be at creation is
+`docker run -e ASCEND_VISIBLE_DEVICES=…` (in K8s the Ascend device plugin writes it
+for you — `component/ascend-device-plugin/pkg/common/common.go:97`,
+`component/ascend-operator/pkg/controllers/v1/env.go:99-105`); the in-container half
+is `export ASCEND_RT_VISIBLE_DEVICES=…`.
+
+Reporter-confirmed on **#6942** (image `v0.14.0rc1-openeuler`, 2 cards on a node
+already running another container; `docker run --privileged --device /dev/davinci6
+--device /dev/davinci7 …`, then `vllm serve /data/model/Qwen3-30B-A3B
+--tensor-parallel-size 2 --enable-expert-parallel`, OCR paste stopping at
+`Waiting for 1 local, 0 remote core engine proc(s) to start.`). The reporter's own
+account: `export ASCEND_RT_VISIBLE_DEVICES=6,7` **alone** did not clear it,
+`export ASCEND_VISIBLE_DEVICES=6,7` **alone** did not clear it, and
+`docker run -e ASCEND_VISIBLE_DEVICES=6,7` at creation **plus** `export
+ASCEND_RT_VISIBLE_DEVICES=6,7` inside did. Neither half alone tests the other, so
+"I already set the visible devices" is not evidence until it says *which* variable
+and *where*: `docker inspect -f '{{.Config.Env}}' <container>` and
+`tr '\0' '\n' < /proc/1/environ` (creation env, inherited by every process) against
+the failing shell's own `export` is one call and separates the two.
+
+Why a hand-built command is the usual source of this: **the vllm-ascend docs never
+carry the creation-time variable.** At v0.14.0rc1 `ASCEND_VISIBLE_DEVICES` occurs
+nowhere under `docs/`, the install block (`docs/source/installation.md:60-73`) lists
+the `--device` lines with no `-e`, and the 13 pages under `docs/` that mention a
+visibility variable mention only the runtime one (`DeepSeek-V3.1.md:298`,
+`Qwen3-Dense.md:158`, …).
+A `docker run` assembled from that block gives the hook no input by construction, so
+the container's device set is only what `--device`/`--privileged` handed it. A
+project outside vllm-ascend that does pass both at creation:
+`LMCache/LMCache-Ascend` `docs/deployment.md:23-24` / `README.md:63-64`
+(`-e ASCEND_VISIBLE_DEVICES=${DEVICE_LIST} -e ASCEND_RT_VISIBLE_DEVICES=${DEVICE_LIST}`).
+
+Left open by these sources, so do not close it for the reporter: *why* #6942's
+missing creation-time half only bit while a neighbouring container ran (the
+reporter's own control), and whether the hook's list also restrains a **privileged**
+container — `--privileged` bypasses `devices.allow`, and this runtime has no
+privileged branch. On that paste the HBM co-tenancy reading
+(`../runtime-memory/kv-budget-per-instance-vs-device-global.md`) is a candidate the
+reporter never confirmed; the cure they reported is the visibility pin, which is also
+the cheaper check.
+
+## The runtime variable's three traps
+
+The control variable every launch script in the vllm-ascend docs exports is
+`ASCEND_RT_VISIBLE_DEVICES` (`vllm_ascend/platform.py:101` at v0.19.1rc1; every
+multi-node launch script in the same docs tree exports it — `GLM5.md`,
+`DeepSeek-V3.1.md` — while `CUDA_VISIBLE_DEVICES` occurs nowhere in
+`docs/source/`). A command copied from a GPU page therefore exposes **all** cards to
+**every** process, which looks exactly like a stage-collision bug.
+
+- **No Python alias.** `_parse_visible_devices()` reads
+  `ASCEND_RT_VISIBLE_DEVICES` only (`torch_npu/npu/__init__.py:341`, the same line
+  at both `v7.1.RC1.alpha002-pytorch2.7.1` and `v7.2.0.1-pytorch2.8.0`), and neither
+  the `Ascend/pytorch` tree nor `vllm_ascend` mentions the other spelling. #8068's
+  env dump exported `ASCEND_VISIBLE_DEVICES=2,1` while its working recovery exported
+  the `RT_` name; the first had no in-process effect (its only reader is the
+  creation-time hook above), which is why "the reporter set the visible devices" is
+  not a finding yet.
 - **The list is ascending, or it is empty.** `_device_count_ascend_hal()`
   returns **0** devices as soon as an entry is not greater than its predecessor
   (`torch_npu/npu/__init__.py:375-398` at the 2.7 pin; `:386-409` at the 2.8 pin,
   comment `` `rts` need ascending order``), so `2,1` is not a narrower view, it is
   no devices at all.
-- **The ids index the driver's device list, not `npu-smi`'s NPU labels.** The same
-  function trims at the first entry `>= drvGetDevNum()` (raw count at `:369-383`,
-  trim at `:392-393` in the 2.7 pin / `:403-404` in the 2.8 pin), so the
-  reference is `ls /dev/davinci*` (0…N-1), not the host labels `npu-smi` prints.
-  #8068 shows both halves: `npu-smi` listed NPUs **1** and **2** while the working
-  export was `0,1`, i.e. the container's `davinci0,1` are those two cards.
+- **The ids index the device list the container exposes, not `npu-smi`'s NPU
+  labels.** The same function trims at the first entry `>= drvGetDevNum()` (raw
+  count at `:369-383`, trim at `:392-393` in the 2.7 pin / `:403-404` in the 2.8
+  pin), so the reference is `ls /dev/davinci*` inside that container. Which names
+  those are depends on the mapping: #8068's container held `davinci0,1` for the
+  cards `npu-smi` calls NPU **1** and **2**, so the working export was `0,1`; on
+  #6942's `--privileged` container, which carries all eight host nodes under their
+  host names, the export that worked was `6,7`. `device_count()` printing `0` or a
+  `107001` is how you find out which case you are in.
 
 One line settles this lane before any vLLM flag is audited:
 `python -c "import torch, torch_npu; print(torch_npu.npu.device_count(), torch_npu.npu.get_soc_version())"`
-— a `107001` there ends the vllm-ascend part of the case
+— a `0` there means the RT list is out of range or not ascending (not that a card is
+missing), and a `107001` ends the vllm-ascend part of the case
 (`../startup-failures/device-id-invalid-at-worker-init.md`).
 
 ## Then the arithmetic: does the layout you just wrote fit?

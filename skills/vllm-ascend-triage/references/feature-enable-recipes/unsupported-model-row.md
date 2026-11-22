@@ -48,7 +48,12 @@ One grep names the op that faulted and its owner: the paste's
 decode branch `vllm_ascend/attention/attention_v1.py:379` (DecodeOnly; the mixed
 path is `:420` `_npu_paged_attention_splitfuse`), and it lives in `torch_npu`/ATB
 (`op-plugin`'s `PagedAttentionAtb`), not in `vllm_ascend/` — so a source walk in
-the plugin repo has nothing to read. `rg -ni '<family>' vllm_ascend/` returning
+the plugin repo has nothing to read. **This step is keyed on the ❌ row, not on the
+op name**: on a ✅ row with an eager V1 engine, the same wording comes from
+`_npu_paged_attention_splitfuse` on a prefix-cache-hit step and the route is
+`../custom-ops-runtime-faults/setup-failed-call-site.md` (§`PagedAttentionOperation`,
+recorded #2700) — read the row's verdict before using the branch above.
+`rg -ni '<family>' vllm_ascend/` returning
 nothing (Gemma: nothing at v0.9.2rc1) is the *coverage* statement: the family runs
 the generic upstream model file with no downstream branch, which is why an
 unvalidated shape reaches an op nobody exercised.

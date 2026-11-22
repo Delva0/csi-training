@@ -25,8 +25,15 @@ that is index visibility and wheel metadata, `pip-index-visibility.md`.
 2. `cmake_build_ext.run()` (`setup.py:466-470`) calls `run_command("build_aclnn")`
    first; that command (`setup.py:235-258`) runs
    `bash csrc/build_aclnn.sh <ROOT_DIR> <soc>`.
-3. `csrc/build_aclnn.sh` branches on SoC (310P returns early; A2 `:12`, A3
-   `:59`, A5 `:137`). Each live branch requires `csrc/third_party/catlass/include`
+3. `csrc/build_aclnn.sh` branches on the `SOC_VERSION` **token**, not on the
+   marketing name: `^ascend310` returns early (`:6-11`), `^ascend910b` = A2
+   (`:12`), `^ascend910_93` = A3/910C (`:59`), `^ascend910_95` = A5 (`:137`),
+   anything else exits 0 (`:172-175`). An **A3** box reports `ascend910_93xx`
+   (`setup.py:100-103` builds the token from chip + NPU name, `:141-169` maps
+   `ascend910_9391/9381/9372/…` → A3), so A3 takes `:59` — a report that says
+   "A3" and cites the `:137` A5 branch has mixed two rows of this list; every
+   live branch runs the same catlass gate, so the misquote rarely changes the
+   fix, but it does mislead the SoC question. Each live branch requires `csrc/third_party/catlass/include`
    and, if absent, runs `git submodule update --init --recursive`
    (`:19/:66/:144`) → `.gitmodules` → `https://gitcode.com/cann/catlass.git`.
    `csrc/third_party` is also in `.gitignore:214`, so a plain source checkout has
@@ -89,5 +96,7 @@ Two knobs that look like offline switches and are not:
 - No run of this chain was performed here; the ordering is source-read, and
   whether a pre-seeded cache is honoured depends on CMake's
   `ExternalProject`/`FetchContent` reuse rules for the file names above.
-- The A5 branch's op list and the exact SoC map (`setup.py:345-352`
-  `910b`/`910c`/`310p`) are version-specific.
+- The A5 branch's op list and the `soc_to_device` map (`setup.py:141-169` at this
+  pin: `910b`→A2, `910c`→A3, `310p`→`_310P`, `ascend910_93xx`→A3) are
+  version-specific, and A5's own chip name is still undetermined in the tree
+  (`setup.py:104-105`), so `SOC_VERSION=ascend910_95` is set by hand there.

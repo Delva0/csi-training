@@ -5,7 +5,17 @@ Worked case: vllm-ascend **#5549** — image
 (`6d8d0a2`) + vllm-ascend **v0.10.0rc1** (`4604882`) — `vllm serve
 /model/Qwen3-Embedding-0.6B --tensor-parallel-size 1 --trust-remote-code --dtype
 float16 --enforce-eager --gpu-memory-utilization 0.08` (the reporter's later
-comment on the same issue carries this command verbatim; **no `--task`**).
+comment on the same issue, 2025-12-31, carries this command verbatim, adding only
+`--port 8011` and `--served-model-name qwen3_embedding`; **no `--task`, no
+`--runner`**). Two flags in it are inert and must not become leads:
+`--trust-remote-code` never instantiates the model directory's own code, because
+`Qwen3ForCausalLM` is a registered architecture that
+`vllm_ascend/models/__init__.py:57` replaces with
+`vllm_ascend.models.qwen3:CustomQwen3ForCausalLM` — recheck with
+`rg -n 'Qwen3ForCausalLM' vllm_ascend/models/__init__.py` at the reported ref — so
+the class named in the error is downstream's replacement, not the checkpoint's own
+remote code; and `--enforce-eager` changes no routing. The one *missing* flag is
+the answer.
 
 ## Signature
 
@@ -149,8 +159,11 @@ vLLM does not know at all).
 ## What this page does not establish
 
 - The reporter's real key list and `config.json` (not pasted in #5549); step 1 of
-  the checks is what turns the inference into evidence. #2556 did not paste it
-  either, and a repacked directory name is a hint about the export, not a defect.
+  the checks is what turns the inference into evidence. The launch line itself is
+  reporter-confirmed by the later comment, so the "no `--task`" half of the
+  diagnosis no longer rests on inference — only the root-level key shape does.
+  #2556 did not paste the key list either, and a repacked directory name is a hint
+  about the export, not a defect.
 - That `--task embed` actually fixed #2556: the reporter's only later reply on
   that issue was a mention of a maintainer, with no log.
 - That a 310P host completes an embedding serve at this pin — no reporter

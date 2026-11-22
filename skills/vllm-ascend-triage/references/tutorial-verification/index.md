@@ -20,6 +20,23 @@ Scope: the task is to *judge a document*, not to explain a crash. Entry shapes:
 - any "verify this recipe" request where the reporter's hardware is not
   available to you and the evidence is the **pinned tree**, not a run.
 
+## Route table — read the row, then the detail below
+
+The detailed *Conditional routes* sit ~90 lines below, after the rules, so a short
+window on this file used to return the rules and one route header. This is the same
+set by shape; match the **reporter's own wording**, not the title's category word.
+
+| the report is … | page |
+|---|---|
+| a 众测任务书 row (蓝区镜像 / 权重链接 / 配套 HDK / 卡数 / 交付件 = 测试报告) | `community-test-report.md` |
+| a sample request or `vllm bench serve` answering 404, or a first start that "加载 3 小时 / 高并发读取" | `serve-contract-and-weight-predownload.md` |
+| asking for *added* guidance, a cross-link, the contributor path, or a mirror/registry | `missing-guidance-and-contributor-docs.md` |
+| a flag, path, count, install pin or printed request body that is wrong as written | `tutorial-command-audit.md` (its worked pages first) |
+| a printed image tag, a `…/en/latest/…` URL, or any version disagreement | `docs-version-space-and-image-tag.md` |
+| the doc's log/flag claims against the code | `../observability-and-logs/request-output-logging-flags.md` |
+| a doc accuracy/performance number that looks anomalous | `../accuracy-benchmarks/index.md` |
+| an actual failure log whose owner may be the reporter's box | leave the topic — the closing paragraph of *First call* ("Leave this topic when …") names the index to open |
+
 ## First call: does a worked page already carry this row?
 
 `rg -n '<model family or row id>' <skill_root>/references/tutorial-verification/` —

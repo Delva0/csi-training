@@ -68,6 +68,10 @@ At v0.8.5rc1 (`ec27af3`) the MoE communication path is not a flag the reporter c
 - **There is no expert-parallel flag at this pin**: `rg -n 'enable_expert_parallel' vllm_ascend/`
   returns nothing (the EP/MC2 selector arrives in later releases —
   `../feature-enable-recipes/moe-expert-parallel-with-dp.md` — never propose it for a v0.8.x serve).
+  That absence is **this pin's**, not the era's: at v0.9.0rc2 the flag is wired
+  (`platform.py:148`), and it is then the only way to satisfy the legacy
+  `VLLM_ENABLE_MC2` decode branch, which dereferences a `None` `expert_map` when
+  `ep_size == 1` — `../feature-enable-recipes/mc2-env-knob-without-expert-parallel.md`.
 - **Every layer is eager**, so the collective has no graph to hide in:
   `platform.py:124 enforce_eager = True`, `:133` logs `Compilation disabled, using eager mode by default`.
   On v0.8.x the only graph lever is torchair on V0 and it is documented for DeepSeek

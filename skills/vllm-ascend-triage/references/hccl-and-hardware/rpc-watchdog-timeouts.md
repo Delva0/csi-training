@@ -35,7 +35,17 @@ Two conditional routes before the ranked list below:
   answered its first request: the deadline is the *finding*, the workers were
   healthy, and raising `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS` **is** the fix — the
   one lane where it is (§ *A deliberately slow step* below). Do not rank a dead
-  worker here.
+  worker here. **The `ERROR … [dump_input.py:69/76/79] Dumping input data /
+  scheduler output / scheduler stats` lines in the paste do not select this lane**:
+  they are `dump_engine_exception` (`vllm/logging_utils/dump_input.py:57-83`) —
+  one call site, in the EngineCore `except` that re-raises, so the block appears
+  **once** at the failing step whatever the cause, and carries no per-step dump
+  feature. Read it as the failing step's scheduler state (running reqs,
+  `num_computed_tokens`, `kv_cache_usage`, `spec_decoding_stats`) — recorded #1865
+  classified its stall as "mid-decode, one request, 0.0 tokens/s" from exactly
+  those fields; how far to trust the block is
+  `cancelled-executor-teardown.md` §*Rule 2*, the graph-mode reading is
+  `aclgraph-full-decode-runtime-hang.md`.
 
 ## What the frames are (verified at the pinned commits)
 

@@ -1216,3 +1216,40 @@ and `StructKernelNpuOpApi.cpp` are not in the export (`Ascend/op-plugin` 103 fil
 `opapi/`), so the die-versus-CANN split is a hardware check, not a source read. Page:
 `../soc-platform-paths/a5-mxfp-refusal-and-die-coverage.md`; caller-side gate:
 `../custom-ops-runtime-faults/quant-scale-dtype-gate.md` rule 0.
+
+**#2700** vllm-ascend `v0.10.0rc1` (`4604882a3e2c`) + vllm `v0.10.0`
+(`6d8d0a24c02b`), MedGemma-4B (Gemma-3 family) TP1, bf16, `max_model_len=131072`,
+`enforce_eager=True`: the first chat request answers, the next one — a new completion
+whose prompt shares 256 tokens with it — kills EngineCore on its first step with
+`[rank0]:[E902 …] PagedAttentionOperation setup failed!` out of
+`atb::OperationSetup` in `libop_plugin_atb.so`, then
+`RuntimeError: The Inner error is reported as above … the current working operator
+name is PagedAttentionOperation` + `ERR00100 PTA call acl api failed`. Nothing was
+misconfigured: `enable_chunked_prefill` and `enable_prefix_caching` are **V1
+defaults** (`vllm/engine/arg_utils.py:1530-1536`, "V1 always uses chunked prefills and
+prefix caching"), and the engine's own `Dumping input data … with config` line prints
+them. The branch is arithmetic in the attachment's dumped `SchedulerOutput`:
+`num_computed_tokens=256` + `num_scheduled_tokens={req: 27}` + `prompt_token_ids_len=283`
++ `prefix_cache_stats(queries=283, hits=256)` gives `seq_lens=283 ≠ 27` and `27 ≠ 1`,
+and with chunked prefill on the state is `ChunkedPrefill`
+(`model_runner_v1.py:1119-1138`) ⇒ `_npu_paged_attention_splitfuse`
+(`attention_v1.py:419`; a `head_size == 192` model diverts to
+`vanilla_chunked_prefill`). Request 1's 283-token prompt fitted one step under the
+2048/5120 token budget, so it took `PrefillNoCache` → `_npu_flash_attention` and then
+`DecodeOnly` → `_npu_paged_attention`: the prefix hit, not a warm-up or a capture,
+creates the third state, and `--enforce-eager` is already in the dump. The splitfuse
+mask is built for this state only (`get_splitfuse_attn_mask`,
+`attention/attention_mask.py:54-96`; builder seeded at
+`min(max_model_len, PAGED_ATTENTION_MASK_LEN=10000)`) and its shape closes
+(`[27, 283]`, rows = absolute positions), so the #393 "mask narrower than the
+context" story does not apply, and ATB's own validation text is in no export
+(`Ascend/op-plugin` here carries no `paged_attention` string). Ladder:
+`--no-enable-prefix-caching`, then `--max-num-batched-tokens` below the prompt length
+for a fresh-prompt repro of the same branch. The model row is ✅ at this pin
+(`support_matrix/supported_models.md:32`, `:71`), so the ❌-row page — the only other
+page naming this op, at ACL-graph replay — does not own the paste. Recorded run: 17
+assistant turns / 31 tool calls, 47.5 K characters of reasoning, **zero** characters
+of message text, `output_truncated`; the dumped `SchedulerOutput` had settled the
+state by turn 9. Page:
+`../custom-ops-runtime-faults/setup-failed-call-site.md` (§`PagedAttentionOperation`),
+row `../first-checks/signature-routes/device-ops-and-collectives.md`.

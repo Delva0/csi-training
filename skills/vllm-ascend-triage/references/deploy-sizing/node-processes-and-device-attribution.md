@@ -97,8 +97,8 @@ Intersect the launches' visible sets before any port, HCCL or connector read —
 (`Bind_Failed(EJ0003)`, `[HcclSocket][Listen] … port[16666] fail`,
 `hcclCommInitRootInfoConfig … error code is 7`), and
 `card-budget-and-device-visibility.md` owns the plan form and the
-`ASCEND_RT_VISIBLE_DEVICES` traps (ascending order, no alias, ids index
-`/dev/davinci*`).
+`ASCEND_RT_VISIBLE_DEVICES` traps (ascending order, the other spelling is the
+container-creation hook's input, ids index `/dev/davinci*`).
 
 ## Answer shape
 

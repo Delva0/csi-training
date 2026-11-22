@@ -21,7 +21,7 @@ launched, so no card, HCCL, OOM or driver claim applies. The `mki_log … atb` l
 immediately before it is ATB's first-use banner (string in no export — label it as
 consistent-with, not proof).
 
-## Which of the seven `setup failed!` surfaces this is
+## Which of the eight `setup failed!` surfaces this is
 
 | Text | Owner | Page |
 |---|---|---|
@@ -31,6 +31,7 @@ consistent-with, not proof).
 | `<Op>Operation setup failed!` beside `507018` / `RunCpuKernel` | the op ran on the CPU/AICPU fallback kernel | `../soc-platform-paths/310p-cpu-fallback-op-fault.md` |
 | `SelfAttentionOperation setup failed!` with **no** `--speculative-config` at all, a dense model and one **long** prompt (12 732 tokens on `--max-num-batched-tokens 14336`) | the dense V1 one-shot prefill branch handing ATB a `[prompt, prompt]` mask — branch first, kernel contract not derivable (§ below) | this page, second section |
 | `SelfAttentionOperation setup failed!` **plus** an ATB log line `tensor dimNum 0 is invalid … inTensor [N] CheckTensorShape failed` | the caller passed a `None`/empty tensor into the pack — find the never-bound attribute, do not read the op's shape contract | `atb-input-dim0-none.md` (recorded #2779) |
+| `PagedAttentionOperation setup failed!` beside `atb::OperationSetup` / `libop_plugin_atb.so` frames, on a V1 serve that started cleanly, at the **second** request (or any request whose prompt shares a cached prefix), the dumped config showing `enforce_eager=True`, `chunked_prefill_enabled=True`, `enable_prefix_caching=True` | the state decided by the dumped `SchedulerOutput` picks the branch: `ChunkedPrefill` ⇒ `_npu_paged_attention_splitfuse`, whose mask is the only argument that changed. Both flags are **V1 defaults**, so no flag was misused and `--enforce-eager` is spent | this page, section `PagedAttentionOperation` |
 | `RopeOperation setup failed!` (ATB **Rope**) at the first forward inside a `torch.compile` warm-up, `op_plugin_atb` frames only, **no** Python frame in the paste, on a VL / M-RoPE model (GLM-4.1V) that starts on A2 and dies on an `-a3` image | the rope call site in `vllm_ascend/ops/rotary_embedding.py` `_rope_forward_oot`: three routes, and which one ran is the question. No export carries the ATB Rope source, so the answer is a one-launch route flip, not a source walk | this page, section `#3706` |
 
 All of them mean the same phase. What differs is *who assembled the pack*, and the
@@ -40,6 +41,89 @@ arguments it passes.
 A **`CreateOperation failed!`** message is not in this table and is not a pack question at
 all: it fires before any tensor is described, so the owner is the ATB build × SoC —
 `atb-create-operation-failed.md` (recorded #5170, 310P).
+
+## `PagedAttentionOperation`: the scheduler state picks the branch, not the op name
+
+Recorded #2700: vllm-ascend `v0.10.0rc1` (`4604882a3e2c`) / vllm `v0.10.0`
+(`6d8d0a24c02b`), MedGemma-4B (Gemma-3 family) TP1, bf16, `max_model_len=131072`,
+`enforce_eager=True`. The reporter's first chat request answered; the **second** — a new
+completion whose prompt shares 256 tokens with the first — killed EngineCore on its
+first step:
+
+```text
+[rank0]:[E902 …] PagedAttentionOperation setup failed!
+Exception raised from OperationSetup at … op_plugin_atb.dir/compiler_depend.ts:151
+frame #2: atb::OperationSetup(atb::VariantPack, atb::Operation*, atb::Context*) … libop_plugin_atb.so
+… RuntimeError: The Inner error is reported as above … the current working operator name is PagedAttentionOperation.
+… ERR00100 PTA call acl api failed.
+```
+
+Both `enable_chunked_prefill` and `enable_prefix_caching` are **V1 defaults** for a
+non-pooling model — `vllm/engine/arg_utils.py:1530-1536`, "V1 always uses chunked
+prefills and prefix caching" — so nothing here is a misconfiguration, and the engine's
+own `Dumping input data … with config` line prints them as `chunked_prefill_enabled=True,
+enable_prefix_caching=True`. Start from that line rather than from the launch shell.
+
+**The dumped `SchedulerOutput` decides the branch** (`model_runner_v1.py:1119-1138`,
+where `seq_lens = num_computed_tokens + num_scheduled_tokens`):
+
+| test, in order | #2700's numbers | state |
+|---|---|---|
+| `np.array_equal(seq_lens, num_scheduled_tokens)` (`:1119-1120`) | `283` vs `27` → no | — |
+| `np.all(num_scheduled_tokens == 1)` (`:1122-1123`) | `27` → no | — |
+| `np.all(num_valid_tokens == 1)` (`:1129-1133`) | no spec tokens | — |
+| `chunked_prefill_enabled` (`:1135-1136`) | `True` | **ChunkedPrefill** |
+| otherwise (`:1138`) | — | PrefillCacheHit (Ascend scheduler on **and** chunked prefill off) |
+
+So `num_computed_tokens=256` + `num_scheduled_tokens={req: 27}` + `prompt_token_ids_len=283`
++ `prefix_cache_stats(queries=283, hits=256)` is one subtraction, `283 = 256 + 27`.
+`ChunkedPrefill` takes `attention_v1.py`'s `else` branch: `head_size == 192` diverts to
+`vanilla_chunked_prefill` (`:391-417`), everything else calls
+`_npu_paged_attention_splitfuse` (`:419`) — and the paste's name is a *paged attention*,
+which is the same fact a second time.
+
+**Why request 1 was clean: the token budget, not a warm-up.** A 283-token prompt fits one step (`max_num_batched_tokens` defaults to
+`DEFAULT_MAX_NUM_BATCHED_TOKENS = 2048`, `vllm/config.py:2391-2402`, floored at `5120`
+for a multimodal model, `vllm/utils/__init__.py:86`), so request 1 was
+`seq_lens == num_scheduled_tokens` → `PrefillNoCache` → `_npu_flash_attention` (`:343`),
+and its generated tokens were `DecodeOnly` → `_npu_paged_attention` (`:376`). The
+prefix hit is what creates the third state; `--enforce-eager` is already true in the
+dump and removes nothing.
+
+**The pack's variable is the mask**, built for this state only (`_make_attention_mask`,
+`model_runner_v1.py:844-859` → `get_splitfuse_attn_mask`, `attention/attention_mask.py:54-96`).
+The builder is seeded at `min(max_model_len, PAGED_ATTENTION_MASK_LEN=10000)`
+(`:220-222`); `max_seq_len = max(seq_lens) = 283` stays inside it, and the return is
+`index_select(mask[:283, :283], 0, position)[:, :283]` — rows are the absolute positions
+`256…282`, columns `0…282`. The #393/#2239 "mask narrower than the context" story does
+**not** apply here (that branch passes a literal `128`); this shape arithmetic closes.
+What ATB then rejects is in no export: `Ascend/op-plugin` in this snapshot carries no
+`paged_attention` string at all — one grep, then stop.
+
+### Ladder
+
+1. `--no-enable-prefix-caching`: the second identical request returns to `PrefillNoCache`.
+2. `--max-num-batched-tokens 256` (below the prompt's 283): reproduces the branch on a
+   **fresh** prompt with no cache involved — step 1 is `PrefillNoCache` (256 = 256),
+   step 2 is `ChunkedPrefill`. This is the ablation that separates "prefix cache" from
+   "splitfuse", and it is the cheap repro to hand the reporter.
+3. Both still die ⇒ the pack itself is the defect at that release: quote the release lane
+   (which tag/rc the reporter is on) and ask for the plog at that second plus four numbers —
+   `num_scheduled_tokens`, `num_computed_tokens`, the prompt length, the model's `head_dim`.
+   Nothing was launched, so `ASCEND_LAUNCH_BLOCKING=1` and `--enforce-eager` explain
+   nothing here.
+
+Not the capability lane, and not the ❌-row page: at this pin `Gemma-3 | ✅` and the VL
+table's `Gemma3 | ✅` (`docs/source/user_guide/support_matrix/supported_models.md:32`,
+`:71`). The only other page naming `PagedAttentionOperation` —
+`../feature-enable-recipes/unsupported-model-row.md` — owns the ACL-graph **replay**
+form (`super().replay()` frame, a `❌` row); read the row's verdict before choosing
+between them.
+
+Run: 17 assistant turns / 31 tool calls, 47.5 K characters of reasoning and **zero**
+characters of message text, `output_truncated` — while the attachment's dumped
+`SchedulerOutput` (assistant turn 9) already fixed the state and both ablations. Ship the
+verdict from that block instead of walking mask shapes.
 
 ## #3706: `RopeOperation setup failed!` on an `-a3` image, same model fine on A2
 

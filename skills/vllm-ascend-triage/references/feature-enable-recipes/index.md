@@ -16,6 +16,18 @@ not recognise (`../startup-failures/model-type-not-recognized.md`), a capacity p
 (`../tutorial-verification/index.md`), or corruption *after* the feature is on
 (`../accuracy-benchmarks/garbled-long-context-output.md`).
 
+**Also this topic, and it is a crash rather than a capability question:** the feature
+being switched on is the **legacy MC2 env knob** — the launch exports
+`VLLM_ENABLE_MC2=1` and the worker dies with a bare
+`TypeError: object of type 'NoneType' has no len()` at
+`vllm_ascend/quantization/w8a8_dynamic.py:156` in `fused_experts_with_mc2`, on the
+first **decode** step of a DeepSeek-V2/R1 W8A8 serve whose expert-parallel group is 1
+(no `--enable-expert-parallel`). That is a two-rung answer — unset the env var, then
+EP ≥ 2 — and the page also dates the install: the knob has zero hits in the tree by
+v0.20.2rc1, so the selector-era MC2 pages (AIV ablation, `mc2_tokens_capacity`, the
+EP-off perf page) must not be quoted at such a report:
+`mc2-env-knob-without-expert-parallel.md`.
+
 Inherit the rules in SKILL.md. Three parts, in this order; part 1 is the answer.
 
 1. **The validation verdict in the first sentence.** Is F×M×H validated at the

@@ -161,7 +161,10 @@ is a DSA-CP enabler whose o_proj weight switch is W8A8-static-only —
   a mechanism hunt: deliver the differences against the project's own validated
   command at the pinned commit, the 1-2 cheapest A/Bs, and the known-family list,
   inside the normal delivery gate. The recorded run that did not do this spent its
-  whole output cap.
+  whole output cap. The one code fact worth carrying is the one that **orders** the
+  A/Bs — which candidate covers *both* reported load cases with a single mechanism;
+  on the V3.2 shape that is the MLAPO token-gate arithmetic in
+  `concurrency-crash-with-no-log.md`, not a walk through the model's forward.
 - **A corruption report on this family gets two evidence steps before any source read,
   and only one of them is free.** Match the launch against the pinned tutorial row for
   that exact topology (the GLM-5 page ships a multi-node w4a8 row, so "off-matrix" is

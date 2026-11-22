@@ -152,6 +152,11 @@ result, and never re-publish it as a measurement. When one of its numbers looks
 anomalous, check the precedent before blaming the doc
 (e.g. `#5991: Qwen3-Omni-30B-A3B-Thinking, when max-concurrency >= 2, TPOT only
 100ms` against the page's ~99 ms mean TPOT).
+On `Qwen3-235B-A22B.md` at v0.18.0 this check is already tabulated — the `:318-329`
+environment block (vLLM v0.13.0 / vllm-ascend v0.13.0rc1 / HDK 25.3.RC1), the
+`:285`/`:289` ceval `91.16` at `v0.11.0rc0`, and the `:45` substitution — in
+`serve-contract-and-weight-predownload.md` §*other graded rows*; quote it instead of
+re-reading the page (recorded #11749 re-derived all three).
 A **dead flag** whose owner is the release, not the command, is graded one way
 further: the page's image tag is not its text but a build-time substitution — the
 `{{ vllm_ascend_version }}` form from `mkdocs.yml extra.*` on the later mkdocs trees,

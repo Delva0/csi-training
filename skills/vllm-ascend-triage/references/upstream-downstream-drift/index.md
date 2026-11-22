@@ -100,6 +100,16 @@ entry when:
   the crash: at v0.11.0rc0 upstream's base `forward_native` no longer takes `offsets` while
   `DeepseekScalingRotaryEmbedding.forward_native` still does, so only an *unscaled-rope* model
   under `torchair_graph_config` dies — `torchair-rope-native-arity.md`;
+- the message is an `AttributeError` on a RoPE **buffer name** at the first request
+  (`'Ascend…RotaryEmbedding' object has no attribute 'cos_cached'`) with no
+  `torch._dynamo`/plugin frame anywhere: the MLA/SFA metadata builder reads
+  `rotary_emb.cos_cached`/`.sin_cached` unconditionally while only the DeepSeek
+  *scaling* rope subclass registers them, and the rope class the checkpoint built is
+  printed in the message itself (no `rope_scaling` in `config.json` ⇒ upstream `get_rope`
+  builds plain `RotaryEmbedding` ⇒ the Ascend plain class) —
+  `mla-cos-cached-requires-scaling-rope.md` (recorded #5385). The PP variant of the
+  same line names `'PPMissingLayer' … 'self_attn'` instead and is
+  `../pipeline-parallel/pp-blind-first-layer-lookup.md`;
 - **or the named class is a fork of a whole upstream base class, not an attention
   impl** — the engine constructs `scheduler_cls` itself and passes a keyword the base
   grew later (`TypeError: SchedulerDynamicBatch.__init__() got an unexpected keyword
@@ -122,7 +132,11 @@ entry when:
   is `BaseModelLoader`'s `download_model` + `load_weights`, and upstream builds the
   same drafter through `get_model(...)` → `load-format-loader-contract-drift.md`.
   The checkpoint, the model class and the quant config are exonerated by the
-  message itself.
+  message itself. That page also retires the *reverse* misreading: `get_model(...)`
+  is the loading entry point (it ends in `loader.load_model`), so a proposer that
+  calls only `get_model` and no `load_weights` still loads its draft weights — do
+  not report "the draft is never loaded" without reading the callee (recorded
+  #3398, no answer).
 - **or the deepest frame is a downstream *wrapper* class delegating to an upstream
   core object** (a `BlockPool` / `SingleTypeKVCacheManager`, or the wrapper's own ZMQ
   metadata service) and the paste shows only the first of several contract drifts —

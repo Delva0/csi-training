@@ -287,15 +287,28 @@ the turn the shape is classified, not a second copy of it here.
    branch (`is_mamba_group`, `_append_mamba_transfer_meta`), so the mechanism had to be
    demoted inside the answer; presence claims and absence claims both belong to the pin
    they were seen at (`references/pd-disaggregation/hybrid-state-transfer.md`).
+   **A page's *rank order* can rest on an arithmetic, and that arithmetic is pin-bound
+   too**: before quoting a ladder that turns on a division, a chunk split or a token
+   gate, recompute it from the pin's own source — one read, and it is the step that
+   rescues a wrong ordering. Recorded #6240: its page argued the two reported load
+   cases died "on different code paths" because only the 1017-token request fits the
+   MLAPO `<= 1024`-token branch (`sfa_v1.py:763`); but that gate tests the **step's**
+   token count (`total_num_scheduled_tokens`, `model_runner_v1.py:615`), so the
+   8270-token prompt at `--max-num-batched-tokens 8192` is chunks 8192 + 78 and its
+   78-token tail takes the same branch — the shared mechanism *raises* that candidate
+   and reorders its A/B, where the page had used the split to demote it
+   (`references/dsa-sparse-attention/concurrency-crash-with-no-log.md`).
 7. **Keep reads small and exact.** Use `rg -n -C2 <symbol>` and
    `sed -n 'A,Bp' file`; reserve whole-file reads for files under ~150 lines — the
    exception is the page that **is** the protocol for the deliverable in hand
-   (`community-test-report.md` 352 lines, `delivery-discipline.md` 434,
-   `tutorial-command-audit.md` 507, every topic `index.md` whose conditional routes sit
+   (`community-test-report.md` 386 lines, `delivery-discipline.md` 446,
+   `tutorial-command-audit.md` 513, a topic `index.md` whose conditional routes sit
    after its rules): its rules, routes and worked tables sit past the first window, so
-   read it whole or list its `^## ` headings first; `sed -n '1,80p'` of the first and
-   `'1,120p'` of `tutorial-verification/index.md` is how the #11759 rerun walked past the
-   worked table for its own row. A
+   read it whole or list its `^## ` headings first. `tutorial-verification/index.md`
+   is the exception now that its *Route table* opens the file, so `sed -n '1,60p'`
+   there reaches every route; a window like `sed -n '1,80p'` of the 386-line protocol
+   or `'1,120p'` of that index is how the #11759 rerun walked past the worked table
+   for its own row. A
    20-40 KB full-file read of an AscendC kernel header buys one fact and costs
    the budget for several conclusions. Listing, dumping and a handful of
    search-command traps each cost a recorded run whole steps; the full text is in
@@ -339,7 +352,20 @@ the turn the shape is classified, not a second copy of it here.
    `full_decode_only` among them); #16581's mechanism words returned 442 hits of
    file names, while the paste's own code tokens (`507015|MTE|DDR address`)
    returned 91 and named #3263/#2424. When a pattern hits ~every file, split the
-   alternation instead of discarding the survivors.
+   alternation instead of discarding the survivors. **A `-l` list cannot be graded
+   from its output** — it prints paths and no matched text, so "my alternation was
+   a bag" is a guess, not a reading: split it per token (`search_files` on one
+   token under `<skill_root>/references/`, or `rg -l '<one token>'
+   <skill_root>/references/`) before writing it off. Recorded #3543 did exactly
+   that to a `head -40`-capped `-l` list over `references/`, with
+   `startup-failures/silent-worker-exit.md` and
+   `startup-failures/max-model-len-budget.md` — the two pages owning its case — on
+   it; the recorded-cases detour it took instead cost six calls. Inside
+   `references/` the **model id is a listing token, not a distinctive one**: every
+   case line carries its model, so `-i 'qwen3-vl|qwen3_vl|qwen3vl'` over
+   `recorded-cases*` returns lines from every family page of the index (accuracy,
+   startup, install, device, pd-kv, memory), all of them other symptoms' ladders.
+   Grep the wrapper sentence, the op name or the code.
    `history/*.md` and
    lexical issue search cover only earlier issues; a current issue is never in
    them, and the ids this skill's own pages cite as recorded cases are usually
@@ -644,12 +670,14 @@ the turn the shape is classified, not a second copy of it here.
     an ablation only rules out a phase it actually removes and its own log line has to
     be in the paste (`--enforce-eager` is neither universal nor free, and
     `--async-scheduling` with `method: mtp` makes an "eager" rerun the same path
-    twice); a workaround the report's own prose names is rung 1; a
+    twice); a workaround the report's own prose names is rung 1, but only after
+    diffing it against the failing launch line — one that also drops other flags is
+    a multi-flag change, not an ablation (#17797's "fixed" line moved three); a
     tested-configuration matrix in the body is one verdict line per row, with the rows
     that work as the controls; and a control the reporter only *asserts* — another
     platform, a healthy node, a direct `curl`, a repro over lower-level primitives —
     is a premise, not a finding, so build the ranking so it holds if the premise is
-    false. `references/dispatch/controls-and-ablation.md` carries the five forms, the
+    false. `references/dispatch/controls-and-ablation.md` carries the six forms, the
     pin splits that make an ablation inert, and the recorded cost of each (#2763,
     #13964, #10910, #9447, #15527, #13688).
 16. **A release candidate's experimental mode is a version question before it is a
@@ -826,9 +854,17 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    numeric code) and run `rg -n -l '<token>' <skill_root>/references/`: the library
    is keyed on the reporter's own wording, so this is the call that finds the page —
    or the case — already holding it. **A hit in
-   `references/evidence-workspace/recorded-cases*` is opened first**
-   (`rg -n '<token>' <that file>`, then `sed -n '<hit-30>,<hit+40>p'`) before any
-   topical page or repo grep: an entry matching the report's versions, model and
+   `references/evidence-workspace/recorded-cases*` is opened first** — but that glob
+   spans **two or more files per family**, `recorded-cases/<family>.md` (the condensed
+   index line) and its `recorded-cases-<family>.md` detail page(s) — the startup
+   family splits into `recorded-cases-startup.md` and
+   `recorded-cases-install-and-environment.md` — so one case carries different line
+   numbers per file: re-read the exact `file:line` `rg` printed and nothing else. A
+   number borrowed from the sibling file lands on another case — recorded #3543 ran
+   `sed -n '80,105p'` of the detail page for a hit in the index, read
+   #8022's entry, and spent three more greps on the phantom. Read
+   `sed -n '<hit-30>,<hit+40>p'` on that same path before any topical page or repo
+   grep: an entry matching the report's versions, model and
    stack *is* the case history, and its ladder is the message. Both halves were paid
    for in one minibatch: #6275's second session had
    `recorded-cases-device-and-communication.md`, carrying #6275's own entry, in its
@@ -1045,7 +1081,14 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
 - Version and hardware scope of the conclusion, plus what to send back (full
   per-rank log, plog, tiling I-line, raw request/response dumps, `npu-smi info`,
   `asys health` output, `dmesg` OOM lines, both PD serve commands). **The ask list is
-  the complement of the paste, not a repetition of it.** The template's `<details>`
+  the complement of the paste *and of this skill's own record of that issue*, not a
+  repetition of either.** A fact a reopen of a recorded case already holds — a serve
+  command that arrived as a later comment, the failure timestamp a previous session
+  pinned — is used, not requested: cite it and add "if you now run something else, say
+  so". The #4057 replay read the page's *Reporter-confirmed narrowing* section, quoted
+  the reporter's TP=4/`--enforce-eager` command as its mitigation, and still listed "the
+  actual `vllm serve` command line" under *send this back* in the same message, so the
+  one ask that could not move the case was the one it already had. The template's `<details>`
   *Your current environment* block is a `collect_env.py` dump and already prints
   `vLLM Version:`, `vLLM Ascend Version:`, the torch/torch_npu/CANN versions, the
   launch env vars and a full `npu-smi` table, so "which vllm / vllm-ascend version"

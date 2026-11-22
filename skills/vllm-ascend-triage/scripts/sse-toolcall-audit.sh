@@ -115,7 +115,12 @@ for n, p in enumerate(payloads, 1):
             if a is not None:
                 acc.setdefault(i, []).append(a)
                 frags.append(a)
-        silent = (not tcs) and not (delta.get("content") or "")
+        # A chunk with NEITHER content NOR tool_calls, and no finish_reason/
+        # stop_reason either: the normal terminal chunk (delta: {}) carries a
+        # finish_reason and must not be counted as a buffering-parser step.
+        silent = ((not tcs) and not (delta.get("content") or "")
+                  and not ch.get("finish_reason")
+                  and ch.get("stop_reason") in (None, "None"))
         meta.append((n, ch.get("stop_reason"), ch.get("finish_reason"), name,
                      len(frags), sum(1 for f in frags if f == ""), silent))
     else:
@@ -243,9 +248,18 @@ stop = [(m[0], m[1]) for m in meta if m[1] not in (None, "None")]
 fin = [(m[0], m[2]) for m in meta if m[2] not in (None, "None")]
 last_frag = max((m[0] for m in meta if m[4] and not m[5]), default=0)
 print(f"\nstop_reason chunks: {stop or 'none'}   (int = an upstream vLLM-only field "
-      f"carrying the stop token id, ChatCompletionResponseStreamChoice.stop_reason; "
-      f"not corruption)")
+      f"carrying the stop token id, ChatCompletionResponseStreamChoice.stop_reason, "
+      f"i.e. a DECLARED stop id (--stop-token-ids / the checkpoint's "
+      f"generation_config.json eos list) that ended the engine's stream -- vllm/v1/core/"
+      f"sched/utils.py at v0.17.0 leaves it None for a primary-eos stop; not corruption)")
 print(f"finish_reason chunks: {fin or 'none'}   last non-empty argument chunk: #{last_frag}")
+if stop and fin and set(m[0] for m in meta if m[1] not in (None, "None")) != \
+        set(m[0] for m in meta if m[2] not in (None, "None")):
+    print("  stop_reason and finish_reason sit in DIFFERENT chunks: vllm sets both on")
+    print("  one ChatCompletionResponseStreamChoice and serializes with")
+    print("  model_dump_json(exclude_unset=True), so this stream passed a re-serializer")
+    print("  (LiteLLM / a proxy / a client SDK). Read the pair as ONE finish chunk and")
+    print("  do not build a chunk-ordering mechanism on the split.")
 empty_tail = [m[0] for m in meta if m[4] and m[5] == m[4]]
 if empty_tail:
     print(f"chunks whose arguments fragment is the EMPTY string: {empty_tail}")
@@ -318,6 +332,15 @@ elif "tail-lost" in verdicts:
           "num_speculative_tokens>=3 request the block-verify acceptance path is the first "
           "candidate (see the skill's mtp-block-verify-acceptance.md); its slots are "
           "filtered by RejectionSampler.parse_output without a log line.")
+    if stop:
+        print("  An int stop_reason above already answers the engine/assembly split: the")
+        print("  engine ended on a DECLARED stop id, so no tail exists to recover and")
+        print("  return_token_ids cannot change it. Skip that round trip, compare the id")
+        print("  with --stop-token-ids / the checkpoint's generation_config.json eos list,")
+        print("  and read accuracy-benchmarks/early-eos-short-output.md (stop_reason")
+        print("  section) plus the n=2 / temperature:0 ablations for why the model emitted")
+        print("  it. Remember `finish_reason: tool_calls` is a frontend label")
+        print("  (chat_completion/serving.py:1291-1300), not the engine's ending.")
 else:
     print("\nVERDICT: the arguments are unbalanced in the middle (not only the tail) -> "
           "the text itself is corrupted/duplicated, so treat it as a sampling/decoding "

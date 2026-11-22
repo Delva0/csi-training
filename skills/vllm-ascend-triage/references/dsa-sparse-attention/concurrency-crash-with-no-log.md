@@ -34,16 +34,37 @@ Nothing in the paste can confirm a mechanism, so:
 | MLAPO's validated shape | mixed node, `--max-num-batched-tokens 8192`, sizes to 48 | only in the PD sections, with `--max-num-batched-tokens 12`, `cudagraph_capture_sizes [3,6,9,12]`, `--max-num-seqs 4` | `docs/source/tutorials/DeepSeek-V3.2.md:421` (D node) and `:437-440`, `:500`, `:516-520`; the non-PD A2 sections use `--max-num-batched-tokens 32550 --max-num-seqs 64` (`:285-287`) |
 | `HCCL_BUFFSIZE` | `200` | tutorial `256` (`:256,330,406,485`), e2e `1024` | same lines |
 
-**The MLAPO gate is the one code fact worth carrying.** It selects on token count, not on
-phase, so a 1017-token request takes the decode-designed fused path while an 8270-token prompt's
-first chunk (8192) does not:
+**The MLAPO gate is the one code fact worth carrying, and its arithmetic is the opposite of
+"two different code paths".** The SFA branch tests the step's *token count* where its sibling
+tests the *phase* (all at the same pin, `v0.13.0rc2` / `a17059a`):
 
-- `vllm_ascend/attention/sfa_v1.py:763` `if self.enable_mlapo and num_input_tokens <= MLAPO_MAX_SUPPORTED_TOKENS:`
-  → `_sfa_preprocess_decode` (`:667`);
-- `MLAPO_MAX_SUPPORTED_TOKENS = 1024` (`vllm_ascend/attention/mla_v1.py:52`).
-
-That both load cases die *on different code paths* is the argument for ranking a cross-request
-factor (HBM growth, queueing, a high-load decode-stage defect) above any single kernel.
+- `enable_mlapo` is the env switch itself (`vllm_ascend/attention/sfa_v1.py:373` ←
+  `VLLM_ASCEND_ENABLE_MLAPO`, `vllm_ascend/envs.py:109-110`); init clears it only for a non-W8A8
+  `fused_qkv_a_proj` or SFA with CP (`sfa_v1.py:448-465`), so a `w8a8` checkpoint keeps it on.
+- the branch is `sfa_v1.py:763` `if self.enable_mlapo and num_input_tokens <= MLAPO_MAX_SUPPORTED_TOKENS:`
+  → `_sfa_preprocess_decode` (`:667`), `MLAPO_MAX_SUPPORTED_TOKENS = 1024`
+  (`vllm_ascend/attention/mla_v1.py:52`), with **no phase test** — while the line immediately
+  above it (`should_shard_weight`, `:758-760`) does read `attn_metadata.attn_state`, and the
+  dense-MLA sibling applies the same fused preprocess only under
+  `not has_prefill and attn_metadata.num_decode_tokens <= MLAPO_MAX_SUPPORTED_TOKENS`
+  (`mla_v1.py:1497-1499`). The SFA copy of the branch lacks the guard its sibling carries: a
+  downstream-reimplementation drift rather than a new design, and the reason a phase-shaped step
+  can reach a helper named `_…_decode`.
+- `num_input_tokens` is *this step's* token count (`total_num_scheduled_tokens`,
+  `vllm_ascend/worker/model_runner_v1.py:615`; the graph-padded size in graph mode, `:633`), so
+  both of the reporter's load cases put a **prefill step inside the decode-designed preprocess**:
+  1017 tokens is one whole prefill step ≤ 1024, and 8270 tokens at `--max-num-batched-tokens 8192`
+  is chunks 8192 + 78, whose 78-token tail chunk is ≤ 1024 as well. That is the one mechanism here
+  covering both cases; the refuting control is a single request of ~1017 tokens being clean.
+- Do not misread the other two `<= MLAPO_MAX_SUPPORTED_TOKENS` sites: `sfa_v1.py:658` /
+  `mla_v1.py:919` gate a KV-**consumer** weight drop (free `fused_qkv_a_proj`/`q_proj` when the
+  scheduler budget is ≤ 1024). They do not disable MLAPO, which stays engaged per step at an
+  8192 budget.
+- `"method": "mtp"` is not worth a turn: upstream normalizes every MTP model type to `"mtp"`
+  (`vllm/config/speculative.py:244-248`; `MTPModelTypes` at `:30-39` contains `deepseek_mtp`) and
+  vllm-ascend dispatches on `"mtp"` (`vllm_ascend/spec_decode/__init__.py:30` → `MtpProposer`,
+  `platform.py:343`). The tutorial's `deepseek_mtp` and the reporter's `mtp` are the same method,
+  so a command diff that stops at this flag finds nothing.
 
 ## Ranked candidates for this shape, each with one check
 
@@ -53,11 +74,16 @@ factor (HBM growth, queueing, a high-load decode-stage defect) above any single 
    `NPU out of memory|Memory_Allocation_Failure|EL0004|207001|507013|NPUWorkspaceAllocator`
    (`../runtime-memory/index.md`). Then retry at `0.9` without `expandable_segments`.
 2. **MLAPO on a shape the project never validated for this deployment** — the single-variable
-   A/B is `VLLM_ASCEND_ENABLE_MLAPO=0` on both nodes, nothing else changed.
+   A/B is `VLLM_ASCEND_ENABLE_MLAPO=0` on both nodes, nothing else changed. This is the
+   discriminating experiment of the page: it is the only candidate that covers *both* load cases
+   with one mechanism (the ≤ 1024-token prefill step above), and it is the diff the project's own
+   e2e sets the other way, so the A/B either names the cause or removes the lane in one launch.
 3. **`HCCL_BUFFSIZE=200` too small for the MoE dispatch/combine window** — the operators say so
-   themselves (`csrc/moe_combine_normal/op_host/moe_combine_normal_tiling.cpp`,
-   `csrc/moe_dispatch_normal/op_host/moe_dispatch_normal_tiling.cpp`); grep the log for
-   `HCCL_BUFFSIZE is too SMALL, maxBs`, then retry at `1024`.
+   themselves: four emit sites at this pin, `csrc/notify_dispatch/op_host/notify_dispatch_tiling.cpp:217`,
+   `csrc/dispatch_ffn_combine/op_host/dispatch_ffn_combine_tiling.cpp:265`,
+   `csrc/moe_combine_normal/op_host/moe_combine_normal_tiling.cpp:489`,
+   `csrc/moe_dispatch_normal/op_host/moe_dispatch_normal_tiling.cpp:579`; grep the log for
+   `HCCL_BUFFSIZE is too SMALL`, then retry at `1024`.
 4. **The known high-load DeepSeek-V3.2 family — quote it with its source class.** #4996 is a
    **maintainer-filed** issue in the prior-month corpus: "DeepSeek-V3.2 may report errors during
    decode stage under high-load scenarios, such as lightning indexer ops error … We will try our

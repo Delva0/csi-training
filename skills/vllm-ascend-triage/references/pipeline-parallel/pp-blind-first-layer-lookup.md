@@ -46,6 +46,16 @@ Consequences, and both are part of the answer:
   restart reproduces it, which is why the reporter's "works until the first
   request" reading is the correct one.
 
+## The same read, a second missing attribute
+
+The identical line also raises the same `AttributeError` naming a rope class and
+`cos_cached` instead, with **no** PP involved: the layer is real, and the rope class the
+checkpoint built registers no such buffers (only `AscendDeepseekScalingRotaryEmbedding`
+does). The object named in the message is the discriminator — `PPMissingLayer` ⇒
+this page, a rope class ⇒
+`../upstream-downstream-drift/mla-cos-cached-requires-scaling-rope.md` (recorded
+#5385, v0.11.0rc1: unscaled `config.json`).
+
 ## Cheapest order
 
 1. **The traceback already names the owner**; one command on their tree confirms

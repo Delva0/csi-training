@@ -49,10 +49,11 @@ pin_of() { # $1=file  $2=package regex (extended)
 }
 
 echo "== vllm-ascend: $asc"
-for p in 'torch-npu' 'torch\b' 'torchvision'; do
+for p in 'torch-npu' 'torch([=<>![:space:]]|$)' 'torchvision'; do
+  disp="$p"; case "$p" in 'torch([=<>![:space:]]|$)') disp='torch' ;; esac
   line="$(pin_of "$req" "$p")"
   if [ -n "$line" ]; then printf '  requirements.txt:%-4s %s\n' "${line%%:*}" "${line#*:}"
-  else printf '  requirements.txt     no %s pin\n' "$p"; fi
+  else printf '  requirements.txt     no %s pin\n' "$disp"; fi
 done
 
 hints="$(grep -nE '^[[:space:]]*--(pre|extra-index-url|index-url|find-links)' "$req" 2>/dev/null | tr '\n' ' | ')"
@@ -129,8 +130,43 @@ fi
 
 mm() { echo "${1:-}" | cut -d. -f1-2; }
 
+# the exact-pin-beside-floor shape of the build requirements: this pair is the
+# predictor of the build-deps "conflicting dependencies" error (§D), independent of
+# which tree the reporter has installed
+bs_tnp="$(sed -n '/\[build-system\]/,/^\[/p' "$py" 2>/dev/null \
+          | grep -oE 'torch-npu[=<>! ]+[Vv0-9][^",[:space:]]*' | head -1)"
+bs_torch="$(sed -n '/\[build-system\]/,/^\[/p' "$py" 2>/dev/null \
+          | grep -oE '"torch[=<>! ]+[Vv0-9][^",[:space:]]*' | sed 's/^"//' | head -1)"
+tnp_exact=""; case "$bs_tnp" in *"=="*) tnp_exact="${bs_tnp#*==}" ;; esac
+torch_floor=""; case "$bs_torch" in *">="*) torch_floor="${bs_torch#*>=}" ;; esac
+cpu_idx_line=""
+[ -f "$inst" ] && cpu_idx_line="$(grep -nE 'download\.pytorch\.org/whl/cpu' "$inst" 2>/dev/null | head -1 | cut -d: -f1)"
+req_has_tnp="$(grep -cE '^[[:space:]]*torch-npu[=<>! ]' "$req" 2>/dev/null || true)"
+setup_feeds=""
+[ -f "$asc/setup.py" ] && grep -q 'get_requirements()' "$asc/setup.py" && setup_feeds=1
+
 echo "== findings"
 n=0
+if [ -n "$tnp_exact" ] && [ -n "$torch_floor" ] && [ "$tnp_exact" = "$torch_floor" ]; then
+  n=$((n+1)); echo "$n. [build-system] pins \"$bs_tnp\" beside \"$bs_torch\": the two specs are only"
+  echo "   jointly satisfiable through a torch carrying the LOCAL label '+cpu' (torch_npu wheels"
+  echo "   pin 'torch==$tnp_exact+cpu' on x86_64; '>= $torch_floor' does accept '2.5.1+cpu' per PEP 440),"
+  echo "   and only download.pytorch.org/whl/cpu serves that label."
+  if [ -n "$cpu_idx_line" ]; then
+    echo "   The tree's own pip tab carries the x86 extra-index (installation.md:$cpu_idx_line), i.e. an"
+    echo "   x86 pip install is a documented path -- so do NOT read this report as 'no wheel for my arch'."
+  fi
+  echo "   Expected pip text when that index is not named: 'ERROR: Cannot install $bs_tnp and $bs_torch"
+  echo "   because these package versions have conflicting dependencies' + 'torch-npu $tnp_exact depends"
+  echo "   on torch==$tnp_exact+cpu' -- under 'x pip subprocess to install build dependencies did not run"
+  echo "   successfully' (§D) or from the main install (§C). Rung 1: --no-build-isolation (the host"
+  echo "   already carries the pair) or --extra-index-url https://download.pytorch.org/whl/cpu/."
+  if [ "${req_has_tnp:-0}" -gt 0 ] && [ -n "$setup_feeds" ]; then
+    echo "   requirements.txt carries the torch-npu pin and setup.py reads it into install_requires, so the"
+    echo "   WHEEL's metadata reaches torch through torch-npu's own ==torch pin (both legs) -- unlike the"
+    echo "   sdist-only v0.7.3rc2 shape, where nothing in the wheel's metadata names torch-npu."
+  fi
+fi
 # the torch line vllm-ascend actually lands on: its own torch pin, else what the
 # torch-npu pin implies (a torch_npu wheel hard-pins the matching torch)
 a_line="$a_torch"

@@ -23,6 +23,17 @@ crashed yet. Four faces of one decision:
   into an empty prefix, so the reporter's installed torch pair cannot satisfy them and the
   `+cpu` index ladder of §C is spent: **§D**.
 
+**Navigate by header, not by prefix.** The sections are ordered by paste shape, so §C/§D
+sit past line 250 while §A0 — the *other* no-message shape — is inside the first 120 lines:
+a `sed -n '1,140p'` read returns §A0 and looks complete, and has now cost two recorded runs
+(#446, #1411). One `rg -n '^## '` on this page, then the matching §, is the whole navigation.
+**And the paste is not the only trigger.** With **no pip output at all**, read the pin's own
+`[build-system] requires` first: when it puts `torch-npu==X` beside `torch>=X` (v0.8.5rc1
+`pyproject.toml:14-15`, mirrored at `requirements.txt:12-13`), §D's conflict is the failure
+that release produces on any x86 host whose index does not serve the `+cpu` label — so the
+first message carries §D's rung 1 and treats "x86 cannot install" as the reporter's premise,
+not a finding (#1411, reporter-confirmed).
+
 The sibling shape — the same two-command install ending in pip's *warning* block
 rather than an error — is `pip-resolver-warning-block.md`; it owns the "nothing
 failed" verdict and the device-gated metadata that decides it.
@@ -308,6 +319,30 @@ settle it at this ref:
 | `requirements.txt` (6 lines, no torch) + `setup.py:308,318,361` | `install_requires` carries **no** torch line, so a **wheel** install resolves nothing torch-shaped; this fails only on the **sdist** path. Both rcs arrived as `vllm-ascend-0.7.3rcN.tar.gz` on that mirror, which is why the box ever ran a build-deps step |
 | the two rcs' own build-deps logs | rc1's list is `Requirement already satisfied: decorator / pyyaml / scipy / setuptools`, `Collecting setuptools-scm`, then `numpy` / `packaging` from those — **no torch line**, so rc1's build requires never named torch. That is the answer to "why did rc1 install": the release moved the torch pair into the build requirements, not the runtime ones. Tags cannot be diffed here (`one_commit_git`), so the reporter's two pastes *are* the control |
 
+**The same words recur with a released pin, and there the pair also rides into the wheel's
+metadata.** #1411 (`pip install vllm_ascend==0.8.5rc1` on a 910B2 x86 host, internal
+`-i http://mirrors.aliyun.com/pypi/simple/ --trusted-host …`) is reporter-confirmed
+(`issuecomment-3059849201`): `ERROR: Cannot install torch-npu==2.5.1 and torch>=2.5.1 …
+torch-npu 2.5.1 depends on torch==2.5.1+cpu`, again under `× pip subprocess to install build
+dependencies did not run successfully`. At that pin `pyproject.toml:14-16` and
+`requirements.txt:12-14` are identical and `setup.py:359` is
+`install_requires=get_requirements()`, so the torch pair is in **both** legs — unlike
+v0.7.3rc2 above, where the wheel's metadata never named torch. Two consequences: `-i
+<mirror>` alone (no `--extra-index-url …/whl/cpu`) cannot resolve the pair from either leg,
+and the reporter's `pip list` showing `torch 2.5.1+cpu` beside `torch-npu
+2.5.1.post1.dev20250626` is again the installed pair saying nothing — the build env forces
+released `2.5.1`, while the dev wheel they wanted is *newer* than the exact pin but still
+satisfies the docs' `torch-npu | >= 2.5.1` table (`installation.md:15`), i.e. the same
+doc-versus-metadata drift, one pin later. Before ranking anything, run
+`bash <skill_root>/scripts/pip-pairing-check.sh <ascend-root> [vllm-root]`: its first
+finding restates the `torch-npu==X` / `torch>=X` pair, names the `+cpu` label as the only
+joint solution, prints the tree's own x86 extra-index line, and predicts this error text —
+which is also the check that rules out "no wheel was published for my arch": an
+`installation.md` that tells x86 users to add `pip config set global.extra-index-url
+https://download.pytorch.org/whl/cpu/` (`:126,129` at v0.8.5rc1) is the project saying the
+x86 pip install is a supported path, and that index exists precisely because the `+cpu`
+label is otherwise invisible.
+
 **Build requirements are resolved into an empty prefix, so the reporter's `pip list` can
 never satisfy them.** pip installs them with `--no-user --no-warn-script-location
 --disable-pip-version-check --no-compile --prefix <tmp>` (plus `--ignore-installed` when the
@@ -337,7 +372,10 @@ is the defect; the internal mirror is only where it surfaced.
 Ladder:
 
 1. `pip install vllm-ascend==<ver> --no-build-isolation` — the host already carries the pair,
-   and at v0.7.3rc2 the build needs nothing from torch when the custom ops are off
+   and the tree names this escape in its own install note (`installation.md:168` at v0.8.5rc1:
+   "If you're using `pip install -e .` and encourage a torch-npu version conflict, please
+   install with `pip install --no-build-isolation -e .`"), and at v0.7.3rc2 the build needs
+   nothing from torch when the custom ops are off
    (`setup.py:289-291`: `ext_modules` is appended only `if envs.COMPILE_CUSTOM_KERNELS is not
    None`, and the release note says compilation is disabled by default). One line, and it
    also answers the literal "why rc1 and not rc2".
@@ -448,6 +486,20 @@ build-deps command.
   network closed — use `scripts/pep440-local-check.py`) and on pip's build-env internals,
   which the *installed* pip answers in one grep and which no local tree can settle for the
   reporter's version. Verdict first, one rung, then stop.
+
+- **#1411** (vllm-ascend v0.8.5rc1 `ec27af3` + vllm v0.8.5.post1 `3015d563`; title
+  「x86 systems cannot be installed directly through `pip install vllm_ascend==xxx`」, env block
+  literally two lines, no pip output): 547 K prompt tokens and every assistant turn after the
+  first spent on the artefact question — `.github/workflows/` has no wheel-release file at that
+  pin, so the answer shipped "no x86_64 wheel is published" as cause 1, with the correct §D
+  conflict demoted to cause 2 and `--no-build-isolation` buried as ladder step 3. It had the
+  decisive pair in context by its 7th message (`pyproject.toml:14-16`, from one `sed -n '1,40p'`)
+  and the docs' x86 CPU-index line by its 6th (`installation.md:126`), and it read this page as
+  `sed -n '1,120p'` — so §C/§D never entered context, the second time that exact prefix read has
+  decided a run. The reporter's next comment is §D's verbatim text. Opening move for the
+  no-paste shape: `pip-pairing-check.sh` (one call, prints the predicted error and rung 1), and
+  rank "the arch has no artefact" **below** the `+cpu` label whenever the pin pairs an exact
+  `torch-npu==` with a `torch>=` floor.
 
 ## Not verified
 

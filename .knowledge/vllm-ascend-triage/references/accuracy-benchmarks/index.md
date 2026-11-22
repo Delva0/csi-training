@@ -313,6 +313,17 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (`vllm_ascend/worker/model_runner_v1.py:547-559`) — and #1791's cause was never
   established: ask for the DP1/DP2 A/B with EP fixed instead of naming a kernel.
 
+- **A corruption report whose only differing flag is `--enable-expert-parallel` (EP on =
+  garbage, EP off = correct) is a reduce-contract question, not a kernel one.** On a MoE
+  serve the model's own bare `tensor_model_parallel_all_reduce` re-sums a tensor the
+  Ascend MC2/ALLTOALL finalize already aggregated (~`tp_size`× overshoot), and the
+  same skip list fires for `sp_enabled` — so read `select_moe_comm_method` before
+  believing it: on A2 the double count needs EP on **and** `world_size_across_dp / pp >= 16`
+  **and** `num_tokens <= mc2_tokens_capacity`, which makes TP8-with-EP the free control
+  and prefill the correct-but-decode-corrupt half. Eight upstream model files carry the
+  pattern at vllm v0.14.1, not just the reported one →
+  `ep-mode-reduce-double-count.md`.
+
 ## Pages
 
 - `harness-vs-engine-attribution.md` — knob-by-knob checklist (thinking, max tokens,
@@ -412,7 +423,10 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   (#1754's PP × graph known-issue line, #374's 100%-reproducible upstream-clean run),
   and the #3547 ladder — including why that serve's `ascend_scheduler_config`
   `enable_chunked_prefill: true` means `schedule()` delegates to upstream, so "the
-  fork's chunked scheduling is buggy" is not available there.
+  fork's chunked scheduling is buggy" is not available there. Its Step 3b is the
+  zero-restart row to run before any dtype/wheel restart: a damaged or mixed-revision
+  **copy** of the checkpoint loads, serves and still emits one id (recorded #6136,
+  fixed by the reporter's re-download).
 - `first-generate-degenerate.md` — the first offline `LLM.generate()` is garbage
   (constant token id / immediate stop) or dies while call 2 is correct, on a
   hybrid GDN checkpoint of a VL-capable architecture at TP≥2: the response-field
@@ -599,3 +613,12 @@ Seven entry shapes leave this topic immediately and are not accuracy questions a
   reasoning, no text on 17 turns), the re-check at the release pin `5cb98caa`, and the
   second recorded report #17338 (27B W8A8, TP4, `FULL_DECODE_ONLY`) where the corruption
   arrives at 70-100 % acceptance.
+- `ep-mode-reduce-double-count.md` — 开启 EP 后输出乱码/胡言乱语、关掉 EP 正常 on a
+  MoE serve (A2/A3), and the code-change form of the same report: the downstream
+  `maybe_all_reduce_tensor_model_parallel` override and its `ALLTOALL|MC2|FUSED_MC2|sp_enabled`
+  skip list (`fused_moe.py:271-280`, `register_custom_ops.py:250-262` at v0.14.0rc1), the
+  upstream `reduce_results=False` default and the `dp_size > 1` dispatch gate that explains
+  why GPU is unaffected, the per-SoC/per-batch selector gate that says which configs are
+  actually corrupt (TP8 vs TP16 as the one-restart control), the eight-model sweep that is
+  the PR's real scope, and the fix placement (upstream model files; no `patch/model/`
+  downstream at that pin).

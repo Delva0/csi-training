@@ -13,7 +13,10 @@ Scope: the task is to *judge a document*, not to explain a crash. Entry shapes:
   mirror/flag/section that already exists elsewhere, or the contributor docs
   never state a prerequisite the image or `setup.py` demands — then the three
   deciding greps are "does it exist", "does anything link to it", "do the sibling
-  pages already carry it" (`missing-guidance-and-contributor-docs.md`);
+  pages already carry it" (`missing-guidance-and-contributor-docs.md`); or the page
+  *promises* a step that exists nowhere ("install extra operator", "am I expected to
+  compile `X`?"), where a fourth read decides the report — the same release's own
+  `release_notes.md` (same page, §#5158);
 - any "verify this recipe" request where the reporter's hardware is not
   available to you and the evidence is the **pinned tree**, not a run.
 
@@ -101,8 +104,13 @@ Conditional routes:
 - The report asks for *added* guidance or a cross-link, or reviews the
   contributor/developer path (mount, `set_env.sh`, `format.sh ci`, image tag):
   existence + reachability + parity greps, the `.po`-is-not-the-document rule,
-  and the verified #14423 / #17718 defect tables →
-  `missing-guidance-and-contributor-docs.md`.
+  and the verified #14423 / #17718 defect tables → `missing-guidance-and-contributor-docs.md`.
+  The same page's #5158 section owns the sibling shape — a tutorial sentence that
+  promises an **install/compile step which exists nowhere** ("install extra
+  operator", "am I expected to compile `X`?"): existence grep, sibling parity, then
+  the same release's own `release_notes.md` (which usually contradicts the page),
+  with the answer naming the image↔vllm pair and asking for the runtime error
+  instead of ending at "skip it".
 - The twelve-item audit checklist with the verified vllm v0.18.0 / vllm-ascend
   v0.18.0 and v0.19.1rc1 examples (dead `--swap-space` / `--disable-log-request`,
   `--random-input` vs `--random-input-len`, **which parses as an unambiguous

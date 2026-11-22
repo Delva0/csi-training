@@ -525,6 +525,14 @@ the support verdict* — is what does not move.
   (fp16) and `vllm-ascend/Qwen3-8B-W8A8` (`tensor_parallel_size=1, enforce_eager=True,
   max_model_len=16384`), and `rg -l 'Qwen3\.5|Qwen3_5' tests/e2e/310p` is empty: no hybrid model
   was validated on 310P at this release. Absence is quotable as coverage, never as the cause.
+  **This is a v0.18.0 fact and it flips later — re-run the grep at the reported pin before
+  quoting it.** At **v0.20.2rc1** the same command returns two files: `Qwen/Qwen3.5-4B` in
+  `tests/e2e/310p/singlecard/test_dense_model_singlecard.py:75,91` (tp1 fp16, one eager and one
+  `FULL_DECODE_ONLY` case) and a Qwen3.5 row in
+  `tests/e2e/310p/multicard/test_moe_model_multicard.py`. There "preview" (the doc line above)
+  and "no coverage" are no longer the same statement: the family is CI-covered for one dense
+  size, so the verdict is per-size and that CI command is the config control for a failing one —
+  `310p-cpu-fallback-op-fault.md` §*The GDN family on 310P*.
 
 ### The triton-less hybrid trap (rank it, do not try to prove it)
 

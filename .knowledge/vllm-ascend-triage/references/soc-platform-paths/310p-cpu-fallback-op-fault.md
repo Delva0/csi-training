@@ -138,6 +138,71 @@ unreachable for a default-sampling request.
    300, so "unsupported" is not the answer.
 5. The plog `[AIC_INFO] fault kernel_name=` block, `npu-smi info`, the full log.
 
+## The GDN family on 310P: prefill-only indexed writes, and the CI row that decides the verdict
+
+Recorded #13449: vllm-ascend **v0.20.2rc1** (`367b8e62da79`, image
+`v0.20.2rc1-310p-openeuler`), **one** Atlas 300I Duo 310P1 die (44 GB), CANN 9.1.0, driver
+25.5.t7, Qwen3.5 **0.8B and 9B** (hybrid GDN), `--dtype float16 --max-model-len 4096
+--enable-chunked-prefill --enable-prefix-caching --mamba-cache-mode align
+--mamba-ssm-cache-dtype float16 --max-num-seqs 8 --gpu-memory-utilization 0.6`,
+`FULL_DECODE_ONLY` with capture sizes `[1,4]`. Weights load, "Graph capturing finished in
+1 secs", KV cache sized, `/v1/models` is fine — the **first** chat request kills
+EngineCore with the same three lines as #11188 (`507018`, `RunCpuKernel`,
+`kernelName=IndexPut`) plus a frame that names the reporting point:
+
+```text
+RuntimeError: operator(): ../torch_npu/csrc/aten/common/LocalScalarDenseNpu.cpp:23
+  NPU function error: AclrtSynchronizeStreamWithTimeout(copy_stream), error code is 507018
+```
+
+- **`LocalScalarDense` on `copy_stream` is a `.item()` on a device scalar, and at this pin
+  the 310P path has exactly two of them:** `_310p/ops/causal_conv1d.py:137`
+  `int(cache_indices[i].item())` and `:142` `bool(has_initial_state[i].item())` — both
+  inside the per-request Python `for` over `splits`. So the loud frame is the first host
+  sync *after* the fault, and the owner is the launch before it. Same reading as
+  `../hccl-and-hardware/latched-runtime-error-masking.md`, one layer up in Python.
+- **The path is reachable for a GDN checkpoint on 310P, and the reachability read is
+  positive here:** `vllm_ascend/utils.py:793-794` imports `AscendGatedDeltaNetAttention310`
+  under `is_310p()`, so Qwen3.5 goes through `_310p/ops/fla/gdn_310.py` (the opposite of
+  the VL/OCR row above — that model never enters it).
+- **Both indexed writes are prefill-only.** At v0.20.2rc1 they sit inside
+  `if attn_metadata.num_prefills > 0:` (`gdn_310.py:249`): `:251`
+  `initial_state[~has_initial_state, ...] = 0` (boolean-mask write = `nonzero` +
+  `index_put_`) and `:269` `ssm_state[non_spec_state_indices_tensor] =
+  last_recurrent_state.to(ssm_state.dtype)`; the decode branch (`:270+`) calls the
+  dedicated `npu_recurrent_gated_delta_rule_310`. That is *why* every GDN report in this
+  family looks like "starts cleanly, dies on the first request" with `FULL_DECODE_ONLY`
+  capture succeeding — and why **`--enforce-eager` is not an ablation for it**: the
+  suspected writes are outside the captured decode region, so removing graph mode removes
+  nothing they run in.
+- **`--mamba-cache-mode align` + `--enable-prefix-caching` is the ranked sub-cause, not a
+  hypothesis-free guess:** under align mode the mamba state indices are built per block
+  with padding slots, and both statements index `ssm_state` with
+  `non_spec_state_indices_tensor`, and the prefill-side `npu_causal_conv1d_310` call
+  (`:178`, same tensor as `cache_indices` at `:184`, `initial_state_mode=has_initial_state
+  .to(torch.int64)` at `:185`; the spec-decode twin is `:161-173`) consumes it too, so one
+  bad slot can fault in either op. A padded/invalid slot is exactly the shape of an
+  out-of-range `index_put_`. The check is one launch, not a code walk.
+- **The capability verdict needs the CI row beside the doc line.** `310p.md`'s closing
+  note is only half the evidence at this pin: `tests/e2e/310p/singlecard/
+  test_dense_model_singlecard.py:75,91` runs `Qwen/Qwen3.5-4B` **on 310P single card**,
+  `tensor_parallel_size=1`, `dtype="float16"`, `max_model_len=16384` — one eager case and
+  one ACL-graph case (`cudagraph_mode: FULL_DECODE_ONLY`, capture sizes
+  `[1,2,4,8,16]`, `max_num_seqs=16`, `gpu_memory_utilization=0.80`,
+  `mamba_ssm_cache_dtype="float16"`, `fuse_norm_quant: False`) — with **no** prefix
+  caching, **no** chunked prefill and **no** `mamba-cache-mode align`. So Qwen3.5 on 310P
+  is CI-covered for one size, the verdict is **per-size** ("0.8B/9B are outside the
+  covered row, the family is not"), and that CI command *is* the config control the
+  ladder below should step back to.
+
+Ladder for this sub-shape: 1) `ASCEND_LAUNCH_BLOCKING=1` on the same request; 2)
+same box, the CI command as written (drop `--enable-prefix-caching` **and**
+`--mamba-cache-mode align` together — they are one pair), then drop
+`--enable-chunked-prefill`, `--max-num-seqs 16`, `--gpu-memory-utilization 0.8`; 3) the
+covered `Qwen/Qwen3.5-4B` on the same box (4B passes, 0.8B/9B fail ⇒ checkpoint/size;
+all fail ⇒ this flag set); 4) the plog `[AIC_INFO] fault kernel_name=` block. Do not
+spend a rung on `--enforce-eager` (see above).
+
 ## Then the capability verdict, in the same message
 
 The reported model is outside the pin's validated set on three axes, and the same document
@@ -146,7 +211,11 @@ says so: `docs/source/tutorials/hardwares/310p.md:405`, the closing note —
 with performance acceleration, follow #7394"* — while the table at `:98-107` validates only
 `Eco-Tech/Qwen3-{8B,14B,32B}-w8a8sc-310` (dense, 310-suffixed conversions). A generic
 `-w8a8` 35B-A3B MoE on a GDN family is therefore *documented preview*, and `#7394` is
-usable only for what the doc says about it. `atlas-300i-310p.md` holds the per-release
+usable only for what the doc says about it. Check it against the CI row in the section
+above before writing "unsupported": from v0.20.2rc1 the tree also runs
+`Qwen/Qwen3.5-4B` in `tests/e2e/310p/singlecard/`, so *preview* is the doc's statement
+about the sizes it does not list, never "no 310P coverage" — name which of the two you
+are extrapolating from. `atlas-300i-310p.md` holds the per-release
 blocks and the triton-less hybrid trap; the quantised-checkpoint axis is
 `310p-quant-checkpoint-soc-match.md`.
 

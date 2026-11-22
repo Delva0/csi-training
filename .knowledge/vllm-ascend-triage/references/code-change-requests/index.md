@@ -34,6 +34,14 @@ page (`../tutorial-verification/index.md`).
    into "the removal checklist, applied on the branch that carries PR #N".
    Cite the pinned `ref`/`commit` from `SOURCES.json` and say that the PR diff,
    its comments and the release it targets are not in the workspace.
+   **When the body quotes line ranges instead of a symbol, `wc -l` the file first**:
+   anchors past EOF, plus a "working copy at commit `<sha>`" that `git cat-file -t`
+   rejects, mean the report describes a **later tree** than the snapshot, so nothing
+   it asserts about those lines is verifiable here. A corpus neighbour that quotes the
+   same helper body then *dates* that refactor and hands you its shape — cite it as a
+   date and as a discriminator for the reporter's own run, never as source, and send
+   the one check that separates the two generations. Worked case: #14967 against
+   corpus #13214 in `../pd-disaggregation/proxy-load-balance-accounting.md`.
 2. **Retirement is a touch-point sweep, and the doc page is generated.** The
    answer is a checklist with `path:line` anchors, not prose about the flag. The
    per-tree anchors and the worked case are in `env-flag-retirement.md`; the

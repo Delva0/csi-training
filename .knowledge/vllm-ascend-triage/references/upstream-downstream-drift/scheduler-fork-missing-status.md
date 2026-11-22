@@ -1,6 +1,6 @@
 # Downstream scheduler fork missing an upstream request status
 
-Recorded three times, at two pins, with the same gap underneath (the *signature* variant of the same family — a fork that stops binding the base's constructor keyword — is `fork-ctor-arg-sweep.md`, #18688 at v0.23.0):
+Recorded four times, at two pins, with the same gap underneath (the *signature* variant of the same family — a fork that stops binding the base's constructor keyword — is `fork-ctor-arg-sweep.md`, #18688 at v0.23.0):
 
 - **#3979** — vllm-ascend `v0.11.0rc0` (`00ba07102212`) + vllm `v0.11.0rc3`
   (`8ce5d3198d00`), QwQ-32B-w8a8 on Atlas 800I A2, "其他模型有同样问题";
@@ -71,6 +71,43 @@ computation before building the SchedulerOutput, `should_advance` in
 `update_from_output`), and the general rule holds beyond this case: **when a fork
 drops an upstream state, enumerate every field that state fills, not just the branch
 that reads it.**
+
+## Why the older image looks fine: the request key, not the fork
+
+Recorded again as **#4006** at #3979's pins (vllm-ascend `v0.11.0rc0` `00ba07102212`
++ vllm `v0.11.0rc3` `8ce5d3198d00`, QwQ-32B-w8a8 on Atlas 800I A2), same body
+(`extra_body={"structured_outputs": {"json": ...}}`) plus the control half these
+reports carry: 0.10.2rc1 answers correctly, 0.11.0rc0 kills the engine. At the pinned
+vllm that control is **vacuous**, and the frontend shows why:
+
+- `structured_outputs` is the vllm-0.11 spelling. The four older names are still
+  fields, but deprecated in this tree's own words — `guided_json` says "Please pass
+  `json` to `structured_outputs` instead", same for `_regex`/`_choice`/`_grammar`
+  (`vllm/entrypoints/openai/protocol.py:540-591`) — and
+  `ChatCompletionRequest.to_sampling_params` forwards them into
+  `StructuredOutputsParams` (`:711-723`) before either form reaches `SamplingParams`
+  (`:783`) and sets `WAITING_FOR_FSM` (`vllm/v1/request.py:75`).
+- The frontend **accepts and drops** unknown request keys: `OpenAIBaseModel` is
+  `ConfigDict(extra="allow")` with a warning-only validator, `The following fields were
+  present in the request but ignored: %s` (`protocol.py:68-70`, `:75-100`). So on a
+  vllm line that predates the field the client's key builds no
+  `StructuredOutputsParams` → no state, no crash, and the JSON that comes back is the
+  model's own formatting. The same asymmetry explains why a *deprecated* `guided_*`
+  body still crashes at 0.11: that field exists there.
+
+Two reporter-side checks settle it; neither needs a 0.10.2 tree (the snapshot carries
+none). Grep the older image's server log for `present in the request but ignored` —
+the request names the key — or send `structured_outputs: {"choice": ["AAA", "BBB"]}`
+with a prompt that invites another string: an answer outside the set proves the
+constraint was never applied, while the same body on the new pin reproduces the crash.
+`--structured-outputs-config '{"backend": "xgrammar"}'` is **not** a discriminator
+here — it removes the fork gate, so the crash stops under both readings.
+
+Generalise it past this family: when "旧版本正常、新版本崩" is the reporter's only
+control and the body carries a **request field newer than the older image**
+(`structured_outputs`, `reasoning_effort`, a parser or `chat_template_kwargs` key),
+date the field before crediting the older run as a working baseline (SKILL.md rule 15:
+a control the reporter only asserts is a premise).
 
 ## The trigger can be `tool_choice`, not only `guided_*` / `response_format`
 

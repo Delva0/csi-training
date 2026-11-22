@@ -10,6 +10,22 @@ Inherits the scope and rules of `recorded-cases/index.md`, whose page for this
 family carries one line
 per case in this file.
 
+**#13688** image `vllm-ascend:v0.22.1rc1-a3` (pin v0.22.1rc1 `5f6faa0`), torch_npu
+2.10.0, CANN 9.0.0, 910C ×4 double-die = 8 chips; GLM-4.6V TP8+EP8 with
+`HCCL_OP_EXPANSION_MODE=AIV`: `rtEventRecord execution failed, reason=task not
+supported` + `507009` inside a `graph_task_group_begin`/`all_reduce` minimal repro,
+`507903` at `AclmdlRICaptureEnd`, and the serving first request hanging at
+`Replaying aclgraph` with `AIVector` 8–16 % / `AICore` 0 %. Two findings, two
+owners: `507009` = `ACL_ERROR_RT_TASK_TYPE_NOT_SUPPORT` (`rt_error_codes.h:91`) in
+torch_npu/CANN, while the serving deadlock is the MC2 × AIV family (#3881's
+mechanism, `../hccl-and-hardware/aiv-mc2-env-ablation.md`) — the reporter's matrix
+isolates an API pair the stack never builds, since all ten `graph_task_group_begin`
+regions at that pin wrap one compute op. The body also blames
+`patch_minimax_m2_config.py`'s AIV auto-enable, whose gate is `minimax_m2` +
+`not enforce_eager` (`:110-127`), so it did not fire for GLM-4.6V. Page:
+`../hccl-and-hardware/aiv-ric-task-group-capture.md` (new); family row
+`../hccl-and-hardware/aiv-mc2-env-ablation.md`.
+
 **#15906** vllm-ascend v0.26.0rc1 (`f2f74a1`) + vllm v0.26.0 (`568afb3`), GLM-5.3-w8a8c8,
 TP8 × DP4 over 2×910B2C (32 dies), `--decode-context-parallel-size 8
 --cp-kv-cache-interleave-size 128`, `--max-model-len 1048576`, both C8 flags,
@@ -1072,3 +1088,45 @@ settles `numRanks`: `accelerate launch --num_processes=1 … src/open_r1/grpo.py
 `CPU_AFFINITY_CONF`/`NPU_ASD_ENABLE=0`/`ACLNN_CACHE_LIMIT` list — world size 1. Ask for it
 on turn one. Page: `../hccl-and-hardware/comm-create-errors.md` §*The no-config `create`
 sibling*; route row in `../first-checks/signature-routes/device-ops-and-collectives.md`.
+
+**#960** vllm-ascend v0.8.5rc1 (`ec27af34`) against a **self-built vllm main**
+(`0.8.5.post2.dev0+g3015d5634`, pinned upstream v0.8.5 `ba41cc90`), verl DAPO rollout
+(`vllm_rollout_spmd.generate_sequences` → `LLM.generate`, `VLLM_USE_V1=1`, one host
+with 8 910B cards / 16 dies, `ASCEND_RT_VISIBLE_DEVICES=0..15`): the **first** generation step dies as `RayTaskError(AttributeError:
+'NoneType' object has no attribute 'sampled_token_ids')` at upstream
+`v1/core/sched/scheduler.py::update_from_output`, every frame `vllm/**` with no
+`vllm_ascend` frame, and the reporter's four screenshots point at
+`vllm_ascend/worker/worker_v1.py:175 return output if self.rank == 0 else None`.
+Track: **downstream/upstream drift in a returned value**, not a device fault. The
+recorded run found the textual asymmetry against upstream's `is_driver_worker`, then
+refuted it correctly *for the multiproc executor* (`multiproc_executor.py:288` derives
+one from the other) and had no third branch: the divergence is
+`ExecutorWithExternalLauncher` (`vllm/executor/uniproc_executor.py:68-120`), where
+`rank = os.environ["RANK"]` and `is_driver_worker = True` for every process — the
+backend torchrun/SPMD trainers select — so only `RANK=0` returns an output and every
+other engine dies in `update_from_output`. The paste's `core_client.get_output →
+engine_core.step()` (the `InprocClient`) is the corroborating tell. The run also burned
+its whole 16 384-token output budget inside that two-candidate sweep, emitted **no**
+message text, and never fingerprinted the reporter's vllm ref (pasted `core.py:294`
+vs the pin's `:192`; `dump_engine_exception` absent from the pin). Page:
+`../upstream-downstream-drift/execute-model-none-external-launcher.md` (run: no answer
+shipped).
+
+**#13449** vllm-ascend v0.20.2rc1 (`367b8e62`), image `v0.20.2rc1-310p-openeuler`,
+**one** Atlas 300I Duo 310P1 die (44 GB), CANN 9.1.0 / driver 25.5.t7, Qwen3.5 0.8B and
+9B `--dtype float16 --enable-chunked-prefill --enable-prefix-caching
+--mamba-cache-mode align --mamba-ssm-cache-dtype float16`, `FULL_DECODE_ONLY`
+`[1,4]`: weights load, capture finishes, KV sized, `/v1/models` 200, the first chat
+request kills EngineCore with `507018` + `The aicpu execution is abnormal` +
+`kernelName=IndexPut, soName=libpt_kernels.so, funcName=RunCpuKernel` and
+`RuntimeError: operator(): LocalScalarDenseNpu.cpp:23
+AclrtSynchronizeStreamWithTimeout(copy_stream)`. Track: the 310P CPU-fallback op family
+(#11188/#11450), with three things this case adds — the reporting point is the 310P
+conv path's per-request `.item()` (`_310p/ops/causal_conv1d.py:137,142`), both
+`index_put_` writes are inside `if attn_metadata.num_prefills > 0:`
+(`gdn_310.py:249-269`, decode uses a dedicated op) so graph capture and `--enforce-eager`
+are irrelevant, and `utils.py:793-794` proves the GDN 310P class is reached for a
+Qwen3.5 checkpoint. The run delivered twice, corrected its own "preview only" verdict
+after finding `tests/e2e/310p/singlecard/test_dense_model_singlecard.py:75,91` running
+`Qwen/Qwen3.5-4B` on 310P single card, and turned that row into the config control.
+Page: `../soc-platform-paths/310p-cpu-fallback-op-fault.md`.

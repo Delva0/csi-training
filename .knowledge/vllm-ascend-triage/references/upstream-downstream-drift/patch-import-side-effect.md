@@ -113,3 +113,48 @@ second prints `vllm_ascend.ops.fused_moe` once the import is forced.
   marks the ref `release_publication_unverified` (`version_role:
   dated_reference_only`), so a frame-line match is the evidence, not the issue's
   version string.
+
+## When the patch is applied: the serve-works / offline-fails claim
+
+"The patch must be imported before the offline script" is a claim to check, not to accept.
+
+Recorded #10870 (vllm-ascend `v0.13.0rc3` `bbe9bc0d` + vllm `v0.13.0` `72506c98`,
+`quay.io/ascend/vllm-ascend:v0.13.0rc3`, A3 single node, DeepSeek-V4-Flash): "在线推理正常
+拉起，离线推理报错 … deepseek_v4 相关 patch 未生效，所以 patch 需要在离线脚本前 import",
+with no error text at all. Two verified facts scope that claim rather than repeat it:
+
+- **For the engine itself the timing is identical in both paths.** `EngineArgs.__post_init__`
+  calls `load_general_plugins()` (`vllm/engine/arg_utils.py:576-589`, at this pin) — which
+  is where the 0day model registration arrives
+  (`setup.py:571-576`, `"ascend_0day_model = vllm_ascend:register_model"` under
+  `vllm.general_plugins`) — and `create_engine_config()` calls
+  `current_platform.pre_register_and_update()` (`:1312`) **before** it builds `ModelConfig`.
+  That hook is `adapt_patch(is_global_patch=True)` → `vllm_ascend.patch.platform`
+  (`utils.py:372-376`; `patch/platform/__init__.py:33` imports `patch_transformers`). So
+  `from vllm import LLM` and `vllm serve` reach the platform patches at the same point in
+  their lifecycles; the same two lines were re-read at vllm `v0.14.1` and did not move.
+- **The one place an offline script really can run earlier is the script's own code.**
+  `patch_transformers.py` registers the config class as a *module-level* side effect
+  (`AutoConfig.register("deepseek_v4", DeepseekV4Config)`, `:10`), so any
+  `AutoConfig`/`AutoTokenizer.from_pretrained(<checkpoint>)` the user's script performs
+  before the first engine construction parses the config before that registration exists —
+  the real ordering term, and the form in which the reporter's sentence is true. Its other
+  line, `vllm.transformers_utils.config.HFConfigParser = HFConfigParser` (last line of the
+  file), is **inert** at this pin: `get_config_parser("hf")` reads
+  `_CONFIG_FORMAT_TO_CONFIG_PARSER = {"hf": HFConfigParser, …}`
+  (`vllm/transformers_utils/config.py:227-243`), a dict built at import from the *original*
+  class, and nothing in `vllm_ascend/patch/` rewrites that dict
+  (`rg -n '_CONFIG_FORMAT_TO_CONFIG_PARSER|register_config_parser' vllm_ascend/patch/` is
+  empty) — so the patched parser body never runs and `_CONFIG_REGISTRY` is not filled from
+  it. Do not build a diagnosis on that assignment.
+
+So the answer shape for this family is: state the coverage (at `v0.13.0rc3`
+`docs/source/tutorials/DeepSeek-V4.md` is a **serve-only** recipe — no `from vllm import
+LLM`, `LLM(` occurs nowhere in it, its only "offline" mention is the benchmarking section —
+and no `tests/` or `examples/` file references the model), name the one order-sensitive
+step above, and **ask for the failing traceback**; without it the mechanism is open. Same
+family of requests already in the corpus: #8727 (the `deepseek-v4-agentic-support.patch`
+"patch does not apply"), #8699 and #8802 (`[Doc]` deployment example / verification script).
+Reading the config-parser internals is not the answer: #10870's run spent its full
+16 384-token output budget in reasoning across 25 tool-only turns — including this
+`_CONFIG_FORMAT_TO_CONFIG_PARSER` question — and emitted no text at all.

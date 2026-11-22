@@ -139,7 +139,12 @@ Conditional routes:
   errno:361001` is the next launch on the poisoned stream, not a second fault — read
   `kernelName=` and the timestamps) and the **VL/OCR model** case, where no
   `_310p/ops/fla/` indexed write is reachable and the sampler's Triton-absent penalty
-  fallback explains an `aclnnInplaceSub` but contains no `index_put_`.
+  fallback explains an `aclnnInplaceSub` but contains no `index_put_`. It also owns the
+  **GDN-family** form on the 310P line (#13449, v0.20.2rc1): the two `index_put_` writes
+  are prefill-only (`gdn_310.py:249-269`), the reporting frame is a `.item()`
+  (`_310p/ops/causal_conv1d.py:137,142`), `--enforce-eager` removes nothing, and the
+  capability verdict is per-size against the pin's own 310P e2e row for
+  `Qwen/Qwen3.5-4B` — which is also the config control.
 - The **create-time** sibling — `RuntimeError: LinearOperation CreateOperation failed!`
   (or `GroupTopkOperation …`) out of a `torch_npu._npu_*` call, typically the first ATB
   call inside `_warm_up_atb` — is **not** this route and not a pack question: no tensor was

@@ -27,6 +27,9 @@ It also covers **published-artefact availability**: when the tag or wheel the
 reporter needs was never built for their CPU architecture or SoC variant, the
 owner is the image/wheel pipeline, and the answer is the tag suffix plus one
 registry manifest read — not a vllm-ascend code path.
+The same pipeline owns the **host CPU's instruction-set level**: an aarch64 wheel
+built on an ARMv8.2 baseline dies with SIGILL on an ARMv8.0 core before any Python
+frame — `host-cpu-isa-sigill-at-import.md`, not a vllm-ascend defect and not the card.
 It also owns the **interpreter's own resolution residue**: what `import vllm`
 actually binds on the reporter's box when a checkout, a stray directory or an
 editable `.pth` wins over the install (the `(unknown location)` form is
@@ -65,6 +68,19 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   `free(): invalid pointer`, `double free or corruption`,
   `munmap_chunk(): invalid pointer`, `Aborted (core dumped)` — with no Python
   frame and no NPU/collective text → `native-import-abort.md`.
+- `import torch` (or any image-bundled `.so`) dies with **`Illegal instruction
+  (core dumped)`** — SIGILL, no Python frame, no engine log, usually a 310P box on a
+  Phytium D2000/FT-2000-class ARMv8.0 host — and the reporter's control is a lower
+  torch line that imports → `host-cpu-isa-sigill-at-import.md`. The owner is the
+  wheel's ARMv8.2 baseline against an ARMv8.0 core (reporter-confirmed on #13936:
+  「d2000只支持armv8 … torch.2.10默认使用armv8.2的指令集编译的」). One host-side
+  `dmesg -T | grep -i 'trap invalid opcode'` names the `.so`, `/proc/cpuinfo`
+  `Features` (or `LD_SHOW_AUXV=1`) names the missing extension, and the rung is the
+  last image line before the 2.10 bump (`release_notes.md:316`, v0.20.2rc1) — never
+  `pip install torch==2.9.0` under the newer `torch_npu`. The device-side aicore
+  `Illegal instruction, which is usually caused by unaligned UUB addresses`
+  (`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`) shares the words and
+  nothing else.
 - The startup dies in a vllm-ascend **inductor fusion pass** with
   `'_OpNamespace' 'vllm' object has no attribute '<op>'` (`qknorm_rope_fusion_pass.py`,
   `torch/_inductor/pattern_matcher.py` frames), and `pip list` does show a triton wheel →
@@ -348,6 +364,19 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   with MindIE Turbo.` INFO line is the probe for *which* process had it, decisive
   when the reporter says another entry path worked, and that ref's compatibility
   matrix has no MindIE Turbo column filled (answer the pairing question from it).
+- The **same wheel, no crash, and a quality complaint** — "some results have no
+  content / 概率性没有 content" under concurrency (a 40-way eval run is the recorded
+  setting), accuracy below the plugin-free run, or "not reproduced after uninstalling
+  mindie_turbo", on a release whose compatibility matrix **does** name a plugin
+  version → `mindie-turbo-pre-0.8-eager-and-quantizer.md` (#1954, v0.7.3.post1). Read
+  the version gate first: at ≤ v0.7.3.post1 `vllm_ascend/platform.py:110-114` forces
+  `NO_COMPILATION`, so the graph-break page's compile lanes are impossible there and
+  what is left is eager op substitution plus the plugin-owned w8a8 quantizer
+  (`quantization/quantizer.py:39-46`; at 0.7.3 w8a8 exists only through the plugin,
+  `faqs.md:82`). Rank the response body (`content` vs `reasoning`, `finish_reason`)
+  before any plugin mechanism, then the pinned `mindie-turbo==2.0rc1` contract
+  (`setup.py:371`, `conf.py:76`, `versioning_policy.md:70-71`) that the issue's own
+  bare `pip install mindie_turbo` breaks.
 - Nothing crashes and the question is a **version string**: `pip show
   vllm-ascend` reports `0.9.0rc2` while the reporter installed "0.9.1dev", asks
   whether that version exists at all, or asks why the official
@@ -365,6 +394,13 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
 - `native-import-abort.md` — the interpreter aborts inside an image-bundled
   native module (glibc allocator text, no Python frame): which copy is loaded,
   allocator interposition, dependency-list correspondence.
+- `host-cpu-isa-sigill-at-import.md` — `Illegal instruction (core dumped)` at the
+  first import: the host core's ISA level against the wheel's build baseline (D2000 =
+  ARMv8.0 vs Kunpeng 920 / D3000 = ARMv8.2), the host-side `dmesg`/`AT_HWCAP`/`gdb`
+  round trip, the release line that last carried torch 2.9 (`release_notes.md:658`,
+  bump at `:316`), why the whole image is swapped rather than torch, and the
+  ppc64le-gated `mcpu=native` line that is not aarch64 evidence (#13936,
+  reporter-confirmed).
 - `native-string-abort.md` — `terminate called after throwing … std::logic_error`
   / `basic_string::_S_construct null not valid` at engine start; the tutorial tab /
   image-tag match is step 0, the native probes and the `gdb` owner search follow.
@@ -471,7 +507,11 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   coming from the **build-dependency** subprocess (`× pip subprocess to install build
   dependencies did not run successfully`), where the pins are `pyproject.toml`'s
   `[build-system] requires` resolved into an empty prefix — the reporter's installed torch
-  pair cannot satisfy them, so `--no-build-isolation` is rung 1 (#446).
+  pair cannot satisfy them, so `--no-build-isolation` is rung 1 (#446). That §D text is also
+  the **expected** failure when the pin pairs `torch-npu==X` with a `torch>=X` floor and no
+  `+cpu`-labelled torch is visible — with no pip output pasted at all, read
+  `[build-system] requires` first and treat a title's "x86 cannot install" as a premise
+  (#1411, whose own pin tells x86 users to add the CPU index at `installation.md:126,129`).
 - `offline-source-build.md` — an offline source build: the own-source invocation
   chain (`setup.py` `build_aclnn` → `csrc/build_aclnn.sh` → `csrc/build.sh` →
   `csrc/CMakeLists.txt`), the five network legs with the existence gate that
@@ -484,6 +524,14 @@ Inherit the rules in SKILL.md; this topic is the counterpart of
   the recorded report's other (working) entry path is the first evidence, and the
   versioning-policy/`faqs.md`/`setup.py` answer to "does this plugin pair with
   this release" (#1534, v0.9.1rc1).
+- `mindie-turbo-pre-0.8-eager-and-quantizer.md` — the same wheel on the releases that
+  *do* pair with it (≤ v0.7.3.post1), where `platform.py:110-114` forces
+  `NO_COMPILATION` and the complaint is empty/partial output rather than a traceback:
+  the three log states of `try_register_lib` at that ref, the plugin-owned w8a8
+  quantizer, the downstream Qwen3/Qwen3-MoE forward copies it substitutes into, the
+  `mindie-turbo==2.0rc1` contract an unpinned `pip install` breaks, and the ranking
+  that puts the response body (reasoning routing / truncation) ahead of any plugin
+  mechanism (#1954; mechanism open).
 - `installed-version-vs-checkout.md` — `pip show` naming a different version than
   the reporter installed ("版本号显示不对"): what `setuptools_scm` can and cannot
   produce, why a shallow dev-branch clone yields `0.0.0` rather than a real number,

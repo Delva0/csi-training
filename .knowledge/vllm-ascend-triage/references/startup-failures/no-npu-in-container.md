@@ -65,6 +65,35 @@ Run the **same** `npu-smi info` on the host, outside the container:
 Ask for the host output verbatim (header versions + process table), because it also
 supplies the driver version the version-mismatch rung needs.
 
+## A responding `npu-smi info` is not a mount check (recorded #4847)
+
+This page's lane normally shows the probe *failing*. The inverse is a finding too: the
+container answers both `npu-smi info` commands, the engine starts, reads config and
+tokenizer, and only then dies — recorded #4847 reported a **weight-load** failure on a
+serve (image `v0.11.0rc2`, pin `a2e4c3f`) whose pasted `docker run` carried hccn_tool,
+`npu-smi`, driver `lib64/`, `version.info`, `ascend_install.info` and `.cache` but **not**
+`-v /usr/local/dcmi:/usr/local/dcmi`, which is line `:30` (and `:59`) of that release's
+own `docs/source/quick_start.md`. Adding the dcmi mount made weight loading work
+(reporter-confirmed, one variable); the start then moved on to an unrelated torchair
+profiling crash (`torchair-graph-profile-run-kv-cache-indexerror.md`). Recorded #302's
+`--privileged=true` rung below is the same lesson one layer up: the documented `docker
+run` is a *starting point*, and the reporter's copy is where the diff is read.
+
+Two consequences for the ranking:
+
+- `npu-smi info` exercises the `npu-smi` binary plus the driver libraries that *are*
+  mounted; it does not exercise every userspace path the engine's later phases take. A
+  green `npu-smi` therefore does not clear the mount list: diff the paste's `docker run`
+  against the pin's `quick_start.md` (or `installation.md`) block line by line and treat a
+  missing `dcmi` line as a finding by itself.
+- The phase such an omission surfaces in is not diagnostic — weight load here, a
+  device-count probe in the case above — so do not wait for `drvRet=87` before checking
+  the mounts.
+
+Mechanism is not verified: no exported source says which library call the weight-load
+path makes through `/usr/local/dcmi`, so quote the reporter's outcome and the doc diff,
+not a causal chain.
+
 ## Ladder, cheapest first
 
 1. **What the container actually maps.** `ls -l /dev/davinci* /dev/davinci_manager
@@ -73,7 +102,9 @@ supplies the driver version the version-mismatch rung needs.
    DEVICE=/dev/davinci0`, the four `--device` lines, `dcmi` + `npu-smi` + driver
    `lib64/` + `version.info` + `/etc/ascend_install.info`, `-p 8000:8000`). A paste
    that matches character for character (the recorded case below) exonerates "a missing mount"
-   but the list is a **minimum**: it carries no `--privileged`/`--cap-add`. Inference
+   but the list is a **minimum**: it carries no `--privileged`/`--cap-add`. A paste that
+   **omits** a line is a finding on its own even when the container answers `npu-smi` —
+   see *A responding `npu-smi info` is not a mount check* below. Inference
    to keep the ranking straight: `get platform info` / `drvGetDevNum` refuse **before**
    any `/dev` node is opened, so a `/dev` list shorter than the tutorial's cannot be the
    owner of a *count* failure — when the host's own `npu-smi` is healthy, go to rung 3

@@ -18,7 +18,9 @@ is one that breaks the command (the first two rows of the contributor table
 below are that case).
 
 Verified drivers: **#14423** (vllm-ascend v0.22.1rc1 `5f6faa0cb883`, vllm
-v0.22.1) and **#17718** (v0.23.0 `5cb98caaadef`, vllm v0.23.0 `0fc695fc6d1d`).
+v0.22.1), **#17718** (v0.23.0 `5cb98caaadef`, vllm v0.23.0 `0fc695fc6d1d`) and
+**#5158** (promised install step that exists nowhere, v0.12.0rc1 `42ceaf08a1ef`,
+vllm v0.12.0 `4fd9d6a85c00`).
 
 ## Checks, in order
 
@@ -60,6 +62,49 @@ v0.22.1) and **#17718** (v0.23.0 `5cb98caaadef`, vllm v0.23.0 `0fc695fc6d1d`).
    snippet hardcodes `TAG=v0.9.1` (`faqs.md:39`) while the same page's offline
    block substitutes `|vllm_ascend_version|` (`conf.py:81` = v0.22.1rc1). One
    extra defect line, same section.
+
+## A promised install step that exists nowhere (recorded #5158)
+
+The shape: a tutorial sentence tells the reader to install or compile something —
+`docs/source/tutorials/DeepSeek-V3.2.md:32`, "You can using our official docker image
+**and install extra operator** for supporting `DeepSeek-V3.2`" — the reporter cannot
+find the *how*, and asks whether a neighbouring issue's manual `deepseek_v3_ops` build
+is what they are expected to do (#5158; image `quay.io/ascend/vllm-ascend:v0.12.0rc1`,
+vllm-ascend v0.12.0rc1 `42ceaf08a1ef` + vllm v0.12.0 `4fd9d6a85c00`). Four reads, in
+this order:
+
+1. **Does the step exist anywhere?** `rg -n 'extra operator' docs/source --glob
+   '!**/locale/**'` → 2 hits, both tutorial prose (`DeepSeek-V3.2.md:32`,
+   `Qwen2.5-7B.md:27`): no script, `pip` line, URL or section. `installation.md:165-170`
+   documents building custom operators *from source*, not a post-image step, so the
+   promise has no target even by cross-reference.
+2. **Sibling parity.** `DeepSeek-V3.1.md:39` and `DeepSeek-R1.md:28` say "… to run
+   `<model>` **directly**", and the V3.2 sentence is the same template line as
+   `Qwen2.5-7B.md:27` (identical text, same "You can using"). One page inherited
+   boilerplate; the siblings state the correct behaviour.
+3. **Does the same release's own release notes contradict it?** The strongest line,
+   because both statements ship in one tag: `release_notes.md:8` under
+   `## v0.12.0rc1 - 2025.12.13` — "DeepSeek 3.2 is stable … **In this release, you don't
+   need to install any other packages now.**"; `:15` — custom ops became mandatory and
+   `COMPILE_CUSTOM_KERNELS` was removed; and the image builds the tree at build time
+   (`Dockerfile:62`, `Dockerfile.a3:61`), so there is nothing to install inside the
+   container. The only real optional extra at that tag is the **triton-ascend** wheel
+   (`release_notes.md:14`; aarch64, x86 builds from source) — most plausibly what the
+   sentence gestures at, and the page's own note at `:35` recommends it with no URL,
+   which *is* the defect worth filing. Tier: **stale/misleading**, not cosmetic; the fix
+   is the sibling wording plus a triton note carrying that URL.
+4. **Do not reconstruct the identifier the reporter cites.** `rg -n 'deepseek_v3_ops'`
+   over the whole tree returns 0 hits and #3278 is outside the snapshot (404): say both,
+   and do not derive a procedure from an issue number.
+
+**Then close the loop: a cleared step is not a working deployment.** This rung must not
+read "skip it and proceed". #5158's public follow-up (2025-12-19) is "I switch to latest
+main branch and hit another error" — the reporter, told the documented step does not
+exist, moved off the tag. So name the pair the verdict holds for (tag `v0.12.0rc1` ↔
+vllm 0.12.0 ↔ that release's own CANN/torch-npu row), say that a `main` checkout
+re-pairs vllm and the custom-op build and is a different report, and ask for the runtime
+error if deployment still fails — rule 14 of `SKILL.md`: the next attempt surfaces
+*different* errors.
 
 ## Contributor-path docs: run what the page names
 

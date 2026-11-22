@@ -97,18 +97,64 @@ shell, not in the driver's — same per-process rule as
 - **Ray "not supporting NPU"**: NPU is a community accelerator in Ray, so it must
   be declared; that is a launch line, not an install.
 
-## The doc gap is part of the answer
+## The doc gap is **pin-scoped** — re-check the report's own ref before repeating it
 
-The reporter followed `https://vllm-ascend.readthedocs.io/en/latest/tutorials/multi_node_ray.html`
-— a page **absent from the pinned release**: `docs/source/tutorials/` at
+The #3114 reporter followed `https://vllm-ascend.readthedocs.io/en/latest/tutorials/multi_node_ray.html`
+— a page **absent from that pinned release**: `docs/source/tutorials/` at
 `048bfd5` holds `multi_node.md`, `multi_node_kimi.md`,
 `multi_node_pd_disaggregation.md`, `multi_npu*.md` and `single_npu*.md`, and no
 `ray start` line exists anywhere in that tree
 (`rg -n "ray start|--resources|ray_device_key" -g '!tests/**'` returns only
-`platform.py:52`). So the launch commands the reporter copied cannot be verified
-here: state that, give the `ray status` check and the `--resources` fix, and ask
-for their two `ray start` lines. The reporter's own follow-up on #3114 was a docs
-PR ("可以合并这个，优化手册"), i.e. the manual, not the engine, was the defect.
+`platform.py:52`). So those launch commands cannot be verified there: state that, give
+the `ray status` check and the `--resources` fix, and ask for their two `ray start`
+lines. The reporter's own follow-up on #3114 was a docs PR ("可以合并这个，优化手册"),
+i.e. the manual, not the engine, was the defect.
+
+**But that absence is one pin's, and the page arrived soon after.** At vllm-ascend
+**v0.11.0rc1** (`c5fe179`) `docs/source/tutorials/multi_node_ray.md` **exists** (182
+lines: `ray start --head` `:112`, `ray start --address=…:6379` `:128`,
+`ray status` / `ray list nodes` `:131`, the `--distributed-executor-backend ray`
+serve lines `:144`/`:160`). Recorded #8156 read this page at v0.11.0rc1 and its first
+message still said "this tag ships no Ray deployment tutorial"; the retraction came one
+turn later, after `rg -ln ray docs/source/tutorials` found it. So: `rg --files
+docs/source/tutorials | rg -i ray` at the **report's** ref, one call, before any
+"no official recipe" sentence — and a recipe that exists is quoted with its pin, since
+what it contains (docker + manual `ray start`, in this case) is the answer to "is there
+a supported way".
+
+## A KubeRay RayService YAML
+
+It is a three-layer resource question, not an engine one. Recorded #8156 (image
+`v0.11.0rc1-openeuler`, Qwen2.5-0.5B, a KubeRay yaml asking for `tensor_parallel_size:
+1` + `pipeline_parallel_size: 2`, `rayVersion: 2.52.1`, the service stuck at
+`applicationStatus.llms: DEPLOYING` while `vllm serve … --distributed-executor-backend
+ray` worked by hand). Three layers, and a report of "起来之后没法申请到资源" is almost
+always the second:
+
+1. **K8s extended resource → Ray resource name.** The container requests
+   `huawei.com/Ascend910`; Ray knows only what each raylet advertises, and vLLM asks for
+   the literal `NPU` (`platform.py:52`). The bridge is `rayStartParams.resources`
+   (`resources: '{"NPU": 1}'`) on **every** group that must supply a device — a
+   `headGroupSpec` with `rayStartParams: null` and no device limit advertises no NPU at
+   all, which is what the driver-node check in the section above reads as 0.
+2. **Bundle arithmetic, not capacity.** The Serve deployment actor carries its own
+   `deployment_config.ray_actor_options.resources` (in #8156 `{NPU: 1}`) while the
+   engine inside it spawns one worker actor per rank — so a `pp=2` engine on two
+   devices is asking for three NPU bundles. Ray Serve LLM's own
+   `placement_group_bundles` is the knob that says so, and this export cannot be read
+   here: `ray/serve/` is **not** in the ray tree at that pin (`ls
+   /workspace/repos/<issue>/ray-project/ray/ray/serve` is empty — a gap to state, not
+   to reconstruct). Treat the bundle count as a labelled hypothesis and let the
+   reporter's `ray list placement-groups` (PENDING vs CREATED) settle it.
+3. **Env before `ray start`.** `HCCL_IF_IP`, `GLOO_SOCKET_IFNAME`,
+   `TP_SOCKET_IFNAME` are read from the raylet's environment at start (`:112-128` of the
+   tutorial), so a yaml that sets them on the container but starts the raylet first, or
+   starts it without them, has none of them — and a `pp=2` multi-node engine then picks
+   the wrong NIC or makes no progress before any vllm-ascend frame appears.
+
+The one command that separates 1 from 2 is `ray status` (Resources block: is there an
+`NPU:` line at all) plus `ray list placement-groups` (is the group PENDING); the engine
+log line `Connected to Ray cluster.` only says the GCS side is fine.
 
 ## Recorded run (#3114)
 

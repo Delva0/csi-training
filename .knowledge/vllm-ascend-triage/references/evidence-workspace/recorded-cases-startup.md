@@ -652,3 +652,32 @@ only relocates the error to worker start; and the traceback's `vllm/utils/__init
 No reporter follow-up in this snapshot. Page: `../startup-failures/environment-correspondence.md`
 (the `from vllm.utils import …` section, which also carries the newer pin's migrated
 form `from vllm.utils.torch_utils import STR_DTYPE_TO_TORCH_DTYPE`).
+
+**#4847** image `quay.io/ascend/vllm-ascend:v0.11.0rc2` (`a2e4c3f`) + vllm v0.11.0
+(`b8b302cd`), two nodes × 8 cards, `Qwen3-Coder-480B-A35B-Instruct-w8a8-QuaRot` with
+`--data-parallel-size 4 --data-parallel-size-local 2`, `--tensor-parallel-size 4`,
+`--enable-expert-parallel` and `--additional-config '{"torchair_graph_config":{"enabled":true}}'`:
+`EngineCore` fails in the memory-profiling dummy run with `IndexError: index 0 is out of
+bounds for dimension 0 with size 0` at `torchair_attention.py` `if kv_cache is not None
+and kv_cache[0].numel() > 0:`. The recorded run spent its whole 16 K output budget inside
+`torchair/*` and `model_runner_v1` and shipped **no message text**; the reporter's later
+public comments carry both fixes — the container's `docker run` omitted
+`-v /usr/local/dcmi` (weight loading failed until it was added) and dropping the
+`torchair_graph_config` key then let the service start. Mechanism and ladder:
+`../startup-failures/torchair-graph-profile-run-kv-cache-indexerror.md`; the container
+diff: `../startup-failures/no-npu-in-container.md` §*A responding `npu-smi info` is not a
+mount check*.
+
+**#8367** image v0.18.0rc1 (`99e1ea0f`) + vllm v0.18.0 (`bcf2be96`),
+`Qwen3-VL-32B-Instruct-w8a8-new` served with `--quantization ascend
+--tensor-parallel-size 4 --compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY", …}'
+--mm_processor_cache_type shm --async-scheduling`: engine start dies at model construction
+with `KeyError: 'lm_head.weight'` from
+`vllm_ascend/quantization/modelslim_config.py` `get_linear_quant_type`. The recorded run
+read the packed-modules table, `apply_vllm_mapper`, the upstream `qwen3_vl` mapper and the
+corpus for `lm_head` precedents (5 hits, none matching) and was truncated with **no
+message text**. The decisive pair is `qwen3_vl.py:1327-1332` (a literal
+`prefix="lm_head"`) against `:1374-1381` (`"lm_head."` →
+`"language_model.lm_head."`): the key the engine asks for cannot exist in a
+mapper-rewritten description, so the fix is the model file, not the export —
+`../startup-failures/empty-prefix-quant-keyerror.md` §*The renamed-prefix variant*.

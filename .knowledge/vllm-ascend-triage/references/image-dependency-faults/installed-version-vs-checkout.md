@@ -36,8 +36,10 @@ the source dir, not the packaging defect reported beside it (#3793: the real one
 `vllm_ascend/` reads it —
 `rg -n "__version__" vllm_ascend/` at that ref has exactly one hit,
 `utils.py:283-295` `vllm_version_is()`, which loads `envs.VLLM_VERSION` or
-`vllm.__version__` (vLLM's, never vllm-ascend's). The compatibility gates are
-keyed on vLLM's version.
+`vllm.__version__` (vLLM's, never vllm-ascend's); at v0.26.0rc1 the same grep returns two,
+`utils.py:586` and `profiling_config.py:31`, both `vllm.__version__`. The compatibility gates
+are keyed on vLLM's version, so a vllm-ascend string that disagrees with the checkout name
+nothing that gates behaviour — say that before explaining the derivation.
 
 ## One call decides the cause
 
@@ -59,6 +61,25 @@ arithmetic on these two outputs.
   `0.9.0rc2`; N commits past it → `0.9.0rc3.devN+g<sha>`. A bare `0.9.0rc2` with no
   `.devN+g…` suffix therefore means the built tree sat *exactly* on that tag, or the
   number is a leftover dist-info. Nothing else produces that string.
+- **Exactly on the tag, but the working tree is dirty** ⇒ `X.Y.(Z+1).dev0+g<sha>.d<YYYYMMDD>`
+  — the fourth string, and the one that reads as "a version newer than the tag I checked out".
+  `setuptools_scm`'s default scheme is `guess-next-dev` + `node-and-date`, so `exact` is false
+  whenever `distance != 0` **or** the tree is dirty: the tag's last field is bumped and `.dev0`
+  is appended (distance 0 is *why* it is `.dev0`), and the local part gains `.d<build date>`.
+  `0.23.1.dev0+g5cb98caaa.d20260915` off tag `v0.23.0` is therefore "v0.23.0 + uncommitted
+  edits, built 2026-09-15", not the release `0.23.1` (#16559 — `docs/source/conf.py:16` fixes
+  the release form as `vX.Y.ZrcN`, and `rg -n '0\.23\.1' docs/source` returns nothing in that
+  tree). Both projects use these defaults, and the corpus confirms both halves:
+  `0.11.1.dev0+gb8b302cde.d20251020` (`#3548`, `#3689`, vllm),
+  `0.9.3.dev0+ga5dd03c1e.d20250911` (`#3965`) and
+  `0.23.1.dev0+g0fc695fc6.d20260625.empty` (`#11296`, vllm) are the dirty-at-distance-0
+  shape. The control is the distance: `0.23.1.dev15+g90ce6b11d` (`#14974`, **vllm-ascend**
+  beside vllm `0.23.0`) and `0.23.1.dev30+gfe30dc0a8` (`#13973`, `#14265`) are "N commits
+  past `v0.23.0`" with no dirty date, so a `.dev0+d<date>` string is the dirty case and not a
+  different branch. `git describe --dirty` only counts **tracked**
+  modifications, so untracked files do not explain it; `SETUPTOOLS_SCM_PRETEND_VERSION=<tag>`
+  pins the string when the tree must stay dirty. `pyproject.toml` at v0.26.0rc1 carries no
+  `[tool.setuptools_scm]` section, so the defaults above apply.
 - **No reachable tag, but git metadata present** ⇒ `0.1.devN+g<sha>`
   (`0.1.dev1+gf5f88f78b` is the reported dev-image value). The base `0.1` is
   setuptools_scm's `guess-next-dev` fallback from 0.0, and the `+g<sha>` local
@@ -66,7 +87,7 @@ arithmetic on these two outputs.
   string proves "built from a checkout whose tags were not fetched", not "built
   from something else". `0.0.0` is the *other* branch, `setup.py`'s
   `except LookupError` (`v0.9.1 setup.py:279-285`), reached when there is no SCM
-  metadata at all (an unpacked tree). Read which of the three strings is in the
+  metadata at all (an unpacked tree). Read which of the four strings is in the
   paste before ranking a cause; the derivation is labelled as such, and the
   reporter's own `git -C <checkout> describe --tags --always` closes it.
 - `+empty` (vllm) is **not** a setuptools_scm artifact: `vllm/setup.py:548-554`

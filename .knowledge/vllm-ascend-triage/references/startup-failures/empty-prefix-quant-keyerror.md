@@ -1,4 +1,5 @@
-# `KeyError: '.weight'` — the quant-method lookup ran with an **empty** prefix
+# `KeyError: '.weight'` / `'lm_head.weight'` — the quant-method lookup asked for a
+key no checkpoint description can carry
 
 Lane B, every rank, at **model construction** (after `Starting to load model`, before
 any shard progress), on a quantised dense checkpoint whose model file builds its
@@ -29,7 +30,11 @@ on a foreign format renamed onto `ascend` (or, when the directory is the
 Ascend-native conversion and the reporter already runs it under MindIE, §C-ii's
 description-source question — same key, different owner). Same frame, opposite fact: there the
 checkpoint's description does not match the keys the engine asks for; here the engine
-asks for a key nobody could write. Route on whether the quoted key has a module path.
+asks for a key nobody could write. Route on the quoted key: a bare `.weight` (a dot
+at the front) is the empty-prefix case below; a key whose module path is one of the
+model's own `hf_to_vllm_mapper` `orig_to_new_prefix` origins (`lm_head.`,
+`model.visual.`, `model.language_model.`) is the **renamed-prefix** case further
+down, also this page; any other key with a real transformer-layer path is §C.
 
 ## The mechanism: an upstream model file omits one kwarg
 
@@ -75,7 +80,9 @@ Verified at those two pins (one-commit snapshots):
    *does* carry a prefix, run the same pair over the whole directory to see whether the
    crash comes from another module (MTP/drafter, a VL tower) rather than the main
    embedding: the condition is the pair, and the deepest `vllm_ascend` frame only says
-   which layer asked, not which file decided.
+   which layer asked, not which file decided. A block that *does* carry a prefix is not
+   automatically right: a literal `prefix="lm_head"` inside a VL wrapper is renamed by
+   that class's `hf_to_vllm_mapper` — see the renamed-prefix section below.
 2. **Check the description has the key the fix will look up.** The file is
    `quant_model_description.json` in the served model directory (the name
    `AscendQuantConfig.get_config_filenames` declares,
@@ -91,6 +98,68 @@ Verified at those two pins (one-commit snapshots):
    un-prefixed module would crash the same way; check `lm_head` in the same file. In
    the recorded case `lm_head` already passes `maybe_prefix(...)`, which is why one line
    sufficed — read it, do not assume it.
+
+## The renamed-prefix variant: a literal `prefix=` that `hf_to_vllm_mapper` rewrote (recorded #8367)
+
+Same lane (model construction, every rank, before any shard bar), same function, but the
+quoted key **has** a module path — and that path is exactly one the model's own weight
+mapper renames:
+
+```text
+(Worker_TP0 pid=2029) ERROR ... [multiproc_executor.py:852]   File ".../vllm_ascend/quantization/modelslim_config.py", line 292, in get_linear_quant_type
+(Worker_TP0 pid=2029) ERROR ...     quant_type = quant_description[prefix + ".weight"]
+(Worker_TP0 pid=2029) ERROR ... KeyError: 'lm_head.weight'
+```
+
+Recorded #8367 (vllm-ascend v0.18.0rc1 `99e1ea0f` + vllm v0.18.0 `bcf2be96`;
+`vllm serve /data/Qwen3-VL-32B-Instruct-w8a8-new --quantization ascend
+--tensor-parallel-size 4 --compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY", …}'
+--mm_processor_cache_type shm --async-scheduling`). Verified at those two pins:
+
+1. The model file hard-codes the prefix: `vllm/model_executor/models/qwen3_vl.py:1327-1332`
+   builds `ParallelLMHead(…, prefix="lm_head")` literally, while the same class's parent
+   passes `prefix=maybe_prefix(prefix, "language_model")` (`:1434`, class default
+   `prefix: str = "model"` at `:1391`) and other families in the tree use
+   `maybe_prefix(prefix, "lm_head")`. The lookup key is therefore `lm_head.weight`.
+2. The same class's mapper renames that prefix: `hf_to_vllm_mapper = WeightsMapper(
+   orig_to_new_prefix={"model.visual.": "visual.", "lm_head.":
+   "language_model.lm_head.", "model.language_model.": "language_model.model."})`
+   (`:1374-1381`), and `configure_quant_config` applies it to the description **before**
+   the model is built (`vllm/model_executor/model_loader/utils.py:49` →
+   `apply_vllm_mapper` → `hf_to_vllm_mapper.apply_dict`, `models/utils.py:109-114`, the
+   prefix rule in `_map_name` at `:77-82`).
+3. No export spelling can satisfy that lookup: `lm_head.weight` is renamed to
+   `language_model.lm_head.weight` by the mapper, while a description that already says
+   `language_model.lm_head.weight` is left alone — the engine still asks for
+   `lm_head.weight`. **Editing the checkpoint's description cannot fix this**; the file to
+   change is the model file (or the release).
+4. The downstream side is only the hard index: `modelslim_config.py:292` is the `else`
+   branch, taken because a `proj_name` of `lm_head` is not in
+   `packed_modules_model_mapping`, and `quant_prefix_mapper` (`:432-434`) returns the
+   prefix unchanged. Same pair as the empty-prefix case one indent later — an upstream
+   model file's `prefix` kwarg plus a hard dict index.
+
+What to answer, and the traps:
+
+- The fix is to thread the prefix — `prefix=maybe_prefix(prefix, "lm_head")` at the
+  reported class, which with the parent's `language_model` prefix yields
+  `language_model.lm_head`, the key the mapped description carries. Grep the reporter's
+  own family first (`rg -n 'prefix="lm_head"|"lm_head\.":' <vllm>/vllm/model_executor/models/`):
+  this is a per-model-file property, not a per-release one, and VL wrappers are where it
+  appears.
+- Not a `.get(prefix + ".weight", "FLOAT")` default — `get_quant_method` decides every
+  linear, so the service would start and the arithmetic would be wrong (same reasoning as
+  the empty-prefix fix above).
+- Rungs that cannot move it: `--enforce-eager`, `--compilation-config`
+  (`cudagraph_mode`, capture sizes), `--mm_processor_cache_type`, `--async-scheduling`,
+  `--max-model-len`, TP size. Construction precedes the first shard read and does no
+  device work, so the oddest flag in the command is not a lead here (SKILL.md rule 11).
+- Acceptance is one real request compared against the same weights served unquantised
+  (or a reference run), not a healthy `/v1/models`: the change decides which quant method
+  the head uses.
+- Version scope: verified only at the two pins above. Whether a later release threads the
+  prefix is not in the snapshot — say "cannot be checked from here" and hand over the grep
+  that settles it at the reporter's ref.
 
 ## What to answer
 
@@ -125,10 +194,12 @@ Verified at those two pins (one-commit snapshots):
 
 ## Traps this page exists for
 
-- **Do not read the bare key as a checkpoint-format finding.** `KeyError: '.weight'`
-  says the *engine* asked with an empty prefix; only keys that carry a module path
-  belong to the quant-description-mismatch lane (`quantization-method-gate.md` §C) or
-  to `weight-scale-keyerror-quant-variant.md` (aux `*_scale`/`*_offset` tensors).
+- **Do not read the key as a checkpoint-format finding.** `KeyError: '.weight'`
+  says the *engine* asked with an empty prefix; `KeyError: 'lm_head.weight'` on a VL
+  model says it asked with a literal prefix its own mapper renamed. A key with a real
+  transformer-layer path and no mapper origin belongs to the quant-description-mismatch
+  lane (`quantization-method-gate.md` §C), and an aux `*_scale`/`*_offset` key to
+  `weight-scale-keyerror-quant-variant.md`.
 - **The frames below the loader are the model's, and the deepest `vllm_ascend` frame is
   not the owner.** `vocab_parallel_embedding.py` only forwards `prefix=`; the value was
   decided in the upstream model file. Answer with both anchors (`llama.py:386-390` +
@@ -139,7 +210,9 @@ Verified at those two pins (one-commit snapshots):
 
 ## Scope and limits
 
-Verified at vllm-ascend v0.13.0rc1 (`1b5d5abf`) + vllm v0.13.0 (`72506c98`) only: the
+Verified at vllm-ascend v0.13.0rc1 (`1b5d5abf`) + vllm v0.13.0 (`72506c98`) for the
+empty-prefix case, and at vllm-ascend v0.18.0rc1 (`99e1ea0f`) + vllm v0.18.0
+(`bcf2be96`) for the renamed-prefix case: the
 constructor defaults, the `quant_config=`-without-`prefix=` condition and the 17 call
 sites listed above, the hard dict index, the `quant_model_description.json` file name
 and the support-matrix rows. That site list is a property of **that** vllm pin — re-run

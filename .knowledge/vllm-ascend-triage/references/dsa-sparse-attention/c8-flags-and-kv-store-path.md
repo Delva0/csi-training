@@ -95,6 +95,19 @@ or network fault, and asking for network evidence first costs the session.
    ladder is therefore **re-send a fresh prompt (or add a nonce)**, before any warm-up
    story; after that this row is `../accuracy-benchmarks/garbled-long-context-output.md`
    (its grade table and ablation ladder are keyed on exactly this flag).
+   **When the paste's `--hf-overrides` carries `use_index_cache` / `index_topk_freq`
+   (neither key appears anywhere under `docs/` at this pin), do not call
+   `index_topk_freq` a "recompute every N steps"**: it is a **per-layer** gate,
+   `_skip_topk = max(layer_id - index_skip_topk_offset + 1, 0) % index_topk_freq != 0`
+   with `index_skip_topk_offset` defaulting to 2
+   (`vllm_ascend/patch/worker/patch_deepseek_v2.py:198-231`), so `freq: 4` leaves most
+   indexer layers reusing cached top-k indices instead of computing them
+   (`sfa_v1.py:2052` `_update_indexcache_topk_indices`). The two checkpoints differ
+   there and the comment at `:49-54` says how: GLM-5.2 marks shared indexers in its own
+   `indexer_types[layer_id] == "shared"` (so a skipped layer also skips building an
+   `Indexer`), while the runtime override on GLM-5.1 only skips the top-k computation
+   because its checkpoint carries an Indexer for every layer. Ablate by dropping both
+   keys; row/buffer mechanics are `sfa-sparse-indices-row-mismatch.md`.
 3. **`MTE invalid GM address` / `0x800000` in a KV-reading kernel** under
    `--decode-context-parallel-size` > 1, `retCode=0x26 [aicore exception]` + `507015`
    with `fault kernel_name=LightningIndexerQuant_…` (#14320, reporter-confirmed: the
@@ -119,7 +132,18 @@ its layouts, and they are not interchangeable:
 | 5.1.2 multi-node, "A3 series", **GLM-5.2-w4a8c8**, 2 nodes | `:211`, `:261` | `enable_sparse_sfa_c8: false`, `enable_sparse_li_c8: true`, `c8_enable_reshape_optim: false` |
 | 5.1.3.1 "Deployment on 4 Atlas 800 A3", **GLM-5.2-w8a8c8**, TP16 × PP2, `max-model-len 202752` | `:505`, `:579` | all three `true` |
 | at v0.23.0rc1 `f4a08bd`, the **8-node Atlas 800 A2 (910B)** PD block, "Deployment on 8 Atlas 800 A2" | `:982-1212`; flags `:1059-1060` (P), `:1142-1143` (D); prose `:984` | **both** `enable_sparse_sfa_c8: false`, `enable_sparse_li_c8: false`, and **no DCP**; connector `MooncakeConnector` + `kv_connector_module_path` (`:1040,1121`), decode `DP8 TP4`, P/D MTP `1`/`3`, mml `115168`/`135168` |
-| at the same pin, the **1M PD** block (A3-class context) | `:1365` (P), `:1436` (D) | both C8 flags `true`; `enable_flashcomm1`/`enable_dsa_cp` true on P and false on D; `recompute_scheduler_enable: true` on **both** (re-verified at `f4a08bd` — the P block is `--enforce-eager` with no `--compilation-config`, D carries `cudagraph_mode: FULL_DECODE_ONLY`); connector `MooncakeConnectorV1` **alone** (`:1371`, `:1442`) — `AscendStoreConnector`/memcache appears nowhere in the file, so adding it is the deviation to rank, not a recipe row |
+| at the same pin, the **1M PD** block (A3-class context) | `:1365` (P), `:1436` (D) | both C8 flags `true`; `enable_flashcomm1`/`enable_dsa_cp` true on P and false on D; `recompute_scheduler_enable: true` on **both** (re-verified at `f4a08bd` — the P block is `--enforce-eager` with no `--compilation-config`, D carries `cudagraph_mode: FULL_DECODE_ONLY`); connector `MooncakeConnectorV1` **alone** (`:1371`, `:1442`), so adding `AscendStoreConnector` is the deviation to rank, not a recipe row |
+
+**Pin the connector rows separately from the flag rows — "appears nowhere" is a
+per-pin statement.** At v0.26.0rc1 `f2f74a1` the file is 1 832 lines and
+`AscendStoreConnector` appears exactly twice, both inside 5.1.3.2 *Deployment on 8 Atlas
+800 A2* (`:836-:1106`): `:917` producer and `:1019` consumer, each with
+`"backend": "mooncake"`, while 5.1.3.1 (4 Atlas 800 A3, `:378-:835`) carries none. A
+`"backend": "memcache"` block is nevertheless legitimate — it is a documented kvpool
+backend (`docs/source/user_guide/feature_guide/kv_pool.md:30`, with `use_layerwise`
+prefill-only, `:33`) — so #15927's P/D blocks are the **A2 section's connector copied
+into the 4-node A3 recipe**, not an invented one: name the section each block came from
+instead of ranking the backend.
 
 **The C8 flags are a per-SoC, per-topology recipe row, not a project default.** The
 same model's tutorial carries `false/false` for the 910B 8-node layout and
@@ -166,7 +190,16 @@ spec contracts apart).
 3. Two ablations, cheapest first: `c8_enable_reshape_optim: false` (write path only),
    then `enable_sparse_sfa_c8: false` with `enable_sparse_li_c8: true` (the w4a8c8
    recipe's own combination).
-4. Open question, and say it is open: the snapshot carries **no fix**, and nothing in
-   the pin decides whether the hang is the AICPU metadata kernel itself or a mismatch
-   between the `slot_mapping`-derived groups and the rows written under
-   `enable_dsa_cp`. A P-worker plog of the last launched op settles which.
+4. Open question, and say it is open: the snapshot carries **no fix**. The
+   "CP-local write rows against a full `slot_mapping`" reading is **not** what the pin
+   shows: under `enable_dsa_cp` the LI keys are gathered anyway
+   (`_maybe_gather_kv_for_dsacp`, `sfa_v1.py:1582`; `k_li` `:1630-1638`, `k_li_scale`
+   `:1640-1650`) and both write branches index with the full `slot_mapping` (`:1997`,
+   `:2015`), the same tensor handed to the metadata op (`:462`). What stays open is
+   (a) which of the two custom ops stalls — the AICPU metadata kernel or
+   `store_kv_block` itself — and (b) the DCP pads: `slot_mapping` is rounded up to
+   `_round_up(num_input_tokens, tp)` and filled with `-1` (`:372`, `:385-389`) before
+   it reaches the metadata op (`:462`) while the `group_*` arrays it produces are
+   consumed by `store_kv_block`, so check those `-1` rows against the first-zero
+   `group_len` scan. A P-worker plog of the last launched op settles (a); a one-layer
+   repro of the metadata op settles (b).

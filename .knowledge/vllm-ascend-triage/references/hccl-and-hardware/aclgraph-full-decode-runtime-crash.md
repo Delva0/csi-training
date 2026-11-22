@@ -76,13 +76,37 @@ config axis (EP × FULL) and the project's own workaround, so on a GLM-5.x launc
 one re-run, ahead of any mechanism below. Attribute the line before quoting it, by the
 heading rule above: `:181` belongs to the section that opens at `## v0.21.0rc1`
 (`:47`), **not** to `## v0.22.1rc1` (`:3`), and the newest section does not restate it,
-so quote the section it is in and label its status at the reporter's ref as unknown.
+so quote the section it is in and **date it against the reporter's ref** before ranking it
+(next paragraph).
 One pin check makes the row actionable: nothing
 enforces it. At v0.22.1rc1 the only `FULL → PIECEWISE` coercion in `vllm_ascend/platform.py` is
 the encoder-decoder one (`:569-584`), beside `→ NONE` for a non-`VLLM_COMPILE` mode
 (`:533-538`), so a GLM-5.x + EP + FULL launch runs the combination the row calls out and no log
 line refuses it. Rung 1 is therefore the row's own workaround (`PIECEWISE`, or
 `--enable-expert-parallel` off), not a flag the reporter invented.
+
+**A row postdates every release above its heading — read the heading date before calling a
+row "the release's own statement".** Each heading in this file carries a date and the
+sequence is *date*-descending even where the versions are jumbled (at `e20f0b1`:
+`## v0.17.0rc1 - 2026.03.15` `:3`, `## v0.16.0rc1 - 2026.03.09` `:56`, `## v0.15.0rc1 -
+2026.02.27` `:147`, `## v0.13.0 - 2026.02.06` `:236`, `## v0.14.0rc1 - 2026.01.26`
+`:349`), so the section a row sits in is its **earliest applicable release**. A reporter on
+an older release is not covered by that row at all, and the honest label is *postdates your
+ref*, not *status unknown*. Recorded #7448 is exactly that case — GLM-5-w4a8,
+`--enable-expert-parallel`, `FULL_DECODE_ONLY`, DP2×TP8, on **v0.17.0rc1 `e20f0b1`, the
+reporter's own release and the snapshot pin**: that tree's `### Known Issue` block (`:50`)
+carries only the `GLM5 requires transformers==5.2.0 … will not included in v0.17.0` row
+(`:52`), the EP × FULL row **is not in the file at all** (`rg -n 'Expert Parallel is used
+together with FULL' docs/source/user_guide/release_notes.md` is empty there — it first
+appears in a later pin's `## v0.21.0rc1` section), and `platform.py:308-315` only logs
+"FULL_DECODE_ONLY compilation enabled on NPU" and turns inductor off; nothing refuses EP.
+So the combination is **unvalidated there, not declared**: hand the mode/EP ablation over as rung 1 on the
+recorded-case evidence (§8 — #8587 removed it by dropping `--compilation-config`,
+#9263/#11680 are the same signature) and name the later row as something they can try, not
+as their release's own workaround. Do not invert the reading either: the
+absence-from-a-newer-section inference two paragraphs up works only where the row promised
+a fix ("We'll fix it in next release"); a row that offers a *workaround* is not resolved by
+a later section's silence.
 
 `Replaying aclgraph` proves only that *some* captured graph replayed. On a
 spec-decode launch read the gate before attributing the fault to that replay: with
@@ -253,13 +277,21 @@ under any full mode. That `else` also dates the config: a paste which reached th
 update ran `FULL_DECODE_ONLY`, not `FULL`, because `cudagraph_runtime_mode ==
 CUDAGraphMode.FULL` comes only from that mode's decode half.
 
-## 4. Two discriminators, both read off the config
+## 4. Three discriminators, all read off the config
 
 - **Bucket.** `cudagraph_capture_sizes` against the concurrency at first
   failure: `[1, 8, 16]` dying at 8 means bucket 8 is the failing graph; `[1]`
   dying at 1 means it is not bucket-specific. The log also prints
   `Starting to capture ACL graphs for cases: […]`. One datum, and it splits
-  "one bad bucket" from "every replay".
+  "one bad bucket" from "every replay". **The entries are padded token counts,
+  not sequence counts**: divide by `1 + num_speculative_tokens` before comparing
+  with a concurrency, and take the ceiling from the serve line — at v0.19.1rc1 the
+  platform's own maximum is `min(max_num_seqs × (1 + num_spec), 512)`
+  (`vllm_ascend/platform.py:158-192`) and a user list that stops below it makes
+  every larger step dispatch to `CUDAGraphMode.NONE` silently
+  (`vllm/v1/cudagraph_dispatcher.py:277-283` — `num_tokens > max_size` — at vllm
+  v0.19.1). Arithmetic, worked cases and a script:
+  `../performance-throughput/sequence-count-cliff-capture-size.md`.
 - **Which attention patch path.** `using_paged_attention()` is True only when
   `cudagraph_mode == FULL_DECODE_ONLY`, the SoC is not A5, there is no spec
   config, **and** `runtime_shape in pa_shape_list`
@@ -281,6 +313,37 @@ CUDAGraphMode.FULL` comes only from that mode's decode half.
   tree's own GQA workspace note (`compilation/acl_graph.py:216-224`) by default
   and ranking it is legitimate — check which symbols the reporter's ref has
   before applying the paragraph above.
+- **Which MoE communication method the batch selects** — the discriminator to read before
+  ranking any collective-shaped dump (`fftsplus aivector`, `MTE … DDR address`, a
+  `LocalScalarDenseNpu` readback) on an **EP** launch, because the op inside the graph is
+  not one op. `select_moe_comm_method` (`vllm_ascend/ascend_forward_context.py:199-270` at
+  v0.17.0rc1 `e20f0b1`) decides per **token count** and quantization: no EP (or
+  `world_size == 1`) → `ALLGATHER`; **A2** → `MC2` only when
+  `num_tokens <= mc2_tokens_capacity` **and** `world_size_across_dp / pp >= 16`, else
+  `ALLGATHER`; **A3** → `MC2` below capacity and `ALLTOALL` above, with `FUSED_MC2` only
+  when `VLLM_ASCEND_ENABLE_FUSED_MC2` **and** `quant_type == "w8a8_dynamic"`
+  (`hf_text_config.moe_quantize` / `quantize`); **A5** → `MC2` below capacity, else
+  `ALLTOALL`. Two consequences. (i) **An exported env var may be inert, and may not be
+  theirs**: `VLLM_ASCEND_ENABLE_FUSED_MC2=1` on a **w4a8** checkpoint selects plain `MC2`,
+  not fused, because the quant gate fails — check the gate before calling the export a knob,
+  and check the default before calling it the reporter's (`envs.py:113` = `0`;
+  `VLLM_ASCEND_BALANCE_SCHEDULING` `:115` = `0`; `VLLM_ASCEND_ENABLE_MLAPO` `:96` = `1`, so
+  an exported `=1` there is the default restated and carries no information). (ii) The
+  method is a function of the batch's token count, so a serve with a tiny
+  `--max-num-batched-tokens` (recorded #7448: `16`, beside `cudagraph_capture_sizes
+  [4…32]` and `--enable-chunked-prefill`) runs its prefill steps in a *different* collective
+  than the decode buckets it captured — the §3 argument-mismatch shape with a collective as
+  the address-faulting kernel.
+- **On a DP launch, two flags can delete the cross-DP all-reduce.**
+  `_skip_all_reduce_across_dp_group` (`vllm_ascend/worker/model_runner_v1.py:458-496` at
+  that pin) returns True when decode selects `MC2`/`FUSED_MC2` at
+  `max_cudagraph_capture_size` **and** either prefill also does or
+  `ascend_config.recompute_scheduler_enable` is set (`ascend_config.py:88`, default False;
+  `platform.py:368` then swaps in `RecomputeSchedulerConfig`). So on a DP>1 + EP + MC2
+  serve, `recompute_scheduler_enable: true` moves the DP synchronisation *into* the
+  in-graph collective — a mechanism for an aivector/MTE fault on a collective core, and the
+  cheapest single-axis row after `PIECEWISE`; put it in the ladder instead of walking the
+  scheduler.
 
 ## 5. Version before mechanism (rule 16 unchanged)
 
@@ -376,7 +439,12 @@ nightly never exercises, and the first rung is to run the CI's value (recorded #
 the reporter turned the same flag off and the crash stopped). Check the pairing this way
 whenever the symptom is a graph-mode / shared-expert-stream copy fault — one `rg -n` of the flag
 in `docs/source/tutorials/models/<model>.md` and in `tests/e2e/**/configs/`, and quote both
-line numbers.
+line numbers. The divergence is older than that pin: at v0.17.0rc1 (`e20f0b1`) **both**
+tabs of the same page ship `--additional-config '{"multistream_overlap_shared_expert":true}'`
+beside `--compilation-config '{"cudagraph_mode": "FULL_DECODE_ONLY"}'` (`:188-189` A3,
+`:228-229` A2), so on a ≤ v0.19.1rc1 report the tutorial follower has not deviated at all —
+put the CI value and "you are on the documented side" in the *same* sentence, or the ask
+reads as blame and the reporter answers "I used the official command".
 
 Recorded #11680: that file matches the reporter's serve command on every env var
 (`HCCL_OP_EXPANSION_MODE=AIV`, `HCCL_BUFFSIZE=200`, `VLLM_ASCEND_BALANCE_SCHEDULING=1`,
@@ -418,25 +486,74 @@ layer_sharding`), so a plain launch with `["q_b_proj", "o_proj"]` is accepted wh
 single-axis test, therefore, is dropping `--additional-config layer_sharding` on the release
 the reporter already has; say that instead of a source walk.
 
-#9944 — vllm-ascend **V0.18.0** image (the snapshot pins only v0.19.1rc1 `da421af`, so
-"upstream already fixed it" is unverifiable there), two A2 nodes, Qwen3.5-397B-A17B-w4a8,
-PD disaggregation, `MooncakeLayerwiseConnector`, driver 25.5.1, and a *reproduction* rather
-than a deviation: the D node's line is the published recipe's own
-(`--compilation-config '{"cudagraph_capture_sizes":[1,4,8,12,…,128,160,172,196,200,212,232,256],
-"cudagraph_mode":"FULL_DECODE_ONLY"}'`, `--max-num-seqs 128`, `--max-num-batched-tokens 8192`,
-`--async-scheduling`, `--speculative_config '{"method":"qwen3_5_mtp","num_speculative_tokens":3}'`,
-`--no-disable-hybrid-kv-cache-manager`), while the P node is the same model with
-`--enforce-eager` and no graph. The death is the D worker on `rejection_sampler` →
-`repeat_indices_cpu.to(...)` / `synchronize_input_prep` → `SUSPECT REMOTE ERROR 507057`, plog
-`aivec error … The DDR address of the MTE instruction is out of range`, at ~concurrency 60
-under a performance test. Two consequences for this page: (a) rung 1 is a **deviation from
-the documented recipe**, so say that in those words and quote its capture list, or the
-reporter will answer "I used the official command"; (b) §4's bucket read: 60 pads to the
-**64** entry, which the list contains, and 128 covers `--max-num-seqs` — so "the concurrency
-fell outside the capture list" is excluded before the run starts, and the per-replay argument
-mismatch (§3) or the device-fault lanes are what remain. The run delivered this ranking plus
-the artefact list, and the reporter's next comment supplied exactly those two serve commands
-(the P/D scripts above), so that ask was the right one.
+#9944 — vllm-ascend **V0.18.0** image (the snapshot pins only v0.19.1rc1 `da421af` + vllm
+v0.19.1 `b1388b1`, so "upstream already fixed it" is unverifiable there), two A2 nodes,
+Qwen3.5-397B-A17B-w4a8, PD disaggregation 1P+1D, `MooncakeLayerwiseConnector`, driver
+25.5.1. **Provenance, because a recorded replay got this wrong:** the opening body carries
+only the symptom (the D worker dies at ~concurrency 60) and a *link* to an external gitcode
+recipe (`ai.gitcode.com/Ascend-SACT/Qwen3.5-397B-A17B-w4a8`, "PD分离 A2双机（1P+1D）") that
+is not in this snapshot; the two serve scripts arrived in the reporter's comment of
+2026-06-16, after the maintainer asked for the startup script. A re-attempt whose body lacks
+them writes "the recipe this stack is documented with" or asks for the D `vllm serve` line —
+never "you pasted" (a replay did exactly that and quoted the capture list below back at the
+reporter as their own).
+
+What the scripts say: **P** is `--enforce-eager` with no `--compilation-config` and
+`kv_producer`; **D** is `--tensor-parallel-size 8`, `--enable-expert-parallel`,
+`--data-parallel-size 1`, `--max-model-len 262144`, `--max-num-batched-tokens 8192`,
+`--max-num_seqs 128` (the tutorial's own spelling of the flag), `--no-enable-prefix-caching`,
+`--no-disable-hybrid-kv-cache-manager`, `--gpu-memory-utilization 0.9`, `--async-scheduling`,
+`--additional-config '{"recompute_scheduler_enable": true}'`, a `--speculative_config` of
+`method qwen3_5_mtp` with `num_speculative_tokens 3` and `enforce_eager true`, `kv_consumer`,
+and a `--compilation-config` that sets `cudagraph_mode: FULL_DECODE_ONLY` plus an explicit
+`cudagraph_capture_sizes` `[1,4,8,12,…,128,160,172,196,200,212,232,256]`. The death is the D
+worker on `rejection_sampler` → `repeat_indices_cpu.to(...)` /
+`synchronize_input_prep` → `SUSPECT REMOTE ERROR 507057`, plog `aivec error … The DDR
+address of the MTE instruction is out of range` on `chipId:3`.
+
+Compare it with the pin's own PD recipe before grading it either way. At v0.19.1rc1
+`docs/source/tutorials/models/Qwen3.5-397B-A17B.md` §*Prefill-Decode Disaggregation* agrees
+on every **stable** knob — `MooncakeLayerwiseConnector` (`:336`, `:416`, `:496`), MTP
+`qwen3_5_mtp` n=3 on both sides, `--no-disable-hybrid-kv-cache-manager` (`:330`, `:410`,
+`:490`), `recompute_scheduler_enable` (`:332`, `:412`, `:492`), `--no-enable-prefix-caching`
+with its D-node known-issue note (`:520`), D `FULL_DECODE_ONLY` (`:413`), P `--enforce-eager`
+(`:334`) — while its *shape* is A3 2P+2D at `--tensor-parallel-size 2` with
+`--data-parallel-size` 8 (P) / 16 (D) (`:316-322`, `:395-402`), `--max-num_seqs` 64 / 32
+(`:320`, `:400`), `--max-model-len 16384` (`:326`, `:406`), `--max-num-batched-tokens` 4096 /
+128 (`:327`, `:407`), `enable_cpu_binding`, `HCCL_BUFFSIZE=1536`, and it leaves
+`cudagraph_capture_sizes` to the platform default (`:150`). So rung 1 stays "a deviation from
+the documented recipe", but the deviations are **tp8+EP+dp1 instead of dp8×tp2, a 262144
+context, 8192 batched tokens and an explicit capture list**; the connector, MTP, hybrid-KV
+manager and recompute flags are the recipe's own, so naming one of those as user error earns
+the "I used the official command" reply.
+
+§4's bucket read has to be done in **tokens**, not requests. At this pin
+`_get_default_max_cudagraph_capture_size` is
+`min(max_num_seqs × (1 + num_speculative_tokens), 512)` (`vllm_ascend/platform.py:158-192`),
+the tutorial states the list as `n × (mtp + 1)` with max `n = max-num-seqs` (`:518`), and
+inputs pad to the next entry (`:150`). Every entry in the reporter's list is a multiple of 4, i.e. 1…256 **tokens** =
+1…64 requests at MTP-3, while `--max-num_seqs 128` would need 512. Two consequences: (a) 60
+requests × 4 = 240 pads to the **256** entry, the list's last one, so at c≈60 the D node runs
+its largest graph and the bucket discriminator is live — ask for `Starting to capture ACL
+graphs for cases: […]` to read the effective list; (b) a step with more than 64 running
+requests passes that maximum and `CUDAGraphDispatcher.dispatch` returns `CUDAGraphMode.NONE`
+with no log (`vllm/v1/cudagraph_dispatcher.py:277-283` — `num_tokens > max_size` — at vllm
+v0.19.1), so the same run mixes graph and eager steps once load crosses 64 — the A/B that
+separates "one bad bucket" from "eager steps" is c=32 (mid-bucket) versus c=68 (above the
+ceiling), not 60 versus 60.
+
+The hybrid state under PD belongs to `../pd-disaggregation/hybrid-state-transfer.md`, read in
+the same session: that page holds the v0.18.0 connector page-geometry evidence, and with
+`--no-enable-prefix-caching` the pin sets `mamba_block_size = max_model_len`
+(`patch_mamba_config.py:104-107`) = **262144** in this script, so whole-context GDN pages
+travel. The two artefacts that put its geometry on the table are the D node's
+`Registering KV_Caches … shape` / `num_blocks` line and the startup
+`Padding mamba page size by …%` / `Setting attention block size to …` lines.
+
+Delivery: the run ruled the paste's frames victims, named the cross-device attribution
+(chipId 3 versus `Worker_TP7_EP7`) and shipped a five-rung ranking, and its ask for the D
+serve line is what produced the scripts above — keep that ask first, with the capture-list
+arithmetic as the second block.
 
 #6018 — title says vllm-ascend `0.12.0rc1`, the environment block says
 `0.12.0rc2` (`SOURCES.json` marks the reported ref `conflicting_versions`; the
@@ -540,6 +657,41 @@ Delivery note on the same run: 21 assistant turns carried a tool call and **no m
 so the ranked answer it finally wrote was cut at the 16 384-token cap inside the "please send
 back" list — the first three ranks and the evidence table survived, the artefacts and scope did
 not (rule 1).
+
+#7448 — GLM-5-w4a8, **v0.17.0rc1 `e20f0b1` — the reporter's own release *is* the snapshot
+pin, so their tree is greppable**, DP2 × TP8 + `--enable-expert-parallel`, `--async-scheduling`, `--max-num-seqs 4`,
+`--max-model-len 100000`, `--max-num-batched-tokens 16` with `--enable-chunked-prefill`,
+`cudagraph_capture_sizes [4…32]`, `FULL_DECODE_ONLY`, **no** `--speculative-config`, **no**
+`--kv-transfer-config`, `--additional-config '{"enable_npugraph_ex": true, "fuse_qknorm_rope":
+true, "fuse_muls_add": true, "multistream_overlap_shared_expert": true,
+"recompute_scheduler_enable": true}'`, and exports `VLLM_ASCEND_ENABLE_FUSED_MC2=1`,
+`VLLM_ASCEND_BALANCE_SCHEDULING=1`, `ASCEND_A3_ENABLE=1`, `HCCL_OP_EXPANSION_MODE=AIV`. The
+first decode replay dies with `synchronize … error code is 587011` at
+`acl_graph.py:281 __call__` over an `EE9999` block (`rtMemcpy … the current capture mode does
+not support this operation`, `kind = 1, runtime result = 107030`, `[InitOpInfoLib] … failed to
+initialize unknown shape dtype and format. The input or output is input2.blockIDs` naming
+`TransposeKvCacheByBlock`) and the device dump `fftsplus aivector … core id is 12 …
+The DDR address of the MTE instruction is out of range`, `chipId:3, dieId:1`. Read it fresh
+as §1/§2/§4: the code is the MODEL_EXECUTE wrapper with a transposed digit, the `107030` and
+GE op-kernel-info records are passengers five minutes earlier, and the owner is the address
+fault on the model stream. What the pin decides, in one pass each: the v0.17.0rc1 `### Known Issue` block has **no** EP × FULL row (§0 above), the GLM-5 tutorial ships
+`multistream_overlap_shared_expert:true` beside `FULL_DECODE_ONLY` (`GLM5.md:188-189`,
+`:228-229`), grepping each reported `--additional-config` key shows `fuse_qknorm_rope` / `fuse_muls_add` /
+`VLLM_ASCEND_ENABLE_MLAPO` restating defaults (`ascend_config.py:267,300`, `envs.py:96`) while
+`VLLM_ASCEND_ENABLE_FUSED_MC2`, `VLLM_ASCEND_BALANCE_SCHEDULING` and
+`recompute_scheduler_enable` do not (`envs.py:113,115`, `ascend_config.py:88`), the top-level
+`"enable_npugraph_ex"` key is **dead** — only the nested
+`ascend_compilation_config` is read (`ascend_config.py:39-40`) and its default is already
+`True` (`:264`), the docs' top-level row (`configuration/additional_config.md:43`) being a
+doc-side artefact — and on **w4a8** weights `VLLM_ASCEND_ENABLE_FUSED_MC2=1` never reaches
+`FUSED_MC2` (§4). Ladder the run shipped: `PIECEWISE` → `multistream_overlap_shared_expert:
+false` (graph kept) → drop `VLLM_ASCEND_ENABLE_FUSED_MC2` **and** `recompute_scheduler_enable`
+together → `--max-num-batched-tokens 8192`; plus the ask for `origin_op_name` / `fault
+kernel_name` from the plog at the fault stamp. Outcome unknown (no reply in this snapshot).
+Delivery on the replay: every fact the ranking needed was in hand by its 5th assistant turn
+(§0's block, §2's two retired records, §4's comm-method gate), yet 8 of 15 turns carried a
+tool call and no message text and the whole answer was typed on the last one — the ladder was
+owed at turn 5.
 
 ## 9. A replay-time unpack error is a capture/replay dispatch mismatch, not a model defect
 

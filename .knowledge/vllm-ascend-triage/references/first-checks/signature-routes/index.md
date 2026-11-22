@@ -41,12 +41,17 @@ the most specific row wins.
   front to back. **Unsure which page?** One grep over this directory searches all
   every row at once: `rg -n '<distinctive fragment>' references/first-checks/signature-routes/`
   — a token, not a category (SKILL.md rule 8).
-- `startup-and-load.md` is **at the per-file size cap** (~101 K characters), so a
-  write that would grow it is refused. Put a new startup-shaped row on the page
-  whose *topic* it also fits (a parallel or stateful launch →
-  `parallel-state-and-kv.md`, a device op → `device-ops-and-collectives.md`), or
-  split the target page by shape first, and keep the row's own wording specific
-  enough that the grep above still finds it.
+- A row file is capped at 100 000 characters and a write past it is refused, so
+  check a target's size before appending (`wc -c`). `startup-and-load.md` hit the
+  cap and was split by shape: its SoC/device-type/kernel-package rows moved
+  **verbatim** to `soc-and-kernel-package-gates.md` with a pointer row left behind.
+  Put a new startup-shaped row on the page whose *topic* it also fits (a parallel or
+  stateful launch → `parallel-state-and-kv.md`, a device op →
+  `device-ops-and-collectives.md`, a chip/stamp refusal →
+  `soc-and-kernel-package-gates.md`), split the target page by shape when it is at
+  the cap, and keep the row's own wording specific enough that the grep above still
+  finds it. `parallel-state-and-kv.md` (~98 K) and `startup-and-load.md` (~94 K) are
+  the next two to watch.
 
 ## Tracks
 
@@ -72,7 +77,8 @@ the most specific row wins.
 
 | The paste is… | Rows live in |
 |---|---|
-| a startup/load/capture log, a SoC- or image-conditional gate, a model/arg gate, a Ray or multi-process launch, or a sizing question | `startup-and-load.md` |
+| a startup/load/capture log, an image-conditional gate, a model/arg gate, a Ray or multi-process launch, or a sizing question | `startup-and-load.md` |
+| the log names the **chip or the build stamp** rather than a launch phase: 310P/300I vs A2/A3/A5, `socversion`/`bin package`, `AscendDeviceType`, `EZ3002`/`TransData`, a 310P quant/VL/OCR shape | `soc-and-kernel-package-gates.md` |
 | an **artifact** stops it rather than a phase: a quantization method or a checkpoint's weight/aux keys, a pip resolution, an image tag or arch, an install/build step, a version string, two files disagreeing about a pin | `checkpoint-quant-and-install.md` |
 | a device-op failure: an aclnn/custom-op error, a tiling rejection, a device dump, an `EZ1001` family, an HCCL collective or an MC2 dispatch | `device-ops-and-collectives.md` |
 | a served request or an answer: chat template/tokenizer mode, reasoning routing, tool calls, truncation, a score gap, garbled or repeated text, a logging flag | `serving-output-and-toolcalls.md` |

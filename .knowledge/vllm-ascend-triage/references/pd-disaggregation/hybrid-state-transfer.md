@@ -16,6 +16,18 @@ produced.
 
 ## 1. Check the connector against the documented one (2 greps)
 
+**A D-node *device* fault under this connector is this page too, not only the graph lane.**
+Recorded #9944 — v0.18.0 image, 2×A2, Qwen3.5-397B-A17B-w4a8, `MooncakeLayerwiseConnector`,
+MTP n=3, `--no-enable-prefix-caching`, `--max-model-len 262144` — dies on the D worker with
+`SUSPECT REMOTE ERROR 507057` and plog `aivec error … The DDR address of the MTE instruction is
+out of range` at ~concurrency 60. Take the graph/bucket half from
+`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §4 and §8, and take the state half
+here: with prefix caching off the pin sets `mamba_block_size = max_model_len`
+(`patch_mamba_config.py:104-107`) = 262144 in that script, so whole-context GDN pages travel
+and the connector's own registration line (`Registering KV_Caches … shape` / `num_blocks`, §1
+below) plus the startup `Padding mamba page size by …%` line say whether the geometry the D
+node registered is the one the P node wrote.
+
 | Model family | Tutorial's PD connector at v0.22.1rc1 |
 |---|---|
 | Qwen3.5-397B-A17B | `MooncakeLayerwiseConnector` (`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:294,336-361`), with `--speculative-config '{"method": "qwen3_5_mtp", "num_speculative_tokens": 3, ...}'` on both sides, `recompute_scheduler_enable`, `enable_cpu_binding`, `enable_fused_mc2` (`:357, 437-442, 550-553`) |

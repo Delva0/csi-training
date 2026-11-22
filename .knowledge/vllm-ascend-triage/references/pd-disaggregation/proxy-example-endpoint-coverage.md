@@ -14,6 +14,26 @@ Recorded #10290: vllm-ascend reported 0.18.0, snapshot v0.20.2rc1 (`367b8e62`) +
 vllm v0.20.2 (`bc150f50`), GLM-5.1 大EP serve. The gap is still there at the
 snapshot, so it is a live request, not a fixed-release question.
 
+## Step 0 — one direct curl splits "proxy gap" from "their vLLM has no such route"
+
+Before reading any proxy source, curl a **decoder's own port** (`:8000`), bypassing the
+proxy: `curl -s -X POST http://<decoder>:8000/v1/messages -H 'content-type:
+application/json' -d '{"model":"<served>","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'`,
+plus `curl -s http://<decoder>:8000/metrics | head`. A 200/SSE means the engine serves
+them and the gap is the proxy alone — the usual case; a 404 means the reporter's vLLM
+predates the package, and the rung is an upgrade, not a route patch.
+
+At vllm v0.20.2 (`bc150f50`) that half is already source-verified: the Anthropic router
+is attached **unconditionally** wherever the generation routers are
+(`vllm/entrypoints/openai/generate/api_router.py:36-42`,
+`register_anthropic_api_router(app)`, no flag and no `try/except ImportError`), and it
+carries `vllm/entrypoints/anthropic/api_router.py:48` `POST /v1/messages` and `:94`
+`POST /v1/messages/count_tokens`. So say "the decoder is routed at the pin, only the
+example proxy is not" with those two paths, and do not go looking in
+`vllm/entrypoints/openai/api_server.py` — it mentions neither (`include_router` has no
+hit there either), which reads as "the route does not exist" and costs turns: recorded
+#10290's replay spent three greps finding the mount site before its answer.
+
 ## Step 1 — read the route table, then the header: two lines of evidence
 
 At v0.20.2rc1 the script registers exactly five routes

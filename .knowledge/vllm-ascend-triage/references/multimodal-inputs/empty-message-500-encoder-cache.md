@@ -132,7 +132,12 @@ evidence that this path was validated.
 is a short ranked list and a request for artefacts — write it by the 8th assistant
 turn. Recorded #2975 held both decisive facts (the hash-keyed cache, the bare assert)
 inside its reasoning and shipped **no message text at all** across 46 messages, ending
-`output_truncated`: the missing turn was the ranked list, not another read.
+`output_truncated`: the missing turn was the ranked list, not another read. The next
+session on the case shipped that list on its third turn, in six tool calls (locate,
+this page, one re-grep of the five anchors), so nothing past the anchor re-grep is
+owed. Read this page whole in one call — `sed -n '1,200p'`, not `1,140p` then a second
+window — because the Step-4 list, the asks and the pin caveat all sit in its final
+quarter.
 
 ## Recheck conditions
 

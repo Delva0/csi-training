@@ -45,7 +45,20 @@ Reporter-confirmed outcome (later public comments on the same issue):
    (`docs/source/user_guide/feature_guide/kv_pool.md:30`). A recorded triage of this
    case ranked "the same prefix holds a stale non-Ascend-direct `.so` from an earlier
    build" as a live open question; at the pin that build does not exist, so the only
-   two copies are the Dockerfile one and the toolkit one above.
+   two copies are the Dockerfile one and the toolkit one above. **Which copy wins a bare
+   `python -c` is decided by `sys.path`/`PYTHONPATH`, not by the tutorials'
+   `LD_LIBRARY_PATH` prepend**: those exports sit inside serve blocks
+   (`pd_disaggregation_mooncake_multi_node.md:224`, `DeepSeek-V3.1.md:400`), while the
+   pasted aborting command is a bare `python -c` with no export in it, and CANN's own
+   packaging asks for
+   `PYTHONPATH includes <install>/python/site-packages`
+   (`cann/hccl/scripts/package/hccl/scripts/install.sh:672-673`). So the two
+   reporter-confirmed fixes act on two different layers — the rename removes the
+   toolkit package from the import path, the preload changes which allocator frees —
+   and neither one selects the other's mechanism. Keep step 2's allocation-ownership
+   reading as the lead (labelled inference) and do not promote "the loader is pointed
+   at the wrong build" to rung 1: recorded #5609's second answer did, one call after
+   quoting the rename, and the paste it was answering had no `LD_LIBRARY_PATH` in it.
 2. **Allocator interposition** — the decisive cheap action for this symptom class.
    `apt install libjemalloc2` (Ubuntu) or `yum install jemalloc` (openEuler), then
    preload it: `LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2` on

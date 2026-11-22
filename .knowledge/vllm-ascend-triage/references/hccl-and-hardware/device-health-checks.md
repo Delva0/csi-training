@@ -110,7 +110,10 @@ title is usually 「设备失联 / Device Lost / Heartbeat Lost」, often with a
   `cann/runtime/docs/api_docs/aclError.md:163` whose action is 收集日志并联系技术支持). It
   is a **runtime/device** code, not an `HcclResult` enum: no vllm-ascend branch mints it,
   and no source read turns it into a software cause. Look it up, do not recall it —
-  `bash <skill_root>/scripts/cann-error-lookup.sh 507010 507011 107030`.
+  `bash <skill_root>/scripts/cann-error-lookup.sh 507010 507011 107030` with
+  `timeout_ms` ≈ 30 s: a scan of `/workspace/repos` takes ≈2 s, past the 1 s foreground
+  cap, so an unsized call returns as a background job and costs a `job_output` round trip
+  (`first-checks/scripts-catalogue.md`; the #11171 replay paid that turn).
 - One read decides the owner: the **host `dmesg`**. The driver names the dying die before
   the container reports anything (`receive ts exception message from device(N)`,
   `device(N) is not working`, `ts is down`, then `hdcdrv_*`/mailbox callbacks suppressed).
@@ -129,15 +132,40 @@ title is usually 「设备失联 / Device Lost / Heartbeat Lost」, often with a
 ## Recorded case (#11171, 310P1, image v0.14.0rc1-310p-openeuler)
 
 Two 310P1 dies, Kunpeng 920S host, `CANN 8.1.RC1`, Qwen2.5-7B, TP=2, `--enforce-eager`;
-the engine served for ~4 minutes, then device 1 lost heartbeat mid-decode and the
-second start died in the shared-memory watchdog.
+the engine came up (init engine 3.04 s), served one streaming request at ~6.8 tok/s, the
+throughput line fell to 0.0 tok/s at 01:34:35, and device 1 lost heartbeat at 01:34:48.
+The reporter's two complaints (「心跳丢失」 and 「共享内存不足」) are **one fault reported in two
+sessions** — answer with one cause and say the second symptom is that same event seen
+later; never open a `/dev/shm` sizing lane from it.
 
-- Container log: `507010` on device 1 (`aclrtLaunchKernelWithHostArgs`), plus
-  `Failed to register custom ops, all custom ops will be disabled` (a caught
-  `ImportError`, still a to-check item — `python -c "import vllm_ascend.vllm_ascend_C"`),
-  `Set PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` (the deploy script exports
+- Session A, the attached container log (`vllm-ascend.txt`, start 06-16 01:30:48):
+  `507010` on `[rank1]` / `Device:1` at 01:34:48-49 (`aclrtLaunchKernelWithHostArgs`,
+  `EL9999 … Device[1] fault, ret=0x711000b`), and at 01:35:11 the EngineCore dies out of
+  the ringbuffer read — `multiproc_executor.py:336 mq.dequeue` → `shm_broadcast.py:616
+  dequeue` → `:531 acquire_read raise RuntimeError("cancelled")` → `EngineDeadError` at
+  `async_llm.py:546` — then the API server shuts down. That `cancelled` block is the
+  worker's death notice, not a queue defect (`cancelled-executor-teardown.md`); the
+  worker's own `507010` block above it is the cause, and here both ends of that chain sit
+  in one file — that page's usual gap (the dying rank's log) is not a gap in this case.
+- Session B, a screenshot dated 06-25 03:13-03:17 (`APIServer pid=353`): the same loss
+  surfaced only as the 60 s `No available shared memory broadcast block` line repeating
+  while the request never returned. Its `shm_broadcast.py:542` is **that build's** emit
+  line: the reporter ran vLLM **0.14.1** (`vLLM API server version 0.14.1` in the log)
+  while this case's `SOURCES.json` pins vllm v0.24.0 `dated_reference_only` (message text
+  at `shm_broadcast.py:96`), so quote neither number as the other's.
+- `Failed to register custom ops, all custom ops will be disabled` is printed by **both**
+  workers at load and the engine served afterwards — context, like the boot-time
+  `vdavinci` table miss below. The case's earlier session already had the right verdict
+  and then spent three turns on that caught `ImportError`, so open a custom-op lane from
+  it only when the failure itself is an op error.
+- Do not quote the pasted `deploy.sh` as the launch that ran: the log's own
+  `non-default args:` dict gives `max_model_len: 32768` (the default) against the
+  script's `--max-model-len 8192`, and `Asynchronous scheduling is enabled.` appears with
+  no `--async-scheduling` — which is why the traceback steps through
+  `step_with_batch_queue`.
+- `Set PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256` — the deploy script exports
   `PYTORCH_NPU_ALLOC_CONF` twice, so the second value won and vllm-ascend's
-  `expandable_segments` default never applied), and no `vllm_ascend` frame at the fault.
+  `expandable_segments` default never applied — and no `vllm_ascend` frame at the fault.
 - Host `dmesg`: `receive ts exception message from device(1)` → `device(1) is not
   working` / `ts is down` → mailbox noise; `npu-smi` marked that die `Critical`. The
   boot-time `[vascend_drv] hw_get_vdavinci_type ... can not find any match device, device

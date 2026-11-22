@@ -286,6 +286,20 @@ after that keeps the header, not this text.
   `torchair_attention.py:305: self.key_cache = None …, read at line(s) 416`
   (`../custom-ops-runtime-faults/atb-input-dim0-none.md`, recorded #2779). Exits 1
   when it finds one, 0 when the file is clean.
+- `scripts/triton-placeholder-probe.py VLLM_ROOT [PATH ...]` — does an **absent**
+  triton break this pin's import? Executes the pin's own
+  `TritonLanguagePlaceholder`/`TritonPlaceholder` (no vllm import, no device) and
+  prints its attribute set beside every module-level `tl.*`/`tldevice.*`/`triton.*`
+  read under `vllm/model_executor/layers/fla/ops` (default), tagging each
+  `present`/`MISSING` with the guarding branch. The list is version-dependent: at
+  vllm v0.11.0 it has no `exp`, so the import-time `tl.exp` at `fla/ops/op.py:26` kills
+  `import vllm_ascend.models.qwen3_next` (recorded #3325/#4206 inspection crash);
+  at v0.16.0 it has `exp/log/log2` and `gather` is `hasattr`-guarded, so the same
+  import survives. Run it before repeating either answer from memory — an absent and
+  a mispaired triton raise the identical `AttributeError`
+  (`../startup-failures/model-type-not-recognized.md`, inspection-crash section).
+  Exits 1 when a read is MISSING (read the branch label — a guarded one is not
+  evaluated), 0 when every read is provided.
 - `scripts/qwen2-body-drift-probe.py [--config DIR|config.json] [--lines N]` — is a
   downstream *copied* forward written against the installed library body? Prints the
   interpreter's `transformers` version/file, the checkpoint's `layer_types` /

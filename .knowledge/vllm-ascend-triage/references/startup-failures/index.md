@@ -250,8 +250,11 @@ Inherit the rules in SKILL.md. Conditional routes:
   architecture that is registered in both trees — the line is `logger.exception`,
   the real tail was printed into the same log and cut, and inspection runs in a
   `python -m vllm.model_executor.models.registry` subprocess, so it is an
-  import-time failure of `vllm_ascend.models.<model>` (wrong triton, or an image
-  that is not the tag). Ask for the tail *and* give the reproducing one-liner.
+  import-time failure of `vllm_ascend.models.<model>` — an absent triton and a
+  mispaired one raise the *same* sentence (the release image uninstalls triton and
+  vllm v0.11.0's placeholder defines no `exp`, so `fla/ops/op.py:26` raises;
+  `scripts/triton-placeholder-probe.py <vllm-root>` decides) — or an image that is not
+  the tag. Ask for the tail *and* give the reproducing one-liner.
   The same crash also arrives as
   `pydantic_core._pydantic_core.ValidationError: 1 validation error for ModelConfig`
   / `Value error, Model architectures [...] failed to be inspected` with **no**

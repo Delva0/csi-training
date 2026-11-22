@@ -123,18 +123,51 @@ quantizer → `mindie-turbo-pre-0.8-eager-and-quantizer.md` (verified at `c69cea
   with graph mode to play a good performance. What's more, you can install
   `mindie-turbo` with `vllm-ascend v0.7.3`"* — on 0.9.x the plugin adds nothing
   this tree documents.
-- Whether a **newer** plugin (2.0rc2) pairs with a **newer** release (0.9.1rc2)
-  cannot be answered from the pinned tree. Say that, quote the two artefacts
-  above, and point at the upstream MindIE Turbo compatibility table instead of
-  inferring a pairing from the version numbers.
+- **A newer plugin against a newer release is answerable, and the answer is no.**
+  A pairing question about the *reported* release is read from a **newer** export,
+  because both artefacts accumulate: at vllm-ascend v0.11.0rc3
+  (`docs/source/community/versioning_policy.md:25-39` — the file has left
+  `developer_guide/`, so `rg --files docs | rg versioning_policy` locates it) every
+  row from `v0.8.4rc2` up still carries an **empty** MindIE Turbo cell —
+  `v0.9.1rc2` (`:32`) included — and `2.0rc1` still sits only beside `v0.7.3` /
+  `v0.7.3.post1`; the same pin's `docs/source/user_guide/release_notes.md:141`
+  (under `## v0.9.1 - 2025.09.03`) retires the wheel by name: *"Mindie Turbo is not
+  needed with this release. And the old version of Mindie Turbo is not compatible.
+  Please do not install it. Currently all the function and enhancement is included
+  in vLLM Ascend already."* So "is 2.0rc2 the pair for 0.9.1rc2?" is a **no**, in
+  the project's own words — not the vendor's upstream table, and never "the pinned
+  tree cannot answer this". `../startup-failures/environment-correspondence.md`
+  carries the same fact from the other direction (a 0.9.1+ stack carrying the wheel
+  is a compatibility question, not an old release line).
 
 ## 4. When another entry path works with the same install
 
 #1534's follow-up is the important half: the reporter says the offline example
 fails but `vllm serve` runs, and asks whether serve simply does not enable ACL
 graph. Do **not** answer "the plugin breaks graph mode" without accounting for
-that; rank the asymmetry itself as evidence. Candidates, cheapest first, each
-decided by one grep of the **working** process's log:
+that; rank the asymmetry itself as evidence.
+
+**Answer that hypothesis in the same message — it is refutable at the pin, and
+leaving it as "send me the log" is what drew the re-ask.** The entry point is not
+a compilation knob: `check_and_update_config` reads only
+`model_config.enforce_eager` + `compilation_config.level` (`platform.py:151-182`),
+V1-vs-V0 comes from the same `EngineArgs._is_v1_supported_oracle` for `LLM()` and
+for `vllm serve` (vllm `envs.py:616-617` defaults `VLLM_USE_V1` to `"1"`; a V0
+fallback prints `… is not supported by the V1 Engine. Falling back to V0.` from
+`arg_utils.py:1633-1642`, so that line's absence proves V1 ran), and the only
+entry-point-dependent defaults at vllm 0.9.1 are `max_num_batched_tokens` /
+`max_num_seqs` (`vllm/engine/arg_utils.py:1554-1567`). A timing argument then
+closes the lane: both paths run a dummy forward **inside engine init** — the V1
+worker's `profile_run()` (`worker_v1.py:144`) → `_dummy_run(self.max_num_tokens)`
+(`model_runner_v1.py:1789-1815`, its own comment *"Trigger compilation for general
+shape"*) and `compile_or_warm_up_model` (`worker_v1.py:194-205`) → `capture_model()`
+(`model_runner_v1.py:2036-2072`) — so a serve process that came up at all has
+already traced that forward under the same `fullgraph` setting. "在线推理默认没开 acl graph" therefore cannot be the
+difference; what is left is the process (§1), an eager serve, or a different
+model/tag.
+
+Candidates, cheapest first, each decided by one grep of the **working** process's
+log:
 
 1. That process never imported the plugin — no `MindIE Turbo is installed. vLLM
    inference will be accelerated with MindIE Turbo.` line.
@@ -177,5 +210,7 @@ proves the trigger is the compile step rather than the plugin on its own.
   behaviour at these pins; a ref using `VLLM_COMPILE_...` or an upstream default
   flip changes rung 2, so re-read `vllm/compilation/wrapper.py` there.
 - #1534's serve-works observation is reporter-supplied and was never explained in
-  the thread: the mechanism of the asymmetry stays **open** and §4 is the check
-  that settles it, not a conclusion.
+  the thread: the mechanism of the asymmetry stays **open**, but the *entry point*
+  is not one of its candidates (§4: one config gate, same V1 selection, same
+  init-time dummy forward), so §4's three remaining lanes are the check that
+  settles it, not a conclusion.

@@ -19,6 +19,16 @@
 # start without hostNetwork" reports before any source reading.
 set -u
 
+# `-h` / `--help` is not a filename: treating it as one reached the python reader and
+# died with `FileNotFoundError: '-'` on a recorded call (issue #2379's replay spent a
+# turn on that traceback).
+case "${1-}" in
+  -h|--help)
+    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+esac
+
 if [ "$#" -eq 0 ]; then
   echo "usage: ranktable-check.sh <rank_table.json|log.txt> [...] | -" >&2
   exit 2

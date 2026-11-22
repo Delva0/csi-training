@@ -9,6 +9,16 @@ engine start with `NPU out of memory` / `torch.OutOfMemoryError` /
 Qwen3.5/3.6 GDN, DeepSeek-V4, GLM). Sometimes nothing is pasted but the two
 commands and the model path.
 
+**One command only is still this page when the frame says so.** A single
+`vllm serve` — no TP4-vs-TP8 pair, often no serve line in the body at all —
+whose `NPU out of memory` sits right after `GPU KV cache size:` /
+`Maximum concurrency …`, with `torch.zeros(kv_cache_tensor.size)` in
+`initialize_kv_cache_tensors` on a hybrid linear-attention checkpoint, is
+**sub-shape B**: the TP comparison is a second data point for step 1, never an
+entry condition (recorded #6611, 910B3-64G on v0.13.0, no command in the body).
+Give the frame + identity answer and put the missing command on the ask list;
+do not hold the answer for a comparative run that does not exist.
+
 Three sub-shapes, and they do **not** get the same answer:
 
 - **A — a post-sizing phase outgrew the reserve** (the #6572 shape): the OOM frame
@@ -134,9 +144,12 @@ branch) and k/v halves per attention layer, under the comment `# TODO: REFACTOR 
 to sharing hybrid cache` (`:2933`), and the file itself carries
 `# TODO: remove this after the OOM issue is located and fixed` at `:2995-2996` (it is
 that function's own reshape loop).
-On a two-group hybrid a row carries one full-attention and one mamba layer, so the
-rows that carry both are paid for twice: 48 tensors for 36 rows = **×4/3** of the
-budget.
+On a two-group hybrid `shared_by` holds one name per group **only while that group
+still has a layer at that index** (`kv_cache_utils.py:1115-1124`), so on
+12 full-attention / 36 linear rows 0-11 pay a mamba full-size tensor *plus* the k/v
+halves (2 sizes) while rows 12-35 pay the mamba tensor alone (1 size):
+`12 × 2 + 24 × 1 = 48` for 36 sized rows = **×4/3** of the budget — not ×2, which is
+what counting every row as "carries both" gives.
 
 At v0.13.0 (`6281c12`) it reads the same way under new line numbers —
 `_allocate_kv_cache_tensors` at `model_runner_v1.py:2469`, the
@@ -179,7 +192,9 @@ and leave the residual open** rather than deriving head counts from the screensh
 
 The lever that actually caps this class: `--num-gpu-blocks-override N` exists
 upstream (`vllm/config/cache.py:64`, `may_override_num_blocks` at
-`kv_cache_utils.py:798-810`) and vllm-ascend never touches it, so it caps
+`kv_cache_utils.py:798-810` — the v0.11.0 pair; at v0.13.0 `72506c9` they are
+`cache.py:70` and `:799-811`, so quote the pair you read at the reported ref and
+re-grep it on any other) and vllm-ascend never touches it, so it caps
 `num_blocks` under either sub-shape. On a hybrid remember the measured pool is
 `#tensors × page × num_blocks`, so size it against the larger factor.
 

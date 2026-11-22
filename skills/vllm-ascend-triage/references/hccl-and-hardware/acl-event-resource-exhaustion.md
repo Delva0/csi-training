@@ -74,7 +74,13 @@ Not this lane:
    product table omits 310P, so its cap is undocumented). The error's own
    `deviceId=6, tsId=0` says the refusal is **device-scoped**, and EL0008's canned
    `Solution: Close applications not in use.` says the same — a co-tenant process
-   on that die competes for the pool.
+   on that die competes for the pool. That stays a candidate until the PIDs are
+   matched, because the template's `collect_env.py` `npu-smi` table is a
+   **startup** snapshot and need not be the failing run: in #13007 it lists
+   `2765650`/`2765652` on NPU `32800` while the log's own processes are
+   `274`/`290`/`304`, so the two are different runs and the table is only evidence
+   that the box hosts other work. Ask for `npu-smi info` (both tables) at the
+   failure minute instead of reading the pasted one as the scene.
 5. **Two phases consume it.** Graph capture holds events for the life of the
    process (a `FULL_DECODE_ONLY` serve reuses them every replay), while decode
    churn requests more each step. #10521 exhausted the pool at capture with
@@ -118,6 +124,8 @@ that splits the two phases, then the reporter's next action. Cheapest first:
 
 - that this is a host or HBM memory leak, whatever the title says — read the KV
   usage and the allocator lines first;
+- that the pasted `npu-smi` process rows are the co-tenant: match their PIDs to
+  the failing log's first (above), or the table belongs to another run;
 - **which** statement allocated the missing event. Dozens of
   `wait_stream`/`record_event` sites exist across the attention, MoE and sampler
   streams, and a driver-side id refusal cannot be attributed to a Python line from

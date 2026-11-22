@@ -45,7 +45,10 @@ node count. `comm-create-errors.md`. At the same entry code `15` (`HCCL_E_RUNTIM
 evidence is the container's device set (`ls /dev/davinci*`, `ASCEND_RT_VISIBLE_DEVICES`,
 `npu-smi info -t topo`) plus a minimal `torch.distributed` HCCL `all_gather` on the same devices —
 never the launch script, and never more `cann/hcomm` source: the failing return code comes from the
-closed driver. `comm-create-errors.md` §*Code 15*.
+closed driver. When it arrives *after the weights load and before any request*, the first
+collective is a fusion pass's pattern registration, and only `--enforce-eager` removes that whole
+family: the `fuse_norm_quant` key covers the norm+quant patterns and `fuse_allreduce_rms` (off by
+default) the all-reduce one. `comm-create-errors.md` §*Code 15*.
 **The no-config sibling `create … HcclCommInitRootInfo(…)` with code `2` is a different lane**:
 the group belongs to whichever caller the traceback names, often a third-party trainer
 (DeepSpeed `_broadcast_model`, TRL `prepare_deepspeed`) colocated in the engine's process, with no
@@ -319,9 +322,9 @@ delivered by an MC2 MoE dispatch (`aclnnMoeDistributeDispatchV3 … 561000`,
 `HcclAllocComResourceByTiling … ret = 4`, no `LoadGraph failed`/`ERR03005` block) is
 the first MC2 collective, which on v0.13.0rc1 runs in `profile_run`'s
 `mc2_tokens_capacity` dummy run *before* the KV pool — there the KV budget is not the
-lever and the capacity/`global_bs` arithmetic of
-`mc2-dispatch-profile-run-hang.md` §Step 1 is (recorded #5947; under
-`HCCL_INTRA_PCIE_ENABLE=1` only the cross-node RoCE peers print `DestLink`).
+lever, and the refusal's own ranked levers are `mc2-dispatch-profile-run-hang.md`
+§Step 3b (the capacity/`global_bs` arithmetic it quotes is §Step 1) (recorded #5947;
+under `HCCL_INTRA_PCIE_ENABLE=1` only the cross-node RoCE peers print `DestLink`).
 
 **A one-box paste has no cross-node leg, so the branch question comes first.**
 Read the SoC term of `HcclAllocComResourceByTiling` (`op_base_mc2.cc:120-121`: every

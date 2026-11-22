@@ -36,6 +36,17 @@ unreachable there whatever the ep size — the branch that runs is named
 AICPU-label fault inside it is a device-`op_name` question (`ASCEND_LAUNCH_BLOCKING=1`,
 plog `fault kernel_name=`), not a dispatch timeout.
 
+**Which variant this page owns, before you page through it.** The title above is only the
+**timeout** one: same phase, `507014`. The `561000` **refusal**
+(`aclnnMoeDistributeDispatchV3 failed, error code is 561000` → `EI0007 … Failed to allocate
+resource[qp] … Memory resources are exhausted` → `HcclAllocComResourceByTiling … ret = 4`, no
+`fault kernel_name` line) is **§Step 3b**; the same text from a **single** multi-die box is
+§Step 3b2; `…DispatchV4` + `107020` after the reporter removed
+`HCCL_OP_EXPANSION_MODE`/`PYTORCH_NPU_ALLOC_CONF` is `aiv-mc2-env-ablation.md`. §Step 1 below is
+the **arithmetic only** — the ranked lever list for a refusal lives in §Step 3b, and a reader who
+stops at §Step 1 will ship the capacity number as if it were a lever (recorded #5947: the second
+run paged 1-90 → 90-190 → 190-290 to reach it).
+
 ## Step 1 — the batch that runs is `mc2_tokens_capacity`, not `max_num_batched_tokens`
 
 `vllm_ascend/worker/model_runner_v1.py:2202-2208`, verified at v0.13.0rc1
@@ -199,6 +210,15 @@ DeepSeek-R1-0528-W8A8, DP4×TP4, EP, MTP 3, `FULL_DECODE_ONLY`, `HCCL_BUFFSIZE=2
   from (an `aclnn…Dispatch` + `HcclAllocComResourceByTiling` pair is an MC2 collective,
   `LoadGraph failed … ERR03005` is torchair capture) and put the missing line in the ask
   list. `qp-resource-exhausted-at-graph-load.md` owns the capture variant.
+  **The cheapest phase negative is a line that is absent, not one that is present:** the
+  engine prints `Available KV cache memory: %.2f GiB` once per rank *after* `profile_run`
+  returns, inside `determine_available_memory` (upstream
+  `vllm/v1/worker/gpu_worker.py:375-379` at vllm v0.13.0 `72506c9`, reached from
+  `memory_profiling(...) → self.model_runner.profile_run()` at `:337-343`). A complete engine
+  log with **no** such line means the process died inside memory profiling — at or before the
+  MC2 dummy run — which retires capture, KV-pool and gmu framing in one read, without the
+  plog (recorded #5947 replay: both node logs lacked it, so the phase was inferred from that
+  absence rather than from frames).
 - **Do not derive the CQ depth from the batch.** `32768 ≠ max_num_batched_tokens × top-k`
   is a coincidence hunt: the batch that asks is `capacity` tokens (64 in that run, from
   `cudagraph_capture_sizes [4,16,32,48,64]` and TP4), and `send_cq_depth` is a request

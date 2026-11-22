@@ -84,9 +84,15 @@ at request time. The shapes:
   eagle/eagle3 launch: an ATB **setup** failure surfacing at a join point, with
   `ASCEND_LAUNCH_BLOCKING=1` refused while graph mode is on, so the attribution
   order is `--enforce-eager` **then** blocking
-  (`atb-op-setup-failure-at-proposer.md`). Two knobs it is *not*:
-  `draft_tensor_parallel_size` (no consumer under `vllm/v1/**` at v0.11.0) and the
-  target-family gate (`qwen3` is accepted).
+  (`atb-op-setup-failure-at-proposer.md`). The frame chain above that line is all
+  drafter-side (`model_runner_v1.py:2144/1767` → `eagle_proposer.py:200` → `:476`), so
+  the launch under the async attribution is the draft forward five lines up
+  (`:471-475`) and `--enforce-eager` is rung 1 — **not**
+  `num_speculative_tokens: 1`, whose early return is at `:480-483`, after the victim
+  line. Three things it is *not*: `draft_tensor_parallel_size` (no consumer under
+  `vllm/v1/**` at v0.11.0), the target-family gate (`qwen3` is accepted), and a code
+  lookup on the reporter's restated `error code 100000`, which is their log's
+  `ERR00100` ATB label and exists in no table.
 - or the first request dies with a bare `RuntimeError: The expanded size of the tensor
   (H_draft) must match the existing size (H_target) at non-singleton dimension 1.
   Target sizes: […, H_draft]. Tensor sizes: […, H_target]`, deepest frame
@@ -485,10 +491,16 @@ from the acceptance numbers.
   second, the `atb::OperationSetup` dump, the `eagle_proposer.py:476` join point),
   the three-layer read (frame is not the owner — history `#447`; the ATB block is
   this process's, not a replay; which op reaches ATB is not in any export, bounded by
-  one `rg`), the `--enforce-eager`-then-`ASCEND_LAUNCH_BLOCKING=1` order with the
-  reporter-confirmed `ValidationError`, the two candidates a grep eliminates
-  (`draft_tensor_parallel_size` no-op at v0.11.0, the eagle3 target-family gate), the
-  single-card-only e2e coverage, the ladder, and the delivery arithmetic.
+  one `rg`), the frame chain that puts the surface inside `propose_draft_token_ids`
+  and the launch window on the draft forward (`:471-475`) — hence
+  `--enforce-eager` first and `num_speculative_tokens: 1` **not** a control, its early
+  return being after the victim line — the `--enforce-eager`-then-
+  `ASCEND_LAUNCH_BLOCKING=1` order with the reporter-confirmed `ValidationError`, the
+  reporter's own later 根因分析 graded candidate by candidate (including their
+  `error code 100000`, which is the log's `ERR00100` and is in no table), the two
+  candidates a grep eliminates (`draft_tensor_parallel_size` no-op at v0.11.0, the
+  eagle3 target-family gate), the single-card-only e2e coverage, the ladder, and the
+  delivery arithmetic.
 - `../pd-disaggregation/structured-output-draft-placeholder-assert.md` — the spec
   family's **structured-output** face: `assert accepted` with `-1` scheduled draft
   ids on a P/D decode node (nothing executes on device, so no plog applies). Carries

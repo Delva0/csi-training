@@ -28,6 +28,7 @@ vllm v0.22.1 @ `0decac0d96c4`)
 | The offending line indexes a dict with a per-layer attribute | `vllm_ascend/ops/qwen2_decoder.py:233` |
 | The layer class is a thin subclass that calls the transformers `__init__` and adds no `attention_type` | `qwen2_decoder.py:249-255` (`class AscendQwen2DecoderLayer(Qwen2DecoderLayer)`, `super().__init__(config, layer_idx)`) |
 | The model class replaces the layer list, then runs a re-implemented forward loop | `qwen2_decoder.py:169-175` (`AscendQwen2Model(Qwen2Model)`, `super().__init__(config)`, `self.layers = nn.ModuleList([...])`), loop at `:230-241` |
+| The copy is **mixed-generation**: its mask-producing half already calls the current library API, and only the indexing line is the older one | `qwen2_decoder.py:8` imports `create_causal_mask, create_sliding_window_causal_mask` from `transformers.masking_utils`; the copy's own dict branch at `:207-223` calls them and tests `self.has_sliding_layers` |
 | Entry point: the whole thing is wired in as a replacement for the upstream `qwen2_decoder` plug-in layer | imported at `vllm_ascend/utils.py:668`; upstream class `vllm/model_executor/models/deepencoder2.py:22` (`@PluggableLayer.register("qwen2_decoder")`) |
 | Upstream does **not** re-implement the loop: it hands the mask mapping to `super().forward(...)` | `deepencoder2.py:78-118` (`CustomQwen2ModelInner.forward` at `:79`, `super().forward(..., attention_mask=causal_mask_mapping, ...)` at `:104`) |
 | transformers' own modeling rule says per-layer metadata comes from `self.config`, not from the layer object | `huggingface/transformers` export v5.12.1, `docs/source/en/modeling_rules.md:170`; the before/after snippet at `:178-179` shows `causal_mask_mapping[decoder_layer.attention_type]` → `causal_mask_mapping[self.config.layer_types[i]]` |
@@ -135,7 +136,11 @@ solve the problem"*. Reporter-confirmed, so:
   while the guard silently sends every layer to the OCR mask. Neither index form is
   verifiable from the tree, and the reported outcome says the copied body differs from
   the installed one in more than this one name — the same conclusion the upstream
-  delegation states directly.
+  delegation states directly. The mixed-generation evidence above says which half is
+  the stale one: the mask side is already `create_causal_mask` /
+  `create_sliding_window_causal_mask` (`:207-223`), so the per-layer index is a single
+  line stranded in the older generation, and it is inside the loop the delegation
+  deletes.
 - If a reporter must patch in place to unblock a demo, label it **start-only
   diagnostic** and give the acceptance check with it: one image request whose
   recognition result is compared against a working image, plus the body diff below.

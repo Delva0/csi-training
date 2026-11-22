@@ -14,6 +14,17 @@ output, or did no request ever reach a decode engine?**
   or a store that initialises and then fails while saving: this topic's transport
   rules do not apply — `../kv-pool-store/index.md` (A3 + DeepSeek-V4 +
   `device_sdma`: `../kv-pool-store/memcache-a3-dsv4-init.md`).
+- A PD **example script or copied recipe** (`examples/disaggregated_prefill/*.py`)
+  that dies before any engine exists: `AttributeError: type object
+  'KVTransferConfig' has no attribute 'from_cli'` at
+  `disaggregated_prefill_offline.py:46,86`, or the connector's
+  `Please specify prefill_device_ips and decode_device_ips…`, or
+  `Attempting to initialize a V0 Connector` on a host where `VLLM_USE_V1` was
+  exported. That is example rot, not a transport or install lane — this topic's
+  connector questions need a running engine — so answer from
+  `../upstream-downstream-drift/example-script-vs-upstream-api.md` (the direct
+  constructor, which extra-config key the pin actually reads, the V0/V1 direction,
+  and `tests/e2e/pd_disaggreate/setup_pd.sh` as the recipe that is current).
 - Connect/handshake failures **with a KV pool in the config**
   (`AscendStoreConnector`, alone or inside a `MultiConnector`, `MOONCAKE_CONFIG_PATH`,
   `pool_worker.py` / `pool_scheduler.py`): `Failed to connect to target … 503900`

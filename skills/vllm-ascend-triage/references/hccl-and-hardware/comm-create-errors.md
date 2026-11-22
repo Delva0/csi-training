@@ -72,7 +72,7 @@ Read the line printed *under* the code; it names which runtime call refused:
 | sub-text | case |
 | --- | --- |
 | `get error: phyid:N realDeviceId:N is err:0x7010003[FUNC:GetDeviceIndexByPhyId]` + `rtGetDeviceIndexByPhyId execute failed, reason=[device id error]` | #454, TP4+DP2 on one node |
-| `rtGetPairPhyDevicesInfo execution failed, reason=driver error:internal error` + `Invalid_Argument(EL0003)` | #8519, containerised TP4 on 910B4 |
+| `rtGetPairPhyDevicesInfo execution failed, reason=driver error:internal error` + `Invalid_Argument(EL0003)` | #8519, containerised TP4 on an Atlas 800I A2 (the reporter's "910B4 four cards") |
 
 Both are **driver return codes**: the snapshot carries only declarations
 (`cann/runtime/src/inc/runtime/dev.h:563`, the weak `halGetPairPhyDevicesInfo` at
@@ -90,10 +90,18 @@ enum name, the fact that comm setup wanted the pair's link type, and three artef
    container and device set**. The same `15` there exonerates vllm-ascend, `torch.compile` and the
    serve flags in one run; a clean run turns the lane back to the engine.
 3. A **high or non-contiguous `--device /dev/davinciN` list is not a typo.** The #8519 reporter
-   later confirmed (2026-04-22) that the box is an Atlas 800I A2 whose own NPU numbering is
-   `10/12/14/16`, so "that device does not exist" is refuted before it is ranked: the finding is the
-   mapping, i.e. mount the full node set and pin `ASCEND_RT_VISIBLE_DEVICES` to the same ids
-   ascending, or use the contiguous set.
+   later confirmed (2026-04-22) that the machine is an Atlas 800I A2 and that its **own NPU-ID
+   labelling is `10/12/14/16`** — the same box the title calls "910B4 four cards", not a version
+   conflict — so "that device does not exist" is refuted before it is ranked: the finding is the
+   mapping. Order the two halves, because the runtime list indexes the device list the container
+   *exposes*, not the chassis labels (`../deploy-sizing/card-budget-and-device-visibility.md`):
+   mount the **full** node set first, then pin `ASCEND_RT_VISIBLE_DEVICES` to those ids ascending (or
+   drop to a contiguous set). A partial mount carrying the high ids can give **zero** devices, not
+   four: `_device_count_ascend_hal` returns only the count of *leading* entries below
+   `drvGetDevNum()` (`Ascend/pytorch` `v7.2.0.1-pytorch2.8.0` `torch_npu/npu/__init__.py:386-409`,
+   trim at `:403-404`; the parse is `:341-366`), so
+   `python -c "import torch_npu; print(torch_npu.npu.device_count())"` inside the container is what
+   says whether the pin took effect — and a bare `0` is not "four cards, one missing".
 
 **A `vllm_ascend/` frame in that traceback is a sync point, not the owner.** On #8519 the comm was
 created from `torch.compile`'s pattern registration because the RMSNorm+quant fusion pass
@@ -103,7 +111,28 @@ real-traces a pattern that contains a TP all-gather
 collective runs there — after the weights load and before the model's own forward. That explains the
 "error after loading the model" position; it does not move the cause, and `--enforce-eager` is
 expected to only move the first collective to the model's forward, where the same comm-creation
-refusal returns (hypothesis, not a verified fix). Recorded #8519 had this lane by its sixth assistant
+refusal returns (hypothesis, not a verified fix).
+
+**Which key removes that first collective, and why one key is not enough.** At v0.18.0rc1 the
+collective lives in the *pattern bodies* of the fusion passes the pass manager appends from
+`additional_config.ascend_compilation_config` (`compilation/graph_fusion_pass_manager.py:49-70`, gates
+at `:52/57/62/67`): `norm_quant_fusion_pass.py:185,208,249,273,399,414-415,450`
+(`torch.ops.vllm.maybe_all_gather_and_maybe_unpad`) and, only when that key is on,
+`allreduce_rmsnorm_fusion_pass.py:69,121` (`tensor_model_parallel_all_reduce`). So
+`--additional-config '{"ascend_compilation_config": {"fuse_norm_quant": false}}'` removes the first
+family and leaves the second, while `--enforce-eager` skips the pass manager altogether and is the
+only single-axis ablation. Two traps around it: (a) `graph_fusion_pass_manager.py:62` reads
+`.get("fuse_allreduce_rms", True)`, yet a serve that does not set the key still gets `False`, because
+`AscendCompilationConfig` defaults it to `False` (`ascend_config.py:268`) and
+`platform.py:259-264` writes the parsed dataclass back into `additional_config` before the manager
+runs — grepping the manager alone reports the wrong default; (b) `ascend_fusion_config` is a
+*different* key, read at `ascend_config.py:41` into `AscendFusionConfig` (`:305-320`,
+`fusion_ops_gmmswigluquant` only), so a fusion toggle written there reaches none of these passes —
+which key is read where is `../startup-failures/additional-config-schema.md`'s audit. Read the ablation both ways: the same `15` at the
+model's own first collective says the pair query refuses for that device set; a clean run says the
+trigger is the tracing context itself, and then the plog from *that* run is the evidence.
+
+Recorded #8519 had this lane by its sixth assistant
 turn, then spent five more turns in `cann/hcomm`/`cann/runtime` for a precondition that lives in the
 closed driver: 52 K characters of reasoning against 1.2 K of message text, and no answer at the
 16 384-token cap.

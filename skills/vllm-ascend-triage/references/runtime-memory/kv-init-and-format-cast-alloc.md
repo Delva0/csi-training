@@ -136,7 +136,10 @@ rows above do) proves the checkpoint geometry you assumed is the one that ran.
    follow-up above was exactly that host and the ask was still these three.
 2. **Shrink the pool**: `--max-model-len` (a VL model's default context is huge),
    then `--gpu-memory-utilization`. Two full pools (raw + NZ copy) have to fit.
-   This is the cheapest one-line test and it decides capacity vs defect.
+   This is the cheapest one-line test and it decides capacity vs defect. #4812
+   itself is the case where nothing was sized by hand: its serve line is the 300I
+   tutorial's Qwen2.5-VL-3B tab verbatim, with neither flag, so both ran at their
+   defaults (`../soc-platform-paths/atlas-300i-310p.md`).
 3. **The 310P environment line**: `export PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:256`
    is what `docs/source/tutorials/single_node_300i.md:47-48` prescribes for
    300I. Note it disables vllm-ascend's own `expandable_segments` injection
@@ -156,7 +159,10 @@ rows above do) proves the checkpoint geometry you assumed is the one that ran.
 ## What this page does not establish
 
 - It does not prove the #4812 host was out of memory; the posted dump carries no
-  free-HBM figure and no `Using max model len` line.
+  free-HBM figure and no `Using max model len` line, its serve line leaves
+  `--max-model-len` and `--gpu-memory-utilization` at their defaults, and no rerun
+  at a smaller `--max-model-len` was ever posted. The ranking on the zero-log form
+  of this shape is `../soc-platform-paths/atlas-300i-310p.md`, its startup section.
 - Line numbers are version-specific. Re-grep `_convert_torch_format`,
   `initialize_kv_cache_tensors` and `is_enable_nz` in the reporter's version
   before quoting any of them.

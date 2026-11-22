@@ -42,6 +42,12 @@
 #               a separate heading — any `LQ_DCMI_ERR_CODE_*` collision from
 #               `src/custom/lqdrv/kernel/ioctl_comm_def.h`, whose numbering is a
 #               DIFFERENT table (-8005 is IOCTL_FAIL there, INNER_ERR in DCMI).
+#               -8020 = DCMI_ERR_CODE_RESOURCE_OCCUPIED, vendor action 「请排查设备是否
+#               被其他容器、进程等占用」 — the code that names the another-holder lane.
+#               Keep the default --root /workspace/repos for this branch, not only the
+#               reported issue's directory: a report whose snapshot exports no driver tree
+#               (the v0.8.4/v0.9-era ones) still gets the name from any other pin, because
+#               a return-code table is an ABI — cite the pin that answered.
 #
 # --root defaults to /workspace/repos; pass /workspace/repos/<issue> to scope it.
 # Read the printed Solution as the vendor's statement (citable), not as a diagnosis:
@@ -66,7 +72,8 @@ args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) root="${2:?--root needs a directory}"; shift 2 ;;
-    -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,/^set -uo pipefail/p' "$0" | sed '$d' \
+                 | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -153,7 +160,8 @@ for code in "${args[@]}"; do
     fi
     if [ "$found" -eq 0 ]; then
       echo "  not in any exported dcmi_interface_api.h or DCMI return_codes.md"
-      echo "  (quote the code as text; the driver tree may not be in this snapshot)"
+      echo "  (widen the root before hedging the name: --root /workspace/repos — another"
+      echo "   pin's driver export answers, the table is an ABI. Only the holder is open)"
       status=1
     fi
   elif [[ "$code" =~ ^0[xX][0-9a-fA-F]+$ ]]; then

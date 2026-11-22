@@ -34,6 +34,15 @@ entry when:
   up in `KVConnectorFactory._registry` before `kv_connector_module_path` is read, so
   a name that collides with an upstream registration runs upstream's class —
   `../pd-disaggregation/connector-name-registry-collision.md` (#7864);
+- **or the failing frame is a repo example script, not a library module** —
+  `AttributeError: type object '<UpstreamConfig>' has no attribute '<method>'` at
+  `examples/<dir>/<script>.py`, usually twice from `multiprocessing` children with the
+  script's own `All process done!` after it. The sample was written against another
+  upstream API generation (or its extra-config keys were renamed since), so the report is
+  example rot: the deliverable is the corrected script plus the one recipe that still
+  matches the pin — no version pairing, no install story, nothing device-side
+  (`example-script-vs-upstream-api.md`, recorded #1450 `KVTransferConfig.from_cli`, whose
+  snippet originates in the maintainer guide #857);
 - A sibling question with no traceback is *when*
   the hook runs: "在线正常、离线 `LLM()` 报错，patch 要 import 在离线脚本之前" — for the engine
   itself both paths call `load_general_plugins()` (`arg_utils.py:576-589`) and
@@ -425,6 +434,22 @@ answer is not "downstream drift".
    vllm-omni#2777): `protocol-model-class-swap.md`.
 
 ## Pages
+- `example-script-vs-upstream-api.md` — worked case vllm-ascend #1450 (vllm-ascend
+  `v0.9.1rc1` `c30ddb8` / vllm `v0.9.1` `b6553be`, 910B3): four call sites in
+  `examples/disaggregated_prefill/disaggregated_prefill_offline.py:46,86` and
+  `examples/offline_disaggregated_prefill_npu.py:49,89` call
+  `KVTransferConfig.from_cli`, which upstream never had (the only `from_cli`
+  classmethod is `CompilationConfig.from_cli`, `vllm/config.py:4047`) while the CLI
+  parser duck-types it (`arg_utils.py:207-209` → `TypeAdapter(cls).validate_json`).
+  The four calls that settle it, the direct-constructor form and what
+  `__post_init__` actually validates (`config.py:3704-3713`), the **V0/V1 direction**
+  (both Ascend connectors subclass the V0 `KVConnectorBase`, and an *unset*
+  `VLLM_USE_V1` falls back to V0 on NPU — an explicit `1` is what reaches
+  `factory.py:73`'s `issubclass(…, KVConnectorBase_V1)` assert), the
+  `kv_connector_extra_config` keys (`simple_pipe.py:64-73` requires
+  `prefill_device_ips`, which the two `run_*_server.sh` still misspell
+  `prompt_device_ips`), the CI-current `setup_pd.sh` recipe, the guide #857 origin,
+  and the paste-vs-pin line fingerprint (`:38`/`:79` vs `:46`/`:86`).
 - `protocol-model-class-swap.md` — worked case vllm-ascend #8201 (v0.18.0rc1
   `99e1ea0` / vllm v0.18.0 `bcf2be9`, image `vllm-omni:v0.18.0`, qwen-image-edit):
   the patch replaces `engine.protocol.UsageInfo` with a subclass and rewrites three

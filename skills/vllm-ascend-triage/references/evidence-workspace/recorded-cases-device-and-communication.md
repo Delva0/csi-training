@@ -101,6 +101,17 @@ the registry lane separate. Two costs worth not repeating: its second call dumpe
 `SOURCES.json` plus a ~900-name history listing (~25 KB, against `SKILL.md` rule 7), and
 it typed `rg -rn` (the documented `--replace` trap) and had to kill the job and redo it.
 Page: `../custom-ops-runtime-faults/custom-op-ownership-and-dispatch.md`.
+**Closed by a later pin, not by the reporter's ref**: at vllm-ascend `v0.18.0`
+(`e18643f8a4d5`) the mask is the framework's own AscendC op — opType
+`ApplyTopKTopPCustom` (`csrc/apply_top_k_top_p_custom/op_host/…_def.cpp:18`), torch
+binding `npu_apply_top_k_top_p` (`csrc/torch_binding.cpp:876-877`), selected only on
+A2/A3 (`sample/sampler.py:167-171`) and bypassed under `VLLM_BATCH_INVARIANT`
+(`:104-105`) — so the reporter's near-identical name was the downstream op all along,
+and `0.13.0rc3` vs `0.18.0` is what dates `0.14.0.RC1`. The batch_67 replay of this
+issue reached the owning page on its second call and shipped the answer in 25 messages;
+its one avoidable spend was a bare op-name grep across all of `/workspace/repos`, which
+promoted to a background job and needed two polls — the pin that carries the op is
+`vllm-ascend` alone.
 
 **#7443** vllm-ascend v0.17.0rc1 (`e20f0b1a`) + vllm v0.17.0 (`b31e9326`), DeepSeek-V3.1
 on a W8A8 checkpoint, `--quantization ascend --enable-expert-parallel
@@ -329,7 +340,14 @@ with the ranked answer already written in the final reasoning block. The reporte
 later comment supplies the counter-check the run had recommended and never got: with
 ACL graph on, `ASCEND_LAUNCH_BLOCKING=1` is refused (`ValidationError: ACL graph is
 incompatible with ASCEND_LAUNCH_BLOCKING=1`), and plog only repeats the same line — so
-the attribution order is `--enforce-eager` **then** blocking. Lessons in
+the attribution order is `--enforce-eager` **then** blocking. The same follow-up
+supplies the trigger (one 5-token prompt, `max_tokens: 16`, `temperature: 0`, still
+dies → prompt length, prefix cache, batch and sampling are excluded), the full frame
+chain (all drafter-side, `model_runner_v1.py:2144/1767` → `eagle_proposer.py:200` →
+`:476`, which bounds the launch window to the draft forward at `:471-475`), and the
+reporter's own 根因分析 blaming `:476`: three candidates, of which the shape/index/TP
+one and the memory-layout one are gradeable as dead and only "ATB/CANN compatibility"
+survives as the open question. Lessons in
 `../spec-decode-mtp/atb-op-setup-failure-at-proposer.md`; delivery in
 `delivery-discipline.md`.
 

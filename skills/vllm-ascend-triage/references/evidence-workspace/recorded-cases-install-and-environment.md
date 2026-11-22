@@ -678,12 +678,17 @@ DeepSeek-R1-w8a8 on one host, `vllm serve … -tp 16 --max-model-len 4096
 `NotImplementedError: ACL Graph does not support deepseek … Or set enforce_eager=True`
 from `vllm_ascend/ascend_config.py:148-157`, before any weight is read. Track: the
 `export` is not a knob (0 `ENFORCE_EAGER` bindings in either tree; the gate reads
-`model_config.enforce_eager`, `platform.py:151`), so `--enforce-eager` is the whole
+`model_config.enforce_eager`, `platform.py:151`; the paste's own `non-default args:`
+dict carries `model`/`max_model_len`/`quantization`/`tensor_parallel_size` and no
+`enforce_eager`, which is that proof without a source read —
+`../first-checks/cheap-checks-by-track.md`), so `--enforce-eager` is the whole
 fix, and the same answer owes the page defect that invited the guess (`graph_mode.md:10`
 gives only the Python form; `:58`'s TorchAirGraph online example serves Qwen). The
 recorded run verified the env-var no-op in two greps and delivered the answer plus
 three doc defects, and its own deduction that TP=16 would then hit the MLA
-heads-per-rank gate (128/16 = 8) if the reporter moved to torchair. Page:
+heads-per-rank gate (128/16 = 8) if the reporter moved to torchair. A replay shipped
+the same answer on its 8th turn and 9 tool calls: `reference-locate` → this line → two
+`rg` confirmations (`platform.py:151`, `ascend_config.py:155`) → the doc-gap quote. Page:
 `../feature-enable-recipes/torchair-mla-head-count-tp-gate.md`, and
 `../startup-failures/graph-mode-not-applied.md` for the no-op-env-var check.
 

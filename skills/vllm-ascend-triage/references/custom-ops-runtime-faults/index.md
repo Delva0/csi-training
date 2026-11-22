@@ -605,12 +605,14 @@ caller's row count is the lever — `triton-grid-uint16-limit.md` (recorded #397
   when several chips share one `pc start` that means software, not several bad cards.
 - `custom-op-ownership-and-dispatch.md` — the op owner returns the case ("算子侧反馈
   非cann算子，需要框架侧定位为什么会下发"): the `CUSTOM_OPS_ARRAY` →
-  `vllm_ascend/_cann_ops_custom` → `ASCEND_CUSTOM_OPP_PATH` chain at v0.13.0rc3 that makes
-  "not a CANN op" the design, the three top-k/top-p dispatch sites and the flag that picks
-  one (`sample/sampler.py:64-78`, `sample/rejection_sampler.py:16,74` via the patch at
-  `patch/worker/patch_rejection_sampler.py:1-12`, `worker/v2/sample/sampler.py:19,48`), the
-  greedy/`top_p` trigger, the name-order hypothesis it refuses to grade, and the in-image
-  reads that decide a release newer than the snapshot (recorded #8730, `0.14.0.RC1`).
+  `vllm_ascend/_cann_ops_custom` → `ASCEND_CUSTOM_OPP_PATH` chain that makes "not a CANN
+  op" the design, the three top-k/top-p dispatch sites and the flag that picks one
+  (`sample/sampler.py:92,106`, `sample/rejection_sampler.py:21,79` via the patch,
+  `worker/v2/sample/sampler.py` on upstream's), the name now identified at v0.18.0 as
+  `ApplyTopKTopPCustom` (`csrc/apply_top_k_top_p_custom/…_def.cpp:18`, torch binding
+  `npu_apply_top_k_top_p`), the three gates that decide whether it runs (SoC A2/A3,
+  batch-wide `top_p < 1`, the BI bypass) and the `_C_ascend`-AttributeError lane when the
+  extension did not load (recorded #8730, `0.14.0.RC1`).
 - `quant-scale-dtype-gate.md` — `161002` / `EZ1001 … Tensor scale not implemented for
   DT_FLOAT16` on `aclnnQuantMatmulWeightNz` / `aclnnGroupedMatmulWeightNz` at
   vllm-ascend v0.17.0rc1: the scale is allocated in `params_dtype` so the gate is

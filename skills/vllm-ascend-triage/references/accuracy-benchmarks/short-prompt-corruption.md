@@ -70,6 +70,11 @@ VL page does not apply (Step 0b).
   DeepSeek-R1-Distill-Qwen-7B, offline `LLM.generate`, `temperature=0.0`,
   `enable_chunked_prefill=True, max_num_batched_tokens=2048, block_size=16`): a digit
   run reads like wrong-KV corruption, which is how it gets ranked below the engine.
+  #892 itself stays **inferred, not confirmed**: its only symptom evidence is a
+  `user-attachments` image that is not in the case corpus and it has no public
+  resolution, so the lane comes from the wording plus the checkpoint — rank rung 1
+  first and ask for `out.outputs[0].token_ids` / `finish_reason` rather than writing
+  the sampler up as the established cause.
   **A version-onset phrase does not promote the version lane** — #7191's own body dates
   the loop "from v0.7.3 to v0.11.0" and its fix was still `temperature=0.6`, so
   "starts occurring from vllm-ascend v0.7.3" is the reporter's version history, not a

@@ -21,6 +21,20 @@ used.
 3. **The row's conditions travel with the route.** When a row names a version window,
    a reporter-confirmed resolution or a `cause left open`, carry that into the short
    answer rather than upgrading a hypothesis to a cause.
+4. **A paste that is only a serve command has no signature to match.** Its flags are
+   the pin's tutorial flags, so grading them with `reference-locate.py` returns family
+   words — recorded on a `v0.11.0.rc2-310P` Qwen2.5-VL `报错` whose whole evidence was
+   the 300I tab's `vllm serve` line: `--enforce-eager` 212 pages, `310P` 132,
+   `Qwen2.5-VL` 45, `custom_ops` 32, no all-token page — and a page whose *title*
+   names the model (`310p-vl-*`) is a name, not a signature. Grade the **shape**
+   instead (SoC + phase + the version pair + the reporter's own control, e.g. "the
+   older `-310p` tag served this command"), or skip the grade. Then rank what the
+   pin's own defaults and status document fix before asking for the log: on that
+   paste the later traceback was the KV-cache format-cast allocation
+   (`../runtime-memory/kv-init-and-format-cast-alloc.md`), while the recorded session
+   opened a `310p-vl-*` page by title and shipped the tag-regression / MRoPE ranking.
+   The zero-log ranking for a 310P startup paste is the startup section of
+   `../soc-platform-paths/atlas-300i-310p.md`.
 
 ## Routes
 

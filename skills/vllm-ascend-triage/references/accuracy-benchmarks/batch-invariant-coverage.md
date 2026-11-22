@@ -63,8 +63,11 @@ branch (hypothesis, label it as such; the AttributeError variant is untested).
    independent divergence source **even with the AscendC library installed**.
 2. **Attention call sites the monkeypatch misses.**
    `torch_npu.npu_fused_infer_attention_score_v2` (`attention_v1.py:803`,
-   `mla_v1.py:1396,1402`) is never swapped — only the v1 attribute is. A model
-   that selects v2 stays vanilla whatever the branch.
+   `mla_v1.py:813,1396,1402`) is never swapped — only the v1 attribute is, and the
+   `.out` overload is a different attribute on the packet (`attention_v1.py:508,603`).
+   A model that selects v2 — or that reaches the MLA `.out` call at `mla_v1.py:813`
+   first — stays vanilla whatever the branch, so rank this above the library question
+   for an MLA/MoE checkpoint and grep the sites once before predicting which one ran.
 3. **VL vision tower.** The ViT's own attention and patch-embed path is in
    neither list, and the encoder runs in the encoder cache over however many
    images are in flight. A VL checkpoint inherits this on top of 1–2, and the

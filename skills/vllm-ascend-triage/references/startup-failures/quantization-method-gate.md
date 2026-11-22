@@ -811,9 +811,15 @@ the reporter already tried `"model_type": "deepseekv2"` and `"deepseek_v3"`.
   (`quant_config.py:55`), so nothing but the name moves.
 - **What the message rules out, and what to say next.** The phase is engine-config
   construction: the paste's frames are `create_engine_config` → `VllmConfig(...)`, so no
-  worker, device, TP/EP/PD, CANN or HBM fact bears on it (in the pinned vllm v0.13.0 the
-  same sentence comes from `get_quant_config` on the loader path — either way the
-  decision is read off the model directory, not off runtime state). A
+  worker, device, TP/EP/PD, CANN or HBM fact bears on it. Read the caller as well as the
+  message: at vllm v0.13.0 the sentence is raised by `get_quant_config`
+  (`weight_utils.py:314`) from `VllmConfig.__post_init__` →
+  `VllmConfig._get_quantization_config` (`vllm/config/vllm.py:530-534`), which enters
+  only `if model_config.quantization is not None` (`:369-378`) — so the sentence is
+  itself proof the method was set — while the tree's other caller
+  (`model_loader/default_loader.py:296`) is `quantization == "torchao"`-gated and never
+  this case. Either way the decision is read off the model directory, not off runtime
+  state. A
   `quantization_config` in `config.json` would have taken the HF-dict branch at
   `weight_utils.py:239-249` and never globbed, so this exact sentence is itself
   evidence that `config.json` carries no such key (§E's last paragraph). After the
@@ -842,7 +848,10 @@ and the version sentence in its answer — went to reconciling the pasted
 `arg_utils.py:1431`/`requirements.txt` against the snapshot's vllm pin, which the
 release matrix had already replaced (`environment-correspondence.md` step 2,
 `dated_reference_only`); the answer needed the one `quant_config.py:85-86` read plus
-the `cp`.
+the `cp`. A second run of the same case answered on its 8th turn in 12 calls, four of
+them again on the version question; the caller sentence above is what those bought (an
+`rg -n get_quant_config vllm/` plus `weight_utils.py` 290-325), and it is now written
+down, so the whole lane is `reference-locate` → §F → `cp`.
 
 The §E pair is instructive in both directions. #3534 shipped the right verdict (an FP8
 checkpoint cannot run) after 12 reads, but its cheapest check went to `config.json`

@@ -16,31 +16,27 @@ Anything batched beside that call — `ls
 /workspace`, `cat SOURCES.json` — executes before this body is in context, so no rule
 here can stop it, and its output is re-sent on every later turn: six recorded runs paid
 14-54 KB that way, one ending output-truncated at 1.1 M cumulative prompt tokens, which
-is why the frontmatter description names the prohibition — "load alone, no shell
-beside" — instead of only the reading order. If something has to share it, let it be
+is why the frontmatter description names the prohibition, not only the reading order.
+If something has to share it, let it be
 `bash <skill_root>/scripts/sources-summary.sh` (~10 lines) — that summary plus the
 reporter's own paste **is** the orientation. Never `cat /workspace/repos/SOURCES.json`,
 never enumerate a history directory, never `cat /workspace/history/*.md`, and do not
 "list one level" with `search_files (pattern='*', target='files', path='/workspace')`:
 recorded in both runs of one minibatch, it returns ~100 recursive paths truncated at 50
-(~2.8-3 K characters re-sent on every later turn, `/workspace/history/*.md` among them)
-and neither run used a line of it (#12278, #11761); `ls -d /workspace/repos/*/` is the
-12-line substitute when the repo taxonomy is actually needed. Any `search_files` call
-keeps `target='files'`: `pattern='*'` **without** it is compiled as a regex and fails
-(`regex parse error … repetition operator missing expression`), one recorded call paid
-for that (#15389).
+and neither used a line of it (#12278, #11761); `ls -d /workspace/repos/*/` is the
+12-line substitute. Any `search_files` call keeps `target='files'`: `pattern='*'` without
+it is a regex and fails, one recorded call paid for that (#15389).
 
 Search by the **most specific** token first (`rg -l`, `scripts/history-titles.sh`),
 never by listing — a recursive `search_files` glob is a listing too: `pattern='*Qwen3*'`
 over `/workspace/repos` returned 51 paths, nearly all vllm `tests/evals/gsm8k` configs,
-while the wanted page was one `rg --files -g '*Qwen3.5*'` inside
-`docs/source/tutorials/models`. A model **family** name is a listing token, not an
-identifier: `rg -l 'Qwen3.5'` and `'Qwen3.6'` over `references/` return ~20 unrelated
-pages each and neither returned the owning page (the five-token loop cost 9.3 K
-characters of transcript, re-sent every later turn), while the task's own
-phrase token (`'dp2 tp4'`, 5 paths) and a numeric/error token (`'248044'` → the page
-that owns it) land on the first call. **Attachments are the one
-exception**: open the specific files the issue links (`ATTACHMENTS.txt` lists names and
+while the wanted page was one `rg --files -g '*Qwen3.5*'`. A model **family** name is a
+listing token, not an identifier (`rg -l 'Qwen3.5'`/`'Qwen3.6'` over `references/` return
+~20 unrelated pages each and neither returned the owning page; the five-token loop cost
+9.3 K characters of transcript), while the task's own phrase token (`'dp2 tp4'`, 5 paths)
+and a numeric/error token (`'248044'` → the page that owns it) land on the first call.
+**Attachments are the one exception**: open the specific files the issue links
+(`ATTACHMENTS.txt` lists names and
 SHA256s only, so a grep of it is not an existence test) — rule 7. Costs and traps:
 rule 7.
 
@@ -71,14 +67,13 @@ the turn the shape is classified, not a second copy of it here.
    session can be cut off mid-sentence, so the deliverable has to survive
    truncation: what decides the outcome is not how much evidence was gathered but
    whether the message exists. The runs that shipped **no answer at all** each had a
-   usable lead in hand — #1255/#5772 held the owning line, #2807/#15394 every fact of
-   a ranked answer, #4296 answered from one traceback in ten turns — and the thinnest
-   wrote 0-2 234 characters against 43-48 K of reasoning (#8301 **nothing**, #11171
-   54, #11080 115, #2069 217, #3706 743, #1617 2 234, #6488, #7996), the newest
-   **#18691 nothing** (21 turns / 34 tool results) with the decisive correction — a
-   `/health` 200 is not liveness — already on its tenth turn. Each ended on a
-   reasoning block with no message and no tool call: the cap landed on the answer's
-   shape. Per-run ids, counts and cut points: `delivery-discipline.md`,
+   usable lead in hand (#1255/#5772 the owning line, #2807/#15394 every fact of a
+   ranked answer, #4296 one traceback), while the thinnest wrote 0-2 234 characters
+   against 43-48 K of reasoning (the id/count table is in
+   `delivery-recorded-sessions.md`), the newest **#18691 nothing** (21 turns / 34 tool
+   results) with the decisive correction — a `/health` 200 is not liveness — already on
+   its tenth turn. Each ended on a reasoning block with no message and no tool call: the
+   cap landed on the answer's shape. Per-run ids, counts and cut points: `delivery-discipline.md`,
    `delivery-recorded-sessions.md`.
    Two triggers would have saved them. (a) A **second** pass over the reporter's own
    numbers that reaches the same estimate is the turn the ranking is owed
@@ -573,19 +568,15 @@ the turn the shape is classified, not a second copy of it here.
     Cap ~6 calls (#5609, #10943 burned the session there). **The fourth import-time
     form is `Illegal instruction (core dumped)` at `import torch` on an aarch64 host,
     and it is the CPU core's ISA level rather than the module**: an ARMv8.0 core
-    (Phytium D2000 / FT-2000-class FTC663) against a wheel built on an ARMv8.2
-    baseline, while Kunpeng 920 / D3000 are ARMv8.2 and import the same image fine —
-    reporter-confirmed on #13936 (`v0.23.0rc1-310p-openeuler`, `torch==2.10.0` /
-    `torch-npu==2.10.0.post2` at `requirements.txt:16-17`; 「d2000只支持armv8 …
-    torch.2.10默认使用armv8.2的指令集编译的」), where the reporter's own control is
-    `torch` 2.9 importing on the same board. One host-side round trip decides it —
-    `dmesg -T | grep -i 'trap invalid opcode'` names the `.so`, `/proc/cpuinfo`
-    `Features` / `LD_SHOW_AUXV=1` names the missing extension — and the rung is the
-    last image line before the 2.10 bump (`release_notes.md:316`, v0.20.2rc1 at that
-    pin), **never** `pip install torch==2.9.0` under the newer `torch_npu`. Do not
-    confuse it with the aicore's `Illegal instruction, which is usually caused by
-    unaligned UUB addresses` (`references/hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`)
-    — same three words, runtime device fault, no import →
+    (Phytium D2000 / FT-2000-class) against an ARMv8.2-baseline wheel, while Kunpeng
+    920 / D3000 import the same image fine (reporter-confirmed #13936, whose own
+    control is `torch` 2.9 on the same board). `dmesg -T | grep -i 'trap invalid
+    opcode'` plus `/proc/cpuinfo` `Features` decide it in one host round trip; the rung
+    is the last image line before the 2.10 bump (`release_notes.md:316`), **never**
+    `pip install torch==2.9.0` under the newer `torch_npu`. Not the aicore's `Illegal
+    instruction, which is usually caused by unaligned UUB addresses`
+    (`references/hccl-and-hardware/aclgraph-full-decode-runtime-crash.md`) — same
+    words, runtime device fault, no import →
     `references/image-dependency-faults/host-cpu-isa-sigill-at-import.md`. The fifth
     form is an **ACL/GE bring-up failure** at device open — `SetPrecisionMode … AclSetCompileopt(
     aclCompileOpt::ACL_PRECISION_MODE …) error code is 500001` +
@@ -593,9 +584,8 @@ the turn the shape is classified, not a second copy of it here.
     `ERR99999` with no `vllm_ascend` frame. Owner, in this order: a **containerized**
     run whose `docker run` already carries the documented `--device`/mount list takes
     that same command plus `--privileged=true` as its first re-run (reporter-confirmed
-    #302: 「已解决，加个--privileged=true即可」, driver unchanged, one variable); then the
-    driver/firmware × image-CANN pairing, with the printed SoC name read against
-    `npu-smi`. No precision/dtype flag is ever the cause →
+    #302, driver unchanged); then the driver/firmware × image-CANN pairing, with the
+    printed SoC name read against `npu-smi`. No precision/dtype flag is ever the cause →
     `references/startup-failures/acl-init-500001-and-soc-version.md`. The **sixth** form is an
     **ATB op-create refusal**: `RuntimeError: LinearOperation CreateOperation failed!` (also
     `GroupTopkOperation …`) out of a `torch_npu._npu_*` call — at a 310P engine start it is the
@@ -663,9 +653,13 @@ the turn the shape is classified, not a second copy of it here.
     precedent family, so report what the hits are — at #8984, 10 issues, 3 RFCs and
     7 failure reports, no success report for the reporter's weight set on any SoC —
     with the snapshot's limit (titles/bodies only, no comments or PRs), i.e. "nobody
-    in the searchable corpus reports success", not "impossible". The recorded
-    #8984 re-ask came a day *after* a verdict-first answer that ran that search only
-    at turn 40 of 45, so late that it could not shape the answer. Any launcher you
+    in the searchable corpus reports success", not "impossible", and write it as the
+    news it is (「没有任何人在 A2 上成功跑通这个权重集；最接近的是 …」), never as a
+    parenthetical justifying itself: the #8984 replay carried the sentence and still
+    shipped 「语料检索（这一步必须和结论一起给，否则你会紧接着问…）」 — this rule's own
+    wording plus a prediction of his next question — where the earlier re-ask came a day
+    after a verdict-first answer that ran that search only at turn 40 of 45
+    (`references/evidence-workspace/delivery-discipline.md`). Any launcher you
     still hand back must also fit the reporter's cards, by the model tutorial's own
     node count for that weight set, **and its `--gpu-memory-utilization` with the
     HBM the paste's own `npu-smi` rows already show held by other processes** — the
@@ -677,10 +671,15 @@ the turn the shape is classified, not a second copy of it here.
     step 1, recorded #5549 replay). Then map each
     enforced constraint to the error text it raises, so the reporter can place their
     own two errors, and stage the experiment one axis per launch. Three turns,
-    `references/feature-enable-recipes/index.md`. Two traps: a pinned doc's narrower
+    `references/feature-enable-recipes/index.md`. Three traps: a pinned doc's narrower
     hardware scope is the project's position for that version (quote it, do not
-    overturn it with an older issue), and a comment saying a sub-feature is unsupported
-    is often a branch the code already takes (`sfa_cp.py` vs the table's MLAPO ✅).
+    overturn it with an older issue); a comment saying a sub-feature is unsupported
+    is often a branch the code already takes (`sfa_cp.py` vs the table's MLAPO ✅); and
+    **a guard a *newer* pin carries is not a licence here**: no such assert at their
+    ref means the launch runs an unvalidated combination instead of refusing — hand
+    back the guarded row (SFA needs `dcp == tp`; a pin without the assert accepts
+    `dcp=2`/`tp=8` and garbles silently) —
+    `references/feature-enable-recipes/context-parallel-pcp-dcp.md` §2.
     A **weight-layout capability** report is the same shape with the premise inverted:
     "910B3 是否支持权重 nd 到 nz 的转换，提高 matmul 的性能？0.11.0 的代码好像只支持 310P"
     — `is_310p()` guards read both ways in this tree (`if not is_310p():` runs the NZ
@@ -882,8 +881,22 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    code that no `HcclResult` enum holds, its `ACL_ERROR_RT_*` name with the header's own
    comment and the vendor's action
    (`cann/runtime/include/external/acl/error_codes/rt_error_codes.h`,
-   `cann/runtime/docs/api_docs/aclError.md`). **Two families the same call now resolves are outside
-   every ACL table**, and a plog paste using them reads "not found" if you only search those:
+   `cann/runtime/docs/api_docs/aclError.md`). **A code that resolves to nothing is usually the
+   reporter's restatement of a log label, not an ACL number** (#4323's later `error code
+   100000` is that log's own `ERR00100 PTA call acl api failed.`, an ATB/op-plugin label
+   no export carries): read their paste for the number before widening the grep
+   (`references/spec-decode-mtp/atb-op-setup-failure-at-proposer.md`).
+   **A negative `-8xxx` from a container's
+   `dcmi`/`npu-smi` line is the same call's DCMI branch** (`DCMI_ERROR_CODE_BASE (-8000)`
+   minus an offset), and the table it reads **need not come from the reported snapshot**:
+   any exported `cann/driver` in `/workspace/repos` names the code, because a return-code
+   table is an ABI rather than a release artefact — a 2025-04 report whose snapshot exports
+   no driver tree still gets `-8020 = DCMI_ERR_CODE_RESOURCE_OCCUPIED` (vendor action
+   「请排查设备是否被其他容器、进程等占用」), and the name then picks the rung. Cite the
+   pin you read it at; hedge the *holder*, not the name
+   (`references/startup-failures/no-npu-in-container.md`). **Two families the same call
+   now resolves are outside every ACL table**, and a plog paste using them reads "not
+   found" if you only search those:
    a hex `retCode=0x2a` beside `[aicpu exception]` is `TS_ERROR_AICPU_EXCEPTION` in the driver's
    `tag_ts_error` enum (`cann/driver/…/tsch/task_scheduler_error.h`, whose comment *is* the
    bracketed text), and the `errcode:N, msg:execute kernel param invalid` field of an AICPU record
@@ -922,6 +935,12 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    `/workspace/repos/<id>/` or `/workspace/attachments/<id>/`. Skip the id grep then:
    the string locate reaches the page (that is how #6972 reached
    `startup-failures/graph-mode-not-applied.md`, whose body reads `recorded #6972`).
+   The id need not come from the prompt — `reference-locate.py`'s `→ #5947:379` case
+   lists and a page's own `recorded #<id>` line hand it over mid-run, and it triggers the
+   same one call: on #5947's replay `rg -n '#5947'` names the owning section
+   (`mc2-dispatch-profile-run-hang.md` §Step 3b) at once, where paging cost three reads.
+   Send a 3-digit id to that grep, not to `scripts/history-titles.sh -b`: bodies carry
+   floats, so `-b '892'` returned an embedding row (recorded #892 replay).
    With the id in hand: a page that records a case carries the id in its heading (`# Device fault
    under MTP + a captured decode graph (#10700)`), so `rg -n '#<id>'
    <skill_root>/references/` answers "has this very issue been worked, and which page
@@ -934,12 +953,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    level; the id in a table row or link list pointing at another page is a citation,
    not ownership, and no hit is the useful "this case is new"
    (the id is never in `history/`, rule 8). Recorded #10700: the token grep had
-   already listed `spec-decode-mtp/draft-graph-capture-device-fault.md` — heading
-   `(#10700)` — fifth of thirty, but the session opened
-   `hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` and led its ladder with
-   "drop `--async-scheduling`", the CI-config delta that the owning page's own Scope
-   disowns, while that page's first ablation (spec-scoped `enforce_eager`) was the
-   lever the reporter had already confirmed.
+   already listed the owning page (heading `(#10700)`) fifth of thirty, yet the session
+   opened another crash page and led with a CI-config delta the owner's own Scope
+   disowns, while the owner's first ablation was what the reporter had confirmed
+   (`references/evidence-workspace/recorded-cases-device-and-communication.md`).
 
    **Grade the library in one call — `scripts/reference-locate.py` — and read the top
    page**: `uv run --no-project python <skill_root>/scripts/reference-locate.py '<op>'
@@ -956,10 +973,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    it counts the file **name** as a hit and orders `[case]` first, `[index]` last.
    A `[case]` line ends with the entry sharing most tokens — `→ #12985:488 (3/3)`:
    `sed -n '488,528p'` on that path is the case history, and its ladder is the
-   message. #12985's second session saw the `[case]` file first but opened no entry,
-   skipped the `#<id>` grep, and spent 28 calls deciding from upstream source whether
-   the checkpoint was multimodal — the entry had already named it a 310P
-   platform-limit case — shipping no text. Recorded #18315 — `MoeDistributeDispatch`,
+   message — open it even when the heading reads as another model's case
+   (`references/evidence-workspace/delivery-recorded-sessions.md`: #12985's second
+   session saw the `[case]` file first, opened no entry, and shipped no text).
+   Recorded #18315 — `MoeDistributeDispatch`,
    `HCCL_OP_EXPANSION_MODE`, `PYTORCH_NPU_ALLOC_CONF`, `107020`, lists of 13-20 pages
    each — left `hccl-and-hardware/aiv-mc2-env-ablation.md` as the only page on all four:
    owning page read on turn 3, answer delivered on turn 7. Recorded #13699
@@ -985,20 +1002,15 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    `recorded-cases-install-and-environment.md`, and the device family into
    `recorded-cases-device-and-communication.md` and its `hccl-and-hardware`-owned half
    `recorded-cases-hccl-and-watchdog.md` — so one case carries different line
-   numbers per file: re-read the exact `file:line` `rg` printed and nothing else. A
-   number borrowed from the sibling file lands on another case — recorded #3543 ran
-   `sed -n '80,105p'` of the detail page for a hit in the index, read
-   #8022's entry, and spent three more greps on the phantom. Read
+   numbers per file: re-read the exact `file:line` `rg` printed and nothing else — a
+   number borrowed from the sibling file lands on another case (#3543 lost three greps
+   to that phantom). Read
    `sed -n '<hit-30>,<hit+40>p'` on that same path before any topical page or repo
    grep: an entry matching the report's versions, model and
-   stack *is* the case history, and its ladder is the message. Both halves were paid
-   for in one minibatch: #6275's second session had
-   `recorded-cases-hccl-and-watchdog.md`, carrying #6275's own entry, in its
-   turn-3 hit list and read two route pages instead (16 turns, 20 tool calls, cut
-   inside ranked cause 1); #11863 skipped this grep, went straight to the two repos,
-   and re-derived what `startup-failures/arg-validation-errors.md:8` already held
-   (21 turns, cut mid-sentence). Redirect: the moment a hit's title or index line
-   names the paste's symptom, the next call opens that file; a repo grep for the
+   stack *is* the case history, and its ladder is the message (#6275 read two route
+   pages past its own entry; #11863 re-derived what
+   `startup-failures/arg-validation-errors.md:8` already held). Redirect: the moment a
+   hit's title or index line names the paste's symptom, the next call opens that file; a repo grep for the
    raising line is step 3's move, after that read.
 
 3. Take the track's cheap checks before source archaeology:
@@ -1147,9 +1159,9 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
    148), and the script collapses that dump to a marker (`--env` restores it,
    `-g REGEX` pulls just the traceback). **Its output then stops at 80 lines unless
    you pass `-n 0`, and the numbers `-g` prints are raw-file numbers while the
-   printed stream is collapsed** — `history-body.sh <id> | sed -n '190,320p'`
-   therefore returns nothing and reads as an empty body (recorded #4766 lost two
-   calls to exactly that on #3513).
+   printed stream is collapsed** — so `history-body.sh <id> | sed -n '190,320p'`
+   returns nothing and reads as an empty body (#4766, `references/evidence-workspace/
+   case-layout.md`).
 7. Locate the owning code path at the pinned commit and walk it from the entry
    point (kernel launch site, harness config, model/feature flag) to the line
    that produces the symptom. Prefer computing the decision (a tiling branch, an
@@ -1179,9 +1191,9 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   **The *order* of the remaining rungs goes in the same paragraph when each ranked
   cause already carries its one check** — compress the ladder to a single ordered line
   there instead of leaving it to a `Ladder` section lower down, which is the block
-  truncation eats: recorded #10856 shipped the verdict plus four ranked causes with
-  their checks and was cut exactly before its ladder, evidence table and scope, so the
-  reporter could not see which of the four to run first.
+  truncation eats: recorded #10856 shipped the verdict and four ranked causes with
+  their checks, then was cut before its ladder, so the reporter could not see which to
+  run first.
 - **A decisive fact already in hand is the answer.** Once one grep has settled the
   mechanism — the pin's own class carries the attribute the paste calls missing, the
   owning branch or call site is named, the one config line that differs is identified
@@ -1217,12 +1229,10 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   `#<id>: <one-line fact>`) comes **after** the ladder, never between the verdict and
   the actions — the table is the most compressible block and truncation eats the tail
   (`references/evidence-workspace/delivery-discipline.md`, *Truncation eats the tail*).
-  #8926 shipped the verdict and rung 1 in its first paragraph, spent the rest of the
-  16 384-token output budget in the table, and lost every later rung; keep the table to
-  the rows the verdict needs and move the rest into "what to send back". #3468 lost the
-  same cap with its ranked causes as a two-column table and truncation inside row 2:
-  write causes as a numbered list, one line and one check each, and let only the
-  `path:line`/precedent table follow the ladder.
+  #8926 spent the rest of its 16 384-token output budget in the table and lost every
+  later rung — keep the table to the rows the verdict needs and move the rest into
+  "what to send back"; #3468 lost the same cap inside a two-column causes table, so
+  write causes as a numbered list, one line and one check each.
 - Version and hardware scope of the conclusion, plus what to send back (full
   per-rank log, plog, tiling I-line, raw request/response dumps, `npu-smi info`,
   `asys health` output, `dmesg` OOM lines, both PD serve commands). **The ask list is
@@ -1230,18 +1240,17 @@ was the answer (`references/multimodal-inputs/mrope-image-index-error.md`).
   repetition of either.** A fact a reopen of a recorded case already holds — a serve
   command that arrived as a later comment, the failure timestamp a previous session
   pinned — is used, not requested: cite it and add "if you now run something else, say
-  so". The #4057 replay read the page's *Reporter-confirmed narrowing* section, quoted
-  the reporter's TP=4/`--enforce-eager` command as its mitigation, and still listed "the
-  actual `vllm serve` command line" under *send this back* in the same message, so the
-  one ask that could not move the case was the one it already had. The template's `<details>`
+  so" (the #4057 replay quoted the page's reporter-confirmed command as its mitigation
+  and still asked for that same command line: `references/evidence-workspace/
+  delivery-discipline.md`). The template's `<details>`
   *Your current environment* block is a `collect_env.py` dump and already prints
   `vLLM Version:`, `vLLM Ascend Version:`, the torch/torch_npu/CANN versions, the
   launch env vars and a full `npu-smi` table, so "which vllm / vllm-ascend version"
-  or "run collect_env.py" is answered before you ask: on #9183 that request drew
-  「vllm-ascend和vllm版本 这些The output of `python collect_env.py`输出的信息里不都有吗？」
-  (2026-05-26), while the two asks that moved the case were the plog at the failure
-  second and the full first-error block. The same block's `npu-smi` is a *startup*
-  table, so `No running processes found` / `Health OK` on every chip says nothing
+  or "run collect_env.py" is answered before you ask (#9183's reporter answered exactly
+  that with 「…输出的信息里不都有吗？」, while the two asks that moved the case were the
+  plog at the failure second and the full first-error block:
+  `references/evidence-workspace/delivery-recorded-sessions.md`). The same block's
+  `npu-smi` is a *startup* table, so `No running processes found` / `Health OK` on every chip says nothing
   about the failure minute — ask for health **at** that minute
   (`npu-smi info -t health -i <id>`), not for the table again.
 - What you could not verify locally and which questions remain open, stated as

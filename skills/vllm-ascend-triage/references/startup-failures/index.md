@@ -311,9 +311,13 @@ Inherit the rules in SKILL.md. Conditional routes:
   resolved `PlatformInfoInit … SocVersion <name>` below). Run the same `npu-smi info` on the host
   first — that one comparison splits "container" from "card/driver" — then the device nodes,
   another holder, and the two sides' `driver/version.info` → `no-npu-in-container.md`
-  (with `ret is -8002/-8005/-8008/-8013` beside it, decode the code first — the DCMI enum
-  and its separate `lqdrv` numbering are in `bash scripts/cann-error-lookup.sh -8005` and
-  the page's §*cheapest classifier*; a **vendor serving image** such as `mis-tei`/MindIE
+  (with `ret is -8020/-8002/-8005/-8008/-8013` beside it, decode the code first:
+  `-8020 = DCMI_ERR_CODE_RESOURCE_OCCUPIED` picks the "another holder" rung with the
+  vendor's own 「请排查设备是否被其他容器、进程等占用」, `-8008` the mapping rung, and
+  `-8005` no rung at all. The DCMI enum and its separate `lqdrv` numbering are in
+  `bash scripts/cann-error-lookup.sh -8020` plus the page's §*cheapest classifier* — run it
+  against any exported `cann/driver` in the workspace, because a snapshot that exports none
+  (the 2025-04 one) still gets the name; a **vendor serving image** such as `mis-tei`/MindIE
   TEI is closed by its **image tag** before any co-tenancy claim, #8809 reporter-confirmed).
   A `npu-smi info` that **does** answer does not clear the container's mount list: a
   `docker run` missing the pin's `-v /usr/local/dcmi:/usr/local/dcmi` line

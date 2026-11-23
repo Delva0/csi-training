@@ -1,0 +1,169 @@
+@echo off
+setlocal EnableExtensions DisableDelayedExpansion
+set "CSI_TAG=2026-11-22-mainline"
+set "CSI_RELEASE=https://github.com/Delva0/csi-training/releases/download/%CSI_TAG%"
+set "CSI_HOME_DIR=%USERPROFILE%"
+if defined CSI_INSTALL_TEST_USER set "CSI_HOME_DIR=%CSI_INSTALL_TEST_USER%"
+set "CSI_CHOICE=%~1"
+set "CSI_ENV=%~2"
+set "CSI_DISTRO=%~3"
+if defined CSI_CHOICE goto args
+set "CSI_INTERACTIVE=1"
+echo Codex Desktop agent environment:
+echo 1. Windows
+echo 2. WSL / Linux
+set /p "CSI_ENV=Environment [1]: "
+if "%CSI_ENV%"=="2" set /p "CSI_DISTRO=WSL distribution [default]: "
+set /p "CSI_CHOICE=Checkpoint K0-K76, legacy-K20 or flat-K20 [K76]: "
+:args
+if not defined CSI_CHOICE set "CSI_CHOICE=K76"
+if /i "%CSI_CHOICE%"=="2026-11-18-k20" set "CSI_CHOICE=legacy-K20"
+if /i "%CSI_CHOICE%"=="2026-11-02-k20" set "CSI_CHOICE=flat-K20"
+set "CSI_ID="
+for /l %%N in (0,1,76) do if /i "%CSI_CHOICE%"=="K%%N" set "CSI_ID=K%%N"
+for /l %%N in (0,1,76) do if "%CSI_CHOICE%"=="%%N" set "CSI_ID=K%%N"
+for %%N in (legacy-K20 flat-K20) do if /i "%CSI_CHOICE%"=="%%N" set "CSI_ID=%%N"
+if not defined CSI_ID goto bad
+set "CSI_TMP=%TEMP%\csi-setup-%RANDOM%-%RANDOM%-%RANDOM%"
+mkdir "%CSI_TMP%" || goto bad
+if "%CSI_ENV%"=="2" goto wsl
+if /i "%CSI_ENV%"=="wsl" goto wsl
+if defined CSI_ENV if not "%CSI_ENV%"=="1" if /i not "%CSI_ENV%"=="windows" goto bad
+set "CSI_STATE=%CSI_HOME_DIR%\.csi-training\windows"
+set "CSI_ACTIVE=%CSI_HOME_DIR%\.agents\skills\csi-vllm-ascend"
+if not exist "%CSI_STATE%\" mkdir "%CSI_STATE%" || goto bad
+call :switch 9>"%CSI_STATE%\switch.lock"
+goto finish
+
+:switch
+if not exist "%CSI_ACTIVE%" goto checked
+if not exist "%CSI_STATE%\owner.id" goto conflict
+if not exist "%CSI_ACTIVE%\.csi-owner" goto conflict
+fc /b "%CSI_STATE%\owner.id" "%CSI_ACTIVE%\.csi-owner" >nul || goto conflict
+for /f "delims=" %%N in ('dir /b /a "%CSI_ACTIVE%"') do if /i not "%%N"=="SKILL.md" if /i not "%%N"==".csi-owner" goto conflict
+set "CSI_HASH_PATH=%CSI_ACTIVE%\SKILL.md"
+call :hash || goto conflict
+if not exist "%CSI_STATE%\entries\%CSI_HASH%.md" goto conflict
+fc /b "%CSI_HASH_PATH%" "%CSI_STATE%\entries\%CSI_HASH%.md" >nul || goto conflict
+:checked
+if not "%CSI_ID%"=="K0" goto obtain
+if exist "%CSI_ACTIVE%" (
+  move "%CSI_ACTIVE%" "%CSI_STATE%\retired-%RANDOM%-%RANDOM%" >nul || exit /b 1
+)
+echo K0: no CSI skill active.
+exit /b 0
+:obtain
+set "CSI_META=@@META@@"
+set "CSI_META_FILE=%CSI_STATE%\desktop-%CSI_META%.zip"
+if not exist "%CSI_META_FILE%" (
+  call :download csi-desktop-metadata.zip "%CSI_TMP%\metadata.zip" || exit /b 1
+  call :verify "%CSI_TMP%\metadata.zip" %CSI_META% || exit /b 1
+  move "%CSI_TMP%\metadata.zip" "%CSI_META_FILE%" >nul || exit /b 1
+)
+call :verify "%CSI_META_FILE%" %CSI_META% || exit /b 1
+tar.exe -xf "%CSI_META_FILE%" -C "%CSI_TMP%" "%CSI_ID%" || exit /b 1
+set /p "CSI_COMMIT="<"%CSI_TMP%\%CSI_ID%\commit.txt"
+set /p "CSI_INVENTORY="<"%CSI_TMP%\%CSI_ID%\inventory.txt"
+set "CSI_TARGET=%CSI_STATE%\snapshots\%CSI_COMMIT%"
+if exist "%CSI_TARGET%\" goto cached
+if defined CSI_INSTALL_OFFLINE (
+  copy /b "%CSI_INSTALL_OFFLINE%\%CSI_COMMIT%.zip" "%CSI_TMP%\snapshot.zip" >nul || exit /b 1
+) else (
+  call :fetch "https://codeload.github.com/Delva0/csi-training/zip/%CSI_COMMIT%" "%CSI_TMP%\snapshot.zip" || exit /b 1
+)
+mkdir "%CSI_TMP%\download" || exit /b 1
+tar.exe -xf "%CSI_TMP%\snapshot.zip" -C "%CSI_TMP%\download" || exit /b 1
+set "CSI_SOURCE="
+for /d %%D in ("%CSI_TMP%\download\*") do set "CSI_SOURCE=%%~fD"
+if not defined CSI_SOURCE exit /b 1
+call :verifyTree || exit /b 1
+if not exist "%CSI_STATE%\snapshots\" mkdir "%CSI_STATE%\snapshots" || exit /b 1
+move "%CSI_SOURCE%" "%CSI_TARGET%" >nul || exit /b 1
+goto activate
+:cached
+set "CSI_SOURCE=%CSI_TARGET%"
+call :verifyTree || exit /b 1
+:activate
+if not exist "%CSI_STATE%\entries\" mkdir "%CSI_STATE%\entries" || exit /b 1
+set "CSI_HASH_PATH=%CSI_TMP%\%CSI_ID%\SKILL.md"
+call :hash || exit /b 1
+copy /b /y "%CSI_HASH_PATH%" "%CSI_STATE%\entries\%CSI_HASH%.md" >nul || exit /b 1
+if not exist "%CSI_STATE%\owner.id" >"%CSI_STATE%\owner.id" echo CSI-%RANDOM%-%RANDOM%-%RANDOM%-%RANDOM%
+if exist "%CSI_ACTIVE%\" goto replace
+if not exist "%CSI_HOME_DIR%\.agents\skills\" mkdir "%CSI_HOME_DIR%\.agents\skills" || exit /b 1
+set "CSI_NEW_DIR=%CSI_HOME_DIR%\.agents\.csi-create-%RANDOM%-%RANDOM%"
+mkdir "%CSI_NEW_DIR%" || exit /b 1
+copy /b "%CSI_STATE%\owner.id" "%CSI_NEW_DIR%\.csi-owner" >nul || exit /b 1
+copy /b "%CSI_HASH_PATH%" "%CSI_NEW_DIR%\SKILL.md" >nul || exit /b 1
+set "CSI_MOVE_SRC=%CSI_NEW_DIR%"
+set "CSI_MOVE_DEST=%CSI_ACTIVE%"
+powershell.exe -NoProfile -Command "[IO.Directory]::Move($env:CSI_MOVE_SRC,$env:CSI_MOVE_DEST)" || exit /b 1
+goto installed
+:replace
+set "CSI_SWAP=%CSI_HOME_DIR%\.agents\.csi-update-%RANDOM%-%RANDOM%.md"
+copy /b "%CSI_HASH_PATH%" "%CSI_SWAP%" >nul || exit /b 1
+move /y "%CSI_SWAP%" "%CSI_ACTIVE%\SKILL.md" >nul || exit /b 1
+:installed
+echo %CSI_ID% installed. Open a new Codex conversation and type $csi-vllm-ascend.
+exit /b 0
+:verifyTree
+call :verify "%CSI_SOURCE%\files.json" "%CSI_INVENTORY%" || exit /b 1
+rem This normal checksum pipeline reads only the signed file data. No downloaded scripts are executed.
+powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';$s=Join-Path $env:CSI_SOURCE 'skills';$r=(Get-Content -LiteralPath (Join-Path $env:CSI_SOURCE 'files.json') -Raw -Encoding utf8 | ConvertFrom-Json);$f=@(Get-ChildItem -LiteralPath $s -Recurse -File -Force);if($f.Count -ne $r.Count){exit 1};foreach($x in $r){$p=Join-Path $s $x.path;if((Get-Item -LiteralPath $p).Length -ne $x.size -or (Get-FileHash -LiteralPath $p).Hash -ne $x.sha256){exit 1}}"
+exit /b %errorlevel%
+:hash
+set "CSI_HASH="
+for /f "delims=" %%H in ('powershell.exe -NoProfile -Command "(Get-FileHash -LiteralPath $env:CSI_HASH_PATH -Algorithm SHA256 -ErrorAction Stop).Hash"') do set "CSI_HASH=%%H"
+if not defined CSI_HASH exit /b 1
+exit /b 0
+:verify
+set "CSI_HASH_PATH=%~1"
+call :hash || exit /b 1
+if /i not "%CSI_HASH%"=="%~2" (echo SHA-256 mismatch: "%~1" 1>&2 & exit /b 1)
+exit /b 0
+:download
+if defined CSI_INSTALL_OFFLINE (
+  copy /b "%CSI_INSTALL_OFFLINE%\%~1" "%~2" >nul
+) else (
+  call :fetch "%CSI_RELEASE%/%~1" "%~2"
+)
+exit /b %errorlevel%
+
+:fetch
+set "CSI_URL=%~1"
+set "CSI_OUTPUT=%~2"
+powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';Invoke-WebRequest -UseBasicParsing -Uri $env:CSI_URL -OutFile $env:CSI_OUTPUT"
+exit /b %errorlevel%
+:conflict
+echo Existing or modified skill preserved: "%CSI_ACTIVE%" 1>&2
+exit /b 1
+:wsl
+set "CSI_TMP_FILE=%CSI_TMP%\architecture.txt"
+powershell.exe -NoProfile -Command "$d=@();if($env:CSI_DISTRO){$d=@('--distribution',$env:CSI_DISTRO)};& wsl.exe @d --exec uname -m;exit $LASTEXITCODE" >"%CSI_TMP_FILE%" || goto bad
+set /p "CSI_ARCH="<"%CSI_TMP_FILE%"
+if "%CSI_ARCH%"=="x86_64" (set "CSI_ASSET=csi-install-linux-amd64"&set "CSI_SHA=@@AMD64@@") else if "%CSI_ARCH%"=="aarch64" (set "CSI_ASSET=csi-install-linux-arm64"&set "CSI_SHA=@@ARM64@@") else goto bad
+set "CSI_FROM=%CSI_TMP%\wsl-installer"
+call :download %CSI_ASSET% "%CSI_FROM%" || goto bad
+call :verify "%CSI_FROM%" %CSI_SHA% || goto bad
+if not defined CSI_INSTALL_OFFLINE if not "%CSI_ID%"=="K0" call :wslData || goto bad
+set "WSLENV=CSI_FROM/p:CSI_INSTALL_OFFLINE/p:%WSLENV%"
+powershell.exe -NoProfile -Command "$d=@();if($env:CSI_DISTRO){$d=@('--distribution',$env:CSI_DISTRO)};$p=(& wsl.exe @d --exec printenv CSI_FROM);if($LASTEXITCODE){exit 1};$t=(& wsl.exe @d --exec mktemp /tmp/csi-install.XXXXXXXX);if($LASTEXITCODE){exit 1};try{& wsl.exe @d --exec cp -- $p $t;if($LASTEXITCODE){exit 1};& wsl.exe @d --exec chmod 700 $t;if($LASTEXITCODE){exit 1};$o=@();if($env:CSI_INSTALL_OFFLINE){$f=(& wsl.exe @d --exec printenv CSI_INSTALL_OFFLINE);if($LASTEXITCODE){exit 1};$o+=@('-offline',$f)};if($env:CSI_INSTALL_TEST_USER){$o+=@('-user-dir',$env:CSI_INSTALL_TEST_USER)};& wsl.exe @d --exec $t @o $env:CSI_ID;$r=$LASTEXITCODE}finally{& wsl.exe @d --exec rm -- $t};exit $r"
+goto finish
+:wslData
+set "CSI_INDEX=%CSI_TMP%\manifest.json"
+call :fetch "https://raw.githubusercontent.com/Delva0/csi-training/%CSI_TAG%/checkpoints/%CSI_TAG%/manifest.json" "%CSI_INDEX%" || exit /b 1
+call :verify "%CSI_INDEX%" @@INDEX@@ || exit /b 1
+powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop';$j=Get-Content -LiteralPath $env:CSI_INDEX -Raw | ConvertFrom-Json;$j.checkpoints.($env:CSI_ID).commit" >"%CSI_TMP%\selected.txt" || exit /b 1
+set /p "CSI_COMMIT="<"%CSI_TMP%\selected.txt"
+if not defined CSI_COMMIT exit /b 1
+call :fetch "https://codeload.github.com/Delva0/csi-training/tar.gz/%CSI_COMMIT%" "%CSI_TMP%\%CSI_COMMIT%.tar.gz" || exit /b 1
+set "CSI_INSTALL_OFFLINE=%CSI_TMP%"
+exit /b 0
+:bad
+echo Could not switch the CSI checkpoint. 1>&2
+cmd /d /c exit 1
+:finish
+set "CSI_RESULT=%errorlevel%"
+if defined CSI_TMP if exist "%CSI_TMP%\" rmdir /s /q "%CSI_TMP%"
+if defined CSI_INTERACTIVE pause
+exit /b %CSI_RESULT%

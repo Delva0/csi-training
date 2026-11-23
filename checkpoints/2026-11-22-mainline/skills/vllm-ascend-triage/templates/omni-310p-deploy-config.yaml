@@ -1,0 +1,91 @@
+# Starter: vllm-omni two-stage deploy-config for ONE 310P (Atlas 300I Duo) die.
+#
+# Provenance: reporter-reported working config for Qwen3-TTS-12Hz-1.7B-Base on
+# 310P NPU:0 (vllm-omni via `vllm serve <model> --deploy-config <this> --omni
+# --dtype float16 --trust-remote-code`), posted 2026-07-28 on
+# vllm-project/vllm-ascend#10303. NOT source-verified: vllm-omni is absent from the
+# snapshot, so `connectors:`/`platforms:` keys and their merge order cannot be read
+# here. Copy the SHAPE, then diff against the reporter's own yaml -- gmu, frame
+# counts and max_model_len are model-specific. See
+# references/soc-platform-paths/310p-omni-model-deploy.md.
+#
+# 310P invariants behind the values below (all quotable from the 310P document):
+#   * float16 in EVERY stage -- 310P has no bf16 (ATB/TransData rejects it, EZ1001).
+#   * enforce_eager on the decode stage; 310P graph capture is limited/absent.
+#   * enable_prefix_caching: false.
+#   * an explicit max_model_len -- the 310P causal mask is O(max_model_len^2) fp16.
+#   * both stages share one die, so the per-stage gpu_memory_utilization must SUM
+#     to <= what the card may use (0.35 + 0.35 here on a 43 GiB-class die).
+async_chunk: true
+
+connectors:
+  connector_of_shared_memory:
+    name: SharedMemoryConnector
+    extra:
+      shm_threshold_bytes: 65536
+      codec_streaming: true
+      connector_get_sleep_s: 0.01
+      connector_get_max_wait_first_chunk: 3000
+      connector_get_max_wait: 300
+      codec_chunk_frames: 25
+      codec_left_context_frames: 72
+      initial_codec_chunk_frames: 1
+      decode_cudagraph_capture_sizes: [25, 73, 97, 169, 325]
+
+stages:
+  - stage_id: 0                      # talker / thinker: text tokens
+    dtype: float16
+    max_num_seqs: 4
+    gpu_memory_utilization: 0.35
+    trust_remote_code: true
+    enable_prefix_caching: false
+    async_scheduling: true
+    max_num_batched_tokens: 512
+    max_model_len: 4096
+    devices: "0"
+    output_connectors:
+      to_stage_1: connector_of_shared_memory
+    default_sampling_params:
+      temperature: 0.9
+      top_k: 50
+      max_tokens: 4096
+      seed: 42
+      repetition_penalty: 1.05
+    subtalker_sampling_params:
+      do_sample: true
+      temperature: 0.9
+      top_k: 50
+      top_p: 1.0
+
+  - stage_id: 1                      # codec / code2wav: waveform frames
+    dtype: float16
+    max_num_seqs: 4
+    gpu_memory_utilization: 0.35
+    enforce_eager: true
+    trust_remote_code: true
+    enable_prefix_caching: false
+    async_scheduling: true
+    max_num_batched_tokens: 65536
+    max_model_len: 65536
+    devices: "0"
+    input_connectors:
+      from_stage_0: connector_of_shared_memory
+    default_sampling_params:
+      temperature: 0.0
+      top_p: 1.0
+      top_k: -1
+      max_tokens: 65536
+      seed: 42
+      repetition_penalty: 1.0
+
+# The SoC-conditional hook: without this block the A2/A3 defaults (bf16, graph
+# capture) are what a 310P host gets. Keep it in sync with the stage entries above.
+platforms:
+  npu:
+    stages:
+      - stage_id: 0
+        dtype: float16
+        enforce_eager: true
+      - stage_id: 1
+        dtype: float16
+        enforce_eager: true

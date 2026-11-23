@@ -1,0 +1,141 @@
+# Pipeline-parallel (PP > 1) deployments
+
+Scope: the launch command carries `--pipeline-parallel-size 2` (or more) and the
+symptom is PP-shaped — the engine comes up and the **first request** dies on a
+non-last rank, a rank-specific `AssertionError`/`TypeError` with no device error,
+or the question is "is PP validated on this model/hardware at all?" — which
+includes "does PP work together with speculative decoding". A **numeric** PP
+report is this lane too — "pp+chunked prefill 场景下首token不对", a first token or
+logit delta that only appears with PP **and** chunked prefill on — and its page is
+`pp-chunked-prefill-numeric.md`, not a crash route. Not the lane for a collective
+error on a PP cluster (that is `../hccl-and-hardware/index.md`), not the lane for
+one-sided PP sizing/卡数 arithmetic (`../deploy-sizing/index.md`), and a throughput
+number is `../performance-throughput/index.md`.
+
+Inherit the rules in SKILL.md. Four that decide this topic:
+
+1. **Read the docs' own PP statements before any code: they disagree, and the
+   older one is the useful one.** One call —
+   `rg -ni "pipeline.parallel" docs/` — returns, at `048bfd5` (v0.10.2rc1):
+   `supported_features.md:22` `| Pipeline Parallel | 🟢 Functional | Write
+   official guide and tutorial. |`, `release_notes.md:182` "Pipeline Parallelism
+   is supported in V1 now (#1800)", and **`release_notes.md:359` (v0.9.2rc1
+   Known Issues) "Pipeline parallel does not work with ray and graph mode:
+   #1751 #1754"**. There is *no* PP tutorial page, so the usual first move of
+   this skill (diff the reporter's command against the matching tutorial) has
+   nothing to compare with — and the known-issue line names the same axis the
+   reported failure lands on. Quote it with its release, do not present the
+   🟢 row as the project's validated position for graph mode.
+   Its symptom is worth carrying: in #1754's own paste the graph+PP run does not
+   crash — **all four** prompts come back as `Output: '!!!!!!!!!!!!!!!!'`, so a
+   constant-token answer after adding `--pipeline-parallel-size` is this known
+   issue wearing an accuracy costume, not a numerics bug
+   (`../accuracy-benchmarks/constant-token-degeneracy.md`).
+
+2. **CI coverage is one grep and it is part of the answer.** The e2e test exists
+   (`tests/e2e/multicard/test_pipeline_parallel.py`: `Qwen/Qwen3-0.6B`, tp 1,
+   pp 2, `mp`+`ray`, `VllmRunner` whose `enforce_eager` default is `False` —
+   `tests/e2e/conftest.py:96`) but **no workflow invokes it** at `048bfd5`:
+   `rg -n "test_pipeline_parallel" .github/workflows/` → no hit, while
+   `vllm_ascend_test_full.yaml:213-221` lists the other multicard files. So "PP is
+   🟢 Functional" is a documentation claim, not a CI-backed one — quote both.
+   **Re-grep per pin**: at v0.11.0 (`2f1aed98ccdb`) `.github/workflows/_e2e_test.yaml:196`
+   *does* invoke it, so the claim narrowed to what the file covers — `Qwen3-0.6B`
+   and `DeepSeek-V2-Lite-Chat`, tp 1, pp 2, `mp`+`ray`, and **no
+   `--speculative-config`** (`test_pipeline_parallel.py:18-24,38-46`). Every spec
+   e2e in that tree is single-card (`tests/e2e/singlecard/spec_decode_v1/`), so
+   PP × spec-decode stays uncovered at either pin.
+3. **A non-last-rank failure is an interface question between the runner and the
+   worker, not a model or checkpoint question.** `worker_v1.py` sends
+   `output.tensors` when `not is_last_rank` (`:217-222`), so whatever came back
+   from `model_runner.execute_model` must still be an `IntermediateTensors`. When
+   the paste proves it is not, the owner is the code that returned it, and the
+   model file is exonerated (upstream's own body returns `IntermediateTensors` for
+   a non-last rank — e.g. `vllm/model_executor/models/qwen2.py:359-365`).
+
+4. **A single layer index in an error is an arithmetic fingerprint; compute it
+   before reading the executor.** `get_pp_indices` (`vllm/distributed/utils.py:95-141`)
+   gives the `layers % pp` remainder to partitions `[-2], [-3], …` — never the last
+   — so the naive `layers//pp` boundary is wrong for most layer counts (61 layers,
+   PP=4 → `[15,15,16,15]`, starts `0,15,30,46`). A worker that read a *sibling
+   stage's* per-worker kv-cache config can only name that stage's first layer, so
+   one `scripts/pp-layer-partition.sh` call decides the whole family; reading the
+   executor to "see whether the sort happens" cannot, and it is where the turns go.
+
+Conditional routes:
+
+- The launch carries `--pipeline-parallel-size > 1` **and a KV pool**
+  (AscendStore/MemCache) and the engine dies **before any request** with a bare
+  `AssertionError` at `memcache_backend.py` `_setup_store` ("PP + memcache
+  不兼容"), optionally beside `External prefix cache hit rate: 0.0%` →
+  `../kv-pool-store/pp-topology-pool-init-and-zero-hits.md`. PP enters that
+  failure only through the participant count and the `@pp_rank` key axis; the
+  assert discards the backend's return code, so the first ask is the memcache log
+  line, not a PP mechanism. Do not start from the PP pages above — the crash is in
+  kv-transfer init, before any pipeline stage runs.
+- **PP > 1 and the symptom is numeric, not a crash** — first generated token wrong,
+  logits differing from the TP-only run, correct with chunked prefill off or with PP
+  off, or the capability question "PP 和 chunked prefill 能一起开吗" → open
+  `pp-chunked-prefill-numeric.md` **before** any `model_runner_v1.py` read. Its rung 1
+  is the release lane (recorded #12060: reporter's own fix was "tried the latest
+  version, it works fine"), because the pin's PP e2e never builds a multi-chunk
+  prefill and the only documented PP+chunked recipe is the opt-in dynamic-chunk path.
+
+- Kv-cache init (after weight loading, before any request) dies with
+  `KeyError: '<...>.layers.<N>.self_attn.attn'` raised in
+  `get_layers_from_vllm_config` behind `initialize_kv_cache →
+  initialize_attn_backend → get_attn_backends_for_group`, on a Ray launch with
+  `--pipeline-parallel-size` > 1 → `kv-config-rank-mismatch.md` first: this is the
+  per-worker `KVCacheConfig` index (`worker_base.py initialize_from_config` uses the
+  creation-time `global_rank` while Ray re-sorts the workers), not the offloading
+  connector's layer-type gap, and one fingerprint call
+  (`scripts/pp-layer-partition.sh --layers N --pp P --key-layer K`) separates it from
+  a genuine registration gap.
+- Capture — not the first request — fails with a Python compile error on a
+  `ray` launch that also sets `torchair_graph_config.enabled`:
+  `torch._dynamo.exc.Unsupported: call_function DelayGraphBreakVariable() …
+  dispose_tensor / x.set_` → `../startup-failures/torchair-dynamo-compile-unsupported.md`.
+  This is the shape of the known-issue line in rule 1 (both recorded reports ran
+  PP=4 + ray + torchair; the CI torchair test is `tensor_parallel_size=2` + `mp` with no PP), but the traceback names
+  the callee, not PP, so the ablation order matters: graph off first
+  (**remove** the `torchair_graph_config` key — `check_ascend_config` refuses
+  `--enforce-eager` beside it), then `--pipeline-parallel-size 1` with TP/DP
+  absorbing the cards.
+- First request on a **non-first** PP rank dies with
+  `AttributeError: 'PPMissingLayer' object has no attribute 'self_attn'` out of
+  `vllm_ascend/attention/mla_v1.py` `build()` — or
+  its `sfa_v1.py` / `torchair_mla.py` / `torchair_sfa.py` twins — while weight
+  load and startup were clean and `--enforce-eager` may be on:
+  `pp-blind-first-layer-lookup.md`. That page carries the mechanism (the builder
+  caches RoPE tables from `model.model.layers[0]`, which is a `PPMissingLayer` on
+  every stage with `start_layer > 0`), the stage-aware fix, the one-run
+  `--pipeline-parallel-size 1` ablation, the grep trap (**`layers[0]` is
+  line-broken, so a single-line grep finds nothing**) and why the dense
+  Qwen3-0.6B PP e2e test cannot reach this builder.
+- First request on a non-last PP rank dies with a bare `AssertionError`
+  (`assert isinstance(output, IntermediateTensors)`) immediately after
+  `acl_graph.py … Replaying aclgraph`, while the engine started cleanly → the
+  graph-mode × PP output contract → `pp-nonlast-rank-output-contract.md` (rung 1
+  is a one-flag ablation, not a source walk).
+- `AssertionError`/`TypeError` raised from an upstream graph wrapper or
+  compilation backend that the downstream `compilation/` fork replaced → also
+  `../upstream-downstream-drift/index.md` for the drift pattern (fork copied from
+  an older upstream design, so the upstream file at the pinned vllm is not the
+  reference implementation).
+- The first request on a PP > 1 launch that also carries a `--speculative-config`
+  dies with a plain `IndexError`/`AttributeError`/`TypeError` and no device record,
+  with `suffix`, `ngram` or `mtp` alike → `spec-decode-first-request.md`. The fact
+  that decides the whole answer: `max_concurrent_batches` is
+  `pipeline_parallel_size` when `--async-scheduling` is off
+  (`vllm/v1/executor/multiproc_executor.py:329-333`), so PP>1 already drives
+  `step_with_batch_queue` with `pp_size` batches in flight — the queue-removing
+  ablation is `--pipeline-parallel-size 1`, not "turn async scheduling off".
+- The reporter asks whether model M supports PP: `vllm/config.py` raises
+  `NotImplementedError: Pipeline parallelism is not supported for this model.
+  Supported models implement the SupportsPP interface.` before any worker starts
+  (vllm `b6553be`, `:1063-1069`); absence of that line in a startup log means the
+  model passed the gate and PP support is not the issue.
+
+Limits: no PP e2e run is reproducible from this snapshot (single-commit export,
+no NPU devices), so every PP verdict here is source-verified at the pinned commit
+plus the reporter's own ablations. State that instead of implying a measured fix.

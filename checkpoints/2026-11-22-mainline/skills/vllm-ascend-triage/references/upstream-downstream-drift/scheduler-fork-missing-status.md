@@ -1,0 +1,306 @@
+# Downstream scheduler fork missing an upstream request status
+
+Recorded four times, at two pins, with the same gap underneath (the *signature* variant of the same family — a fork that stops binding the base's constructor keyword — is `fork-ctor-arg-sweep.md`, #18688 at v0.23.0):
+
+- **#3979** — vllm-ascend `v0.11.0rc0` (`00ba07102212`) + vllm `v0.11.0rc3`
+  (`8ce5d3198d00`), QwQ-32B-w8a8 on Atlas 800I A2, "其他模型有同样问题";
+- **#3904** — vllm-ascend `v0.10.2rc1` (`048bfd555319`) + vllm `v0.10.2`
+  (`01efc7ef7813`), GLM-4.5-Air (non-MLA MoE), 8×910B3, TP8, serve command not
+  pasted; the reporter's traceback ends at `scheduler.py, line 260`, which is the
+  `raise` in this tree. Same shape: ordinary chat fine, a 500 on the requests that
+  carry `response_format`/guided parameters, which is why it reads as 偶发.
+- **#3816** — the same pins as #3979, GLM-4.6-w8a8, **tool calling**: plain chat
+  fine, a tool-calling request kills the engine, and the only evidence is a
+  screenshot whose OCR (`/workspace/attachments/<issue>/*.ocr.txt`) carries the
+  whole chain — `core.py` `run_busy_loop` → `_process_engine_step` → `step` →
+  `schedule()`, then `vllm_ascend/core/scheduler.py:274`, then
+  `RuntimeError: Invalid request status: WAITING_FOR_FSM`, then
+  `EngineDeadError` and the `Parent process exited, terminating worker` tail.
+  Nothing more is needed to classify it: the recorded run read a 200-line prefix
+  of that OCR, declared the message truncated, and ranked four hypotheses
+  (`../evidence-workspace/index.md`, *read the OCR whole*). Its trigger question —
+  which tool-calling field set the state — is the *trigger* section below.
+
+A plain chat request is fine; the same request with `extra_body={"guided_choice":
+[...]}` kills the server:
+
+```
+File ".../vllm/v1/engine/core.py", line 283, in step
+  scheduler_output = self.scheduler.schedule()
+File ".../vllm_ascend/vllm_ascend/core/scheduler.py", line 274, in schedule
+  raise RuntimeError(f"Invalid request status: {request.status}")
+RuntimeError: Invalid request status: WAITING_FOR_FSM
+...
+vllm.v1.engine.exceptions.EngineDeadError
+INFO: POST /v1/chat/completions HTTP/1.1" 500 Internal Server Error
+```
+
+This is **downstream-owned drift**, not a structured-output/xgrammar, model,
+quantization or hardware fault. `AscendScheduler` is a fork of upstream's v1
+scheduler; upstream added a request status and the fork never learned it, so the
+first request carrying a grammar reaches a whitelist that only knows `WAITING` and
+`PREEMPTED` and raises inside EngineCore's step loop.
+
+## Two-gap mechanism (verified at the pins above)
+
+| Fact | Anchor |
+|---|---|
+| The whitelist accepts only `WAITING` / `PREEMPTED`; everything else raises | `vllm_ascend/core/scheduler.py:269-274` |
+| The same function **does** handle the P/D wait state, so the omission is selective, not "the fork has no status logic" | `vllm_ascend/core/scheduler.py:128-136` (`WAITING_FOR_REMOTE_KVS`) |
+| Upstream marks any request with `sampling_params.structured_outputs` as this state | `vllm/v1/request.py:75`, enum at `:208` |
+| Upstream's gate: grammar compiled → demote to `WAITING`, else skip and retry next step | `vllm/v1/core/sched/scheduler.py:357-366` |
+| Upstream fills the SchedulerOutput payload: `structured_output_request_ids` + `grammar_bitmask` | `vllm/v1/core/sched/scheduler.py:579-598`, helper `get_grammar_bitmask` at `:831-859` |
+| Upstream advances the FSM after sampling | `vllm/v1/core/sched/scheduler.py:946`, `:1086` |
+| The fork hardwires the payload empty in the SchedulerOutput it builds | `vllm_ascend/core/scheduler.py:475-476` |
+| The fork has **no** `get_grammar_bitmask` and no `should_advance` call (`grep -n '    def '` on both files shows the method-set gap) | fork `def` list: `__init__`, `schedule`, `_check_watermark_for_prefill`, `_get_prompt_limit`, `finish_requests`, `update_from_output` |
+| The worker half is already ported and gated on the payload | `vllm_ascend/worker/model_runner_v1.py:1706 apply_grammar_bitmask`, applied only `if scheduler_output.grammar_bitmask is not None` at `:2022-2023` |
+
+Same two gaps at `048bfd5`: the whitelist `raise` is
+`vllm_ascend/core/scheduler.py:255-260`, the payload is hardwired empty at
+`:459-460` (`structured_output_request_ids={}, grammar_bitmask=None`), the `def` set
+is the same six methods, and the worker half is ported but gated
+(`vllm_ascend/worker/model_runner_v1.py:1537 apply_grammar_bitmask`, called only
+`if scheduler_output.grammar_bitmask is not None` at `:1814-1815`). So this is not a
+one-release regression: it predates v0.11.
+
+**The second gap is the one to warn about.** Adding `WAITING_FOR_FSM` to the
+whitelist stops the crash but leaves the payload empty and the FSM unadvanced, so
+guided decoding silently stops constraining anything — a correctness bug that is
+harder to find than a traceback. Any fix has three sites (status gate, bitmask
+computation before building the SchedulerOutput, `should_advance` in
+`update_from_output`), and the general rule holds beyond this case: **when a fork
+drops an upstream state, enumerate every field that state fills, not just the branch
+that reads it.**
+
+## Why the older image looks fine: the request key, not the fork
+
+Recorded again as **#4006** at #3979's pins (vllm-ascend `v0.11.0rc0` `00ba07102212`
++ vllm `v0.11.0rc3` `8ce5d3198d00`, QwQ-32B-w8a8 on Atlas 800I A2), same body
+(`extra_body={"structured_outputs": {"json": ...}}`) plus the control half these
+reports carry: 0.10.2rc1 answers correctly, 0.11.0rc0 kills the engine. At the pinned
+vllm that control is **vacuous**, and the frontend shows why:
+
+- `structured_outputs` is the vllm-0.11 spelling. The four older names are still
+  fields, but deprecated in this tree's own words — `guided_json` says "Please pass
+  `json` to `structured_outputs` instead", same for `_regex`/`_choice`/`_grammar`
+  (`vllm/entrypoints/openai/protocol.py:540-591`) — and
+  `ChatCompletionRequest.to_sampling_params` forwards them into
+  `StructuredOutputsParams` (`:711-723`) before either form reaches `SamplingParams`
+  (`:783`) and sets `WAITING_FOR_FSM` (`vllm/v1/request.py:75`).
+- The frontend **accepts and drops** unknown request keys: `OpenAIBaseModel` is
+  `ConfigDict(extra="allow")` with a warning-only validator, `The following fields were
+  present in the request but ignored: %s` (`protocol.py:68-70`, `:75-100`). So on a
+  vllm line that predates the field the client's key builds no
+  `StructuredOutputsParams` → no state, no crash, and the JSON that comes back is the
+  model's own formatting. The same asymmetry explains why a *deprecated* `guided_*`
+  body still crashes at 0.11: that field exists there.
+
+Two reporter-side checks settle it; neither needs a 0.10.2 tree (the snapshot carries
+none). Grep the older image's server log for `present in the request but ignored` —
+the request names the key — or send `structured_outputs: {"choice": ["AAA", "BBB"]}`
+with a prompt that invites another string: an answer outside the set proves the
+constraint was never applied, while the same body on the new pin reproduces the crash.
+`--structured-outputs-config '{"backend": "xgrammar"}'` is **not** a discriminator
+here — it removes the fork gate, so the crash stops under both readings.
+
+Generalise it past this family: when "旧版本正常、新版本崩" is the reporter's only
+control and the body carries a **request field newer than the older image**
+(`structured_outputs`, `reasoning_effort`, a parser or `chat_template_kwargs` key),
+date the field before crediting the older run as a working baseline (SKILL.md rule 15:
+a control the reporter only asserts is a premise).
+
+## The trigger can be `tool_choice`, not only `guided_*` / `response_format`
+
+The state is set from `sampling_params.structured_outputs`
+(`vllm/v1/request.py:74-75` at vllm v0.11.0rc3), and the OpenAI frontend builds
+those params from `response_format` **and from a forced tool choice**:
+`protocol.py:726` calls `_get_json_schema_from_tool()`, whose `:790-810` body
+returns the tool's own `parameters` for a *named* `tool_choice`
+(`ChatCompletionNamedToolChoiceParam`, `:796-803`) and a one-of envelope for
+`tool_choice: "required"` (`:805`), while `"auto"` — the field's default at
+`:296`, and what an omitted field becomes (`:935-936`) — returns `None`. So on
+this pin a tool-calling client that **forces** the function is a
+structured-output request in the scheduler's eyes, and one that leaves
+`tool_choice` at `"auto"` is not. Re-grepped at this case's own pins (vllm
+`8ce5d3198d00` / vllm-ascend `00ba07102212`); the request body is the only place
+that decides which branch the reporter is on.
+
+That makes the request body the discriminator and the cheapest rung: read
+`tool_choice` in the client's body. `"required"`/named → the state is set, this
+page is the answer, and `"auto"` is the reporter-side check that both confirms
+the mechanism and keeps tool calling working (`--structured-outputs-config` /
+`--async-scheduling` below stay the serve-side escape). `"auto"` reproducing the
+same crash → the trigger is `response_format`/`guided_*` or something else in the
+body, and the two-gap mechanism still owns it. Do not assume the tool lane
+implies the forced choice: #3816's screenshot shows the `tools` array but its
+`curl` body is cut before `tool_choice`, so which one the reporter sent stays
+open and belongs in the answer's "send me this" list.
+
+**Pin boundary (#7719 set it).** This page needs a tree that still ships the
+scheduler fork. At vllm-ascend v0.17.0rc1 (`e20f0b1a0d2f`)
+`vllm_ascend/core/` holds only `recompute_scheduler.py` and
+`scheduler_dynamic_batch.py` — no `scheduler.py`, no `WAITING_FOR_FSM` raise — and
+upstream vllm v0.17.0 (`b31e9326a7d9`) instead injects the grammar at the
+**frontend**, from the same forced `tool_choice`
+(`tool_parsers/abstract_tool_parser.py:56-81` +
+`tool_parsers/utils.py:181-215`), with a hard-fail `required` parse branch after
+generation (`engine/serving.py:1211-1223`, `parser/abstract_parser.py:423-435`).
+So on ≥ v0.17.0 pins an `auto`-works / `required`-500 report is the frontend
+structured-output lane (`../serving-frontend-faults/tool-choice-required-500.md`),
+and only a `RuntimeError: Invalid request status: …` from a tree that has the fork
+is this page. Check `ls vllm_ascend/core/` before quoting either.
+
+**The removal is earlier than that, and it retires a whole family of older rows.** At
+vllm-ascend v0.14.0rc1 (`52d4acf`, the #6525 pin) `vllm_ascend/core/` already holds
+only `recompute_scheduler.py` and `scheduler_dynamic_batch.py`,
+`rg -n 'AscendScheduler' vllm_ascend/` has no code hit (only the stale zh_CN
+`.po` doc translation and history sections of `release_notes.md`), and
+`ascend_scheduler_config` is documented nowhere in
+`docs/source/user_guide/configuration/additional_config.md`. So on a 0.13/0.14-era
+report none of these can be quoted: this page's `WAITING_FOR_FSM` raise, the
+`blocks[0]` crash of `scheduler-fork-block-index.md`, and the pre-0.12 known issue
+"do not enable chunked prefill with prefix cache when running with Ascend scheduler"
+(`../accuracy-benchmarks/constant-token-degeneracy.md` §*Step 4a*, whose anchors are
+all `00ba0710`). Say the fork is gone at their pin and rank the scheduler levers the
+pin *does* carry: `recompute_scheduler_enable` (default `False`,
+`ascend_config.py:86`, swapping in `core/recompute_scheduler.py` at
+`platform.py:369-373`) and `SLO_limits_for_dynamic_batch` (default `-1`; the only
+path that forces `enable_chunked_prefill = True`, `platform.py:376-381`).
+
+## Is the fork even in play? Yes by default at both recorded pins
+
+The natural first guess — "the reporter must have enabled the Ascend scheduler" — is
+**wrong at v0.11.0rc0 and at v0.10.2rc1**, and the code says so:
+
+- `vllm_ascend/platform.py:125` builds `AscendConfig` from `--additional-config`
+  (`enabled` defaults `False`, `ascend_config.py:169`);
+- the force-enable block then **assigns** `ascend_scheduler_config.enabled = True`
+  whenever the model is not MLA, the model is not multimodal, the guided-decoding
+  backend is `"auto"` (the default), the delay-factor input is 0,
+  `send_delta_data` is off and `policy == "fcfs"` (`:139-150` at `00ba0710`,
+  `:136-146` at `048bfd5`; the delay/backend spellings differ per pin — next
+  table). The assignment is unconditional, so an explicit `"enabled": false` in
+  `--additional-config` is overwritten — a config-only opt-out does not exist there;
+- `platform.py:288-293` then swaps `vllm_config.scheduler_config` for
+  `AscendSchedulerConfig`, whose dataclass sets
+  `scheduler_cls = "vllm_ascend.core.scheduler.AscendScheduler"`
+  (`core/schedule_config.py:32-33`);
+- the same block logs `Non-MLA LLMs forcibly disable the chunked prefill feature …`
+  — but that INFO sits on the **outer** `not use_mla` condition
+  (`platform.py:141-144` at `00ba0710`, `:137-140` at `048bfd5`), *before* the gate
+  above. It prints for every non-MLA model even when the gate fails, so **it does
+  not prove the fork is in play** — and it still prints after the reporter applies
+  the `backend` escape below, so its continued presence is not evidence the escape
+  failed. The gate test is the assignment line
+  (`grep -n "ascend_scheduler_config.enabled = True" …/platform.py`) **or the
+  paste's own deepest `vllm_ascend` frame**: a traceback ending in
+  `vllm_ascend/core/scheduler.py:<line>` *is* the fork executing, so it settles the
+  question on pins this snapshot does not carry (recorded #3979's reporter ran
+  `0.11.0` final) with no grep on their tree. The inverted check costs the same and
+  is the one to state when a request works: while the fork is the scheduler **no**
+  structured-output request can succeed, because every `WAITING_FOR_FSM` request
+  reaches that `else: raise` (re-greped at `00ba0710` — the file's only
+  `WAITING_FOR_FSM|Invalid request status|grammar_bitmask` hits are the raise at
+  `:274` and the empty payload at `:475-476`), so a *working* `guided_*` request on
+  the same server proves the fork is **not** in the path and this page is not the
+  answer;
+- **v0.11.0rc1 has no such block**: `grep -n "ascend_scheduler" vllm_ascend/platform.py`
+  at `c5fe179cef7f` (read from the #4309 snapshot, not this case's) shows only the
+  opt-in gate at `:288`. So the
+  force-enable spans v0.10.2rc1 → v0.11.0rc0 and is gone by rc1 (#3904 and #3979
+  are the same bug on either side of that window): while it exists, a *default*
+  dense serve hits this bug; afterwards the fork must be requested (the tutorials and
+  `feature_guide/graph_mode.md:48,55`, `tutorials/multi_node.md:139,180`,
+  `multi_node_pd_disaggregation.md:131,171,210`, `multi_node_kimi.md:96,136` are
+  where reporters do request it).
+
+**Cheapest next action, first paragraph of the answer.** Get the fork out of the
+path, using the escape that matches their pin. **Which gate inputs exist — and what
+the escape flag is called — follows the installed *vllm* version, not the
+vllm-ascend one**, because the same vllm-ascend tree serves both:
+
+| Pin | backend gate input | escape that clears the gate |
+|---|---|---|
+| `048bfd5` (v0.10.2rc1) + vllm 0.10.2 | `decoding_config.backend == "auto"` (`platform.py:141-142`) | `--guided-decoding-backend xgrammar` (vllm 0.10.2 `config/__init__.py` `DecodingConfig.backend = "auto"`, flag `arg_utils.py:615`), or `--scheduler-delay-factor 0.1` — `delay_factor` **is** a real 0.10.2 `SchedulerConfig` field (`config/scheduler.py:85`), and the gate reads it directly (`not scheduler_config.delay_factor > 0`). `--async-scheduling` is **not** in the gate at this pin |
+| `00ba0710` (v0.11.0rc0) + vllm 0.11.x | `platform.py:134-137` picks the object by version: `if vllm_version_is("0.10.2"): …decoding_config else …structured_outputs_config`, then tests `.backend == "auto"` | `--structured-outputs-config '{"backend": "xgrammar"}'` on vllm 0.11 (or `--guided-decoding-backend …` if the image pairs it with vllm 0.10.2), or `--async-scheduling` (it removes the whole block at this pin). The `--scheduler-delay-factor` route is **dead here**: vllm 0.11.0rc3's `SchedulerConfig` has no delay-factor field and `arg_utils.py` no such flag, while the gate asks `getattr(scheduler_config, "scheduler_delay_factor", 0)` — a name nothing sets, so it always evaluates 0 |
+
+1. One grep decides which world they are in:
+   `grep -n "ascend_scheduler_config.enabled = True" <site-packages>/vllm_ascend/platform.py`.
+   Present → row of the table; absent → fork is opt-in.
+2. Fork is opt-in: drop `ascend_scheduler_config` from `--additional-config`
+   (or set `enabled: false`) and restart; upstream's `Scheduler` has the FSM branch.
+3. An explicit `"enabled": false` is overwritten wherever the force-enable exists,
+   so *changing `ascend_scheduler_config` is not an escape there* — move a gate
+   input instead, and label it a reporter-side flag to verify rather than a measured
+   fix: re-run the same `guided_choice`/`response_format` request after it.
+
+Only if the reporter needs the fork (graph-mode performance, a recipe that requires
+it) does the three-site patch matter — and say plainly that a partial patch degrades
+to the silent non-enforcement above.
+
+**Deliver the escape and the two-gap warning, not a table.** Once the first
+paragraph carries the ordered escapes with their acceptance check, a ranked-cause
+table that restates them row by row adds nothing and is what pushes the scope, the
+recheck grep and the ask list past the output cap — the more so in a Chinese answer,
+where the message spends the same budget at ~2-3 characters per token. Recorded
+#3979 re-verification at the reported pins: verdict, four escape rungs and the
+two-gap warning shipped, the cut landed inside row 4 of the ranked table, and the
+version scope plus the "send me this" list were lost. Keep one or two rows carrying
+the anchors the verdict needs, then the scope.
+
+## Capability verdict and coverage
+
+- `docs/source/user_guide/support_matrix/supported_features.md:20` —
+  `Guided Decoding | 🟢 Functional`, and `feature_guide/structured_output.md`
+  documents xgrammar/guidance usage, **with no note that it excludes the Ascend
+  scheduler**. So: works on upstream's `Scheduler`, broken whenever the fork is in
+  the path — forced at rc0 for a default dense serve, opt-in afterwards — and the
+  doc/matrix should say so.
+- `tests/e2e/singlecard/test_guided_decoding.py` runs the default config, and the
+  e2e files that do enable the fork (`test_ascend_scheduler.py`, `test_chunked.py`,
+  `test_prefix_cache*.py`) never use `guided_*` — CI cannot see the combination. That
+  is the coverage answer when the reporter asks why a released version does this.
+
+## Noise that looks like evidence
+
+The shutdown tail of the same paste carries
+`nanobind: leaked 2 instances! … GrammarMatcher / CompiledGrammar` and leaked
+functions. That is xgrammar teardown noise after EngineCore is already dead, and it
+also proves the grammar **did** compile, so the backend is not the owner. Same family
+as rule 11 in `SKILL.md`: name the line you trust and say why. Do not build a theory
+on it, and do not send the reporter to xgrammar or the model.
+
+## Procedure (3 calls after the classification)
+
+1. `grep -n '    def '` on the pinned upstream scheduler and on the fork; the fork is
+   missing every method whose name belongs to the feature (`get_grammar_bitmask`), and
+   its `schedule()` has fewer status branches. Print both lists.
+2. `grep -n "WAITING_FOR_FSM\|structured_output\|grammar" vllm_ascend/core/scheduler.py`
+   and the upstream call sites; record where the state is set, gated, filled and
+   advanced.
+3. Confirm the worker half is ported but payload-gated
+   (`grep -n "grammar_bitmask" vllm_ascend/worker/model_runner_v1.py`) — that is what
+   turns "patch the raise" into "patch three places", and it is the sentence the
+   maintainer needs.
+
+## Version scope and recheck
+
+- Mechanism verified at vllm-ascend `v0.11.0rc0` / vllm `v0.11.0rc3` and at
+  `v0.10.2rc1` / vllm `v0.10.2` (#3904); the rc1 comparison comes from the
+  `v0.11.0rc1` tree in the #4309 snapshot. #3979's reporter was on `0.11.0` final,
+  which this snapshot does not carry, so what stays **open** is *why* the fork was
+  the scheduler in their run — final's own force-enable, an rc1-style opt-in they set
+  in `--additional-config`, or an image default — and whether final handles the FSM
+  status. The *classification* is not open: their traceback carries a
+  `vllm_ascend/core/scheduler.py` frame, so the fork ran and the escape applies under
+  either reading. Phrase the open half as the grep in step 1 of the escape, never as
+  a finding.
+- Recheck in one command at the reporter's ref:
+  `grep -n "WAITING_FOR_FSM" $(python -c "import vllm_ascend,os;print(os.path.dirname(vllm_ascend.__file__))")/core/scheduler.py`
+  — a branch plus a non-empty `grammar_bitmask` computation means fixed; only a
+  passed-through status means the silent variant; no hit at all means still crashing.
+- Sibling forks with the same hazard: the `npu_input_batch.py` copy of upstream's
+  `gpu_input_batch.py` (`../pooling-embedding/batch-index-desync.md`) and every
+  `vllm_ascend/patch/**` copy (`patch-copy-vs-upstream.md`). A whole-file fork in
+  `vllm_ascend/core/` is a third site; a state/status/enum that upstream grew after
+  the fork was taken is the recurring failure mode.

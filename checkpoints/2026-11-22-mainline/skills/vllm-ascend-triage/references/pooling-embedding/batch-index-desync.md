@@ -1,0 +1,233 @@
+# Pooling service dies under concurrency: a downstream `InputBatch` copy's slot fast path
+
+Worked case: vllm-ascend #5525 — vllm-ascend **v0.11.0** (`2f1aed9`) + vllm
+**v0.11.0** (`b8b302c`), `quay.io/ascend/vllm-ascend:v0.11.0`,
+`vllm serve …/Qwen3-Embedding-8B --task embed --max-num-seqs 256
+--max-num-batched-tokens 8192 --max-model-len 8192`, driven by `vllm-bench`
+(`backend openai-embeddings`, sharegpt). ~1800 requests answer `200`, then the
+engine dies and every later request gets `400 Bad Request`. The reporter's only
+evidence is four screenshots of the bench output plus the engine traceback; the
+replay can read them only as OCR, which recovers the frame lines
+(`model_runner_v1.py:1928 execute_model` -> `:766 _update_states` -> `:1219
+_may_reorder_batch` -> `vllm/v1/attention/backends/utils.py:798`, the two
+`model_runner_v1.py` numbers matching the v0.11.0 layout exactly) but **not** the
+key printed by the `KeyError`. Everything else below is source-read at the two
+pins above. Grep such OCR for **symbol fragments**, not for `error` — the OCR
+mangles identifiers (`model—runner—vl 。 py`, `Traceback (most rec`) and a bare
+`-iE 'error|failed'` matches only the hundreds of repeated `ERROR` prefix lines;
+`grep -nE 'KeyE|Traceback|reorder|num.scheduled|EngineDead' *.ocr.txt` finds the
+frames in one call.
+
+Second worked case: **#5687** — vllm-ascend **v0.11.0rc3**, the same
+`Qwen3-Embedding-8B --max-num-seqs 256` shape, but through a
+`ray_distributed_executor` and crashing one frame away from #5525:
+`model_runner_v1.py:1962 execute_model` -> `:1260 _prepare_inputs` ->
+`tokens = [scheduler_output.num_scheduled_tokens[i] for i in req_ids]` ->
+`KeyError: None`, and `--max-num-seqs 8` made it disappear. Its reporter later
+posted the dump this page had been missing, and it is the page's only
+**reporter-confirmed** view of the hole itself: "在第二个batch的时候 ...
+初始化请求的时候是 `[None,None,xxx,297]`, 请求增加之后变成了 `[None,298,299,xx]`,
+初步排查是因为condense侧的删除逻辑有问题" (#5687, comment 2026-01-07). Read that
+dump before proposing another probe. Both `None`s sit at the **head** of the list and
+are still there in the second print, while the two entries behind them changed
+(`xxx`,`297` -> `298`,`299`); `297`-`299` cannot be slot indices under
+`--max-num-seqs 256`, so those are the bench client's request-id strings and each
+print is the batch's four slots. Admissions therefore land at `num_reqs` =
+`len(req_id_to_index)`, which counts live ids only — i.e. on slots that already hold
+an entry — and that is also why a **trim-only** `condense` is the wrong repair here:
+with the holes at the head, `del _req_ids[num_reqs:]` drops *live* entries, not the
+holes. What the dump leaves open is whether the overwritten occupants were still
+live, which is the only difference between the two symptoms below (`KeyError: None`
+versus a silently wrong vector). It does not clear the condense side either: the
+reporter's own 「初步排查」 names this page's `condense` delete path, so quote it as an
+attribution to check, never as 「已排除」 (SKILL.md rule 6).
+
+Third worked case: **#4156** — vllm-ascend **v0.11.0rc0** (`00ba071`, 2025-09-30) +
+vllm **v0.11.0rc3** (`8ce5d31`), a **Qwen2.5-VL-3B** *generate* checkpoint served on
+`/v1/embeddings` (910B4 host, TP value cut off in the paste): the same mechanism one
+release before the cases above, and the case where the **front end never names it** —
+the title and the whole server log end at `AsyncLLM output_handler failed`, and the only
+traceback is the attached screenshot, read as OCR. Its frames land on rc0 as `model_runner_v1.py:724`, i.e. the
+`self._may_reorder_batch(scheduler_output)` **call** inside `_update_states` (`:553`;
+`condense()` is `:722`), then `:1232` inside `_may_reorder_batch` (`:1213`), then upstream
+`vllm/v1/attention/backends/utils.py:798` — resolve every one of those by symbol in the
+pin, never by the number in the paste. The downstream copy at rc0: `class InputBatch`
+`npu_input_batch.py:101`, `_register_add_request` `:303`, pooling branch in `add_request`
+`:327`, in `remove_request` `:469`, in `condense` `:580` (`refresh_metadata` `:678`); upstream
+at vllm v0.11.0rc3 still reuses a freed slot (`_register_add_request`
+`gpu_input_batch.py:289-304`, `pop_removed()` `:295`), records removals (`removed_append`, `:462`) and drains
+them in the swap-down `condense` (`:580` onward, `:592-618`). Source-verified at those
+pins; the reporter never confirmed the fix. The paste carries the classification itself:
+a non-empty `finished_req_ids` beside a new `scheduled_cached_reqs` entry in one
+`SchedulerOutput` — the "finish plus admit in one step" precondition.
+
+## The claim, in the order it should be said
+
+1. The crash is real and it is **downstream (vllm-ascend)**, not upstream vLLM:
+   v0.11.0 ships its own copy of upstream's worker batch class
+   (`vllm_ascend/worker/npu_input_batch.py:94 class InputBatch`, a copy of
+   `vllm/v1/worker/gpu_input_batch.py`), and the copy adds a pooling fast path
+   upstream does not have.
+2. It is **pooling-only**: the fast path is taken only when
+   `self.is_pooling_model`, so the same bench on a generation model does not
+   take it. That is the ownership split to state in the first paragraph.
+3. It is **concurrency-shaped**, not model-shaped: it needs a request finishing at
+   a non-tail batch slot *and* a new request admitted in the same step, which
+   `--max-num-seqs 256` produces constantly and a single request never does.
+4. It is **released-fixed by construction**, not by a patch: already at
+   v0.13.0rc1 (`1b5d5abf`, 2025-12-27) `vllm_ascend/worker/npu_input_batch.py:33`
+   is `class NPUInputBatch(InputBatch)` with `__init__` as its only method
+   (`_req_ids` init at `:61`; `rg -n 'def condense|def add_request|def
+   remove_request' vllm_ascend/worker/npu_input_batch.py` returns nothing), and
+   `model_runner_v1.py:189` is `class NPUModelRunner(GPUModelRunner)` with no
+   `_update_states` override — so the slot machinery is upstream's again. An
+   earlier revision of this page dated the removal to v0.23.0 (`5cb98ca`):
+   v0.13.0rc1 is the earliest tree where the thin shell was checked, so quote
+   this recheck (`def condense` absent) rather than a version number.
+
+## The divergence (v0.11.0, both pins)
+
+| Downstream `npu_input_batch.py` | Upstream `gpu_input_batch.py` |
+|---|---|
+| `_register_add_request` starts `assert request.sampling_params` (`:303`) | records the added-request metadata only `if request.sampling_params:` (`:301`) — no assert |
+| `add_request` `if not self.is_pooling_model: req_index = self._register_add_request(request) else: req_index = self.num_reqs` (`:316-324`) | `req_index = self._register_add_request(request)` for every model (`:314`) |
+| `remove_request` calls `batch_update_builder.removed_append(req_index)` only when **not** pooling (`:462-465`) | always (`:462`) |
+| `condense` pooling branch: `del self._req_ids[num_reqs:]; del self.req_output_token_ids[num_reqs:] ; return` (`:573-577`) — no compaction | no pooling branch at all (`:580` onward is the swap-down loop) |
+
+The `assert` is the origin of the fast path: the copy's `_register_add_request`
+cannot be called for a pooling request (`sampling_params is None`), so the copy
+routes pooling around it instead of relaxing the assert the way upstream did. The
+rest of the fast path is the downstream consequence of "the batch is contiguous
+for pooling models" — an invariant nothing enforces.
+
+## The sequence that breaks it
+
+`req_ids` returns the raw `self._req_ids` list (`:291-294`, `None` holes
+included) while `num_reqs` is `len(self.req_id_to_index)` (`:807-808`):
+
+1. Batch `_req_ids = [A,B,C,D]`, map `{A:0,B:1,C:2,D:3}`.
+2. `B` finishes → `remove_request("B")`: map `{A:0,C:2,D:3}`,
+   `_req_ids = [A,None,C,D]` (no `removed_append`, nothing recorded).
+3. A new request `E` is admitted in the same step → `add_request`: pooling, so
+   `req_index = num_reqs = 3`; `3 == len(_req_ids)`? no → `_req_ids[3] = E`,
+   **overwriting live slot `D`**. Map becomes `{A:0,C:2,D:3,E:3}`: two req ids
+   on one slot.
+4. `condense()`: `num_reqs = 4`, `del _req_ids[4:]` deletes nothing →
+   `_req_ids = [A,None,C,E]`. The `None` hole is still inside `[0,num_reqs)`.
+5. `_update_states` (`vllm_ascend/worker/model_runner_v1.py:603`, tail at
+   `:764 condense()` → `:766 self._may_reorder_batch(...)`, body at `:1200`,
+   gate `:1218`) calls `reorder_batch_to_split_decodes_and_prefills`, which does
+   `for i, req_id in enumerate(input_batch.req_ids): num_tokens =
+   scheduler_output.num_scheduled_tokens[req_id]` —
+   `vllm/v1/attention/backends/utils.py:797-798` → `KeyError`.
+
+Two survivors of the same defect, so the answer covers either log: the `KeyError`
+key is `None` (unhashable-looking but printed as `None`) when the hole reaches
+the reorder, and a **silently wrong embedding** when the duplicated slot is used
+first — `token_ids_cpu` / `block_table` rows belong to the request that used to
+own index 3. `refresh_metadata` then reads `num_reqs` slots, so nothing repairs it.
+
+## The `None` is not created where it crashes: instrument the producer
+
+Both consumers are the same identity lookup — `scheduler_output.num_scheduled_tokens[req_id]`
+for every id in `input_batch.req_ids` — so the frame the `KeyError` names is just
+whichever one runs first in that version:
+`reorder_batch_to_split_decodes_and_prefills`
+(`vllm/v1/attention/backends/utils.py:982-985` at vllm v0.13.0, reached from
+`_update_states`) in #5525, `_prepare_inputs`
+(`vllm_ascend/worker/model_runner_v1.py:568-569` at vllm-ascend v0.13.0rc1) in
+#5687. Upstream leaves the list un-sliced on purpose — the property returns
+`self._req_ids` raw and only comments "None elements should only be present
+transiently" (`vllm/v1/worker/gpu_input_batch.py:277-281`) — so a hole is always
+somebody's bookkeeping upstream of both frames, never the consumer's bug.
+
+That is why the #5687 reporter could print inside
+`reorder_batch_to_split_decodes_and_prefills` *and* around
+`_update_states`/condense/reorder and see no `None`, while the same run died with
+`KeyError: None`: a consumer probe only fires on the step where that consumer
+looks, and the value is only in the list between two bookkeeping calls. The
+answer came from `print(input_batch)`, i.e. from the state, not from a frame.
+Hand the reporter this instead of another consumer probe:
+
+1. Wrap the three mutation points in *their* tree — `add_request`,
+   `remove_request`, `condense` on the batch class named in the traceback (a copy
+   at 0.11.0, upstream's at 0.13.0rc1) — with an assert of the invariant after
+   each call: `assert None not in self._req_ids[:self.num_reqs]` and
+   `assert len(self._req_ids) == self.num_reqs`, printing
+   `(_req_ids, req_id_to_index, num_reqs)` on failure. This converts "where does
+   the `None` appear" into "which of the three calls leaves it", in one launch.
+2. Also assert the silent twin at the same place: `len(set(req_id_to_index.values()))
+   == len(req_id_to_index)` (no two ids on one slot) — that variant returns wrong
+   vectors instead of raising.
+3. One line before the crash site in `_prepare_inputs`:
+   `if None in req_ids or len(req_ids) != num_reqs: print("HOLE", ...)`. Do not
+   bother with `reorder_batch_to_split_decodes_and_prefills` unless the traceback
+   names it.
+4. On a `ray`/multi-worker deployment every rank has its own batch object, so run
+   the probe on TP=1 (`--distributed-executor-backend mp`) before believing a
+   negative result from one process.
+5. `--max-num-seqs 8` (down from 256) lowers the rate; it does not change the
+   mechanism, so a disappearance is not a fix — say so.
+
+## What to check, and what to send back
+
+- Ask for the plain-text engine log with the `KeyError` line, not the screenshot:
+  `KeyError: None` confirms this page, `KeyError: '<cmpl-…>'` moves the case to
+  "a scheduled-request id missing from `num_scheduled_tokens`" (scheduler-side,
+  compare against upstream's `Scheduler.schedule`). The
+  frame that raised it does not matter — `_prepare_inputs`, a `_update_states`
+  helper or the reorder function are interchangeable here.
+- Ablation that costs one launch: `--max-num-seqs 8`, then `1`. The crash rate
+  collapses and then disappears — consistent with the slot arithmetic, and it is
+  also the field workaround while the reporter stays on v0.11.0.
+- Same bench against a **generation** model at the same concurrency should not
+  crash (the fast path is `is_pooling_model`-gated). One run separates
+  "pooling batch bookkeeping" from "benchmark-client / HTTP" theories.
+- Send back: the engine traceback as text, the serve log's
+  `max_num_seqs`/`max_num_batched_tokens` lines, and whether `--max-num-seqs 8`
+  survives the same dataset.
+
+## The repair, if the reporter has to patch in place
+
+The fix restores the **slot machinery**; it is not a compaction of `condense` alone. At
+step 3 the live row was already overwritten inside `add_request`, so a trim-only
+`condense`, or a `try/except` around the reorder, still returns another request's vector.
+Three edits together, with upstream as the template (vllm v0.11.0rc3 `gpu_input_batch.py`):
+
+- `add_request` (npu `:323-331` at v0.11.0rc0): delete the `is_pooling_model` branch so
+  every model goes through `_register_add_request` (upstream `:310`).
+- `_register_add_request` (npu `:310`): upstream carries no `assert
+  request.sampling_params` — a pooling request has none — it sets
+  `batch_update_builder.batch_changed = True` and appends the metadata only `if
+  request.sampling_params:` (upstream `:300-306`). The rc0 copy already reuses a freed
+  index via `pop_removed()` (`:313`), so the assert is the only change it needs.
+- `remove_request` (npu `:469-472`) and `condense` (npu `:580-584`): drop the two
+  `is_pooling_model` bypasses, so removals are recorded and the swap-down moves
+  `token_ids_cpu` / block-table rows with their ids (upstream `:448-462`, `:580-618`).
+
+Acceptance is not "no 500s": 3+ concurrent clients with natural skew (new requests
+arriving as older ones finish) for ≥200 requests, then the same prompt alone versus under
+concurrency (`cos ≈ 1`).
+
+## Recheck conditions
+
+Both line-number sets are for vllm-ascend v0.11.0rc0 / v0.11.0 + vllm v0.11.0rc3 /
+v0.11.0. Before citing
+them for another report, re-run rule 2 of this topic's index: if
+`npu_input_batch.py` at the reporter's ref defines `condense`, the copy is
+present and the page applies; if the class only has `__init__`, the copy is gone
+and this mechanism is out of scope for that version.
+
+Where the copy goes: it is present at this page's v0.11.0 pin `2f1aed9` (`condense`
+`:558` with the `is_pooling_model` early return `:573`, `add_request` `:316`/`:320`,
+`remove_request` `:449`/`:462`, `_register_add_request` `:296` with its
+`assert request.sampling_params`) and **gone at v0.13.0rc1 `1b5d5ab`**, where the file
+is `class NPUInputBatch(InputBatch)` (`vllm_ascend/worker/npu_input_batch.py:33`) plus an
+`__init__` and no `add_request` / `remove_request` / `condense` at all. So on a 0.11.x
+report "move to v0.13.0rc1 or later" is a real rung, taken with one grep in the
+reporter's own container: `rg -n 'def (add_request|condense)'
+vllm_ascend/worker/npu_input_batch.py` returning nothing means the copy is gone and this
+mechanism cannot be their crash. Do not narrow the boundary — no v0.12 tree is pinned
+here, so which release dropped the copy is unverified — and do not present the upgrade as
+a confirmed fix for an open report: the mechanism's repair is reporter-confirmed, the
+release that removes the code is the one grep above.

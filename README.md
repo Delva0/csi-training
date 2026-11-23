@@ -1,6 +1,6 @@
 # CSI Training
 
-给 Codex 装一份用于 vLLM-Ascend 排障的技能。把首问、日志和当时知道的版本交给 Codex，它可以沿技能中的线索去查源码和现场证据。默认版本为 **K76**。
+给 Codex 装一份用于 vLLM-Ascend 排障的技能。把首问、日志和当时知道的版本交给 Codex，它可以沿技能中的线索去查源码和现场证据。默认版本为 **K76**。[阅读 K76 技能正文](checkpoints/2026-11-22-mainline/skills/vllm-ascend-triage/SKILL.md) · [按版本浏览](checkpoints/2026-11-22-mainline/)
 
 ## Windows PowerShell
 

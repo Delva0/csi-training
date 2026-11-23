@@ -1,0 +1,252 @@
+# Deployment sizing: "can this run on N cards?" and "why does my stage layout fail?"
+
+Scope: the report is a *plan*, not a crash — "the GPU docs do a 2-device
+stage-based deploy, mine does not work on 2 NPUs", "the bundled `platforms.npu`
+yaml has three stages and I only have two cards", "does model M fit on 2×64 GB",
+"how do I pin stage 1 to one card". Nothing has crashed yet, or the crash text is
+an allocation failure that the layout predicts. The same topic owns the *KV* half
+of a plan — a measured per-token footprint several times the reporter's own
+calculation, or "is there a path to 512K/1M context on this card in this release"
+(`dsv4-kv-footprint-terms.md`).
+
+The same topic owns the *runtime* card map — a process from another worker
+appearing on a card, one engine's PID on every die, "who owns this NPU" on a shared
+node (`node-processes-and-device-attribution.md`): nothing crashed, so the
+deliverable is the process identity, not a source walk.
+
+Leave this topic when there is a real startup traceback with a lane
+(`../startup-failures/index.md`), a collective/device error
+(`../hccl-and-hardware/index.md`), or a long-run memory report
+(`../runtime-memory/index.md`); when the question is a latency/throughput claim
+(`../accuracy-benchmarks/index.md`); or when the deliverable is a report about a
+tutorial page (`../tutorial-verification/index.md`).
+
+Inherit the rules in SKILL.md, plus these:
+
+1. **Answer with arithmetic, then options.** One engine's weights per card
+   (`params × bytes-per-param ÷ TP`) against the HBM that engine may use
+   (`cards' HBM × gpu_memory_utilization`), and the sum of
+   `gpu_memory_utilization` over every process that shares a device. Report both
+   numbers; reproduce them with
+   `bash <skill_root>/scripts/card-budget.sh` instead of by eye (`--params` is in
+   **billions** — `671` for DeepSeek-R1, not `671e9`; the script refuses the raw
+   count, because every result of that mistake is 1e9× and the verdict inverts). A sum above
+   1.0 on any device is **infeasible by construction** and is not a scheduler,
+   connector or device-visibility bug. Each ratio is **per-instance**
+   (`vllm/config/cache.py:66-74` at v0.22.1: "only applies to the current vLLM
+   instance"), so the sum is a feasibility check — never a licence to inflate one
+   instance to cover another's usage, and a start-up that fails at KV sizing while
+   the device has free HBM is that other instance's memory being charged twice
+   (`../runtime-memory/kv-budget-per-instance-vs-device-global.md`).
+   **When the model's geometry is in no export, price the KV half from the reporter's
+   own startup block instead of recalling a config** — `Available KV cache memory:
+   X.XX GiB` ÷ `GPU KV cache size: N tokens` *is* the measured bytes per token per
+   card, and `Maximum concurrency for <max_model_len> tokens per request: kx` is the
+   pool-versus-context verdict for their own `--max-model-len`
+   (`../observability-and-logs/kv-cache-capacity-and-usage-metrics.md`). A long-context
+   OOM report carries those three lines, so ask for them in the first answer and quote
+   a measured number; deriving `layers × kv_heads × head_dim × dtype` from a GLM/Qwen
+   config you only half-remember spends the session and still ships a hypothesis
+   (recorded #5559 spent 47 K characters of reasoning — 2.2 K of message text — much
+   of it on a half-remembered GLM-4.6 geometry, reached "capacity is fine, so this is
+   not plain capacity", and was cut for output tokens before answering).
+2. **The device-visibility env var is the second half of every such report — and
+   it is two variables at two moments, not one.** `ASCEND_RT_VISIBLE_DEVICES`
+   (`vllm_ascend/platform.py:101` at v0.19.1rc1; every multi-node launch script in
+   the same docs tree does `export ASCEND_RT_VISIBLE_DEVICES=$1`, e.g. `GLM5.md`,
+   `DeepSeek-V3.1.md`, and `CUDA_VISIBLE_DEVICES` occurs nowhere in
+   `docs/source/`) is read by torch_npu **inside every process**. The other
+   spelling, `ASCEND_VISIBLE_DEVICES`, is read by the **Ascend Docker Runtime
+   prestart hook** out of the container's *creation* environment: that hook is what
+   mounts the named `/dev/davinciN` and writes the host device-cgroup entry, so a
+   shell `export` of it reaches nothing and it has to be `docker run -e …` (or the
+   pod env the Ascend device plugin writes). Reporter-confirmed on **#6942**:
+   either variable alone failed, both together (`-e ASCEND_VISIBLE_DEVICES=6,7` at
+   creation plus `export ASCEND_RT_VISIBLE_DEVICES=6,7` inside) worked — and the
+   vllm-ascend `docs/source/installation.md` block carries no `-e` line at all, so a
+   hand-built `docker run` omits the hook's input by construction. A command copied
+   from a GPU page therefore exposes **all** cards to **every** process, which looks
+   exactly like a stage-collision bug; ask *which* variable was set and *where*
+   (`docker inspect -f '{{.Config.Env}}'` vs the shell's own export) before ranking a
+   co-tenant on the same die — `card-budget-and-device-visibility.md`.
+   When the observation is at *runtime* rather than at start ("a worker process
+   from another card appeared on this NPU, after the second benchmark round"),
+   attribute the PID before the layout: `npu-smi info` lists a PID against a die
+   whenever that process holds a context there, so a monitoring/perf agent, a
+   KV-transfer engine that opens a context on **every** visible device, and a
+   genuine slice overlap all look identical — `node-processes-and-device-attribution.md`
+   (recorded #12338: reporter-confirmed as the msservice-metrics monitoring
+   platform, fixed in msserviceprofiler #419, vllm-ascend unaffected).
+3. **A sibling project's config that the snapshot does not carry is a gap, not a
+   hypothesis — but ship what reporters already established.** vllm-omni itself is
+   in no `SOURCES.json`, so its parsing is unverifiable. What is known without the
+   source, and belongs in the first answer: the NPU stage configs are
+   `vllm_omni/platforms/npu/stage_configs/<model>.yaml`, they are overridable with
+   `--stage-configs-path` (not `--deploy-config`), each stage carries its own
+   `devices`, and copying the file, editing every stage's `devices` and exporting
+   `ASCEND_RT_VISIBLE_DEVICES` brought the three-stage 30B-A3B omni up on **two**
+   cards (#8068, reporter-confirmed). Do not answer "you need a third card" or
+   "the 2-NPU layout is infeasible" before reading the reporter's yaml: the
+   per-stage `gpu_memory_utilization` values are the number that decides, and
+   that recipe contradicts the guess. Ask only for the still-open pieces (the
+   edited yaml, one log line per stage).
+   Precedent: #9336 files this exact absence as a `[Doc]` gap ("Missing NPU
+   device allocation strategy for multi-NPU deployments") and asks for the NPU
+   equivalent of `CUDA_VISIBLE_DEVICES` — so "the docs do not answer this" is a
+   publishable finding.
+4. **Quantify the options you offer** (more cards / quantised weights / drop a
+   stage / pin devices) with the same script, and state the limit: the fit check
+   excludes activations, KV growth and fragmentation, so a PASS is "not yet
+   excluded" while a FAIL is decisive.
+
+5. **Ask which checkpoint the recipe was priced for before diffing flags.** A tutorial
+   command carries the *quantized* weights in its model path (`vllm-ascend/DeepSeek-R1-W8A8`,
+   `…-w4a8`) while the reporter serves the unquantized BF16 download — that is 4× the bytes
+   per parameter and a different minimum card count, and no flag diff closes it. Price both
+   with `scripts/card-budget.sh --params <B> --dtype bf16|w8a8 --tp <TP×PP> …` (**only the
+   product** shards the weights; `--tp 8` on a TP8×PP4 layout reports 4× the real per-rank
+   bytes) and quote the project's own
+   minimum when it exists: reporter-confirmed on #4948 that full-weight DeepSeek-R1-0528-BF16
+   needs **at least 4 Atlas 800I A2 servers (32 × 910B4)**, and that the DeepSeek-R1 tutorial
+   page suits the W8A8 weights, not BF16. "Your layout is at the documented minimum and the
+   recipe you followed is for other weights" is a complete sizing answer.
+
+6. **A 1T-class MoE under `--enable-expert-parallel` is priced in *experts per
+   card*, not in TP.** Under EP the intra-layer TP collapses to 1 and the expert
+   *count* is split over the flattened `dp × pcp × tp` (`ep_size`), with each expert
+   keeping its full `moe_intermediate_size` width — so doubling the EP width halves
+   the per-card bytes while a TP-only expert shard doubles them against your
+   expectation. `ep_size` is `dp × tp` only when the DP ranks share one DP group:
+   `--data-parallel-size N` alone, without `--data-parallel-size-local
+   --data-parallel-address --data-parallel-rpc-port --data-parallel-start-rank`,
+   leaves each node's engine with `dp_size = 1`. Two log lines give the width —
+   `[EP Rank r/N] … Local/global number of experts` and `rank … in world size … is
+   assigned as … EP rank …` — and they are one grep, while decoding the OOM's
+   byte count needs a `config.json` the report never carries:
+   `moe-load-oom-expert-shard.md`.
+
+7. **A pasted multi-node launch line is audited before any layout is designed.**
+   Four structural checks, each with its own error text, all cheaper than the
+   sizing arithmetic — and the reporter has usually already run one such line
+   ("I tried the official 5.2 section and can hardly run it up"):
+   - *World size vs the cards in that one command.* `TP × PP × DP` must be
+     satisfiable by the devices the command owns. A `--tensor-parallel-size 16` on
+     an 8-card node means one engine spanning nodes, which at vllm v0.18.0 is
+     `--nnodes N --node-rank k` — accepted **only** with
+     `--data-parallel-backend mp` (`assert self.data_parallel_backend == "mp" or
+     self.nnodes == 1`, `vllm/engine/arg_utils.py:1588-1589`) — or the Ray backend
+     (`../startup-failures/ray-npu-resource-label.md` owns that one's failure).
+     The shape the vllm-ascend tutorials ship is the other one: **DP per node × TP
+     inside the node** (`../feature-enable-recipes/moe-expert-parallel-with-dp.md`
+     §4, and `moe-load-oom-expert-shard.md` for what the missing DP group does to
+     the expert shard).
+   - *`--headless` is a role, not a mode.* It sets `api_server_count = 0`
+     (`vllm/entrypoints/cli/serve.py:59-67` at v0.18.0) and `run_headless` then
+     demands `data_parallel_size_local > 0` (`serve.py:167-168`), so a pasted
+     headless line with no `--data-parallel-*` group produces a worker-only
+     process and **nothing listening on the client's port** — which is why "it
+     failed" arrives with no engine error at all. The node whose address the
+     client uses must not be headless.
+   - *Long-flag spelling.* vLLM rewrites `_`↔`-` inside `--` flags
+     (`vllm/utils/argparse_utils.py:237-246`), so `--speculative_config` is not a
+     typo; a misspelled word (`--pipeline-paralle-size`) is not repaired and dies
+     at parse time as `unrecognized arguments` before any device work. Diff the
+     paste's long flags against the tutorial block first.
+   - *Which checkpoint, and which per-card HBM* — rules 5-6 — and note the docs may
+     ship **no** recipe for the weights asked about: on Qwen3.5-397B-A17B every
+     serve block in the pinned tutorial is the `-w8a8-mtp` artifact, while its BF16
+     requirement line is 2× A3 (64G×16) or **4× A2 (64G×8)**
+     (`docs/source/tutorials/models/Qwen3.5-397B-A17B.md:21-22`, MP block `:151`,
+     Ray section `:262`, at v0.18.0 `e18643f8`). `Ascend910B4/-1` is a real device
+     id (`cann/hcomm/src/platform/inc/adapter/adapter_hal.h:47-48`) but its HBM
+     size is not in that tree — `npu-smi info` (65536 vs 32768 MB per card)
+     decides the arithmetic. "No recipe for the weights you asked about, and the
+     document's own minimum is double the HBM you name" is a complete sizing
+     answer.
+   Precedent: #13591 asked for a non-quantized 4×800I A2 recipe, and its next
+   public message was a hand-assembled Ray line carrying three of these defects
+   (`--tensor-parallel-size 16 --pipeline-paralle-size 2 --headless`, no
+   `--nnodes`, no `--data-parallel-*`). Audit that shape in the first answer
+   rather than choosing the path for the reporter: "don't use Ray" is a
+   preference the tutorial's own Ray section does not support — say which path
+   your recipe uses and why, then correct the line they already have.
+
+8. **A per-token KV number is a term list, not one formula.** On a later-generation
+   MoE with sparse attention the serve allocates several KV cache kinds (latent/rope,
+   indexer K, indexer scale, a sliding-window cache, compressor state), each with its
+   own dtype gate and its own padded page size — and two of those gates flip by SoC
+   (`float8_e4m3fn` on A5, `bfloat16`/`int8`/`float16` otherwise), so a footprint
+   computed from "the fp8 layout" under-counts by construction and a report that
+   measures 3-5× it is describing the layout, not a defect. Reconcile the reporter's
+   division against those terms before ranking any promotion hypothesis, and answer
+   the context question from the pinned tutorial's per-SoC envelope rather than from
+   the arithmetic alone: `dsv4-kv-footprint-terms.md`.
+
+Conditional routes:
+
+- The report prices KV per token from the checkpoint layout, or asks for a 512K/1M
+  context on a 64 GB card → `dsv4-kv-footprint-terms.md` (the cache-kind term list,
+  the A5-vs-else dtype gates, the DCP indexer replication factor, and the DSV4-Flash
+  A2 envelope 133120/135000 against 1M being an A3/950DT row — but answer a
+  1M-on-**A2** *report* as a known failure shape (`#9187`: A2 8-machine large-EP,
+  D instance hangs) and note that the four-node colocated engram recipe runs
+  `262144`, `../feature-enable-recipes/engram-offload.md`).
+- The OOM line is inside model construction (`get_model` → `create_weights` →
+  `quantization/methods/w4a16.py:get_weight` → `torch.empty`) on a 384-512-expert
+  MoE with `--enable-expert-parallel` and a `--data-parallel-size` in the launch
+  dict → `moe-load-oom-expert-shard.md` first: experts-per-card arithmetic, the
+  `[EP Rank r/N]` greps, the DP-group flags, and the reporter-confirmed 2-node A2
+  serve line (#7123). The TP-scaling page above is the one-node, TP-only sibling.
+- Two serve commands that differ by one resource knob (`--tensor-parallel-size`,
+  `--max-model-len`, `--gpu-memory-utilization`) where the smaller one comes up and
+  the larger OOMs at engine start → `tp-scaling-oom-at-startup.md` first: the
+  tutorial's validated serve line, **the traceback frame that separates a
+  post-sizing phase from the KV pool's own allocation loop**, the OOM line split
+  against `gmu × total` (`../../scripts/oom-budget-split.sh`), the per-rank terms
+  that do not shrink with TP, and the stop rule against an allocator-mechanism hunt
+  (#6572 for the post-sizing shape, #4474 for the pool-loop shape, where
+  `already allocated > gmu × total` is expected and the number to check is
+  `#tensors × page_size × num_blocks` against the `Available memory:` line).
+  A **single** command — no comparative run, sometimes no serve line at all —
+  whose frame is the KV pool's own `initialize_kv_cache_tensors`
+  (`torch.zeros(kv_cache_tensor.size)` right after `GPU KV cache size:`) is the
+  same page's sub-shape B: the comparison is not an entry condition (#6611).
+- A **VL/omni** start whose innermost frame is in the **vision tower**
+  (`_process_video_input` / `visual(...)` / `split_qkv` / `all_gather_interleave` /
+  `torch.cat`) and whose report argues from "TP4 OOMs, TP1 works" →
+  `vl-profile-run-multimodal-budget.md` first: the failing forward is the *dummy
+  profiling batch*, sized by `max_num_batched_tokens` and by the per-modality
+  defaults (V0 allows **one item per supported modality**, so a video rides in a
+  benchmark that only sends images), while `all_gather_interleave` makes the ViT
+  peak **grow** with TP — on a ≥0.15 pin check the serve line first for
+  `--mm-encoder-tp-mode data`, which runs the ViT data-parallel instead. The answer
+  is the budget plus one TP-held-fixed rerun (#1617), not a TP defect.
+- An extra process/PID on a card, one engine's PID on every die, or "a process
+  from another card appears on a certain NPU" while the service keeps serving →
+  `node-processes-and-device-attribution.md` first (PID identity and its own
+  `ASCEND_RT_VISIBLE_DEVICES`; the legitimate multi-die cases; the monitoring-agent
+  precedent #12338). Only after that, the collision form
+  `../pd-disaggregation/same-host-pd-device-partition.md`.
+- The worked #9335/#8068 case: the 30B-A3B Omni model on 2×64 GB 910B, the
+  three-stage NPU yaml, the reporter-confirmed `--stage-configs-path` override
+  that runs it on two cards, the `ASCEND_RT_VISIBLE_DEVICES` traps, the card
+  arithmetic and the answer shape → `card-budget-and-device-visibility.md`.
+- "The entire model is loaded on every card instead of being split across the NPUs"
+  (usually no traceback; maybe a near-symmetric `npu-smi` table) →
+  `sharding-not-applied-full-model-per-card.md` first: the per-rank
+  `Loading model weights took X GB` (or the V0 `model weights take X GiB` block)
+  against `params × bytes ÷ TP` separates "TP never requested", "one process per
+  card" (which really does replicate) and "sharding works — the symmetric HBM is the
+  `gpu_memory_utilization` reservation". `npu-smi` and a single shard bar are not
+  evidence either way, and head divisibility bounds which TP is even legal.
+- The model's own documented envelope and CI config (which TP the project
+  actually runs) → `../startup-failures/max-model-len-budget.md` and
+  `../tutorial-verification/tutorial-command-audit.md` (checklist item 5).
+- The OOM (or a footprint jump) appears the **first time a performance env flag is switched
+  on** — `VLLM_ASCEND_ENABLE_MLP_OPTIMIZE=1` on a TP-only serve, a hand-set fine-grained
+  `mlp`/`oproj` tensor-parallel size, `VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE` — with one sentence of
+  configuration and often no log at all → `mlp-tp-group-oom.md` first: those flags swap the
+  linear's **comm group**, and the group's size is what `divide(...)` shards the weight by, so a
+  group of one member means the MLP is replicated on every card (dp=1 ⇒ +75 % of MLP bytes).
+- The layout is right and the process still dies during profiling/load →
+  `../runtime-memory/index.md` (capacity vs growth vs a dead config key).

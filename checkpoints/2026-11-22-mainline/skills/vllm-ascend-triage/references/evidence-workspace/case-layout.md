@@ -1,0 +1,409 @@
+# Case layout: concrete commands
+
+Orientation (cheap, one call):
+
+```bash
+ls /workspace
+bash <skill_root>/scripts/sources-summary.sh   # version contract, 1 line per repo
+```
+
+The repo root is not the package root: grep paths start at `vllm/` and
+`vllm_ascend/` inside `repos/<owner>/<repo>/`, so `rg model_executor/...` from the
+repo root returns `No such file or directory` (and one recorded run spent two
+calls on it before prefixing). The workspace root also differs per case:
+`/workspace/repos/<owner>/<repo>` here, `/workspace/repos/<issue>/<owner>/<repo>`
+when several cases share the snapshot — `ls` once, then use the absolute path.
+
+One file in this tree is a documentation registry, not code:
+`vllm_ascend/patch/__init__.py` was 1473 lines at v0.26.0rc1 and lists every patch
+with its rationale. Never `cat` it — `rg -n '<patch_module>'` it, and read the set
+that actually runs from `vllm_ascend/patch/platform/__init__.py` (59 lines) or
+`patch/worker/__init__.py` (75) instead.
+
+Source reading at the pinned commit (when the repo is a one-commit git):
+
+```bash
+git -C /workspace/repos/<...>/vllm-ascend log --oneline -3     # confirm you are at ref
+rg -n "aclnnAddRmsNormBias" /workspace/repos/<...>/vllm-ascend -g '!*.po' | head
+sed -n '240,300p' path/to/file.cpp
+```
+
+`git log --oneline -3` on these exports usually shows a single commit (the release); there
+is no divergence history, so "when was this introduced" cannot be answered from the export.
+Say that instead of guessing.
+
+**The `vllm` pin is not automatically the version the vllm-ascend pin pairs with.** Check the
+pairing before quoting upstream code as the failing version:
+`rg -n "vllm_version|pip_vllm_version|ci_vllm_version" <root>/vllm-ascend/docs/source/conf.py` and
+`requirements.txt`. Recorded #2975: `SOURCES.json` pins vllm-ascend `v0.10.2rc1` (`048bfd5`) with
+upstream `vllm v0.9.1` (`b6553be`) while `conf.py:68` says `'vllm_version': 'v0.10.2'` — the
+upstream tree is the older *working* side (the reporter's own 「0.9.1没有问题」), so its code cannot
+show the regression and `rg` for a 0.10-only string there returns nothing. In that situation the
+failing pin's evidence is the **downstream copy** of the shared machinery
+(`vllm_ascend/worker/model_runner_v1.py`, `vllm_ascend/core/scheduler.py`, `vllm_ascend/patch/**`),
+with the upstream tree as the comparison side; state the absent version as a gap instead of
+reconstructing it from memory (`../upstream-downstream-drift/patch-copy-vs-upstream.md`,
+`../multimodal-inputs/empty-message-500-encoder-cache.md`).
+
+The release's own validation record (vllm-ascend ships one per release when present):
+
+```bash
+ls /workspace/repos/<...>/vllm-ascend/tests/vllm_ascend_v*_test_conclusion.md
+sed -n '1,20p' .../tests/vllm_ascend_v0.26.0rc1_test_conclusion.md   # validated models
+sed -n '50,76p' .../tests/vllm_ascend_v0.26.0rc1_test_conclusion.md  # known issues + ids
+```
+
+At v0.26.0rc1 §1 names "the following 4 models, which are the only models
+supported in this release" and §3 lists the unresolved known issues with issue
+ids. That separates "inside the tested envelope" from "untested combination"
+before you build a theory, and the issue ids are ready-made precedent.
+
+History precedent (never `ls` the history directory — thousands of entries):
+
+```bash
+S=<skill_root>/scripts        # skill_root is reported by skill_view
+bash $S/history-titles.sh 'aclnnAddRmsNormBias|DDR address of the MTE'
+bash $S/history-titles.sh 'qwen3\.5|qwen3_5'
+bash $S/history-body.sh 3963 4663                     # symptom section, env dump collapsed
+bash $S/history-body.sh 3963 -g 'HcclAllreduce|ERR00100|107027'   # only the traceback lines
+bash $S/history-body.sh 3963 --env -n 40              # the env block, when the pin is the artefact
+```
+
+Do **not** `sed -n '1,60p'` a body (an earlier version of this page said to): the bug
+template puts `### Your current environment` plus a 100-250 line `collect_env.py` paste
+first, so a prefix read returns the title and the environment and no symptom — #3963's
+`### 🐛 Describe the bug` is at line 148 and #4663's at 168, and one recorded run paid
+two calls for one body (`sed -n '1,60p'`, then an inline `awk '/Describe the bug/{f=1} f'`).
+`history-body.sh` takes several ids per call, prints `<id> :: <title>` plus the body with
+the fenced dump replaced by a marker, and drops `<details>`/`<summary>` furniture so `-n`
+counts report text. Do **not** then slice the script's own output with
+`sed -n 'A,Bp'`: the default cap is 80 lines, so `history-body.sh <id> | sed -n '120,260p'`
+prints nothing at all and reads as an empty body (two such calls in the #10532 run). Pass
+`-n 0` — that is the flag that lifts the cap: `-n` caps the **matched** lines too, so a
+broad `-g '.'` stops at the same 80 — or `-n <lines>`, and read the `... (N more lines;
+-n 0 for all of it, -n LINES for more, or narrow -g REGEX)` marker the script prints.
+The numbers `-g` prints are **raw-file** line numbers while the printed stream is
+collapsed and re-numbered, so they are not addresses in the output. Keep the dump
+reachable with `--env`: it is the artefact when the question is the torch_npu/CANN
+pin, the card count or host RAM, and reporters also type free prose into that field
+(#4554's whole symptom sits there). Two
+layouts: flat, `/workspace/history/<issue>.md`, or one directory per case,
+`/workspace/history/<issue>/<other-id>.md` (which `ls` prints as a bare list of ids).
+**Today's issue is never in that corpus**, at either layout: its id appears only in the
+`/workspace/repos/<issue>/` and `/workspace/attachments/<issue>/` directory names, so
+`history/<issue>.md` does not exist there — do not spend the call, do not cite that id as
+a precedent ("同类形状的 #NNNN" when #NNNN is the report you are answering), and do not
+characterise its comment thread or closure, which the snapshot does not carry. Recorded
+#4148 read `history/4148.md` (empty, `No such file`), then told the reporter their own
+case "只被致谢、没有闭环" — an unobservable claim dressed as precedent.
+
+The same own-issue rule covers **measurements**, not only citations: an owning page is
+written from the later comments, so its recorded numbers and log lines can be the
+reporter's own *future* replies. Quote such a row as 「你自己后续回复里测到的」 or leave
+it out; an unattributed 「已记录的实测」 reads as another box's data and turns into a
+retraction the moment the reporter answers. Recorded #6572 replay: its first message
+offered 「同类同配置 BF16/910B3-64G/262144 已记录的实测：TP8 约 0.60 就是能起的最上限」
+for a number the reporter had not posted yet, and the follow-up had to withdraw the
+attribution (「其实那是你这两条回复里的数字」). The tell is the page's provenance line:
+when it names the report you are answering, every "reported" / "measured" it records
+belongs to that thread, and a replayed report has not said it yet.
+
+**A listing from a compound `ls` is not evidence about its first path.** The recorded
+#11923 run issued `ls -la /workspace/attachments/ 2>/dev/null | head -20; ls -la
+/workspace/history/ 2>/dev/null | head -5`: the attachments directory did not exist, its
+error went to `/dev/null`, and the ids printed by the *second* command were read as the
+attachments directory's contents — so the next two calls went to
+`/workspace/attachments/<id>*` and `history/<id>.md`, neither of which that layout has.
+Name the path beside each listing, or test first (`test -d <dir>`):
+
+```bash
+for d in /workspace/repos /workspace/history /workspace/attachments; do
+  echo "== $d"; ls -la "$d" 2>&1 | head -5
+done
+```
+
+and read `No such file or directory` as the layout fact it is.
+
+**A `not found` id is usually newer than the corpus, not a missing precedent.** Each
+case view's corpus stops at the highest `<id>.md` it carries (at the #6533 view:
+6436), while this skill's own pages and the recorded-cases index cite ids past that
+(8590, 7689, 13591 …) from earlier sessions. `history-body.sh` reports the miss on
+stdout *and* stderr for exactly this reason: the recorded #6533 run typed
+`history-body.sh 8590 2>/dev/null | head -120`, saw an empty result, read it as an
+empty body, spent the next call on `/repos/…/issues/8590` (404 in this dated replay)
+and then treated the page's same-pin #8590 precedent as unusable. The page's pin,
+status lines and verdict are the evidence of record — quote them, and drop the id
+from the search instead of retrying it through another lens.
+
+With a per-case history root the same issue id can appear once per case directory
+(`history/<issue>/<id>.md`); `history-titles.sh` now reports `hits / distinct issue
+ids` and prints one line per id, so a `limit` is not spent on copies. Read one copy
+and cite the id.
+
+`grep -rn` / `rg -n` are safe; `rg -rn` and `rg -rl` are not (`-r` is `--replace`, so the
+matches are rewritten to `n`/`l` and the output looks like corrupted source). `grep -rn`
+over the same tree is the tie-breaker when output looks mangled.
+
+A bare 2-4 letter token is not a search key: every pasted `collect_env` dump in
+the corpus carries the CPU-flags line (`fp asimd evtstrm … fcma dcpop asimddp
+asimdfhm …`), so `dcp`, `dp`, `ep`, `mtp` or `hccl` match hundreds of unrelated
+issues — recorded #12677 spent its precedent call on `dcp|decode.context.parallel`
+and got "382 hits / 382 distinct issue ids", the first 40 of them `dcpop`
+matches. Search a flag- or message-shaped pattern instead
+(`--decode-context-parallel-size|decode.context.parallel|dcp==`, and `-i` only
+when the corpus capitalises the token), and read the script's
+`hits / distinct ids` line before opening a body.
+
+Quote precedent as `#<id>: <one-line fact>` (e.g. "upstream parser fix tracked in vllm PR
+34779, referenced by #7061/#7094"). Distinguish "the same symptom was reported" from "the
+same cause was confirmed".
+
+## Attached log dumps (multi-MB, several nodes, several incidents)
+
+A report can carry its whole evidence as attached dumps instead of a paste
+(#16652: four files, 0.5-5.5 MB, 62 K lines together, two separate crashes plus
+one hang). Read them by counting, never by printing:
+
+```bash
+cd /workspace/attachments/<issue> && cat ATTACHMENTS.txt          # 5-10 lines
+ls -la .; wc -l *                                                 # every file, any extension
+rg -c 'fftsplus|Heartbeat Lost|ERR02005|Segfault|died unexpectedly' *  # death markers/file
+rg -o 'timeout=[0-9]+s' * | sort | uniq -c                        # how many incidents
+```
+
+Three properties of the recorded format decide every later grep:
+
+- **Three time bases on one line.**
+  `[2026-09-06 21:43:12.113][sv-<host>-1] EE9999[PID: 3992] 2026-09-06-13:43:12.110.307 …`
+  — the collector's bracket prefix is **local** time, while the logger's own
+  `ERROR MM-DD HH:MM:SS` field and every embedded Ascend record
+  (`YYYY-MM-DD-HH:MM:SS.mmm.uuu`) are **UTC** (8 h behind on the recorded UTC+8
+  hosts). A constant whole-hour lag is a timezone, not a replayed record;
+  `bash <skill_root>/scripts/plog-timeline.sh <file>` detects and normalises it
+  and names the in-window family.
+- **Greps must use the field you mean.** A grep on the collector's local hour
+  (`'^\[2026-09-06 21:1'`) and one on the UTC hour inside the line (`'13:1'`)
+  select different windows; state which one you used before ordering events.
+- **Line order is not time order.** The recorded dumps print the newest line
+  first, so `head` and `tail` are the two ends of a 10-14 h span and a lower line
+  number can be a *later* instant. Locate a window by its timestamp string; do not
+  interpolate line numbers.
+
+**Never glob an extension you assumed, and never read absence off a listing.**
+The dump's extension follows no convention: in a recorded two-node segfault case
+(#16079) the launch and load-driver scripts were `.txt` while **both node logs were
+`.log`**, so `wc -l *.txt` showed 3 of the 5 attached files and the session
+concluded the server logs were "not in the snapshot" — then asked the reporter to
+send the very logs the case view held
+(`../hccl-and-hardware/worker-segfault-no-python-frames.md`). Two further counts
+to distrust: an `ATTACHMENTS.txt` grep proves nothing about what the issue attaches,
+and a one-level `search_files (target='files')` on `/workspace` is **capped** — it
+returned `total_count: 102` on two recorded runs and omitted files that exist. One
+`ls -la /workspace/attachments/<issue>/` (or `wc -l *`) is the existence test, and
+it is the one directory listing this skill allows; a client-side log that ends in
+`ConnectionReset`/`ConnectionRefused` while the report names node logs means those
+node logs are the evidence, so list them before writing the artefact ask.
+
+One file per (node, engine restart) means a dump set can hold two incidents plus
+the restarts between them: anchor each incident on its own window (see
+`../hccl-and-hardware/error-report-timestamps.md` for the `timeout=` arithmetic
+that back-dates a stall) and say which of the reporter's "N times crashed" the
+attachments cover. For the second incident in a set, remember the UTC offset
+crosses local midnight — the record dates then read one day *earlier* than the
+log lines they belong to.
+
+A container log often arrives with a **host-side companion** — a `dmesg` dump under a
+misspelt name (`demsg.txt` in recorded #11171, attached beside the engine log) — and for a
+device or collective fault that file, not the engine log, names the owner: it speaks in
+kernel clock (`[600.985841]`) and prints `receive ts exception message from device(N)` /
+`device(N) is not working` / `ts is down` before the container reports anything
+(`../hccl-and-hardware/device-health-checks.md`, *Device lost / heartbeat lost*). Two more
+lines to read in the engine log itself before quoting the pasted serve script: its
+`non-default args:` dict is the launch that actually ran (that case's body said
+`--max-model-len 8192`, the log ran `32768`) — including its `model`/`model_tag`
+field, which can name a **different model** than both the command block and the
+title (recorded #3819: the block served `Qwen/Qwen2.5-VL-7B-Instruct` while
+`model_tag` was `/root/.cache/modelscope/hub/models/Qwen/Qwen3-VL-8B-Instruct`, so
+the Qwen2.5-VL ✅ row applied to a run that never happened and the version gate
+belonged to Qwen3-VL); match the support row and the architecture gate to that
+field, not to the shell block — and `Asynchronous scheduling is enabled.`
+appears there with no `--async-scheduling` on the command line.
+
+Checklist for the final answer: repo+ref+commit cited once; every code claim has
+`path:line`; precedent ids quoted; missing artefacts listed; OCR/snapshot limits stated.
+
+## Search-command traps (SKILL.md rule 7 detail)
+
+These each cost a recorded run whole steps. `rg -n -C2 <symbol>` and
+`sed -n 'A,Bp' file` are the default reads; reserve whole-file reads for files under
+~150 lines.
+
+- **A `| head -N` on a reference grep can cut the page that owns the case.** These
+  pages sit in large topic directories, so `rg -n -i '<feature token>' references/<topic>/
+  references/<other>/ | head -60` can spend all sixty lines in the first file and drop
+  the hit that matters: recorded #10961 ran `rg -i 'mtp' pd-disaggregation/
+  accuracy-benchmarks/ spec-decode-mtp/index.md | head -60`, got sixty lines of
+  `spec-decode-mtp/index.md`, and lost `pd-disaggregation/hybrid-state-transfer.md:165`
+  — the page holding that exact case's refuted top rank — then re-derived the recipe
+  from the tutorial and re-shipped the refuted claim. Read the file list (`rg -l`) first.
+- **`skill_view` with `file_path` returns the page *and the whole link
+  inventory*** (every reference, script and template path): 34.7 KB and 43.6 KB
+  for two page reads in one recorded run, re-sent on every later turn. Read pages
+  from the skill root instead —
+  `sed -n 'A,Bp' <skill_root>/references/<topic>/<page>.md`.
+- **A head window of a long page can stop above the section that owns the report's own
+  words.** These pages are organised by sub-shape, so `sed -n '1,90p'` of a page that
+  looks on-topic is not a partial answer, it is a different question. Take
+  `rg -n '^## ' <page>` first and jump to the heading: the #6525 rerun read the first
+  90 lines of the 244-line `accuracy-benchmarks/long-output-repetition.md`, stopped 52
+  lines above §*When the penalty itself is inert* — the section owning the reporter's
+  own sentence 「重复惩罚参数无法解决」 — and then re-derived the penalty path from
+  `vllm_ascend/sample/` over four further calls.
+- `rg -r` is `--replace`, not "recursive": in any short cluster whose first
+  letter is `r`, the rest of the cluster is the replacement string, so `-rn`,
+  `-rl` **and `-rln`** rewrite every match to `n` / `l` / `ln`. Output then
+  looks like corrupted source (`self.n`, `decoder_layer.l`) or, worse, like a
+  real upstream defect: #14423's `rg -rn "daocloud|nju.edu.cn"` turned
+  `m.daocloud.io` into `m.n.io`, and #17718's `rg -rln 'set_env.sh'` turned
+  `source …/ascend-toolkit/set_env.sh` into `source …/ascend-toolkit/ln` in
+  `faqs.md` — which it nearly published as a doc typo and dropped only by
+  luck, blaming a "stale .po". **The tell is one short token spliced
+  uniformly into every match across unrelated files**; re-run as
+  `rg -n '<pat>' <dir>` before quoting any matched text, and use `grep -rn`
+  as the tie-breaker when output looks mangled. Recursion is implicit on a
+  directory: `rg -n "pat" .` or `grep -rn`. **An empty replacement is
+  the same flag with a worse tell:** a replace flag prints whole matching *lines*,
+  so `rg -n "30566" -r '' .` returned **63 KB** — one minified
+  `tests/models/fixtures/*.json` line, matched by accident inside a number — and
+  that run (#8036) ended output-truncated with no answer typed. A "hit" whose
+  result is a single gigantic line is this trap, not a finding.
+  An **empty pattern matches every line of every file**: a probe typed while unsure
+  how to recurse — `rg -rn ""`, `rg -n "" .`, `grep -rn "" .` — dumped 65 KB in one
+  result (#6240; #549 while looking for an upstream selector). To list files use
+  `rg -ln '<pat>' <dir>`; with no pattern in mind use `rg --files -g '<glob>' <dir>`
+  (or `find <dir> -maxdepth 1 -name '<glob>'`), and quote only the `path:line`,
+  with `-l` or `--no-messages -c` when existence is all you need. Detail:
+  `references/evidence-workspace/case-layout.md`.
+- **A page's repo-relative `path:line` is not a path from the repo root, so
+  `No such file or directory` from `rg`/`sed` means a wrong prefix, not a missing
+  file.** Owning pages cite `vllm/distributed/parallel_state.py`,
+  `vllm/config.py`, `vllm/executor/ray_distributed_executor.py` (vllm) and
+  `vllm_ascend/platform.py`, `docs/source/tutorials/multi_node.md` (vllm-ascend).
+  The first family resolves to `<vllm repo root>/vllm/<tail>` — the **package sits
+  one level below the vllm repo root** (`/workspace/repos/vllm-project/vllm/vllm/
+  config.py`; under a case view `/workspace/repos/<issue>/vllm-project/vllm/vllm/
+  config.py`) — while `vllm_ascend/` and `docs/` sit at the vllm-ascend repo root.
+  Recorded #1255 ran `cd /workspace/repos/vllm-project/vllm && sed -n '1640,1730p'
+  config.py` (plus `distributed/parallel_state.py`, `v1/engine/core_client.py`),
+  got three `rg: …: IO error for operation on …: No such file or directory`, then
+  spent two more calls on `ls` before `vllm/config.py` answered: three turns, each
+  re-sending the whole transcript. Locate a cited file **once** with
+  `rg --files <repo root> -g '<basename>'` and read `<repo root>/<package>/<tail>`.
+  Do not read a `ls A; ls B` pair as one directory either — the two listings print
+  concatenated, which is how that run then read the vllm repo root as if it held
+  `vllm_ascend/` and spent two further `ls` calls before `vllm/` answered.
+- **A pasted message is usually split across source lines.** C++ `OP_LOGE` and
+  Python messages are emitted as adjacent literals (`"… default chat template is no
+  longer "` / `"allowed …"`), so `grep -rn "<whole sentence>"` returns nothing and reads
+  as "not in this tree" — grep the shortest distinctive clause, or add `-A1`. #6345
+  spent three calls that way, on the exact sentence it was looking for.
+- **A `--glob '!<dir>/**'` exclusion is matched against the path you passed,
+  not against the search root.** `rg -l 'x' docs/source --glob '!locale/**'`
+  still searches `docs/source/locale/**` (verified at v0.22.1rc1: one .po hit
+  survives), while `--glob '!**/locale/**'` or `cd docs/source` first excludes
+  it. A failed exclusion floods the result with gettext `msgid`/`msgstr`
+  lines that read exactly like doc prose — and `.po` files are machine
+  translations whose `#: ../../source/x.md:N` references lag the source, so
+  neither their text nor their line numbers are citable.
+- **A recursive `rg` from a repo root does not enter `.github/`, so a CI-wiring or
+  "downstream ships no patch" claim built on it is an artefact.** Verified at the
+  v0.23.0 export: `rg -l 'qwen3xml|qwen3_xml' .` inside
+  `/workspace/repos/<case>/vllm-project/vllm-ascend` exits **1** with no output, while
+  `rg --hidden -l` returns `.github/workflows/scripts/upstream_config.yaml:594`. So the
+  two claims that depend on that tree — "no workflow invokes this test" and "the only
+  downstream mention is in CI config" — need `--hidden` (or `-uu`), and an exit-1 from
+  the plain form is *not* evidence of absence. The trap is the **recursive-from-root**
+  form only: an explicitly named hidden path is searched normally
+  (`rg -n 'test_pipeline_parallel' .github/workflows/` does hit the commented-out e2e
+  line), which is why the recorded grep that "worked" and the one that "found nothing"
+  differed only in how the path was spelled. Recorded #15911 spent an extra call on
+  this after the owning page's own command read as a no-hit, and #2974's index rule
+  cites the explicit-path form.
+- **A piped `sed -n 'A,Bp' file | rg -n '<pat>'` numbers the stream, not the file.**
+  `rg` counts its stdin from 1, so every match line is `A + n - 1` — an off-by-one
+  that lands as a wrong `path:line`. Cross-check one match against an absolute
+  `rg -n '<pat>' file`, or keep the file's own numbers:
+  `rg -n '<pat>' file | awk -F: '$1>=A && $1<=B'`. Recorded #12905 re-derived a
+  tutorial block's anchors twice before one absolute grep confirmed them. The same
+  off-by-one arrives with no pipe at all: a line number counted by eye inside a
+  window. A doc-verification anchor is the first thing a maintainer re-checks —
+  recorded #11738 shipped `:113` for the page's `--served-model-name`, which is `:114`.
+  **An owning or recorded page verified at the same pin is the anchor of record — quote
+  its numbers instead of renumbering them.** #17991's page carried the correct lines
+  (`:122` the reported `.npu()` sync, `:123` `causal=False`, `:136`
+  `max(seq_lens[num_decodes:])`); the answer, after counting a `sed -n '76,140p'`
+  window by eye, shipped `:124` and `:137`. A `sed -n` window confirms the *text*;
+  `rg -n '<exact expression>' <file>` is the only confirmation that also carries the
+  number, so run it when the anchors matter and leave the page's own numbers alone.
+- **`rg -rn` is `--replace n`, not "recursive + line numbers".** `-r` takes the
+  replacement text, so every match prints with the matched bytes swapped for `n` and the
+  output reads like source (`impl.n = True`, `runner.sfa_dcp_n_size = 1`) — a quote that
+  exists nowhere in the file. Recorded #12905 ran it over `tests/` for
+  `enable_sparse_sfa_c8|replicated_indexer` coverage and printed `impl.n = True` /
+  `runner.sfa_dcp_n_size = 1` instead; the plain form then returned nothing for the symbol
+  it was actually after, which was the finding. Use `rg -n`, and `-r` only with a
+  deliberate replacement string.
+- **Scope a grep to one repo.** A case view holds 20-40 exported trees under
+  `/workspace/repos/<issue>/`; an unscoped `rg -n '<string>' .` there takes
+  seconds and returns hits from unrelated products (torchair, metadef,
+  ascend-transformer-boost). #11454 ran three of them looking for one log
+  string, and the finding was that the string is in **no** export — state that
+  as the gap (rule 10) instead of widening the pattern: `rg -n '<pat>'
+  /workspace/repos/<issue>/<owner>/<repo>` per candidate, then stop.
+- **Never list, never dump** — the recipe at the top of this file is the rule; this is
+  what breaking it costs. A listing of `/workspace` was 24-28 KB once (#13699) and
+  13-104 KB per later session (#9335, #9183, #11739, #8984, #11454), `cat
+  SOURCES.json` or `cat /workspace/history/*.md` likewise (#3107), and one recorded
+  orientation block (`ls /workspace`, `ls scratch`, `cat SOURCES.json`, `ls history`)
+  returned **62 K characters** (#15985) and ended output-truncated at 1.1 M cumulative
+  prompt tokens — #5687's same block cost 3 KB only because `SOURCES.json` was piped
+  through `head -50`. A missing `/workspace/attachments` also makes a bundled listing
+  exit 2, which reads like a failed orientation.
+- **A `[case]` arrow's `(n/m)` is token share, not fit — two arrows can both hold the
+  paste.** Recorded #9263 (image `v0.19.1rc1-a3` = `da421af`, one A3, GLM-5-w4a8
+  TP16 + EP, `FULL_DECODE_ONLY` + `deepseek_mtp` 3 + `enable_npugraph_ex` +
+  `--async-scheduling`, first `curl` dies on a capture-mode `rtMemcpy … 107030` record)
+  graded `recorded-cases-accuracy-and-output.md → #10700 (5/5)` above
+  `recorded-cases/device-and-communication.md → #9263, #9278 (4/5, 3/5)` — the arrow's
+  numbers were `560` and `26`/`62` then; grep the id, since an entry edit moves them. The
+  5/5 entry is another pin and another SoC (v0.21.0rc1, 2× **A2**, GLM-5.1); the 4/5
+  line was the paste's own case, whose ladder starts with the recipe diff — the
+  tutorial's `multistream_overlap_shared_expert: true` against the nightly's `false`
+  (`../hccl-and-hardware/aclgraph-full-decode-runtime-crash.md` §7). The session opened
+  the 5/5 entry, then the MTP page that entry cites, and led with a drafter-graph row;
+  it read neither arrow on the `[case]` line it owned. One `sed -n '<line>,<line+40>p'`
+  per arrow settles it, because an entry's first two lines carry its image tag, card
+  count and stack — and the near-miss files (`recorded-cases-<family>.md`, no slash)
+  hold the same entries at different line numbers. The same read is skipped at the
+  *thin* grades: **an arrow printed in a 2-of-4 near-miss or family-word block is
+  still the case**, because an entry quotes the reporter's own wording while the family
+  words sit in 100+ pages, and `scripts/reference-locate.py` now prints it as a
+  `[case-first]` line with a ready `sed` range; when some page *does* carry every token
+  the script prints a `[case arrows]` block above the grades instead, listing entries that
+  share two or more tokens (pass `--issue <the report's own id>` to have that one marked
+  `[YOUR CASE]` with its range) — a thick all-token grade is often family words, so the
+  own entry can sit one grade down (#5075 opened neither arrow and re-derived its own
+  case for ~20 turns). Recorded #5643's replay had that line,
+  greped the case file's *name* twice through `rg -l`, opened no entry, and re-derived
+  the whole ladder from `expert_load_balancer.py`/`common_fused_moe.py` in 14 calls;
+  #10700 is the same skip one grade higher — the token grep listed the owning page
+  (heading `(#10700)`) fifth of thirty, yet the session opened another crash page and
+  led with a CI-config delta the owner's own Scope disowns, while the owner's own first
+  ablation was the reporter-confirmed lever
+  (`../recorded-cases-device-and-communication.md`).
+- **Attachments are the exception: a manifest grep is not an existence test.**
+  `ATTACHMENTS.txt` lists names and SHA256s only, so a grep for the issue's
+  tokens proves nothing (#12658 read that as "no attachments", skipped
+  `raw_completion.json`, and burned the session in the parser). Search the
+  attachments view by the file names the issue links (`search_files pattern
+  '*.json'`) and open them — they are often machine-readable dumps.

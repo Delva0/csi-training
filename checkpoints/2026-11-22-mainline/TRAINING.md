@@ -19,3 +19,7 @@
 [版本索引](manifest.json)逐项记录原训练提交 `source_commit`、原技能树 `source_skills_tree`、本仓可下载的提交 `commit`、公开技能树 `skills_tree` 及根目录 `files.json` 的 SHA-256。`files.json` 列出每个技能文件相对于 `skills/` 的路径、Git 文件模式、大小和 SHA-256。K0 的文件清单为空。`ref` 是可单独获取的版本标签。
 
 导出时逐项检查了 79 个版本的 21,094 个文件条目。按内容去重后共有 2,932 份，其中 62 份对网络地址、端点、用户主目录或凭据形状的文本做了公开替换。`privacy_adjusted_files` 给出每个版本替换过的文件数。K76 的 532 个文件中有 11 个经过替换，公开技能树为 `3ca2c4219846834baa21d0b149bbd00a93b0dbb6`。技能快照包含 Markdown、脚本和少量 YAML，供安装器按版本取用。
+
+## 直接克隆到 Codex 技能目录
+
+`codex` 分支指向 K76。每个 `codex-<版本>` 标签的 `.knowledge/` 与本页索引的公开 `skills_tree` 使用相同的 Git 树，根目录的 `SKILL.md` 指向其中的本地 Markdown。`codex-K0` 是空树。单分支克隆可一次取得所有 79 个标签。K76 的两个额外合并父提交让 Git 同时取得两种历史 K20。三天训练的顺序沿第一父提交从 K0 延续到 K76。[Git 技能分支](https://github.com/Delva0/csi-training/tree/codex)
